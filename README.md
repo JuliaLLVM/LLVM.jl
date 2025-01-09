@@ -5,19 +5,19 @@
 [![][docs-stable-img]][docs-stable-url] [![][docs-dev-img]][docs-dev-url] [![][github-img]][github-url] [![PkgEval][pkgeval-img]][pkgeval-url] [![][codecov-img]][codecov-url]
 
 [docs-stable-img]: https://img.shields.io/badge/docs-stable-blue.svg
-[docs-stable-url]: http://maleadt.github.io/LLVM.jl/stable
+[docs-stable-url]: http://JuliaLLVM.github.io/LLVM.jl/stable
 
 [docs-dev-img]: https://img.shields.io/badge/docs-dev-blue.svg
-[docs-dev-url]: http://maleadt.github.io/LLVM.jl/dev
+[docs-dev-url]: http://JuliaLLVM.github.io/LLVM.jl/dev
 
-[github-img]: https://github.com/maleadt/LLVM.jl/actions/workflows/ci.yml/badge.svg
-[github-url]: https://github.com/maleadt/LLVM.jl/actions/workflows/ci.yml
+[github-img]: https://github.com/JuliaLLVM/LLVM.jl/actions/workflows/ci.yml/badge.svg
+[github-url]: https://github.com/JuliaLLVM/LLVM.jl/actions/workflows/ci.yml
 
 [pkgeval-img]: https://juliaci.github.io/NanosoldierReports/pkgeval_badges/L/LLVM.svg
 [pkgeval-url]: https://juliaci.github.io/NanosoldierReports/pkgeval_badges/L/LLVM.html
 
-[codecov-img]: https://codecov.io/gh/maleadt/LLVM.jl/branch/master/graph/badge.svg
-[codecov-url]: https://codecov.io/gh/maleadt/LLVM.jl
+[codecov-img]: https://codecov.io/gh/JuliaLLVM/LLVM.jl/branch/master/graph/badge.svg
+[codecov-url]: https://codecov.io/gh/JuliaLLVM/LLVM.jl
 
 The LLVM.jl package is a Julia wrapper for the LLVM C API, and can be used to work with the
 LLVM compiler framework from Julia. You can use the package to work with LLVM code generated

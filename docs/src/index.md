@@ -18,4 +18,4 @@ There are different levels of abstraction and functionality available in this pa
   functionality that is not yet wrapped in the top-level module.
 
 For installation instructions, please refer to the
-[README](https://github.com/maleadt/LLVM.jl/blob/master/README.md).
+[README](https://github.com/JuliaLLVM/LLVM.jl/blob/master/README.md).

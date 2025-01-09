@@ -54,7 +54,7 @@ function main()
 
     if ci
         deploydocs(
-            repo = "github.com/maleadt/LLVM.jl.git"
+            repo = "github.com/JuliaLLVM/LLVM.jl.git"
         )
     end
 end

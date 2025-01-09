@@ -113,7 +113,7 @@ LLVM.jl does not use automatic memory management for LLVM objects[^1], and inste
 manual disposal of resources by calling the `dispose` method. For example, to create and
 dispose of a module object:
 
-[^1]: See [this issue](https://github.com/maleadt/LLVM.jl/pull/309) for more details.
+[^1]: See [this issue](https://github.com/JuliaLLVM/LLVM.jl/pull/309) for more details.
 
 ```jldoctest
 julia> mod = LLVM.Module("MyModule");

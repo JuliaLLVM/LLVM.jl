@@ -54,7 +54,7 @@ include(joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 
 end # module API
 
-has_oldpm() = LLVM.version() < v"17"
+has_oldpm() = LLVM.version()<v"17"
 
 # helpers
 include("debug.jl")

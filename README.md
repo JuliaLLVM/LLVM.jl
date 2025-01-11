@@ -27,7 +27,7 @@ heavily used by the different GPU compilers for the Julia programming language.
 
 ## Requirements
 
-LLVM.jl is supported on Juila 1.10+, and thus requires LLVM 15. However, the package is
+LLVM.jl is supported on Julia 1.10+, and thus requires LLVM 15. However, the package is
 really only **intended to be used with the LLVM library shipped with Julia**. That means you
 can not use it with other LLVM libraries, like the one provided by your operating system. It
 is recommended to use the official binaries from

@@ -10,7 +10,7 @@ using CEnum
 
 ## source code includes
 
-include("base.jl")
+  include("base.jl")
 include("version.jl")
 
 # we don't embed the full path to LLVM, because the location might be different at run time.

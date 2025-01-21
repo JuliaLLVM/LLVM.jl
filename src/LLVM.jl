@@ -39,9 +39,9 @@ let
     if version().major < 15
         error("LLVM.jl only supports LLVM 15 and later.")
     end
-    dir = if version().major > 18
-        @warn "LLVM.jl has not been tested with LLVM versions newer than 18."
-        joinpath(@__DIR__, "..", "lib", "18")
+    dir = if version().major > 19
+        @warn "LLVM.jl has not been tested with LLVM versions newer than 19."
+        joinpath(@__DIR__, "..", "lib", "19")
     else
         joinpath(@__DIR__, "..", "lib", string(version().major))
     end

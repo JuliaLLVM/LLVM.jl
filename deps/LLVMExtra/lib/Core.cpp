@@ -714,6 +714,10 @@ static AtomicRMWInst::BinOp mapFromLLVMRMWBinOp(LLVMAtomicRMWBinOp BinOp) {
     case LLVMAtomicRMWBinOpFSub: return AtomicRMWInst::FSub;
     case LLVMAtomicRMWBinOpFMax: return AtomicRMWInst::FMax;
     case LLVMAtomicRMWBinOpFMin: return AtomicRMWInst::FMin;
+#if LLVM_VERSION_MAJOR >= 19
+    case LLVMAtomicRMWBinOpUIncWrap: return AtomicRMWInst::UIncWrap;
+    case LLVMAtomicRMWBinOpUDecWrap: return AtomicRMWInst::UDecWrap;
+#endif
   }
 
   llvm_unreachable("Invalid LLVMAtomicRMWBinOp value!");

@@ -615,11 +615,13 @@ end
         ce = const_xor(val, other_val)::LLVM.Constant
         @check_ir ce "i32 40"
 
-        ce = const_icmp(LLVM.API.LLVMIntUGT, val, other_val)::LLVM.Constant
-        @check_ir ce "i1 true"
+        if LLVM.version() < v"19"
+            ce = const_icmp(LLVM.API.LLVMIntUGT, val, other_val)::LLVM.Constant
+            @check_ir ce "i1 true"
 
-        ce = const_shl(val, other_val)::LLVM.Constant
-        @check_ir ce "i32 168"
+            ce = const_shl(val, other_val)::LLVM.Constant
+            @check_ir ce "i32 168"
+        end
 
         for f in [const_trunc, const_truncorbitcast]
             ce = const_trunc(val, LLVM.Int16Type())::LLVM.Constant
@@ -684,8 +686,10 @@ end
         val = LLVM.ConstantFP(Float32(42.); )
 
         other_val = LLVM.ConstantFP(Float32(2.))
-        ce = const_fcmp(LLVM.API.LLVMRealUGT, val, other_val)::LLVM.Constant
-        @check_ir ce "i1 true"
+        if LLVM.version() < v"19"
+            ce = const_fcmp(LLVM.API.LLVMRealUGT, val, other_val)::LLVM.Constant
+            @check_ir ce "i1 true"
+        end
 
         if LLVM.version() < v"15"
             other_val = LLVM.ConstantFP(Float32(2.))

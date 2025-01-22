@@ -59,25 +59,28 @@ DEBUG_METADATA_VERSION()
 
     bb = entry(foo)
 
-    let inst = collect(instructions(bb))[2]
-      diloc = metadata(inst)[LLVM.MD_dbg]::LLVM.DILocation
-      @test LLVM.line(diloc) == 2
-      @test LLVM.column(diloc) == 9
-      @test LLVM.inlined_at(diloc) === nothing
+    if LLVM.version() < v"19"
+      # LLVM 19 switched from debug intrinsics to records
+      let inst = collect(instructions(bb))[2]
+        diloc = metadata(inst)[LLVM.MD_dbg]::LLVM.DILocation
+        @test LLVM.line(diloc) == 2
+        @test LLVM.column(diloc) == 9
+        @test LLVM.inlined_at(diloc) === nothing
 
-      discope = LLVM.scope(diloc)::LLVM.DIScope
-      @test LLVM.name(discope) == "foo"
+        discope = LLVM.scope(diloc)::LLVM.DIScope
+        @test LLVM.name(discope) == "foo"
 
-      difile = LLVM.file(discope)::LLVM.DIFile
-      @test LLVM.directory(difile) == "/tmp"
-      @test LLVM.filename(difile) == "test.c"
-      @test LLVM.source(difile) == ""
+        difile = LLVM.file(discope)::LLVM.DIFile
+        @test LLVM.directory(difile) == "/tmp"
+        @test LLVM.filename(difile) == "test.c"
+        @test LLVM.source(difile) == ""
 
-      divar = Metadata(operands(inst)[2])::LLVM.DILocalVariable
-      @test LLVM.line(divar) == 2
-      @test LLVM.file(divar) == difile
-      @test LLVM.scope(divar) == discope
-      # TODO: get type and test DIType
+        divar = Metadata(operands(inst)[2])::LLVM.DILocalVariable
+        @test LLVM.line(divar) == 2
+        @test LLVM.file(divar) == difile
+        @test LLVM.scope(divar) == discope
+        # TODO: get type and test DIType
+      end
     end
 
     let inst = collect(instructions(bb))[3]

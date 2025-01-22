@@ -527,8 +527,8 @@ export ConstantExpr,
 
        const_neg, const_nswneg, const_nuwneg, const_not, const_add,
        const_nswadd, const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_mul,
-       const_nswmul, const_nuwmul, const_xor, const_icmp, const_fcmp,
-       const_shl, const_gep, const_inbounds_gep, const_trunc,
+       const_nswmul, const_nuwmul, const_xor,
+       const_gep, const_inbounds_gep, const_trunc,
        const_ptrtoint, const_inttoptr, const_bitcast,
        const_addrspacecast, const_truncorbitcast,
        const_pointercast, const_shufflevector
@@ -589,15 +589,6 @@ const_nuwmul(lhs::Constant, rhs::Constant) =
 
 const_xor(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstXor(lhs, rhs))
-
-const_icmp(Predicate::API.LLVMIntPredicate, lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstICmp(Predicate, lhs, rhs))
-
-const_fcmp(Predicate::API.LLVMRealPredicate, lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstFCmp(Predicate, lhs, rhs))
-
-const_shl(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstShl(lhs, rhs))
 
 function const_gep(Ty::LLVMType, val::Constant, Indices::Vector{<:Constant})
     Value(API.LLVMConstGEP2(Ty, val, Indices, length(Indices)))
@@ -740,6 +731,21 @@ const_zextorbitcast(val::Constant, ToType::LLVMType) =
 
 const_sextorbitcast(val::Constant, ToType::LLVMType) =
     Value(API.LLVMConstSExtOrBitCast(val, ToType))
+
+end
+
+if version() < v"19"
+
+export const_icmp, const_fcmp, const_shl
+
+const_icmp(Predicate::API.LLVMIntPredicate, lhs::Constant, rhs::Constant) =
+    Value(API.LLVMConstICmp(Predicate, lhs, rhs))
+
+const_fcmp(Predicate::API.LLVMRealPredicate, lhs::Constant, rhs::Constant) =
+    Value(API.LLVMConstFCmp(Predicate, lhs, rhs))
+
+const_shl(lhs::Constant, rhs::Constant) =
+    Value(API.LLVMConstShl(lhs, rhs))
 
 end
 

@@ -115,7 +115,6 @@ Base.convert(T::Type{<:Metadata}, val::Value) = Metadata(val)::T
 
 
 ## strings
-## strings
 
 export MDString
 

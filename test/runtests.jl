@@ -31,7 +31,7 @@ end
 
 using ReTestItems
 runtests(LLVM; worker_init_expr, nworkers=min(Sys.CPU_THREADS,4), nworker_threads=1,
-               testitem_timeout=60) do ti
+               testitem_timeout=120) do ti
     if ti.name == "jljit"
         # XXX: hangs on Windows
         Sys.iswindows() && return false

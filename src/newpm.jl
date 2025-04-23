@@ -566,7 +566,17 @@ end
 @function_pass "gvn-sink" GVNSinkPass
 @function_pass "helloworld" HelloWorldPass
 @function_pass "infer-address-spaces" InferAddressSpacesPass
-@function_pass "instcombine" InstCombinePass
+@function_pass "instcombine" InstCombinePass false
+function InstCombinePass(; kwargs...)
+    kwargs = Dict{Symbol, Any}(kwargs)
+    if version() >= v"18"
+        # XXX: LLVM "helpfully" enables fixpoint verification by default when using the C API
+        #      https://github.com/llvm/llvm-project/blob/3c3fb357a0ed4dbf640bdb6c61db2a430f7eb298/llvm/lib/Passes/PassBuilder.cpp#L1034-L1036
+        #      https://github.com/llvm/llvm-project/issues/92648
+        kwargs[:verify_fixpoint] = get(kwargs, :verify_fixpoint, false)
+    end
+    "instcombine" * kwargs_to_params(kwargs)
+end
 @function_pass "instcount" InstCountPass
 @function_pass "instsimplify" InstSimplifyPass
 @function_pass "invalidate<all>" InvalidateAllAnalysesPass

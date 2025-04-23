@@ -325,7 +325,9 @@ end
                     add!(fpm, WarnMissedTransformationsPass())
                 end
                 add!(mpm, NewPMFunctionPassManager()) do fpm
-                    add!(fpm, LowerExcHandlersPass())
+                    if VERSION < v"1.13.0-DEV.36"
+                        add!(fpm, LowerExcHandlersPass())
+                    end
                     add!(fpm, GCInvariantVerifierPass())
                 end
                 add!(mpm, RemoveNIPass())

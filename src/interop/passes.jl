@@ -31,7 +31,9 @@ end
 @function_pass "LateLowerGCFrame" LateLowerGCPass
 @function_pass "AllocOpt" AllocOptPass
 @function_pass "PropagateJuliaAddrspaces" PropagateJuliaAddrspacesPass
-@function_pass "LowerExcHandlers" LowerExcHandlersPass
+@static if VERSION < v"1.13.0-DEV.36"
+    @function_pass "LowerExcHandlers" LowerExcHandlersPass
+end
 @static if VERSION >= v"1.11.0-DEV.208"
     @function_pass "FinalLowerGC" FinalLowerGCPass
 end

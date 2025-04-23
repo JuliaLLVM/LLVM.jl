@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['1.10', '1.11', 'nightly']
+        version: ['1.10', '1.11', '^1.12.0-0', 'nightly']
         os: ['ubuntu-latest', 'macOS-latest', 'windows-latest']
         arch: [x64]
         llvm_args: ['']
@@ -116,6 +116,12 @@ jobs:
             arch: 'x64'
           - branch: 'release-1.11'
             pipeline: 'julia-release-1-dot-11'
+            build: 'x86_64-linux-gnuassert'
+            llvm_args: ''
+            os: 'ubuntu-latest'
+            arch: 'x64'
+          - branch: 'release-1.12'
+            pipeline: 'julia-release-1-dot-12'
             build: 'x86_64-linux-gnuassert'
             llvm_args: ''
             os: 'ubuntu-latest'

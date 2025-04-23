@@ -34,8 +34,8 @@ end
             @test run!(NoOpFunctionPass(), fun) === nothing
 
             # by object with options
-            @test run!(LoopExtractorPass(; single=true), mod) === nothing
-            @test run!(EarlyCSEPass(; memssa=true), fun) === nothing
+            @test run!(LoopExtractorPass(single=true), mod) === nothing
+            @test run!(EarlyCSEPass(memssa=true), fun) === nothing
         end
 
         # default pipelines
@@ -47,7 +47,7 @@ end
             @test run!(DefaultPipeline(), mod) === nothing
 
             # by object with options
-            @test run!(DefaultPipeline(; opt_level='s'), mod) === nothing
+            @test run!(DefaultPipeline(opt_level='s'), mod) === nothing
         end
 
         # custom pipelines
@@ -68,7 +68,7 @@ end
 
         # options
         @dispose mod=test_module() begin
-            @dispose pb=NewPMPassBuilder(; verify_each=true) begin
+            @dispose pb=NewPMPassBuilder(verify_each=true) begin
                 add!(pb, "no-op-module")
                 @test run!(pb, mod) === nothing
             end
@@ -100,11 +100,12 @@ end
 
                 # by object with options
                 add!(mpm, LoopExtractorPass(single=true))
+                add!(mpm, SimplifyCFGPass(keep_loops=false))
 
-                @test string(mpm) == "module(no-op-module,no-op-module,loop-extract<single>)"
+                @test string(mpm) == "module(no-op-module,no-op-module,loop-extract<single>,simplifycfg<no-keep-loops>)"
             end
             add!(pb, NoOpModulePass())
-            @test string(pb) == "no-op-module,module(no-op-module,no-op-module,loop-extract<single>),no-op-module"
+            @test string(pb) == "no-op-module,module(no-op-module,no-op-module,loop-extract<single>,simplifycfg<no-keep-loops>),no-op-module"
 
             @test run!(pb, mod) === nothing
         end
@@ -233,13 +234,13 @@ end
     @testset "passes" begin
         @dispose ctx=Context() pb=NewPMPassBuilder() begin
             basicSimplifyCFGOptions =
-                (; forward_switch_cond_to_phi=true,
-                   convert_switch_range_to_icmp=true,
-                   convert_switch_to_lookup_table=true)
+                (forward_switch_cond=true,
+                   switch_range_to_icmp=true,
+                   switch_to_lookup=true)
             aggressiveSimplifyCFGOptions =
-                (; forward_switch_cond_to_phi=true,
-                   convert_switch_range_to_icmp=true,
-                   convert_switch_to_lookup_table=true,
+                (forward_switch_cond=true,
+                   switch_range_to_icmp=true,
+                   switch_to_lookup=true,
                    hoist_common_insts=true)
             add!(pb, NewPMModulePassManager()) do mpm
                 add!(mpm, NewPMFunctionPassManager()) do fpm
@@ -279,7 +280,7 @@ end
                         add!(lpm, LowerSIMDLoopPass())
                         add!(lpm, LoopRotatePass())
                     end
-                    add!(fpm, NewPMLoopPassManager(;use_memory_ssa=true)) do lpm
+                    add!(fpm, NewPMLoopPassManager(use_memory_ssa=true)) do lpm
                         add!(lpm, LICMPass())
                         add!(lpm, JuliaLICMPass())
                         add!(lpm, SimpleLoopUnswitchPass())
@@ -372,7 +373,7 @@ end
 
 @testset "alias analyses" begin
     # default pipeline
-    @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(;debug_logging=true) begin
+    @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(debug_logging=true) begin
         add!(pb, "aa-eval")
 
         io = IOCapture.capture() do
@@ -385,7 +386,7 @@ end
     end
 
     # custom pipeline
-    @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(;debug_logging=true) begin
+    @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(debug_logging=true) begin
         add!(pb, NewPMAAManager()) do aam
             # by string
             add!(aam, "basic-aa")

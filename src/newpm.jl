@@ -307,29 +307,75 @@ end
 
 ## pass definitions
 
-function define_pass(pass_name, class_name, params=nothing)
+# convert Julia keyword arguments to a LLVM pass parameter string
+function kwargs_to_params(kwargs; allow_empty=false)
+    isempty(kwargs) && return ""
+
+    params = String[]
+    for (k, v) in kwargs
+        # deprecated option names
+        deprecated_bindings = Dict{Symbol, Symbol}(
+            :eagerchecks => :eager_checks,
+            :trackorigins => :track_origins,
+            :onlymandatory => :only_mandatory,
+            :reusestorage => :reuse_storage,
+            :postinline => :post_inline,
+            :full_unroll_max_count => :full_unroll_max,
+            :allow_partial => :partial,
+            :allow_peeling => :peeling,
+            :allow_profile_based_peeling => :profile_peeling,
+            :allow_runtime => :runtime,
+            :allow_upper_bound => :upper_bound,
+            :forward_switch_cond_to_phi => :forward_switch_cond,
+            :convert_switch_range_to_icmp => :switch_range_to_icmp,
+            :convert_switch_to_lookup_table => :switch_to_lookup,
+            :interleaveforcedonly => :interleave_forced_only,
+            :vectorizeforcedonly => :vectorize_forced_only,
+            :splitfooterbb => :split_footer_bb,
+            :allowpre => :pre,
+            :allowloadpre => :load_pre,
+            :allowloadpresplitbackedge => :split_backedge_load_pre,
+            :allowmemdep => :memdep
+        )
+        if haskey(deprecated_bindings, k)
+            new = deprecated_bindings[k]
+            Base.depwarn(
+                "LLVM pass keyword argument $k is deprecated, use $new instead.",
+                k
+            )
+            k = new
+        end
+
+        # Julia uses `_` in kwargs, while LLVM always uses `-`
+        k = replace(string(k), "_" => "-")
+
+        if v isa Bool
+            push!(params, v ? k : "no-$k")
+        else
+            push!(params, "$k=$v")
+        end
+    end
+    "<" * join(params, ";") * ">"
+end
+
+function define_pass(pass_name, class_name, define_class=true)
     # don't re-define passes (some work with multiple types of managers,
     # or could be manually-defined)
     if isdefined(LLVM, class_name)
         return
     end
 
-    if params === nothing
-        quote
-            export $(esc(class_name))
-            function $(esc(class_name))()
-                return $pass_name
-            end
-        end
-    else
-        quote
-            export $(esc(class_name))
-            function $(esc(class_name))(; kwargs...)
-                params = $(esc(params))(; kwargs...)
-                return $pass_name * string(params)
-            end
-        end
+    ex = quote
+        export $(esc(class_name))
     end
+    if define_class
+        push!(ex.args, :(
+            function $(esc(class_name))(; kwargs...)
+                return $pass_name * kwargs_to_params(kwargs)
+            end
+        ))
+    end
+    return ex
 end
 
 # for testing purposes, keep track of all defined passes
@@ -338,24 +384,21 @@ const cgscc_passes = String[]
 const function_passes = String[]
 const loop_passes = String[]
 
-macro pipeline(pass_name, class_name, params=nothing)
-    define_pass(pass_name, class_name, params)
-end
-macro module_pass(pass_name, class_name, params=nothing)
+macro module_pass(pass_name, class_name, define_class=true)
     push!(module_passes, pass_name)
-    define_pass(pass_name, class_name, params)
+    define_pass(pass_name, class_name, define_class)
 end
-macro cgscc_pass(pass_name, class_name, params=nothing)
+macro cgscc_pass(pass_name, class_name, define_class=true)
     push!(cgscc_passes, pass_name)
-    define_pass(pass_name, class_name, params)
+    define_pass(pass_name, class_name, define_class)
 end
-macro function_pass(pass_name, class_name, params=nothing)
+macro function_pass(pass_name, class_name, define_class=true)
     push!(function_passes, pass_name)
-    define_pass(pass_name, class_name, params)
+    define_pass(pass_name, class_name, define_class)
 end
-macro loop_pass(pass_name, class_name, params=nothing)
+macro loop_pass(pass_name, class_name, define_class=true)
     push!(loop_passes, pass_name)
-    define_pass(pass_name, class_name, params)
+    define_pass(pass_name, class_name, define_class)
 end
 
 # module passes
@@ -444,85 +487,28 @@ end
 @module_pass "memprof-module" ModuleMemProfilerPass
 @module_pass "poison-checking" PoisonCheckingPass
 @module_pass "pseudo-probe-update" PseudoProbeUpdatePass
-
-Base.@kwdef struct LoopExtractorPassOptions
-    single::Bool = false
-end
-Base.string(options::LoopExtractorPassOptions) = options.single ? "<single>" : ""
-@module_pass "loop-extract" LoopExtractorPass LoopExtractorPassOptions
-
-Base.@kwdef struct HWAddressSanitizerPassOptions
-    kernel::Bool = false
-    recover::Bool = false
-end
-function Base.string(options::HWAddressSanitizerPassOptions)
-    s = String[]
-    if options.kernel
-        push!(s, "kernel")
-    end
-    if options.recover
-        push!(s, "recover")
-    end
-    if !isempty(s)
-        "<" * join(s, ";") * ">"
-    else
-        ""
-    end
-end
-@module_pass "hwasan" HWAddressSanitizerPass HWAddressSanitizerPassOptions
-
-Base.@kwdef struct AddressSanitizerPassOptions
-    kernel::Bool = false
-end
-Base.string(options::AddressSanitizerPassOptions) =
-    options.kernel ? "<kernel>" : ""
+@module_pass "loop-extract" LoopExtractorPass
+@module_pass "hwasan" HWAddressSanitizerPass
 @static if LLVM.version() < v"16"
-    @module_pass "asan-module" AddressSanitizerPass AddressSanitizerPassOptions
+    @module_pass "asan-module" AddressSanitizerPass
 else
-    @module_pass "asan" AddressSanitizerPass AddressSanitizerPassOptions
-end
-
-Base.@kwdef struct MemorySanitizerPassOptions
-    recover::Bool = false
-    kernel::Bool = false
-    eagerchecks::Bool = false
-    trackorigins::Int = 0
-end
-function Base.string(options::MemorySanitizerPassOptions)
-    final_options = String[]
-    if options.recover
-        push!(final_options, "recover")
-    end
-    if options.kernel
-        push!(final_options, "kernel")
-    end
-    if options.eagerchecks
-        push!(final_options, "eager-checks")
-    end
-    push!(final_options, "track-origins=$(options.trackorigins)")
-    "<" * join(final_options, ";") * ">"
+    @module_pass "asan" AddressSanitizerPass
 end
 @static if LLVM.version() < v"16"
-    @function_pass "msan" MemorySanitizerPass MemorySanitizerPassOptions
+    @function_pass "msan" MemorySanitizerPass
 else
-    @module_pass "msan" MemorySanitizerPass MemorySanitizerPassOptions
+    @module_pass "msan" MemorySanitizerPass
 end
+@module_pass "internalize" InternalizePass false
+function InternalizePass(; preserved_gvs::Vector=String[], kwargs...)
+    kwargs = [kwargs...]
 
-@static if LLVM.version() < v"17"
-    # NOTE: this is only supported by LLVM 19, but we backported it to 17.
-    @module_pass "internalize" InternalizePass
-else
-    Base.@kwdef struct InternalizePassOptions
-        preserved_gvs::Vector{String} = String[]
+    # map a single `preserved_gvs` to many `preserve_gv` options
+    for gv in preserved_gvs
+        push!(kwargs, :preserve_gv => gv)
     end
-    function Base.string(options::InternalizePassOptions)
-        final_options = String[]
-        for gv in options.preserved_gvs
-            push!(final_options, "preserve-gv=" * gv)
-        end
-        "<" * join(final_options, ";") * ">"
-    end
-    @module_pass "internalize" InternalizePass InternalizePassOptions
+
+    "internalize" * kwargs_to_params(kwargs)
 end
 
 # CGSCC passes
@@ -533,20 +519,8 @@ end
 @cgscc_pass "attributor-cgscc" AttributorCGSCCPass
 @cgscc_pass "openmp-opt-cgscc" OpenMPOptCGSCCPass
 @cgscc_pass "no-op-cgscc" NoOpCGSCCPass
-
-Base.@kwdef struct InlinerPassOptions
-    onlymandatory::Bool = false
-end
-Base.string(options::InlinerPassOptions) =
-    options.onlymandatory ? "<only-mandatory>" : ""
-@cgscc_pass "inline" InlinerPass InlinerPassOptions
-
-Base.@kwdef struct CoroSplitPassOptions
-    reusestorage::Bool = false
-end
-Base.string(options::CoroSplitPassOptions) =
-    options.reusestorage ? "<reuse-storage>" : ""
-@cgscc_pass "coro-split" CoroSplitPass CoroSplitPassOptions
+@cgscc_pass "inline" InlinerPass
+@cgscc_pass "coro-split" CoroSplitPass
 
 # function passes
 
@@ -704,148 +678,20 @@ end
 @function_pass "transform-warning" WarnMissedTransformationsPass
 @function_pass "tsan" ThreadSanitizerPass
 @function_pass "memprof" MemProfilerPass
-
-Base.@kwdef struct EarlyCSEPassOptions
-    memssa::Bool = false
+@function_pass "early-cse" EarlyCSEPass
+@function_pass "ee-instrument" EntryExitInstrumenterPass
+@function_pass "lower-matrix-intrinsics" LowerMatrixIntrinsicsPass
+@function_pass "loop-unroll" LoopUnrollPass false
+function LoopUnrollPass(; opt_level=0, kwargs...)
+    kwargs = Dict{Symbol, Any}(kwargs)
+    kwargs[Symbol("O$opt_level")] = true
+    "loop-unroll" * kwargs_to_params(kwargs)
 end
-Base.string(options::EarlyCSEPassOptions) = options.memssa ? "<memssa>" : ""
-@function_pass "early-cse" EarlyCSEPass EarlyCSEPassOptions
-
-Base.@kwdef struct EntryExitInstrumenterPassOptions
-    postinline::Bool = false
-end
-Base.string(options::EntryExitInstrumenterPassOptions) =
-    options.postinline ? "<post-inline>" : ""
-@function_pass "ee-instrument" EntryExitInstrumenterPass EntryExitInstrumenterPassOptions
-
-Base.@kwdef struct LowerMatrixIntrinsicsPassOptions
-    minimal::Bool = false
-end
-Base.string(options::LowerMatrixIntrinsicsPassOptions) =
-    options.minimal ? "<minimal>" : ""
-@function_pass "lower-matrix-intrinsics" LowerMatrixIntrinsicsPass LowerMatrixIntrinsicsPassOptions
-
-Base.@kwdef struct LoopUnrollOptions
-    opt_level::Int = 2
-    full_unroll_max_count::Union{Nothing, Int} = nothing
-    allow_partial::Union{Nothing, Bool} = nothing
-    allow_peeling::Union{Nothing, Bool} = nothing
-    allow_profile_based_peeling::Union{Nothing, Bool} = nothing
-    allow_runtime::Union{Nothing, Bool} = nothing
-    allow_upper_bound::Union{Nothing, Bool} = nothing
-end
-function Base.string(options::LoopUnrollOptions)
-    final_options = String[]
-    push!(final_options, "O$(options.opt_level)")
-    if options.full_unroll_max_count !== nothing
-        push!(final_options, "full-unroll-max=$(options.full_unroll_max_count)")
-    end
-    if options.allow_partial !== nothing
-        push!(final_options, options.allow_partial ? "partial" : "no-partial")
-    end
-    if options.allow_peeling !== nothing
-        push!(final_options, options.allow_peeling ? "peeling" : "no-peeling")
-    end
-    if options.allow_profile_based_peeling !== nothing
-        push!(final_options, options.allow_profile_based_peeling ? "profile-peeling" : "no-profile-peeling")
-    end
-    if options.allow_runtime !== nothing
-        push!(final_options, options.allow_runtime ? "runtime" : "no-runtime")
-    end
-    if options.allow_upper_bound !== nothing
-        push!(final_options, options.allow_upper_bound ? "upperbound" : "no-upperbound")
-    end
-    "<" * join(final_options, ";") * ">"
-end
-@function_pass "loop-unroll" LoopUnrollPass LoopUnrollOptions
-
-Base.@kwdef struct SimplifyCFGPassOptions
-    forward_switch_cond_to_phi::Bool = false
-    convert_switch_range_to_icmp::Bool = false
-    convert_switch_to_lookup_table::Bool = false
-    keep_loops::Bool = true
-    hoist_common_insts::Bool = false
-    sink_common_inst::Bool = false
-    bonus_inst_threshold::Int = 1
-end
-function Base.string(options::SimplifyCFGPassOptions)
-    forward = options.forward_switch_cond_to_phi ? "forward-switch-cond" : "no-forward-switch-cond"
-    s2i = options.convert_switch_range_to_icmp ? "switch-range-to-icmp" : "no-switch-range-to-icmp"
-    s2l = options.convert_switch_to_lookup_table ? "switch-to-lookup" : "no-switch-to-lookup"
-    keep_loops = options.keep_loops ? "keep-loops" : "no-keep-loops"
-    hoist = options.hoist_common_insts ? "hoist-common-insts" : "no-hoist-common-insts"
-    sink = options.sink_common_inst ? "sink-common-insts" : "no-sink-common-insts"
-    bonus = "bonus-inst-threshold=$(options.bonus_inst_threshold)"
-    "<" * join([forward, s2i, s2l, keep_loops, hoist, sink, bonus], ";") * ">"
-end
-@function_pass "simplifycfg" SimplifyCFGPass SimplifyCFGPassOptions
-
-Base.@kwdef struct LoopVectorizePassOptions
-    interleaveforcedonly::Bool = false
-    vectorizeforcedonly::Bool = false
-end
-function Base.string(options::LoopVectorizePassOptions)
-    interleave = options.interleaveforcedonly ? "interleave-forced-only" :
-                                                "no-interleave-forced-only"
-    vectorize = options.vectorizeforcedonly ? "vectorize-forced-only" :
-                                              "no-vectorize-forced-only"
-    "<" * join([interleave, vectorize], ";") * ">"
-end
-@function_pass "loop-vectorize" LoopVectorizePass LoopVectorizePassOptions
-
-Base.@kwdef struct MergedLoadStoreMotionPassOptions
-    splitfooterbb::Bool = false
-end
-Base.string(options::MergedLoadStoreMotionPassOptions) =
-    options.splitfooterbb ? "<split-footer-bb>" : "<no-split-footer-bb>"
-@function_pass "mldst-motion" MergedLoadStoreMotionPass MergedLoadStoreMotionPassOptions
-
-Base.@kwdef struct GVNPassOptions
-    allowpre::Union{Nothing, Bool} =  nothing
-    allowloadpre::Union{Nothing, Bool} =  nothing
-    allowloadpresplitbackedge::Union{Nothing, Bool} =  nothing
-    allowmemdep::Union{Nothing, Bool} =  nothing
-end
-function Base.string(options::GVNPassOptions)
-    final_options = String[]
-    if options.allowpre !== nothing
-        if options.allowpre
-            push!(final_options, "pre")
-        else
-            push!(final_options, "no-pre")
-        end
-    end
-    if options.allowloadpre !== nothing
-        if options.allowloadpre
-            push!(final_options, "load-pre")
-        else
-            push!(final_options, "no-load-pre")
-        end
-    end
-    if options.allowloadpresplitbackedge !== nothing
-        if options.allowloadpresplitbackedge
-            push!(final_options, "split-backedge-load-pre")
-        else
-            push!(final_options, "no-split-backedge-load-pre")
-        end
-    end
-    if options.allowmemdep !== nothing
-        if options.allowmemdep
-            push!(final_options, "memdep")
-        else
-            push!(final_options, "no-memdep")
-        end
-    end
-    "<" * join(final_options, ";") * ">"
-end
-@function_pass "gvn" GVNPass GVNPassOptions
-
-Base.@kwdef struct StackLifetimePrinterPassOptions
-    must::Bool = false
-end
-Base.string(options::StackLifetimePrinterPassOptions) =
-    options.must ? "<must>" : "<may>"
-@function_pass "print<stack-lifetime>" StackLifetimePrinterPass StackLifetimePrinterPassOptions
+@function_pass "simplifycfg" SimplifyCFGPass
+@function_pass "loop-vectorize" LoopVectorizePass
+@function_pass "mldst-motion" MergedLoadStoreMotionPass
+@function_pass "gvn" GVNPass
+@function_pass "print<stack-lifetime>" StackLifetimePrinterPass
 
 # loop nest passes
 
@@ -880,26 +726,9 @@ Base.string(options::StackLifetimePrinterPassOptions) =
     @loop_pass "loop-reroll" LoopRerollPass
 end
 @loop_pass "loop-versioning-licm" LoopVersioningLICMPass
-
-Base.@kwdef struct SimpleLoopUnswitchPassOptions
-    nontrivial::Bool = false
-    trivial::Bool = true
-end
-function Base.string(options::SimpleLoopUnswitchPassOptions)
-    nontrivial = options.nontrivial ? "nontrivial" : "no-nontrivial"
-    trivial = options.trivial ? "trivial" : "no-trivial"
-    "<$nontrivial;$trivial>"
-end
-@loop_pass "simple-loop-unswitch" SimpleLoopUnswitchPass SimpleLoopUnswitchPassOptions
-
-Base.@kwdef struct LICMPassOptions
-    allowspeculation::Bool = true
-end
-Base.string(options::LICMPassOptions) =
-    options.allowspeculation ? "<allowspeculation>" : "<no-allowspeculation>"
-@loop_pass "licm" LICMPass LICMPassOptions
-
-@loop_pass "lnicm" LNICMPass LICMPassOptions
+@loop_pass "simple-loop-unswitch" SimpleLoopUnswitchPass
+@loop_pass "licm" LICMPass
+@loop_pass "lnicm" LNICMPass
 
 
 ## alias analyses
@@ -917,8 +746,8 @@ add!(pb::NewPMPassBuilder, aa::NewPMAAManager) = push!(pb.aa_passes, string(aa))
 add!(pm::NewPMAAManager, aa::NewPMAAManager) =
     error("Alias analyses can only be added to the top-level pass builder")
 
-macro aa_pass(pass_name, class_name, params=nothing)
-    define_pass(pass_name, class_name, params)
+macro aa_pass(pass_name, class_name)
+    define_pass(pass_name, class_name)
 end
 
 @aa_pass "basic-aa" BasicAA
@@ -930,13 +759,13 @@ end
 
 ## pipelines
 
-struct DefaultPipelineOptions
-    opt_level::Union{Int,Char}
+export DefaultPipeline
+
+function DefaultPipeline(; opt_level=0, kwargs...)
+    kwargs = Dict{Symbol, Any}(kwargs)
+
+    # `opt_level` => `O` flag (which is mandatory)
+    kwargs[Symbol("O$opt_level")] = true
+
+    "default" * kwargs_to_params(kwargs)
 end
-DefaultPipelineOptions(; opt_level=0) =
-    DefaultPipelineOptions(opt_level)
-function Base.string(options::DefaultPipelineOptions)
-    optlevel = "O$(options.opt_level)"
-    "<$optlevel>"
-end
-@pipeline "default" DefaultPipeline DefaultPipelineOptions

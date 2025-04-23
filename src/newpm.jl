@@ -592,7 +592,11 @@ end
 @function_pass "gvn-sink" GVNSinkPass
 @function_pass "helloworld" HelloWorldPass
 @function_pass "infer-address-spaces" InferAddressSpacesPass
-@function_pass "instcombine" InstCombinePass
+@static if LLVM.version() < v"18"
+    @function_pass "instcombine" InstCombinePass
+else
+    @function_pass "instcombine<no-verify-fixpoint>" InstCombinePass
+end
 @function_pass "instcount" InstCountPass
 @function_pass "instsimplify" InstSimplifyPass
 @function_pass "invalidate<all>" InvalidateAllAnalysesPass

@@ -796,6 +796,7 @@ export GlobalValue, global_value_type,
        visibility, visibility!,
        dllstorage, dllstorage!,
        unnamed_addr, unnamed_addr!,
+       local_unnamed_addr, local_unnamed_addr!,
        alignment, alignment!
 
 """
@@ -900,14 +901,28 @@ dllstorage!(val::GlobalValue, storage::API.LLVMDLLStorageClass) =
 
 Check if the global value has the unnamed address flag set.
 """
-unnamed_addr(val::GlobalValue) = API.LLVMHasUnnamedAddr(val) |> Bool
+unnamed_addr(val::GlobalValue) = API.LLVMGetUnnamedAddress(val) === API.LLVMGlobalUnnamedAddr
 
 """
     unnamed_addr!(val::LLVM.GlobalValue, flag::Bool)
 
 Set the unnamed address flag of the global value.
 """
-unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddr(val, flag)
+unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(val, flag ? API.LLVMGlobalUnnamedAddr : API.LLVMNoUnnamedAddr)
+
+"""
+    local_unnamed_addr(val::LLVM.GlobalValue)
+
+Check if the global value has the local unnamed address flag set.
+"""
+local_unnamed_addr(val::GlobalValue) = API.LLVMGetUnnamedAddress(val) === API.LLVMLocalUnnamedAddr
+
+"""
+    local_unnamed_addr!(val::LLVM.GlobalValue, flag::Bool)
+
+Set the local unnamed address flag of the global value.
+"""
+local_unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(val, flag ? API.LLVMLocalUnnamedAddr : API.LLVMNoUnnamedAddr)
 
 """
     alignment(val::LLVM.GlobalValue)

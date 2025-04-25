@@ -202,6 +202,7 @@ couple of additional APIs:
 - `alignment`/`alignment!`: get or set the alignment of the global value.
 - `dllstorage`/`dllstorage!`: get or set the DLL storage class of the global value.
 - `unnamed_addr`/`unnamed_addr!`: get or set whether the global value has an unnamed address.
+- `local_unnamed_addr`/`local_unnamed_addr!`: get or set whether the global value has a local unnamed address.
 
 The most common type of global value is the global variable, which can be created using the `GlobalVariable` constructor:
 

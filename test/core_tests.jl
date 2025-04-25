@@ -785,8 +785,13 @@ end
     @test dllstorage(fn) == LLVM.API.LLVMDLLImportStorageClass
 
     @test !unnamed_addr(fn)
+    @test !local_unnamed_addr(fn)
     unnamed_addr!(fn, true)
     @test unnamed_addr(fn)
+    @test !local_unnamed_addr(fn)
+    local_unnamed_addr!(fn, true)
+    @test !unnamed_addr(fn)
+    @test local_unnamed_addr(fn)
 
     @test alignment(fn) == 0
     alignment!(fn, 4)

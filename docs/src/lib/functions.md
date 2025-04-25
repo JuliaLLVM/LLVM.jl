@@ -23,9 +23,9 @@ entry
 ## Attributes
 
 ```@docs
-function_attributes
-parameter_attributes
-return_attributes
+function_attributes(::LLVM.Function)
+parameter_attributes(::LLVM.Function, ::Integer)
+return_attributes(::LLVM.Function)
 ```
 
 ## Parameters

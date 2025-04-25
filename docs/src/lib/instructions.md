@@ -24,6 +24,13 @@ debuglocation
 debuglocation!
 ```
 
+## Attributes
+
+```@docs
+function_attributes(::LLVM.CallBase)
+argument_attributes(::LLVM.CallBase, ::Integer)
+return_attributes(::LLVM.CallBase)
+```
 
 ## Comparison instructions
 

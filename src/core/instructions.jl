@@ -342,6 +342,73 @@ function arguments(inst::CallBase)
     operands(inst)[1:nargs]
 end
 
+# attributes
+
+export function_attributes, argument_attributes, return_attributes
+
+struct CallSiteAttrSet
+    instr::LLVM.CallBase
+    idx::LLVM.API.LLVMAttributeIndex
+end
+
+"""
+    function_attributes(instr::CallBase)
+
+Get the attributes of the given instruction.
+
+This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
+"""
+function_attributes(instr::LLVM.CallBase) =
+    CallSiteAttrSet(instr, reinterpret(LLVM.API.LLVMAttributeIndex, LLVM.API.LLVMAttributeFunctionIndex))
+
+"""
+    argument_attributes(instr::CallBase, idx::Integer)
+
+Get the attributes of the given argument of the given instruction.
+
+This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
+"""
+argument_attributes(instr::LLVM.CallBase, idx::Integer) =
+    CallSiteAttrSet(instr, LLVM.API.LLVMAttributeIndex(idx))
+
+"""
+    return_attributes(instr::CallBase)
+
+Get the attributes of the return value of the given instruction.
+
+This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
+"""
+return_attributes(instr::LLVM.CallBase) = CallSiteAttrSet(instr, LLVM.API.LLVMAttributeReturnIndex)
+
+Base.eltype(::CallSiteAttrSet) = Attribute
+
+function Base.collect(iter::CallSiteAttrSet)
+    elems = Vector{LLVM.API.LLVMAttributeRef}(undef, length(iter))
+    if length(iter) > 0
+      # FIXME: this prevents a nullptr ref in LLVM similar to D26392
+      LLVM.API.LLVMGetCallSiteAttributes(iter.instr, iter.idx, elems)
+    end
+    return LLVM.Attribute[LLVM.Attribute(elem) for elem in elems]
+end
+
+Base.push!(iter::CallSiteAttrSet, attr::LLVM.Attribute) =
+    LLVM.API.LLVMAddCallSiteAttribute(iter.instr, iter.idx, attr)
+
+Base.delete!(iter::CallSiteAttrSet, attr::LLVM.EnumAttribute) =
+    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
+
+Base.delete!(iter::CallSiteAttrSet, attr::LLVM.TypeAttribute) =
+    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
+
+function Base.delete!(iter::CallSiteAttrSet, attr::LLVM.StringAttribute)
+    k = kind(attr)
+    return LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
+end
+
+function Base.length(iter::CallSiteAttrSet)
+    return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
+end
+
 # operand bundles
 
 export OperandBundle, operand_bundles, tag, inputs

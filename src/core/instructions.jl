@@ -402,11 +402,11 @@ Base.delete!(iter::CallSiteAttrSet, attr::LLVM.TypeAttribute) =
 
 function Base.delete!(iter::CallSiteAttrSet, attr::LLVM.StringAttribute)
     k = kind(attr)
-    LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
+    return LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
 end
 
 function Base.length(iter::CallSiteAttrSet)
-    LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
+    return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
 end
 
 # operand bundles

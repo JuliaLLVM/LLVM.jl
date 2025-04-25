@@ -1334,15 +1334,21 @@ end
     @test intr == Intrinsic("llvm.sin")
 end
 
-# attributes
-@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+# function and instruction attributes
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=LLVM.IRBuilder() begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
     fn = LLVM.Function(mod, "SomeFunction", ft)
+    caller = LLVM.Function(mod, "CallSomeFunction", ft)
+    top = LLVM.BasicBlock(caller, "top")
+    position!(builder, top)
+    instr = call!(builder, ft, fn, LLVM.Value[ parameters(fn)... ])
 
-    let attrs = function_attributes(fn)
+    let attrs = function_attributes(fn), instr_attrs = function_attributes(instr)
         @test eltype(attrs) == Attribute
+        @test eltype(instr_attrs) == Attribute
 
         @test length(attrs) == 0
+        @test length(instr_attrs) == 0
 
         let attr = EnumAttribute("sspreq", 0)
             @test kind(attr) != 0
@@ -1353,6 +1359,15 @@ end
             delete!(attrs, attr)
             @test length(attrs) == 0
         end
+        let instr_attr = EnumAttribute("sspreq", 0)
+            @test kind(instr_attr) != 0
+            @test value(instr_attr) == 0
+            push!(instr_attrs, instr_attr)
+            @test collect(instr_attrs) == [instr_attr]
+
+            delete!(instr_attrs, instr_attr)
+            @test length(instr_attrs) == 0
+        end
 
         let attr = StringAttribute("nounwind", "")
             @test kind(attr) == "nounwind"
@@ -1362,6 +1377,15 @@ end
 
             delete!(attrs, attr)
             @test length(attrs) == 0
+        end
+        let instr_attr = StringAttribute("nounwind", "")
+            @test kind(instr_attr) == "nounwind"
+            @test value(instr_attr) == ""
+            push!(instr_attrs, instr_attr)
+            @test collect(instr_attrs) == [instr_attr]
+
+            delete!(instr_attrs, instr_attr)
+            @test length(instr_attrs) == 0
         end
 
         let attr = TypeAttribute("sret", LLVM.Int32Type())
@@ -1374,6 +1398,16 @@ end
             delete!(attrs, attr)
             @test length(attrs) == 0
         end
+        let instr_attr = TypeAttribute("sret", LLVM.Int32Type())
+            @test kind(instr_attr) != 0
+            @test value(instr_attr) ==  LLVM.Int32Type()
+
+            push!(instr_attrs, instr_attr)
+            @test collect(instr_attrs) == [instr_attr]
+
+            delete!(instr_attrs, instr_attr)
+            @test length(instr_attrs) == 0
+        end
     end
 
     for i in 1:length(parameters(fn))
@@ -1382,8 +1416,18 @@ end
             @test length(attrs) == 0
         end
     end
+    for i in 1:length(arguments(instr))
+        let attrs = argument_attributes(instr, i)
+            @test eltype(attrs) == Attribute
+            @test length(attrs) == 0
+        end
+    end
 
     let attrs = return_attributes(fn)
+        @test eltype(attrs) == Attribute
+        @test length(attrs) == 0
+    end
+    let attrs = return_attributes(instr)
         @test eltype(attrs) == Attribute
         @test length(attrs) == 0
     end

@@ -72,6 +72,55 @@ entry:
 For a full list of functions that can be used to create instructions, consult the API
 reference.
 
+### Attributes
+
+```@meta
+DocTestSetup = quote
+    using LLVM
+
+    if context(; throw_error=false) === nothing
+        Context()
+    end
+
+    mod = LLVM.Module("SomeModule")
+    fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
+    push!(function_attributes(fun), StringAttribute("nounwind"))
+    push!(parameter_attributes(fun, 1), StringAttribute("nocapture"))
+    push!(return_attributes(fun), StringAttribute("sret"))
+    caller = LLVM.Function(mod, "CallSomeFunction", LLVM.VoidType(), [LLVM.Int32Type()])
+    top = BasicBlock(caller, "top")
+    position!(builder, top)
+end
+```
+
+Call and invoke instructions can have attributes just like functions.
+They can be set and retrieved using the iterators returned by the
+`function_attributes`, `argument_attributes` and `return_attributes` functions
+to respectively set attributes on the instructions, its arguments and its return value:
+
+```jldoctest function
+julia> instr = call!(builder, function_type(fun), fun, LLVM.Value[ parameters(fun)... ])
+
+julia> push!(function_attributes(instr), StringAttribute("nounwind"))
+
+julia> push!(argument_attributes(instr, 1), StringAttribute("nocapture"))
+
+julia> push!(return_attributes(instr), StringAttribute("sret"))
+
+julia> mod
+; ModuleID = 'SomeModule'
+source_filename = "SomeModule"
+
+declare "sret" void @SomeFunction(i32 "nocapture") #0
+
+define void @CallSomeFunction(i32 %0) {
+top:
+  call "sret" void @SomeFunction(i32 "nocapture" %0) #0
+}
+
+attributes #0 = { "nounwind" }
+```
+
 ### Debug location
 
 When creating instructions with an `IRBuilder`, it is possible to set a debug location for

@@ -87,8 +87,9 @@ DocTestSetup = quote
     push!(function_attributes(fun), StringAttribute("nounwind"))
     push!(parameter_attributes(fun, 1), StringAttribute("nocapture"))
     push!(return_attributes(fun), StringAttribute("sret"))
-    caller = LLVM.Function(mod, "CallSomeFunction", LLVM.VoidType(), [LLVM.Int32Type()])
+    caller = LLVM.Function(mod, "CallSomeFunction", function_type(fun))
     top = BasicBlock(caller, "top")
+    builder = LLVM.IRBuilder();
     position!(builder, top)
 end
 ```
@@ -99,7 +100,7 @@ They can be set and retrieved using the iterators returned by the
 to respectively set attributes on the instructions, its arguments and its return value:
 
 ```jldoctest function
-julia> instr = call!(builder, function_type(fun), fun, LLVM.Value[ parameters(fun)... ])
+julia> instr = call!(builder, function_type(fun), fun, LLVM.Value[ parameters(fun)... ]);
 
 julia> push!(function_attributes(instr), StringAttribute("nounwind"))
 

@@ -24,6 +24,13 @@ debuglocation
 debuglocation!
 ```
 
+## Attributes
+
+```@docs
+function_attributes
+argument_attributes
+return_attributes
+```
 
 ## Comparison instructions
 

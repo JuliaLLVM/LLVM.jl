@@ -64,6 +64,8 @@ dllstorage
 dllstorage!
 unnamed_addr
 unnamed_addr!
+local_unnamed_addr
+local_unnamed_addr!
 alignment(::LLVM.GlobalValue)
 alignment!(::LLVM.GlobalValue, ::Integer)
 ```

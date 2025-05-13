@@ -161,7 +161,7 @@ end
 if version() >= v"13"
 Base.string(jd::JITDylib) = unsafe_message(API.LLVMDumpJitDylibToString(jd))
 
-function Base.show(io::IO, jd::JITDylib)
+function Base.show(io::IO, ::MIME"text/plain", jd::JITDylib)
     output = string(jd)
     print(io, output)
 end

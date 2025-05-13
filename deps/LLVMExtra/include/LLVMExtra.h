@@ -4,6 +4,7 @@
 #include "llvm/Config/llvm-config.h"
 #include <llvm-c/Core.h>
 #include <llvm-c/Orc.h>
+#include <llvm-c/LLJIT.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 #include <llvm-c/Types.h>
@@ -109,6 +110,7 @@ void LLVMOrcIRCompileLayerEmit(LLVMOrcIRCompileLayerRef IRLayer,
                                LLVMOrcMaterializationResponsibilityRef MR,
                                LLVMOrcThreadSafeModuleRef TSM);
 char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD);
+LLVMOrcObjectLayerRef LLVMOrcLLJITGetObjectLinkingLayer(LLVMOrcLLJITRef J);
 
 // Cloning functionality
 typedef enum {

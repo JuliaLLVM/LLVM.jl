@@ -250,10 +250,8 @@ metadata(::Union{Instruction, GlobalObject})
                MD_section_prefix = 20,
                MD_absolute_symbol = 21,
                MD_associated = 22)
-MDKind(name::String) = API.LLVMGetMDKindIDInContext(context(), name, length(name))
+MDKind(name::String) = MDKind(API.LLVMGetMDKindIDInContext(context(), name, length(name)))
 MDKind(kind::MDKind) = kind
-
-# XXX: automatically converting string keys to MDKind is too automagical
 
 # instructions (using MetadataAsValue values)
 
@@ -324,6 +322,23 @@ end
 
 Base.setindex!(md::GlobalMetadataDict, node::Metadata, key) =
     API.LLVMGlobalSetMetadata(md.val, MDKind(key), node)
+
+Base.get(md::GlobalMetadataDict, key, default) = get(md, MDKind(key), default)
+function Base.get(md::GlobalMetadataDict, key::MDKind, default)
+    for (k, v) in md
+        if k == key
+            return v
+        end
+    end
+    return default
+end
+
+Base.haskey(md::GlobalMetadataDict, key) = get(md, key, nothing) !== nothing
+function Base.getindex(md::GlobalMetadataDict, key)
+    val = get(md, key, nothing)
+    val === nothing && throw(KeyError(key))
+    return val
+end
 
 Base.delete!(md::GlobalMetadataDict, key) =
     API.LLVMGlobalEraseMetadata(md.val, MDKind(key))

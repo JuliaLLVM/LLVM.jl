@@ -797,13 +797,20 @@ end
     alignment!(fn, 4)
     @test alignment(fn) == 4
 
-    @test isempty(metadata(fn))
     str = MDString("bar")
     md = MDNode([str])
+    @test isempty(metadata(fn))
+    @test !haskey(metadata(fn), "foo")
+    @test_throws KeyError metadata(fn)["foo"]
     metadata(fn)["foo"] = md
     @test !isempty(metadata(fn))
-    # XXX: keyset contains raw MDKinds
+    @test haskey(metadata(fn), "foo")
+    @test metadata(fn)["foo"] == md
     @test collect(values(metadata(fn))) == [md]
+    delete!(metadata(fn), "foo")
+    @test isempty(metadata(fn))
+    metadata(fn)["foo"] = md
+    @test !isempty(metadata(fn))
     empty!(metadata(fn))
     @test isempty(metadata(fn))
 end

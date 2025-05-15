@@ -848,11 +848,11 @@ end
 end
 
 """
-    __JL_Ctag_85
+    __JL_Ctag_1
 
 Attribute index are either LLVMAttributeReturnIndex, LLVMAttributeFunctionIndex or a parameter number from 1 to N.
 """
-@cenum __JL_Ctag_85::Int32 begin
+@cenum __JL_Ctag_1::Int32 begin
     LLVMAttributeReturnIndex = 0
     LLVMAttributeFunctionIndex = -1
 end
@@ -876,7 +876,7 @@ end
 
 const LLVMAttributeIndex = Cuint
 
-@cenum __JL_Ctag_87::UInt32 begin
+@cenum __JL_Ctag_2::UInt32 begin
     LLVMFastMathAllowReassoc = 1
     LLVMFastMathNoNaNs = 2
     LLVMFastMathNoInfs = 4
@@ -6827,11 +6827,11 @@ The amount of debug information to emit.
 end
 
 """
-    __JL_Ctag_117
+    __JL_Ctag_3
 
 The kind of metadata nodes.
 """
-@cenum __JL_Ctag_117::UInt32 begin
+@cenum __JL_Ctag_3::UInt32 begin
     LLVMMDStringMetadataKind = 0
     LLVMConstantAsMetadataMetadataKind = 1
     LLVMLocalAsMetadataMetadataKind = 2
@@ -10277,7 +10277,7 @@ function LLVMOrcCreateDynamicLibrarySearchGeneratorForPath(Result, FileName, Glo
 end
 
 """
-    LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName, TargetTriple)
+    LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName)
 
 Get a [`LLVMOrcCreateStaticLibrarySearchGeneratorForPath`](@ref) that will reflect static library symbols into the JITDylib. On success the resulting generator is owned by the client. Ownership is typically transferred by adding the instance to a JITDylib using [`LLVMOrcJITDylibAddGenerator`](@ref),
 
@@ -10285,8 +10285,8 @@ Call with the optional TargetTriple argument will succeed if the file at the giv
 
 THIS API IS EXPERIMENTAL AND LIKELY TO CHANGE IN THE NEAR FUTURE!
 """
-function LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName, TargetTriple)
-    ccall((:LLVMOrcCreateStaticLibrarySearchGeneratorForPath, libllvm), LLVMErrorRef, (Ptr{LLVMOrcDefinitionGeneratorRef}, LLVMOrcObjectLayerRef, Cstring, Cstring), Result, ObjLayer, FileName, TargetTriple)
+function LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName)
+    ccall((:LLVMOrcCreateStaticLibrarySearchGeneratorForPath, libllvm), LLVMErrorRef, (Ptr{LLVMOrcDefinitionGeneratorRef}, LLVMOrcObjectLayerRef, Cstring), Result, ObjLayer, FileName)
 end
 
 """

@@ -257,7 +257,7 @@ function LLVMPostDominatorTreeInstructionDominates(Tree, InstA, InstB)
     ccall((:LLVMPostDominatorTreeInstructionDominates, libLLVMExtra), LLVMBool, (LLVMPostDominatorTreeRef, LLVMValueRef, LLVMValueRef), Tree, InstA, InstB)
 end
 
-@cenum __JL_Ctag_53::UInt32 begin
+@cenum __JL_Ctag_2::UInt32 begin
     LLVMFastMathAllowReassoc = 1
     LLVMFastMathNoNaNs = 2
     LLVMFastMathNoInfs = 4

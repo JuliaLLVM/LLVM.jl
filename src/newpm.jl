@@ -422,7 +422,7 @@ end
 @module_pass "extract-blocks" BlockExtractorPass
 @module_pass "forceattrs" ForceFunctionAttrsPass
 @module_pass "function-import" FunctionImportPass
-@static if LLVM.version() < v"16"
+@static if version() < v"16"
     @module_pass "function-specialization" FunctionSpecializationPass
 else
     @module_pass "ipsccp<func-spec>" FunctionSpecializationPass
@@ -475,7 +475,9 @@ end
 @module_pass "strip-debug-declare" StripDebugDeclarePass
 @module_pass "strip-nondebug" StripNonDebugSymbolsPass
 @module_pass "strip-nonlinetable-debuginfo" StripNonLineTableDebugInfoPass
-@module_pass "synthetic-counts-propagation" SyntheticCountsPropagation
+@static if version() < v"20"
+    @module_pass "synthetic-counts-propagation" SyntheticCountsPropagation
+end
 @module_pass "trigger-crash" TriggerCrashPass
 @module_pass "verify" VerifierPass
 @module_pass "view-callgraph" CallGraphViewerPass
@@ -485,16 +487,18 @@ end
 @module_pass "tsan-module" ModuleThreadSanitizerPass
 @module_pass "sancov-module" SanitizerCoveragePass
 @module_pass "memprof-module" ModuleMemProfilerPass
-@module_pass "poison-checking" PoisonCheckingPass
+@static if version() < v"20"
+    @module_pass "poison-checking" PoisonCheckingPass
+end
 @module_pass "pseudo-probe-update" PseudoProbeUpdatePass
 @module_pass "loop-extract" LoopExtractorPass
 @module_pass "hwasan" HWAddressSanitizerPass
-@static if LLVM.version() < v"16"
+@static if version() < v"16"
     @module_pass "asan-module" AddressSanitizerPass
 else
     @module_pass "asan" AddressSanitizerPass
 end
-@static if LLVM.version() < v"16"
+@static if version() < v"16"
     @function_pass "msan" MemorySanitizerPass
 else
     @module_pass "msan" MemorySanitizerPass
@@ -556,7 +560,7 @@ end
 @function_pass "view-post-dom" PostDomViewer
 @function_pass "view-post-dom-only" PostDomOnlyViewer
 @function_pass "fix-irreducible" FixIrreduciblePass
-@static if LLVM.version() < v"19"
+@static if version() < v"19"
     @function_pass "flattencfg" FlattenCFGPass
 else
     @function_pass "flatten-cfg" FlattenCFGPass
@@ -587,7 +591,7 @@ end
 @function_pass "lint" LintPass
 @function_pass "inject-tli-mappings" InjectTLIMappings
 @function_pass "instnamer" InstructionNamerPass
-@static if LLVM.version() < v"19"
+@static if version() < v"19"
     @function_pass "loweratomic" LowerAtomicPass
 else
     @function_pass "lower-atomic" LowerAtomicPass
@@ -600,7 +604,7 @@ end
 @function_pass "load-store-vectorizer" LoadStoreVectorizerPass
 @function_pass "loop-simplify" LoopSimplifyPass
 @function_pass "loop-sink" LoopSinkPass
-@static if LLVM.version() < v"19"
+@static if version() < v"19"
     @function_pass "lowerinvoke" LowerInvokePass
     @function_pass "lowerswitch" LowerSwitchPass
 else
@@ -632,7 +636,7 @@ end
 @function_pass "print<cost-model>" CostModelPrinterPass
 @function_pass "print<cycles>" CycleInfoPrinterPass
 @function_pass "print<da>" DependenceAnalysisPrinterPass
-@static if LLVM.version() < v"17"
+@static if version() < v"17"
     @function_pass "print<divergence>" DivergenceAnalysisPrinterPass
 end
 @function_pass "print<domtree>" DominatorTreePrinterPass
@@ -653,7 +657,7 @@ end
 @function_pass "print-predicateinfo" PredicateInfoPrinterPass
 @function_pass "print-mustexecute" MustExecutePrinterPass
 @function_pass "print-memderefs" MemDerefPrinterPass
-@static if LLVM.version() < v"16"
+@static if version() < v"16"
     @loop_pass "print-access-info" LoopAccessInfoPrinterPass
 else
     @function_pass "print<access-info>" LoopAccessInfoPrinterPass
@@ -684,7 +688,9 @@ end
 @function_pass "verify<scalar-evolution>" ScalarEvolutionVerifierPass
 @function_pass "view-cfg" CFGViewerPass
 @function_pass "view-cfg-only" CFGOnlyViewerPass
-@function_pass "tlshoist" TLSVariableHoistPass
+@static if version() < v"20"
+    @function_pass "tlshoist" TLSVariableHoistPass
+end
 @function_pass "transform-warning" WarnMissedTransformationsPass
 @function_pass "tsan" ThreadSanitizerPass
 @function_pass "memprof" MemProfilerPass
@@ -732,7 +738,7 @@ end
 @loop_pass "loop-predication" LoopPredicationPass
 @loop_pass "guard-widening" GuardWideningPass
 @loop_pass "loop-bound-split" LoopBoundSplitPass
-@static if LLVM.version() < v"19"
+@static if version() < v"19"
     @loop_pass "loop-reroll" LoopRerollPass
 end
 @loop_pass "loop-versioning-licm" LoopVersioningLICMPass

@@ -10685,7 +10685,7 @@ function LLVMOrcCreateDynamicLibrarySearchGeneratorForPath(Result, FileName, Glo
 end
 
 """
-    LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName, TargetTriple)
+    LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName)
 
 Get a [`LLVMOrcCreateStaticLibrarySearchGeneratorForPath`](@ref) that will reflect static library symbols into the JITDylib. On success the resulting generator is owned by the client. Ownership is typically transferred by adding the instance to a JITDylib using [`LLVMOrcJITDylibAddGenerator`](@ref),
 
@@ -10693,8 +10693,8 @@ Call with the optional TargetTriple argument will succeed if the file at the giv
 
 THIS API IS EXPERIMENTAL AND LIKELY TO CHANGE IN THE NEAR FUTURE!
 """
-function LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName, TargetTriple)
-    ccall((:LLVMOrcCreateStaticLibrarySearchGeneratorForPath, libllvm), LLVMErrorRef, (Ptr{LLVMOrcDefinitionGeneratorRef}, LLVMOrcObjectLayerRef, Cstring, Cstring), Result, ObjLayer, FileName, TargetTriple)
+function LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName)
+    ccall((:LLVMOrcCreateStaticLibrarySearchGeneratorForPath, libllvm), LLVMErrorRef, (Ptr{LLVMOrcDefinitionGeneratorRef}, LLVMOrcObjectLayerRef, Cstring), Result, ObjLayer, FileName)
 end
 
 """

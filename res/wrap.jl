@@ -8,7 +8,7 @@ import Clang
 @add_def off_t
 
 # based on the supported Julia versions
-const llvm_versions = ["15", "16", "17", "18"]
+const llvm_versions = ["15", "16", "17", "18", "19", "20"]
 const llvm_configs = Dict()
 
 function main()

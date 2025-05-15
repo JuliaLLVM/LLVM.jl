@@ -3,7 +3,7 @@ library_name = "libllvm"
 prologue_file_path = "./missing_defs.jl"
 epilogue_file_path = ""
 use_julia_native_enum_type = false
-use_deterministic_symbol = true
+use_deterministic_symbol = false
 printer_blacklist = [
     "LLVM_C_STRICT_PROTOTYPES_END",
     "LLVM_NATIVE_ARCH",

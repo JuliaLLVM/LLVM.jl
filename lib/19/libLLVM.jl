@@ -855,11 +855,11 @@ end
 end
 
 """
-    __JL_Ctag_1
+    ##Ctag#239
 
 Attribute index are either LLVMAttributeReturnIndex, LLVMAttributeFunctionIndex or a parameter number from 1 to N.
 """
-@cenum __JL_Ctag_1::Int32 begin
+@cenum var"##Ctag#239"::Int32 begin
     LLVMAttributeReturnIndex = 0
     LLVMAttributeFunctionIndex = -1
 end
@@ -883,7 +883,7 @@ CallInst::TailCallKind
     LLVMTailCallKindNoTail = 3
 end
 
-@cenum __JL_Ctag_2::UInt32 begin
+@cenum var"##Ctag#240"::UInt32 begin
     LLVMFastMathAllowReassoc = 1
     LLVMFastMathNoNaNs = 2
     LLVMFastMathNoInfs = 4
@@ -902,7 +902,7 @@ See https://llvm.org/docs/LangRef.html#fast-math-flags
 """
 const LLVMFastMathFlags = Cuint
 
-@cenum __JL_Ctag_3::UInt32 begin
+@cenum var"##Ctag#241"::UInt32 begin
     LLVMGEPFlagInBounds = 1
     LLVMGEPFlagNUSW = 2
     LLVMGEPFlagNUW = 4
@@ -7226,11 +7226,11 @@ The amount of debug information to emit.
 end
 
 """
-    __JL_Ctag_4
+    ##Ctag#242
 
 The kind of metadata nodes.
 """
-@cenum __JL_Ctag_4::UInt32 begin
+@cenum var"##Ctag#242"::UInt32 begin
     LLVMMDStringMetadataKind = 0
     LLVMConstantAsMetadataMetadataKind = 1
     LLVMLocalAsMetadataMetadataKind = 2

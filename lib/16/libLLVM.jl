@@ -843,11 +843,11 @@ end
 end
 
 """
-    __JL_Ctag_85
+    ##Ctag#232
 
 Attribute index are either LLVMAttributeReturnIndex, LLVMAttributeFunctionIndex or a parameter number from 1 to N.
 """
-@cenum __JL_Ctag_85::Int32 begin
+@cenum var"##Ctag#232"::Int32 begin
     LLVMAttributeReturnIndex = 0
     LLVMAttributeFunctionIndex = -1
 end
@@ -6522,11 +6522,11 @@ The amount of debug information to emit.
 end
 
 """
-    __JL_Ctag_115
+    ##Ctag#233
 
 The kind of metadata nodes.
 """
-@cenum __JL_Ctag_115::UInt32 begin
+@cenum var"##Ctag#233"::UInt32 begin
     LLVMMDStringMetadataKind = 0
     LLVMConstantAsMetadataMetadataKind = 1
     LLVMLocalAsMetadataMetadataKind = 2

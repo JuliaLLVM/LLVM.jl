@@ -81,9 +81,6 @@ end
     speculative_execution_if_has_branch_divergence!(pm)
     simple_loop_unroll!(pm)
     inductive_range_check_elimination!(pm)
-    if LLVM.version() < v"15"
-        argument_promotion!(pm)
-    end
 
     constant_merge!(pm)
     dead_arg_elimination!(pm)

@@ -106,9 +106,6 @@ define_transforms([
     :MergeFunctions, :SpeculativeExecutionIfHasBranchDivergence, :SimpleLoopUnroll,
     :InductiveRangeCheckElimination, :SimpleLoopUnswitchLegacy,
 ])
-if version() < v"15"
-    define_transforms([:LoopUnswitch])
-end
 export scalar_repl_aggregates!, scalar_repl_aggregates_ssa!, cfgsimplification!
 
 scalar_repl_aggregates!(pm::PassManager, threshold::Integer) =
@@ -157,10 +154,6 @@ define_transforms([
     :FunctionInlining, :AlwaysInliner, :GlobalDCE, :GlobalOptimizer, :IPConstantPropagation,
     :IPSCCP, :StripDeadPrototypes, :StripSymbols
 ])
-
-if version() < v"15"
-    define_transforms([:ArgumentPromotion])
-end
 
 if version() < v"16"
     define_transforms([:PruneEH])

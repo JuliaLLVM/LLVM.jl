@@ -69,6 +69,8 @@ mutable struct LLVMOpaquePassManager end
 
 mutable struct LLVMOpaqueUse end
 
+mutable struct LLVMOpaqueOperandBundle end
+
 mutable struct LLVMOpaqueAttributeRef end
 
 mutable struct LLVMOpaqueDiagnosticInfo end
@@ -81,9 +83,13 @@ mutable struct LLVMOpaqueJITEventListener end
 
 mutable struct LLVMOpaqueBinary end
 
+mutable struct LLVMOpaqueDbgRecord end
+
 mutable struct LLVMOpaqueTargetData end
 
 mutable struct LLVMOpaqueTargetLibraryInfotData end
+
+mutable struct LLVMOpaqueTargetMachineOptions end
 
 mutable struct LLVMOpaqueTargetMachine end
 
@@ -128,6 +134,10 @@ mutable struct LLVMOrcOpaqueIndirectStubsManager end
 mutable struct LLVMOrcOpaqueLazyCallThroughManager end
 
 mutable struct LLVMOrcOpaqueDumpObjects end
+
+mutable struct LLVMOrcOpaqueLLJITBuilder end
+
+mutable struct LLVMOrcOpaqueLLJIT end
 
 mutable struct LLVMOpaqueGenericValue end
 
@@ -462,7 +472,6 @@ end
 | LLVMPointerTypeKind        | Pointers                                        |
 | LLVMVectorTypeKind         | Fixed width SIMD vector type                    |
 | LLVMMetadataTypeKind       | Metadata                                        |
-| LLVMX86\\_MMXTypeKind      | X86 MMX                                         |
 | LLVMTokenTypeKind          | Tokens                                          |
 | LLVMScalableVectorTypeKind | Scalable SIMD vector type                       |
 | LLVMBFloatTypeKind         | 16 bit brain floating point type                |
@@ -485,7 +494,6 @@ end
     LLVMPointerTypeKind = 12
     LLVMVectorTypeKind = 13
     LLVMMetadataTypeKind = 14
-    LLVMX86_MMXTypeKind = 15
     LLVMTokenTypeKind = 16
     LLVMScalableVectorTypeKind = 17
     LLVMBFloatTypeKind = 18
@@ -585,7 +593,6 @@ end
     LLVMColdCallConv = 9
     LLVMGHCCallConv = 10
     LLVMHiPECallConv = 11
-    LLVMWebKitJSCallConv = 12
     LLVMAnyRegCallConv = 13
     LLVMPreserveMostCallConv = 14
     LLVMPreserveAllCallConv = 15
@@ -652,6 +659,7 @@ end
     LLVMInstructionValueKind = 24
     LLVMPoisonValueValueKind = 25
     LLVMConstantTargetNoneValueKind = 26
+    LLVMConstantPtrAuthValueKind = 27
 end
 
 """
@@ -771,23 +779,27 @@ end
 """
     LLVMAtomicRMWBinOp
 
-| Enumerator             | Note                                                                                                        |
-| :--------------------- | :---------------------------------------------------------------------------------------------------------- |
-| LLVMAtomicRMWBinOpXchg | Set the new value and return the one old                                                                    |
-| LLVMAtomicRMWBinOpAdd  | Add a value and return the old one                                                                          |
-| LLVMAtomicRMWBinOpSub  | Subtract a value and return the old one                                                                     |
-| LLVMAtomicRMWBinOpAnd  | And a value and return the old one                                                                          |
-| LLVMAtomicRMWBinOpNand | Not-And a value and return the old one                                                                      |
-| LLVMAtomicRMWBinOpOr   | OR a value and return the old one                                                                           |
-| LLVMAtomicRMWBinOpXor  | Xor a value and return the old one                                                                          |
-| LLVMAtomicRMWBinOpMax  | Sets the value if it's greater than the original using a signed comparison and return the old one           |
-| LLVMAtomicRMWBinOpMin  | Sets the value if it's Smaller than the original using a signed comparison and return the old one           |
-| LLVMAtomicRMWBinOpUMax | Sets the value if it's greater than the original using an unsigned comparison and return the old one        |
-| LLVMAtomicRMWBinOpUMin |                                                                                                             |
-| LLVMAtomicRMWBinOpFAdd | Add a floating point value and return the old one                                                           |
-| LLVMAtomicRMWBinOpFSub | Subtract a floating point value and return the old one                                                      |
-| LLVMAtomicRMWBinOpFMax | Sets the value if it's greater than the original using an floating point comparison and return the old one  |
-| LLVMAtomicRMWBinOpFMin | Sets the value if it's smaller than the original using an floating point comparison and return the old one  |
+| Enumerator                 | Note                                                                                                        |
+| :------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| LLVMAtomicRMWBinOpXchg     | Set the new value and return the one old                                                                    |
+| LLVMAtomicRMWBinOpAdd      | Add a value and return the old one                                                                          |
+| LLVMAtomicRMWBinOpSub      | Subtract a value and return the old one                                                                     |
+| LLVMAtomicRMWBinOpAnd      | And a value and return the old one                                                                          |
+| LLVMAtomicRMWBinOpNand     | Not-And a value and return the old one                                                                      |
+| LLVMAtomicRMWBinOpOr       | OR a value and return the old one                                                                           |
+| LLVMAtomicRMWBinOpXor      | Xor a value and return the old one                                                                          |
+| LLVMAtomicRMWBinOpMax      | Sets the value if it's greater than the original using a signed comparison and return the old one           |
+| LLVMAtomicRMWBinOpMin      | Sets the value if it's Smaller than the original using a signed comparison and return the old one           |
+| LLVMAtomicRMWBinOpUMax     | Sets the value if it's greater than the original using an unsigned comparison and return the old one        |
+| LLVMAtomicRMWBinOpUMin     |                                                                                                             |
+| LLVMAtomicRMWBinOpFAdd     | Add a floating point value and return the old one                                                           |
+| LLVMAtomicRMWBinOpFSub     | Subtract a floating point value and return the old one                                                      |
+| LLVMAtomicRMWBinOpFMax     | Sets the value if it's greater than the original using an floating point comparison and return the old one  |
+| LLVMAtomicRMWBinOpFMin     | Sets the value if it's smaller than the original using an floating point comparison and return the old one  |
+| LLVMAtomicRMWBinOpUIncWrap | Increments the value, wrapping back to zero when incremented above input value                              |
+| LLVMAtomicRMWBinOpUDecWrap | Decrements the value, wrapping back to the input value when decremented below zero                          |
+| LLVMAtomicRMWBinOpUSubCond | Subtracts the value only if no unsigned overflow                                                            |
+| LLVMAtomicRMWBinOpUSubSat  | Subtracts the value, clamping to zero                                                                       |
 """
 @cenum LLVMAtomicRMWBinOp::UInt32 begin
     LLVMAtomicRMWBinOpXchg = 0
@@ -805,6 +817,10 @@ end
     LLVMAtomicRMWBinOpFSub = 12
     LLVMAtomicRMWBinOpFMax = 13
     LLVMAtomicRMWBinOpFMin = 14
+    LLVMAtomicRMWBinOpUIncWrap = 15
+    LLVMAtomicRMWBinOpUDecWrap = 16
+    LLVMAtomicRMWBinOpUSubCond = 17
+    LLVMAtomicRMWBinOpUSubSat = 18
 end
 
 @cenum LLVMDiagnosticSeverity::UInt32 begin
@@ -841,16 +857,65 @@ end
 end
 
 """
-    ##Ctag#234
+    ##Ctag#243
 
 Attribute index are either LLVMAttributeReturnIndex, LLVMAttributeFunctionIndex or a parameter number from 1 to N.
 """
-@cenum var"##Ctag#234"::Int32 begin
+@cenum var"##Ctag#243"::Int32 begin
     LLVMAttributeReturnIndex = 0
     LLVMAttributeFunctionIndex = -1
 end
 
 const LLVMAttributeIndex = Cuint
+
+"""
+    LLVMTailCallKind
+
+Tail call kind for [`LLVMSetTailCallKind`](@ref) and [`LLVMGetTailCallKind`](@ref).
+
+Note that 'musttail' implies 'tail'.
+
+# See also
+CallInst::TailCallKind
+"""
+@cenum LLVMTailCallKind::UInt32 begin
+    LLVMTailCallKindNone = 0
+    LLVMTailCallKindTail = 1
+    LLVMTailCallKindMustTail = 2
+    LLVMTailCallKindNoTail = 3
+end
+
+@cenum var"##Ctag#244"::UInt32 begin
+    LLVMFastMathAllowReassoc = 1
+    LLVMFastMathNoNaNs = 2
+    LLVMFastMathNoInfs = 4
+    LLVMFastMathNoSignedZeros = 8
+    LLVMFastMathAllowReciprocal = 16
+    LLVMFastMathAllowContract = 32
+    LLVMFastMathApproxFunc = 64
+    LLVMFastMathNone = 0
+    LLVMFastMathAll = 127
+end
+
+"""
+Flags to indicate what fast-math-style optimizations are allowed on operations.
+
+See https://llvm.org/docs/LangRef.html#fast-math-flags
+"""
+const LLVMFastMathFlags = Cuint
+
+@cenum var"##Ctag#245"::UInt32 begin
+    LLVMGEPFlagInBounds = 1
+    LLVMGEPFlagNUSW = 2
+    LLVMGEPFlagNUW = 4
+end
+
+"""
+Flags that constrain the allowed wrap semantics of a getelementptr instruction.
+
+See https://llvm.org/docs/LangRef.html#getelementptr-instruction
+"""
+const LLVMGEPNoWrapFlags = Cuint
 
 """
     LLVMShutdown()
@@ -1033,6 +1098,15 @@ function LLVMGetMDKindID(Name, SLen)
 end
 
 """
+    LLVMGetSyncScopeID(C, Name, SLen)
+
+Maps a synchronization scope name to a ID unique within this context.
+"""
+function LLVMGetSyncScopeID(C, Name, SLen)
+    ccall((:LLVMGetSyncScopeID, libllvm), Cuint, (LLVMContextRef, Cstring, Csize_t), C, Name, SLen)
+end
+
+"""
     LLVMGetEnumAttributeKindForName(Name, SLen)
 
 Return an unique id given the name of a enum attribute, or 0 if no attribute by that name exists.
@@ -1108,6 +1182,17 @@ Get the type attribute's value.
 """
 function LLVMGetTypeAttributeValue(A)
     ccall((:LLVMGetTypeAttributeValue, libllvm), LLVMTypeRef, (LLVMAttributeRef,), A)
+end
+
+"""
+    LLVMCreateConstantRangeAttribute(C, KindID, NumBits, LowerWords, UpperWords)
+
+Create a ConstantRange attribute.
+
+LowerWords and UpperWords need to be NumBits divided by 64 rounded up elements long.
+"""
+function LLVMCreateConstantRangeAttribute(C, KindID, NumBits, LowerWords, UpperWords)
+    ccall((:LLVMCreateConstantRangeAttribute, libllvm), LLVMAttributeRef, (LLVMContextRef, Cuint, Cuint, Ptr{UInt64}, Ptr{UInt64}), C, KindID, NumBits, LowerWords, UpperWords)
 end
 
 """
@@ -1205,6 +1290,28 @@ This must be called for every created module or memory will be leaked.
 """
 function LLVMDisposeModule(M)
     ccall((:LLVMDisposeModule, libllvm), Cvoid, (LLVMModuleRef,), M)
+end
+
+"""
+    LLVMIsNewDbgInfoFormat(M)
+
+Soon to be deprecated. See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
+
+Returns true if the module is in the new debug info mode which uses non-instruction debug records instead of debug intrinsics for variable location tracking.
+"""
+function LLVMIsNewDbgInfoFormat(M)
+    ccall((:LLVMIsNewDbgInfoFormat, libllvm), LLVMBool, (LLVMModuleRef,), M)
+end
+
+"""
+    LLVMSetIsNewDbgInfoFormat(M, UseNewFormat)
+
+Soon to be deprecated. See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
+
+Convert module into desired debug info format.
+"""
+function LLVMSetIsNewDbgInfoFormat(M, UseNewFormat)
+    ccall((:LLVMSetIsNewDbgInfoFormat, libllvm), Cvoid, (LLVMModuleRef, LLVMBool), M, UseNewFormat)
 end
 
 """
@@ -1506,6 +1613,72 @@ function LLVMGetInlineAsm(Ty, AsmString, AsmStringSize, Constraints, Constraints
 end
 
 """
+    LLVMGetInlineAsmAsmString(InlineAsmVal, Len)
+
+Get the template string used for an inline assembly snippet
+"""
+function LLVMGetInlineAsmAsmString(InlineAsmVal, Len)
+    ccall((:LLVMGetInlineAsmAsmString, libllvm), Cstring, (LLVMValueRef, Ptr{Csize_t}), InlineAsmVal, Len)
+end
+
+"""
+    LLVMGetInlineAsmConstraintString(InlineAsmVal, Len)
+
+Get the raw constraint string for an inline assembly snippet
+"""
+function LLVMGetInlineAsmConstraintString(InlineAsmVal, Len)
+    ccall((:LLVMGetInlineAsmConstraintString, libllvm), Cstring, (LLVMValueRef, Ptr{Csize_t}), InlineAsmVal, Len)
+end
+
+"""
+    LLVMGetInlineAsmDialect(InlineAsmVal)
+
+Get the dialect used by the inline asm snippet
+"""
+function LLVMGetInlineAsmDialect(InlineAsmVal)
+    ccall((:LLVMGetInlineAsmDialect, libllvm), LLVMInlineAsmDialect, (LLVMValueRef,), InlineAsmVal)
+end
+
+"""
+    LLVMGetInlineAsmFunctionType(InlineAsmVal)
+
+Get the function type of the inline assembly snippet. The same type that was passed into [`LLVMGetInlineAsm`](@ref) originally
+
+# See also
+[`LLVMGetInlineAsm`](@ref)
+"""
+function LLVMGetInlineAsmFunctionType(InlineAsmVal)
+    ccall((:LLVMGetInlineAsmFunctionType, libllvm), LLVMTypeRef, (LLVMValueRef,), InlineAsmVal)
+end
+
+"""
+    LLVMGetInlineAsmHasSideEffects(InlineAsmVal)
+
+Get if the inline asm snippet has side effects
+"""
+function LLVMGetInlineAsmHasSideEffects(InlineAsmVal)
+    ccall((:LLVMGetInlineAsmHasSideEffects, libllvm), LLVMBool, (LLVMValueRef,), InlineAsmVal)
+end
+
+"""
+    LLVMGetInlineAsmNeedsAlignedStack(InlineAsmVal)
+
+Get if the inline asm snippet needs an aligned stack
+"""
+function LLVMGetInlineAsmNeedsAlignedStack(InlineAsmVal)
+    ccall((:LLVMGetInlineAsmNeedsAlignedStack, libllvm), LLVMBool, (LLVMValueRef,), InlineAsmVal)
+end
+
+"""
+    LLVMGetInlineAsmCanUnwind(InlineAsmVal)
+
+Get if the inline asm snippet may unwind the stack
+"""
+function LLVMGetInlineAsmCanUnwind(InlineAsmVal)
+    ccall((:LLVMGetInlineAsmCanUnwind, libllvm), LLVMBool, (LLVMValueRef,), InlineAsmVal)
+end
+
+"""
     LLVMGetModuleContext(M)
 
 Obtain the context to which this module is associated.
@@ -1725,6 +1898,20 @@ llvm::Module::getFunction()
 """
 function LLVMGetNamedFunction(M, Name)
     ccall((:LLVMGetNamedFunction, libllvm), LLVMValueRef, (LLVMModuleRef, Cstring), M, Name)
+end
+
+"""
+    LLVMGetNamedFunctionWithLength(M, Name, Length)
+
+Obtain a Function value from a Module by its name.
+
+The returned value corresponds to a llvm::Function value.
+
+# See also
+llvm::Module::getFunction()
+"""
+function LLVMGetNamedFunctionWithLength(M, Name, Length)
+    ccall((:LLVMGetNamedFunctionWithLength, libllvm), LLVMValueRef, (LLVMModuleRef, Cstring, Csize_t), M, Name, Length)
 end
 
 """
@@ -2395,6 +2582,54 @@ function LLVMGetVectorSize(VectorTy)
 end
 
 """
+    LLVMGetConstantPtrAuthPointer(PtrAuth)
+
+Get the pointer value for the associated ConstantPtrAuth constant.
+
+# See also
+llvm::ConstantPtrAuth::getPointer
+"""
+function LLVMGetConstantPtrAuthPointer(PtrAuth)
+    ccall((:LLVMGetConstantPtrAuthPointer, libllvm), LLVMValueRef, (LLVMValueRef,), PtrAuth)
+end
+
+"""
+    LLVMGetConstantPtrAuthKey(PtrAuth)
+
+Get the key value for the associated ConstantPtrAuth constant.
+
+# See also
+llvm::ConstantPtrAuth::getKey
+"""
+function LLVMGetConstantPtrAuthKey(PtrAuth)
+    ccall((:LLVMGetConstantPtrAuthKey, libllvm), LLVMValueRef, (LLVMValueRef,), PtrAuth)
+end
+
+"""
+    LLVMGetConstantPtrAuthDiscriminator(PtrAuth)
+
+Get the discriminator value for the associated ConstantPtrAuth constant.
+
+# See also
+llvm::ConstantPtrAuth::getDiscriminator
+"""
+function LLVMGetConstantPtrAuthDiscriminator(PtrAuth)
+    ccall((:LLVMGetConstantPtrAuthDiscriminator, libllvm), LLVMValueRef, (LLVMValueRef,), PtrAuth)
+end
+
+"""
+    LLVMGetConstantPtrAuthAddrDiscriminator(PtrAuth)
+
+Get the address discriminator value for the associated ConstantPtrAuth constant.
+
+# See also
+llvm::ConstantPtrAuth::getAddrDiscriminator
+"""
+function LLVMGetConstantPtrAuthAddrDiscriminator(PtrAuth)
+    ccall((:LLVMGetConstantPtrAuthAddrDiscriminator, libllvm), LLVMValueRef, (LLVMValueRef,), PtrAuth)
+end
+
+"""
     LLVMVoidTypeInContext(C)
 
 Create a void type in a context.
@@ -2410,15 +2645,6 @@ Create a label type in a context.
 """
 function LLVMLabelTypeInContext(C)
     ccall((:LLVMLabelTypeInContext, libllvm), LLVMTypeRef, (LLVMContextRef,), C)
-end
-
-"""
-    LLVMX86MMXTypeInContext(C)
-
-Create a X86 MMX type in a context.
-"""
-function LLVMX86MMXTypeInContext(C)
-    ccall((:LLVMX86MMXTypeInContext, libllvm), LLVMTypeRef, (LLVMContextRef,), C)
 end
 
 """
@@ -2461,10 +2687,6 @@ function LLVMLabelType()
     ccall((:LLVMLabelType, libllvm), LLVMTypeRef, ())
 end
 
-function LLVMX86MMXType()
-    ccall((:LLVMX86MMXType, libllvm), LLVMTypeRef, ())
-end
-
 function LLVMX86AMXType()
     ccall((:LLVMX86AMXType, libllvm), LLVMTypeRef, ())
 end
@@ -2476,6 +2698,66 @@ Create a target extension type in LLVM context.
 """
 function LLVMTargetExtTypeInContext(C, Name, TypeParams, TypeParamCount, IntParams, IntParamCount)
     ccall((:LLVMTargetExtTypeInContext, libllvm), LLVMTypeRef, (LLVMContextRef, Cstring, Ptr{LLVMTypeRef}, Cuint, Ptr{Cuint}, Cuint), C, Name, TypeParams, TypeParamCount, IntParams, IntParamCount)
+end
+
+"""
+    LLVMGetTargetExtTypeName(TargetExtTy)
+
+Obtain the name for this target extension type.
+
+# See also
+llvm::TargetExtType::getName()
+"""
+function LLVMGetTargetExtTypeName(TargetExtTy)
+    ccall((:LLVMGetTargetExtTypeName, libllvm), Cstring, (LLVMTypeRef,), TargetExtTy)
+end
+
+"""
+    LLVMGetTargetExtTypeNumTypeParams(TargetExtTy)
+
+Obtain the number of type parameters for this target extension type.
+
+# See also
+llvm::TargetExtType::getNumTypeParameters()
+"""
+function LLVMGetTargetExtTypeNumTypeParams(TargetExtTy)
+    ccall((:LLVMGetTargetExtTypeNumTypeParams, libllvm), Cuint, (LLVMTypeRef,), TargetExtTy)
+end
+
+"""
+    LLVMGetTargetExtTypeTypeParam(TargetExtTy, Idx)
+
+Get the type parameter at the given index for the target extension type.
+
+# See also
+llvm::TargetExtType::getTypeParameter()
+"""
+function LLVMGetTargetExtTypeTypeParam(TargetExtTy, Idx)
+    ccall((:LLVMGetTargetExtTypeTypeParam, libllvm), LLVMTypeRef, (LLVMTypeRef, Cuint), TargetExtTy, Idx)
+end
+
+"""
+    LLVMGetTargetExtTypeNumIntParams(TargetExtTy)
+
+Obtain the number of int parameters for this target extension type.
+
+# See also
+llvm::TargetExtType::getNumIntParameters()
+"""
+function LLVMGetTargetExtTypeNumIntParams(TargetExtTy)
+    ccall((:LLVMGetTargetExtTypeNumIntParams, libllvm), Cuint, (LLVMTypeRef,), TargetExtTy)
+end
+
+"""
+    LLVMGetTargetExtTypeIntParam(TargetExtTy, Idx)
+
+Get the int parameter at the given index for the target extension type.
+
+# See also
+llvm::TargetExtType::getIntParameter()
+"""
+function LLVMGetTargetExtTypeIntParam(TargetExtTy, Idx)
+    ccall((:LLVMGetTargetExtTypeIntParam, libllvm), Cuint, (LLVMTypeRef, Cuint), TargetExtTy, Idx)
 end
 
 """
@@ -2548,6 +2830,36 @@ llvm::Value::print()
 """
 function LLVMPrintValueToString(Val)
     ccall((:LLVMPrintValueToString, libllvm), Cstring, (LLVMValueRef,), Val)
+end
+
+"""
+    LLVMGetValueContext(Val)
+
+Obtain the context to which this value is associated.
+
+# See also
+llvm::Value::getContext()
+"""
+function LLVMGetValueContext(Val)
+    ccall((:LLVMGetValueContext, libllvm), LLVMContextRef, (LLVMValueRef,), Val)
+end
+
+"""
+# See also
+llvm::DbgRecord
+"""
+const LLVMDbgRecordRef = Ptr{LLVMOpaqueDbgRecord}
+
+"""
+    LLVMPrintDbgRecordToString(Record)
+
+Return a string representation of the DbgRecord. Use [`LLVMDisposeMessage`](@ref) to free the string.
+
+# See also
+llvm::DbgRecord::print()
+"""
+function LLVMPrintDbgRecordToString(Record)
+    ccall((:LLVMPrintDbgRecordToString, libllvm), Cstring, (LLVMDbgRecordRef,), Record)
 end
 
 """
@@ -2659,6 +2971,10 @@ end
 
 function LLVMIsAConstantVector(Val)
     ccall((:LLVMIsAConstantVector, libllvm), LLVMValueRef, (LLVMValueRef,), Val)
+end
+
+function LLVMIsAConstantPtrAuth(Val)
+    ccall((:LLVMIsAConstantPtrAuth, libllvm), LLVMValueRef, (LLVMValueRef,), Val)
 end
 
 function LLVMIsAGlobalValue(Val)
@@ -3275,11 +3591,27 @@ end
 
 Create a ConstantDataSequential and initialize it with a string.
 
+!!! compat "Deprecated"
+
+    [`LLVMConstStringInContext`](@ref) is deprecated in favor of the API accurate [`LLVMConstStringInContext2`](@ref)
+
 # See also
 llvm::ConstantDataArray::getString()
 """
 function LLVMConstStringInContext(C, Str, Length, DontNullTerminate)
     ccall((:LLVMConstStringInContext, libllvm), LLVMValueRef, (LLVMContextRef, Cstring, Cuint, LLVMBool), C, Str, Length, DontNullTerminate)
+end
+
+"""
+    LLVMConstStringInContext2(C, Str, Length, DontNullTerminate)
+
+Create a ConstantDataSequential and initialize it with a string.
+
+# See also
+llvm::ConstantDataArray::getString()
+"""
+function LLVMConstStringInContext2(C, Str, Length, DontNullTerminate)
+    ccall((:LLVMConstStringInContext2, libllvm), LLVMValueRef, (LLVMContextRef, Cstring, Csize_t, LLVMBool), C, Str, Length, DontNullTerminate)
 end
 
 """
@@ -3415,6 +3747,18 @@ function LLVMConstVector(ScalarConstantVals, Size)
 end
 
 """
+    LLVMConstantPtrAuth(Ptr, Key, Disc, AddrDisc)
+
+Create a ConstantPtrAuth constant with the given values.
+
+# See also
+llvm::ConstantPtrAuth::get()
+"""
+function LLVMConstantPtrAuth(Ptr, Key, Disc, AddrDisc)
+    ccall((:LLVMConstantPtrAuth, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMValueRef, LLVMValueRef), Ptr, Key, Disc, AddrDisc)
+end
+
+"""
     LLVMGetConstOpcode(ConstantVal)
 
 ` LLVMCCoreValueConstantExpressions Constant Expressions`
@@ -3490,36 +3834,8 @@ function LLVMConstNUWMul(LHSConstant, RHSConstant)
     ccall((:LLVMConstNUWMul, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef), LHSConstant, RHSConstant)
 end
 
-function LLVMConstAnd(LHSConstant, RHSConstant)
-    ccall((:LLVMConstAnd, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef), LHSConstant, RHSConstant)
-end
-
-function LLVMConstOr(LHSConstant, RHSConstant)
-    ccall((:LLVMConstOr, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef), LHSConstant, RHSConstant)
-end
-
 function LLVMConstXor(LHSConstant, RHSConstant)
     ccall((:LLVMConstXor, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef), LHSConstant, RHSConstant)
-end
-
-function LLVMConstICmp(Predicate, LHSConstant, RHSConstant)
-    ccall((:LLVMConstICmp, libllvm), LLVMValueRef, (LLVMIntPredicate, LLVMValueRef, LLVMValueRef), Predicate, LHSConstant, RHSConstant)
-end
-
-function LLVMConstFCmp(Predicate, LHSConstant, RHSConstant)
-    ccall((:LLVMConstFCmp, libllvm), LLVMValueRef, (LLVMRealPredicate, LLVMValueRef, LLVMValueRef), Predicate, LHSConstant, RHSConstant)
-end
-
-function LLVMConstShl(LHSConstant, RHSConstant)
-    ccall((:LLVMConstShl, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef), LHSConstant, RHSConstant)
-end
-
-function LLVMConstLShr(LHSConstant, RHSConstant)
-    ccall((:LLVMConstLShr, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef), LHSConstant, RHSConstant)
-end
-
-function LLVMConstAShr(LHSConstant, RHSConstant)
-    ccall((:LLVMConstAShr, libllvm), LLVMValueRef, (LLVMValueRef, LLVMValueRef), LHSConstant, RHSConstant)
 end
 
 function LLVMConstGEP2(Ty, ConstantVal, ConstantIndices, NumIndices)
@@ -3530,40 +3846,20 @@ function LLVMConstInBoundsGEP2(Ty, ConstantVal, ConstantIndices, NumIndices)
     ccall((:LLVMConstInBoundsGEP2, libllvm), LLVMValueRef, (LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint), Ty, ConstantVal, ConstantIndices, NumIndices)
 end
 
+"""
+    LLVMConstGEPWithNoWrapFlags(Ty, ConstantVal, ConstantIndices, NumIndices, NoWrapFlags)
+
+Creates a constant GetElementPtr expression. Similar to [`LLVMConstGEP2`](@ref), but allows specifying the no-wrap flags.
+
+# See also
+llvm::ConstantExpr::getGetElementPtr()
+"""
+function LLVMConstGEPWithNoWrapFlags(Ty, ConstantVal, ConstantIndices, NumIndices, NoWrapFlags)
+    ccall((:LLVMConstGEPWithNoWrapFlags, libllvm), LLVMValueRef, (LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMGEPNoWrapFlags), Ty, ConstantVal, ConstantIndices, NumIndices, NoWrapFlags)
+end
+
 function LLVMConstTrunc(ConstantVal, ToType)
     ccall((:LLVMConstTrunc, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstSExt(ConstantVal, ToType)
-    ccall((:LLVMConstSExt, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstZExt(ConstantVal, ToType)
-    ccall((:LLVMConstZExt, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstFPTrunc(ConstantVal, ToType)
-    ccall((:LLVMConstFPTrunc, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstFPExt(ConstantVal, ToType)
-    ccall((:LLVMConstFPExt, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstUIToFP(ConstantVal, ToType)
-    ccall((:LLVMConstUIToFP, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstSIToFP(ConstantVal, ToType)
-    ccall((:LLVMConstSIToFP, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstFPToUI(ConstantVal, ToType)
-    ccall((:LLVMConstFPToUI, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstFPToSI(ConstantVal, ToType)
-    ccall((:LLVMConstFPToSI, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
 end
 
 function LLVMConstPtrToInt(ConstantVal, ToType)
@@ -3582,28 +3878,12 @@ function LLVMConstAddrSpaceCast(ConstantVal, ToType)
     ccall((:LLVMConstAddrSpaceCast, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
 end
 
-function LLVMConstZExtOrBitCast(ConstantVal, ToType)
-    ccall((:LLVMConstZExtOrBitCast, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstSExtOrBitCast(ConstantVal, ToType)
-    ccall((:LLVMConstSExtOrBitCast, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
 function LLVMConstTruncOrBitCast(ConstantVal, ToType)
     ccall((:LLVMConstTruncOrBitCast, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
 end
 
 function LLVMConstPointerCast(ConstantVal, ToType)
     ccall((:LLVMConstPointerCast, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
-end
-
-function LLVMConstIntCast(ConstantVal, ToType, isSigned)
-    ccall((:LLVMConstIntCast, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef, LLVMBool), ConstantVal, ToType, isSigned)
-end
-
-function LLVMConstFPCast(ConstantVal, ToType)
-    ccall((:LLVMConstFPCast, libllvm), LLVMValueRef, (LLVMValueRef, LLVMTypeRef), ConstantVal, ToType)
 end
 
 function LLVMConstExtractElement(VectorConstant, IndexConstant)
@@ -3627,6 +3907,24 @@ const LLVMBasicBlockRef = Ptr{LLVMOpaqueBasicBlock}
 
 function LLVMBlockAddress(F, BB)
     ccall((:LLVMBlockAddress, libllvm), LLVMValueRef, (LLVMValueRef, LLVMBasicBlockRef), F, BB)
+end
+
+"""
+    LLVMGetBlockAddressFunction(BlockAddr)
+
+Gets the function associated with a given BlockAddress constant value.
+"""
+function LLVMGetBlockAddressFunction(BlockAddr)
+    ccall((:LLVMGetBlockAddressFunction, libllvm), LLVMValueRef, (LLVMValueRef,), BlockAddr)
+end
+
+"""
+    LLVMGetBlockAddressBasicBlock(BlockAddr)
+
+Gets the basic block associated with a given BlockAddress constant value.
+"""
+function LLVMGetBlockAddressBasicBlock(BlockAddr)
+    ccall((:LLVMGetBlockAddressBasicBlock, libllvm), LLVMBasicBlockRef, (LLVMValueRef,), BlockAddr)
 end
 
 """
@@ -3858,6 +4156,10 @@ function LLVMGetNamedGlobal(M, Name)
     ccall((:LLVMGetNamedGlobal, libllvm), LLVMValueRef, (LLVMModuleRef, Cstring), M, Name)
 end
 
+function LLVMGetNamedGlobalWithLength(M, Name, Length)
+    ccall((:LLVMGetNamedGlobalWithLength, libllvm), LLVMValueRef, (LLVMModuleRef, Cstring, Csize_t), M, Name, Length)
+end
+
 function LLVMGetFirstGlobal(M)
     ccall((:LLVMGetFirstGlobal, libllvm), LLVMValueRef, (LLVMModuleRef,), M)
 end
@@ -4062,7 +4364,7 @@ end
 Obtain the intrinsic ID number which matches the given function name.
 
 # See also
-llvm::Function::lookupIntrinsicID()
+llvm::Intrinsic::lookupIntrinsicID()
 """
 function LLVMLookupIntrinsicID(Name, NameLen)
     ccall((:LLVMLookupIntrinsicID, libllvm), Cuint, (Cstring, Csize_t), Name, NameLen)
@@ -4083,10 +4385,10 @@ end
 """
     LLVMGetIntrinsicDeclaration(Mod, ID, ParamTypes, ParamCount)
 
-Create or insert the declaration of an intrinsic. For overloaded intrinsics, parameter types must be provided to uniquely identify an overload.
+Get or insert the declaration of an intrinsic. For overloaded intrinsics, parameter types must be provided to uniquely identify an overload.
 
 # See also
-llvm::Intrinsic::getDeclaration()
+llvm::Intrinsic::getOrInsertDeclaration()
 """
 function LLVMGetIntrinsicDeclaration(Mod, ID, ParamTypes, ParamCount)
     ccall((:LLVMGetIntrinsicDeclaration, libllvm), LLVMValueRef, (LLVMModuleRef, Cuint, Ptr{LLVMTypeRef}, Csize_t), Mod, ID, ParamTypes, ParamCount)
@@ -4204,6 +4506,60 @@ llvm::Function::setGC()
 """
 function LLVMSetGC(Fn, Name)
     ccall((:LLVMSetGC, libllvm), Cvoid, (LLVMValueRef, Cstring), Fn, Name)
+end
+
+"""
+    LLVMGetPrefixData(Fn)
+
+Gets the prefix data associated with a function. Only valid on functions, and only if [`LLVMHasPrefixData`](@ref) returns true. See https://llvm.org/docs/LangRef.html#prefix-data
+"""
+function LLVMGetPrefixData(Fn)
+    ccall((:LLVMGetPrefixData, libllvm), LLVMValueRef, (LLVMValueRef,), Fn)
+end
+
+"""
+    LLVMHasPrefixData(Fn)
+
+Check if a given function has prefix data. Only valid on functions. See https://llvm.org/docs/LangRef.html#prefix-data
+"""
+function LLVMHasPrefixData(Fn)
+    ccall((:LLVMHasPrefixData, libllvm), LLVMBool, (LLVMValueRef,), Fn)
+end
+
+"""
+    LLVMSetPrefixData(Fn, prefixData)
+
+Sets the prefix data for the function. Only valid on functions. See https://llvm.org/docs/LangRef.html#prefix-data
+"""
+function LLVMSetPrefixData(Fn, prefixData)
+    ccall((:LLVMSetPrefixData, libllvm), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, prefixData)
+end
+
+"""
+    LLVMGetPrologueData(Fn)
+
+Gets the prologue data associated with a function. Only valid on functions, and only if [`LLVMHasPrologueData`](@ref) returns true. See https://llvm.org/docs/LangRef.html#prologue-data
+"""
+function LLVMGetPrologueData(Fn)
+    ccall((:LLVMGetPrologueData, libllvm), LLVMValueRef, (LLVMValueRef,), Fn)
+end
+
+"""
+    LLVMHasPrologueData(Fn)
+
+Check if a given function has prologue data. Only valid on functions. See https://llvm.org/docs/LangRef.html#prologue-data
+"""
+function LLVMHasPrologueData(Fn)
+    ccall((:LLVMHasPrologueData, libllvm), LLVMBool, (LLVMValueRef,), Fn)
+end
+
+"""
+    LLVMSetPrologueData(Fn, prologueData)
+
+Sets the prologue data for the function. Only valid on functions. See https://llvm.org/docs/LangRef.html#prologue-data
+"""
+function LLVMSetPrologueData(Fn, prologueData)
+    ccall((:LLVMSetPrologueData, libllvm), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, prologueData)
 end
 
 """
@@ -4621,6 +4977,88 @@ Deprecated: Use [`LLVMMDNodeInContext2`](@ref) instead.
 """
 function LLVMMDNode(Vals, Count)
     ccall((:LLVMMDNode, libllvm), LLVMValueRef, (Ptr{LLVMValueRef}, Cuint), Vals, Count)
+end
+
+"""
+# See also
+llvm::OperandBundleDef
+"""
+const LLVMOperandBundleRef = Ptr{LLVMOpaqueOperandBundle}
+
+"""
+    LLVMCreateOperandBundle(Tag, TagLen, Args, NumArgs)
+
+Create a new operand bundle.
+
+Every invocation should be paired with [`LLVMDisposeOperandBundle`](@ref)() or memory will be leaked.
+
+# Arguments
+* `Tag`: Tag name of the operand bundle
+* `TagLen`: Length of Tag
+* `Args`: Memory address of an array of bundle operands
+* `NumArgs`: Length of Args
+"""
+function LLVMCreateOperandBundle(Tag, TagLen, Args, NumArgs)
+    ccall((:LLVMCreateOperandBundle, libllvm), LLVMOperandBundleRef, (Cstring, Csize_t, Ptr{LLVMValueRef}, Cuint), Tag, TagLen, Args, NumArgs)
+end
+
+"""
+    LLVMDisposeOperandBundle(Bundle)
+
+Destroy an operand bundle.
+
+This must be called for every created operand bundle or memory will be leaked.
+"""
+function LLVMDisposeOperandBundle(Bundle)
+    ccall((:LLVMDisposeOperandBundle, libllvm), Cvoid, (LLVMOperandBundleRef,), Bundle)
+end
+
+"""
+    LLVMGetOperandBundleTag(Bundle, Len)
+
+Obtain the tag of an operand bundle as a string.
+
+# Arguments
+* `Bundle`: Operand bundle to obtain tag of.
+* `Len`: Out parameter which holds the length of the returned string.
+# Returns
+The tag name of Bundle.
+# See also
+OperandBundleDef::getTag()
+"""
+function LLVMGetOperandBundleTag(Bundle, Len)
+    ccall((:LLVMGetOperandBundleTag, libllvm), Cstring, (LLVMOperandBundleRef, Ptr{Csize_t}), Bundle, Len)
+end
+
+"""
+    LLVMGetNumOperandBundleArgs(Bundle)
+
+Obtain the number of operands for an operand bundle.
+
+# Arguments
+* `Bundle`: Operand bundle to obtain operand count of.
+# Returns
+The number of operands.
+# See also
+OperandBundleDef::input\\_size()
+"""
+function LLVMGetNumOperandBundleArgs(Bundle)
+    ccall((:LLVMGetNumOperandBundleArgs, libllvm), Cuint, (LLVMOperandBundleRef,), Bundle)
+end
+
+"""
+    LLVMGetOperandBundleArgAtIndex(Bundle, Index)
+
+Obtain the operand for an operand bundle at the given index.
+
+# Arguments
+* `Bundle`: Operand bundle to obtain operand of.
+* `Index`: An operand index, must be less than [`LLVMGetNumOperandBundleArgs`](@ref)().
+# Returns
+The operand.
+"""
+function LLVMGetOperandBundleArgAtIndex(Bundle, Index)
+    ccall((:LLVMGetOperandBundleArgAtIndex, libllvm), LLVMValueRef, (LLVMOperandBundleRef, Cuint), Bundle, Index)
 end
 
 """
@@ -5069,7 +5507,7 @@ end
 
 Obtain the predicate of an instruction.
 
-This is only valid for instructions that correspond to llvm::ICmpInst or llvm::ConstantExpr whose opcode is llvm::Instruction::ICmp.
+This is only valid for instructions that correspond to llvm::ICmpInst.
 
 # See also
 llvm::ICmpInst::getPredicate()
@@ -5083,7 +5521,7 @@ end
 
 Obtain the float predicate of an instruction.
 
-This is only valid for instructions that correspond to llvm::FCmpInst or llvm::ConstantExpr whose opcode is llvm::Instruction::FCmp.
+This is only valid for instructions that correspond to llvm::FCmpInst.
 
 # See also
 llvm::FCmpInst::getPredicate()
@@ -5114,6 +5552,60 @@ llvm::Instruction::isTerminator()
 """
 function LLVMIsATerminatorInst(Inst)
     ccall((:LLVMIsATerminatorInst, libllvm), LLVMValueRef, (LLVMValueRef,), Inst)
+end
+
+"""
+    LLVMGetFirstDbgRecord(Inst)
+
+Obtain the first debug record attached to an instruction.
+
+Use [`LLVMGetNextDbgRecord`](@ref)() and [`LLVMGetPreviousDbgRecord`](@ref)() to traverse the sequence of DbgRecords.
+
+Return the first DbgRecord attached to Inst or NULL if there are none.
+
+# See also
+llvm::Instruction::getDbgRecordRange()
+"""
+function LLVMGetFirstDbgRecord(Inst)
+    ccall((:LLVMGetFirstDbgRecord, libllvm), LLVMDbgRecordRef, (LLVMValueRef,), Inst)
+end
+
+"""
+    LLVMGetLastDbgRecord(Inst)
+
+Obtain the last debug record attached to an instruction.
+
+Return the last DbgRecord attached to Inst or NULL if there are none.
+
+# See also
+llvm::Instruction::getDbgRecordRange()
+"""
+function LLVMGetLastDbgRecord(Inst)
+    ccall((:LLVMGetLastDbgRecord, libllvm), LLVMDbgRecordRef, (LLVMValueRef,), Inst)
+end
+
+"""
+    LLVMGetNextDbgRecord(DbgRecord)
+
+Obtain the next DbgRecord in the sequence or NULL if there are no more.
+
+# See also
+llvm::Instruction::getDbgRecordRange()
+"""
+function LLVMGetNextDbgRecord(DbgRecord)
+    ccall((:LLVMGetNextDbgRecord, libllvm), LLVMDbgRecordRef, (LLVMDbgRecordRef,), DbgRecord)
+end
+
+"""
+    LLVMGetPreviousDbgRecord(DbgRecord)
+
+Obtain the previous DbgRecord in the sequence or NULL if there are no more.
+
+# See also
+llvm::Instruction::getDbgRecordRange()
+"""
+function LLVMGetPreviousDbgRecord(DbgRecord)
+    ccall((:LLVMGetPreviousDbgRecord, libllvm), LLVMDbgRecordRef, (LLVMDbgRecordRef,), DbgRecord)
 end
 
 """
@@ -5217,6 +5709,31 @@ function LLVMGetCalledValue(Instr)
 end
 
 """
+    LLVMGetNumOperandBundles(C)
+
+Obtain the number of operand bundles attached to this instruction.
+
+This only works on llvm::CallInst and llvm::InvokeInst instructions.
+
+# See also
+llvm::CallBase::getNumOperandBundles()
+"""
+function LLVMGetNumOperandBundles(C)
+    ccall((:LLVMGetNumOperandBundles, libllvm), Cuint, (LLVMValueRef,), C)
+end
+
+"""
+    LLVMGetOperandBundleAtIndex(C, Index)
+
+Obtain the operand bundle attached to this instruction at the given index. Use [`LLVMDisposeOperandBundle`](@ref) to free the operand bundle.
+
+This only works on llvm::CallInst and llvm::InvokeInst instructions.
+"""
+function LLVMGetOperandBundleAtIndex(C, Index)
+    ccall((:LLVMGetOperandBundleAtIndex, libllvm), LLVMOperandBundleRef, (LLVMValueRef, Cuint), C, Index)
+end
+
+"""
     LLVMIsTailCall(CallInst)
 
 Obtain whether a call instruction is a tail call.
@@ -5242,6 +5759,30 @@ llvm::CallInst::setTailCall()
 """
 function LLVMSetTailCall(CallInst, IsTailCall)
     ccall((:LLVMSetTailCall, libllvm), Cvoid, (LLVMValueRef, LLVMBool), CallInst, IsTailCall)
+end
+
+"""
+    LLVMGetTailCallKind(CallInst)
+
+Obtain a tail call kind of the call instruction.
+
+# See also
+llvm::CallInst::setTailCallKind()
+"""
+function LLVMGetTailCallKind(CallInst)
+    ccall((:LLVMGetTailCallKind, libllvm), LLVMTailCallKind, (LLVMValueRef,), CallInst)
+end
+
+"""
+    LLVMSetTailCallKind(CallInst, kind)
+
+Set the call kind of the call instruction.
+
+# See also
+llvm::CallInst::getTailCallKind()
+"""
+function LLVMSetTailCallKind(CallInst, kind)
+    ccall((:LLVMSetTailCallKind, libllvm), Cvoid, (LLVMValueRef, LLVMTailCallKind), CallInst, kind)
 end
 
 """
@@ -5298,6 +5839,42 @@ llvm::InvokeInst::setUnwindDest(), llvm::CleanupReturnInst::setUnwindDest(), llv
 """
 function LLVMSetUnwindDest(InvokeInst, B)
     ccall((:LLVMSetUnwindDest, libllvm), Cvoid, (LLVMValueRef, LLVMBasicBlockRef), InvokeInst, B)
+end
+
+"""
+    LLVMGetCallBrDefaultDest(CallBr)
+
+Get the default destination of a CallBr instruction.
+
+# See also
+llvm::CallBrInst::getDefaultDest()
+"""
+function LLVMGetCallBrDefaultDest(CallBr)
+    ccall((:LLVMGetCallBrDefaultDest, libllvm), LLVMBasicBlockRef, (LLVMValueRef,), CallBr)
+end
+
+"""
+    LLVMGetCallBrNumIndirectDests(CallBr)
+
+Get the number of indirect destinations of a CallBr instruction.
+
+# See also
+llvm::CallBrInst::getNumIndirectDests()
+"""
+function LLVMGetCallBrNumIndirectDests(CallBr)
+    ccall((:LLVMGetCallBrNumIndirectDests, libllvm), Cuint, (LLVMValueRef,), CallBr)
+end
+
+"""
+    LLVMGetCallBrIndirectDest(CallBr, Idx)
+
+Get the indirect destination of a CallBr instruction at the given index.
+
+# See also
+llvm::CallBrInst::getIndirectDest()
+"""
+function LLVMGetCallBrIndirectDest(CallBr, Idx)
+    ccall((:LLVMGetCallBrIndirectDest, libllvm), LLVMBasicBlockRef, (LLVMValueRef, Cuint), CallBr, Idx)
 end
 
 """
@@ -5429,6 +6006,30 @@ function LLVMGetGEPSourceElementType(GEP)
 end
 
 """
+    LLVMGEPGetNoWrapFlags(GEP)
+
+Get the no-wrap related flags for the given GEP instruction.
+
+# See also
+llvm::GetElementPtrInst::getNoWrapFlags
+"""
+function LLVMGEPGetNoWrapFlags(GEP)
+    ccall((:LLVMGEPGetNoWrapFlags, libllvm), LLVMGEPNoWrapFlags, (LLVMValueRef,), GEP)
+end
+
+"""
+    LLVMGEPSetNoWrapFlags(GEP, NoWrapFlags)
+
+Set the no-wrap related flags for the given GEP instruction.
+
+# See also
+llvm::GetElementPtrInst::setNoWrapFlags
+"""
+function LLVMGEPSetNoWrapFlags(GEP, NoWrapFlags)
+    ccall((:LLVMGEPSetNoWrapFlags, libllvm), Cvoid, (LLVMValueRef, LLVMGEPNoWrapFlags), GEP, NoWrapFlags)
+end
+
+"""
     LLVMAddIncoming(PhiNode, IncomingValues, IncomingBlocks, Count)
 
 Add an incoming value to the end of a PHI list.
@@ -5499,12 +6100,40 @@ function LLVMCreateBuilder()
     ccall((:LLVMCreateBuilder, libllvm), LLVMBuilderRef, ())
 end
 
+"""
+    LLVMPositionBuilder(Builder, Block, Instr)
+
+Set the builder position before Instr but after any attached debug records, or if Instr is null set the position to the end of Block.
+"""
 function LLVMPositionBuilder(Builder, Block, Instr)
     ccall((:LLVMPositionBuilder, libllvm), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef), Builder, Block, Instr)
 end
 
+"""
+    LLVMPositionBuilderBeforeDbgRecords(Builder, Block, Inst)
+
+Set the builder position before Instr and any attached debug records, or if Instr is null set the position to the end of Block.
+"""
+function LLVMPositionBuilderBeforeDbgRecords(Builder, Block, Inst)
+    ccall((:LLVMPositionBuilderBeforeDbgRecords, libllvm), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef), Builder, Block, Inst)
+end
+
+"""
+    LLVMPositionBuilderBefore(Builder, Instr)
+
+Set the builder position before Instr but after any attached debug records.
+"""
 function LLVMPositionBuilderBefore(Builder, Instr)
     ccall((:LLVMPositionBuilderBefore, libllvm), Cvoid, (LLVMBuilderRef, LLVMValueRef), Builder, Instr)
+end
+
+"""
+    LLVMPositionBuilderBeforeInstrAndDbgRecords(Builder, Instr)
+
+Set the builder position before Instr and any attached debug records.
+"""
+function LLVMPositionBuilderBeforeInstrAndDbgRecords(Builder, Instr)
+    ccall((:LLVMPositionBuilderBeforeInstrAndDbgRecords, libllvm), Cvoid, (LLVMBuilderRef, LLVMValueRef), Builder, Instr)
 end
 
 function LLVMPositionBuilderAtEnd(Builder, Block)
@@ -5612,6 +6241,18 @@ function LLVMBuilderSetDefaultFPMathTag(Builder, FPMathTag)
 end
 
 """
+    LLVMGetBuilderContext(Builder)
+
+Obtain the context to which this builder is associated.
+
+# See also
+llvm::IRBuilder::getContext()
+"""
+function LLVMGetBuilderContext(Builder)
+    ccall((:LLVMGetBuilderContext, libllvm), LLVMContextRef, (LLVMBuilderRef,), Builder)
+end
+
+"""
     LLVMSetCurrentDebugLocation(Builder, L)
 
 Deprecated: Passing the NULL location will crash. Use [`LLVMGetCurrentDebugLocation2`](@ref) instead.
@@ -5657,8 +6298,16 @@ function LLVMBuildIndirectBr(B, Addr, NumDests)
     ccall((:LLVMBuildIndirectBr, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, Cuint), B, Addr, NumDests)
 end
 
+function LLVMBuildCallBr(B, Ty, Fn, DefaultDest, IndirectDests, NumIndirectDests, Args, NumArgs, Bundles, NumBundles, Name)
+    ccall((:LLVMBuildCallBr, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, LLVMBasicBlockRef, Ptr{LLVMBasicBlockRef}, Cuint, Ptr{LLVMValueRef}, Cuint, Ptr{LLVMOperandBundleRef}, Cuint, Cstring), B, Ty, Fn, DefaultDest, IndirectDests, NumIndirectDests, Args, NumArgs, Bundles, NumBundles, Name)
+end
+
 function LLVMBuildInvoke2(arg1, Ty, Fn, Args, NumArgs, Then, Catch, Name)
     ccall((:LLVMBuildInvoke2, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMBasicBlockRef, LLVMBasicBlockRef, Cstring), arg1, Ty, Fn, Args, NumArgs, Then, Catch, Name)
+end
+
+function LLVMBuildInvokeWithOperandBundles(arg1, Ty, Fn, Args, NumArgs, Then, Catch, Bundles, NumBundles, Name)
+    ccall((:LLVMBuildInvokeWithOperandBundles, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMBasicBlockRef, LLVMBasicBlockRef, Ptr{LLVMOperandBundleRef}, Cuint, Cstring), arg1, Ty, Fn, Args, NumArgs, Then, Catch, Bundles, NumBundles, Name)
 end
 
 function LLVMBuildUnreachable(arg1)
@@ -5932,6 +6581,81 @@ function LLVMSetExact(DivOrShrInst, IsExact)
     ccall((:LLVMSetExact, libllvm), Cvoid, (LLVMValueRef, LLVMBool), DivOrShrInst, IsExact)
 end
 
+"""
+    LLVMGetNNeg(NonNegInst)
+
+Gets if the instruction has the non-negative flag set. Only valid for zext instructions.
+"""
+function LLVMGetNNeg(NonNegInst)
+    ccall((:LLVMGetNNeg, libllvm), LLVMBool, (LLVMValueRef,), NonNegInst)
+end
+
+"""
+    LLVMSetNNeg(NonNegInst, IsNonNeg)
+
+Sets the non-negative flag for the instruction. Only valid for zext instructions.
+"""
+function LLVMSetNNeg(NonNegInst, IsNonNeg)
+    ccall((:LLVMSetNNeg, libllvm), Cvoid, (LLVMValueRef, LLVMBool), NonNegInst, IsNonNeg)
+end
+
+"""
+    LLVMGetFastMathFlags(FPMathInst)
+
+Get the flags for which fast-math-style optimizations are allowed for this value.
+
+Only valid on floating point instructions.
+
+# See also
+[`LLVMCanValueUseFastMathFlags`](@ref)
+"""
+function LLVMGetFastMathFlags(FPMathInst)
+    ccall((:LLVMGetFastMathFlags, libllvm), LLVMFastMathFlags, (LLVMValueRef,), FPMathInst)
+end
+
+"""
+    LLVMSetFastMathFlags(FPMathInst, FMF)
+
+Sets the flags for which fast-math-style optimizations are allowed for this value.
+
+Only valid on floating point instructions.
+
+# See also
+[`LLVMCanValueUseFastMathFlags`](@ref)
+"""
+function LLVMSetFastMathFlags(FPMathInst, FMF)
+    ccall((:LLVMSetFastMathFlags, libllvm), Cvoid, (LLVMValueRef, LLVMFastMathFlags), FPMathInst, FMF)
+end
+
+"""
+    LLVMCanValueUseFastMathFlags(Inst)
+
+Check if a given value can potentially have fast math flags.
+
+Will return true for floating point arithmetic instructions, and for select, phi, and call instructions whose type is a floating point type, or a vector or array thereof. See https://llvm.org/docs/LangRef.html#fast-math-flags
+"""
+function LLVMCanValueUseFastMathFlags(Inst)
+    ccall((:LLVMCanValueUseFastMathFlags, libllvm), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+"""
+    LLVMGetIsDisjoint(Inst)
+
+Gets whether the instruction has the disjoint flag set. Only valid for or instructions.
+"""
+function LLVMGetIsDisjoint(Inst)
+    ccall((:LLVMGetIsDisjoint, libllvm), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+"""
+    LLVMSetIsDisjoint(Inst, IsDisjoint)
+
+Sets the disjoint flag for the instruction. Only valid for or instructions.
+"""
+function LLVMSetIsDisjoint(Inst, IsDisjoint)
+    ccall((:LLVMSetIsDisjoint, libllvm), Cvoid, (LLVMValueRef, LLVMBool), Inst, IsDisjoint)
+end
+
 function LLVMBuildMalloc(arg1, Ty, Name)
     ccall((:LLVMBuildMalloc, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, Cstring), arg1, Ty, Name)
 end
@@ -6004,6 +6728,18 @@ function LLVMBuildInBoundsGEP2(B, Ty, Pointer, Indices, NumIndices, Name)
     ccall((:LLVMBuildInBoundsGEP2, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, Cstring), B, Ty, Pointer, Indices, NumIndices, Name)
 end
 
+"""
+    LLVMBuildGEPWithNoWrapFlags(B, Ty, Pointer, Indices, NumIndices, Name, NoWrapFlags)
+
+Creates a GetElementPtr instruction. Similar to [`LLVMBuildGEP2`](@ref), but allows specifying the no-wrap flags.
+
+# See also
+llvm::IRBuilder::CreateGEP()
+"""
+function LLVMBuildGEPWithNoWrapFlags(B, Ty, Pointer, Indices, NumIndices, Name, NoWrapFlags)
+    ccall((:LLVMBuildGEPWithNoWrapFlags, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, Cstring, LLVMGEPNoWrapFlags), B, Ty, Pointer, Indices, NumIndices, Name, NoWrapFlags)
+end
+
 function LLVMBuildStructGEP2(B, Ty, Pointer, Idx, Name)
     ccall((:LLVMBuildStructGEP2, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Cuint, Cstring), B, Ty, Pointer, Idx, Name)
 end
@@ -6012,6 +6748,11 @@ function LLVMBuildGlobalString(B, Str, Name)
     ccall((:LLVMBuildGlobalString, libllvm), LLVMValueRef, (LLVMBuilderRef, Cstring, Cstring), B, Str, Name)
 end
 
+"""
+    LLVMBuildGlobalStringPtr(B, Str, Name)
+
+Deprecated: Use [`LLVMBuildGlobalString`](@ref) instead, which has identical behavior.
+"""
 function LLVMBuildGlobalStringPtr(B, Str, Name)
     ccall((:LLVMBuildGlobalStringPtr, libllvm), LLVMValueRef, (LLVMBuilderRef, Cstring, Cstring), B, Str, Name)
 end
@@ -6157,6 +6898,10 @@ function LLVMBuildCall2(arg1, arg2, Fn, Args, NumArgs, Name)
     ccall((:LLVMBuildCall2, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, Cstring), arg1, arg2, Fn, Args, NumArgs, Name)
 end
 
+function LLVMBuildCallWithOperandBundles(arg1, arg2, Fn, Args, NumArgs, Bundles, NumBundles, Name)
+    ccall((:LLVMBuildCallWithOperandBundles, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, Ptr{LLVMOperandBundleRef}, Cuint, Cstring), arg1, arg2, Fn, Args, NumArgs, Bundles, NumBundles, Name)
+end
+
 function LLVMBuildSelect(arg1, If, Then, Else, Name)
     ccall((:LLVMBuildSelect, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, LLVMValueRef, Cstring), arg1, If, Then, Else, Name)
 end
@@ -6205,12 +6950,24 @@ function LLVMBuildFence(B, ordering, singleThread, Name)
     ccall((:LLVMBuildFence, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMAtomicOrdering, LLVMBool, Cstring), B, ordering, singleThread, Name)
 end
 
+function LLVMBuildFenceSyncScope(B, ordering, SSID, Name)
+    ccall((:LLVMBuildFenceSyncScope, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMAtomicOrdering, Cuint, Cstring), B, ordering, SSID, Name)
+end
+
 function LLVMBuildAtomicRMW(B, op, PTR, Val, ordering, singleThread)
     ccall((:LLVMBuildAtomicRMW, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMAtomicRMWBinOp, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, LLVMBool), B, op, PTR, Val, ordering, singleThread)
 end
 
+function LLVMBuildAtomicRMWSyncScope(B, op, PTR, Val, ordering, SSID)
+    ccall((:LLVMBuildAtomicRMWSyncScope, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMAtomicRMWBinOp, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, Cuint), B, op, PTR, Val, ordering, SSID)
+end
+
 function LLVMBuildAtomicCmpXchg(B, Ptr, Cmp, New, SuccessOrdering, FailureOrdering, SingleThread)
     ccall((:LLVMBuildAtomicCmpXchg, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, LLVMAtomicOrdering, LLVMBool), B, Ptr, Cmp, New, SuccessOrdering, FailureOrdering, SingleThread)
+end
+
+function LLVMBuildAtomicCmpXchgSyncScope(B, Ptr, Cmp, New, SuccessOrdering, FailureOrdering, SSID)
+    ccall((:LLVMBuildAtomicCmpXchgSyncScope, libllvm), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, LLVMAtomicOrdering, Cuint), B, Ptr, Cmp, New, SuccessOrdering, FailureOrdering, SSID)
 end
 
 """
@@ -6250,6 +7007,33 @@ end
 
 function LLVMSetAtomicSingleThread(AtomicInst, SingleThread)
     ccall((:LLVMSetAtomicSingleThread, libllvm), Cvoid, (LLVMValueRef, LLVMBool), AtomicInst, SingleThread)
+end
+
+"""
+    LLVMIsAtomic(Inst)
+
+Returns whether an instruction is an atomic instruction, e.g., atomicrmw, cmpxchg, fence, or loads and stores with atomic ordering.
+"""
+function LLVMIsAtomic(Inst)
+    ccall((:LLVMIsAtomic, libllvm), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+"""
+    LLVMGetAtomicSyncScopeID(AtomicInst)
+
+Returns the synchronization scope ID of an atomic instruction.
+"""
+function LLVMGetAtomicSyncScopeID(AtomicInst)
+    ccall((:LLVMGetAtomicSyncScopeID, libllvm), Cuint, (LLVMValueRef,), AtomicInst)
+end
+
+"""
+    LLVMSetAtomicSyncScopeID(AtomicInst, SSID)
+
+Sets the synchronization scope ID of an atomic instruction.
+"""
+function LLVMSetAtomicSyncScopeID(AtomicInst, SSID)
+    ccall((:LLVMSetAtomicSyncScopeID, libllvm), Cvoid, (LLVMValueRef, Cuint), AtomicInst, SSID)
 end
 
 function LLVMGetCmpXchgSuccessOrdering(CmpXchgInst)
@@ -6550,10 +7334,23 @@ Source languages known by DWARF.
     LLVMDWARFSourceLanguageFortran18 = 43
     LLVMDWARFSourceLanguageAda2005 = 44
     LLVMDWARFSourceLanguageAda2012 = 45
-    LLVMDWARFSourceLanguageMojo = 46
-    LLVMDWARFSourceLanguageMips_Assembler = 47
-    LLVMDWARFSourceLanguageGOOGLE_RenderScript = 48
-    LLVMDWARFSourceLanguageBORLAND_Delphi = 49
+    LLVMDWARFSourceLanguageHIP = 46
+    LLVMDWARFSourceLanguageAssembly = 47
+    LLVMDWARFSourceLanguageC_sharp = 48
+    LLVMDWARFSourceLanguageMojo = 49
+    LLVMDWARFSourceLanguageGLSL = 50
+    LLVMDWARFSourceLanguageGLSL_ES = 51
+    LLVMDWARFSourceLanguageHLSL = 52
+    LLVMDWARFSourceLanguageOpenCL_CPP = 53
+    LLVMDWARFSourceLanguageCPP_for_OpenCL = 54
+    LLVMDWARFSourceLanguageSYCL = 55
+    LLVMDWARFSourceLanguageRuby = 56
+    LLVMDWARFSourceLanguageMove = 57
+    LLVMDWARFSourceLanguageHylo = 58
+    LLVMDWARFSourceLanguageMetal = 59
+    LLVMDWARFSourceLanguageMips_Assembler = 60
+    LLVMDWARFSourceLanguageGOOGLE_RenderScript = 61
+    LLVMDWARFSourceLanguageBORLAND_Delphi = 62
 end
 
 """
@@ -6568,11 +7365,11 @@ The amount of debug information to emit.
 end
 
 """
-    ##Ctag#235
+    ##Ctag#246
 
 The kind of metadata nodes.
 """
-@cenum var"##Ctag#235"::UInt32 begin
+@cenum var"##Ctag#246"::UInt32 begin
     LLVMMDStringMetadataKind = 0
     LLVMConstantAsMetadataMetadataKind = 1
     LLVMLocalAsMetadataMetadataKind = 2
@@ -7405,16 +8202,17 @@ function LLVMDIBuilderCreateObjCProperty(Builder, Name, NameLen, File, LineNo, G
 end
 
 """
-    LLVMDIBuilderCreateObjectPointerType(Builder, Type)
+    LLVMDIBuilderCreateObjectPointerType(Builder, Type, Implicit)
 
-Create a uniqued DIType* clone with FlagObjectPointer and FlagArtificial set.
+Create a uniqued DIType* clone with FlagObjectPointer. If `Implicit` is true, then also set FlagArtificial.
 
 # Arguments
 * `Builder`: The DIBuilder.
 * `Type`: The underlying type to which this pointer points.
+* `Implicit`: Indicates whether this pointer was implicitly generated (i.e., not spelled out in source).
 """
-function LLVMDIBuilderCreateObjectPointerType(Builder, Type)
-    ccall((:LLVMDIBuilderCreateObjectPointerType, libllvm), LLVMMetadataRef, (LLVMDIBuilderRef, LLVMMetadataRef), Builder, Type)
+function LLVMDIBuilderCreateObjectPointerType(Builder, Type, Implicit)
+    ccall((:LLVMDIBuilderCreateObjectPointerType, libllvm), LLVMMetadataRef, (LLVMDIBuilderRef, LLVMMetadataRef, LLVMBool), Builder, Type, Implicit)
 end
 
 """
@@ -7906,26 +8704,13 @@ function LLVMDIBuilderCreateTempGlobalVariableFwdDecl(Builder, Scope, Name, Name
 end
 
 """
-    LLVMDIBuilderInsertDeclareBefore(Builder, Storage, VarInfo, Expr, DebugLoc, Instr)
+    LLVMDIBuilderInsertDeclareRecordBefore(Builder, Storage, VarInfo, Expr, DebugLoc, Instr)
 
-Insert a new llvm.dbg.declare intrinsic call before the given instruction.
+Only use in "new debug format" ([`LLVMIsNewDbgInfoFormat`](@ref)() is true). See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
 
-# Arguments
-* `Builder`: The DIBuilder.
-* `Storage`: The storage of the variable to declare.
-* `VarInfo`: The variable's debug info descriptor.
-* `Expr`: A complex location expression for the variable.
-* `DebugLoc`: Debug info location.
-* `Instr`: Instruction acting as a location for the new intrinsic.
-"""
-function LLVMDIBuilderInsertDeclareBefore(Builder, Storage, VarInfo, Expr, DebugLoc, Instr)
-    ccall((:LLVMDIBuilderInsertDeclareBefore, libllvm), LLVMValueRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMValueRef), Builder, Storage, VarInfo, Expr, DebugLoc, Instr)
-end
+The debug format can be switched later after inserting the records using [`LLVMSetIsNewDbgInfoFormat`](@ref), if needed for legacy or transitionary reasons.
 
-"""
-    LLVMDIBuilderInsertDeclareAtEnd(Builder, Storage, VarInfo, Expr, DebugLoc, Block)
-
-Insert a new llvm.dbg.declare intrinsic call at the end of the given basic block. If the basic block has a terminator instruction, the intrinsic is inserted before that terminator instruction.
+Insert a Declare DbgRecord before the given instruction.
 
 # Arguments
 * `Builder`: The DIBuilder.
@@ -7933,16 +8718,41 @@ Insert a new llvm.dbg.declare intrinsic call at the end of the given basic block
 * `VarInfo`: The variable's debug info descriptor.
 * `Expr`: A complex location expression for the variable.
 * `DebugLoc`: Debug info location.
-* `Block`: Basic block acting as a location for the new intrinsic.
+* `Instr`: Instruction acting as a location for the new record.
 """
-function LLVMDIBuilderInsertDeclareAtEnd(Builder, Storage, VarInfo, Expr, DebugLoc, Block)
-    ccall((:LLVMDIBuilderInsertDeclareAtEnd, libllvm), LLVMValueRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef), Builder, Storage, VarInfo, Expr, DebugLoc, Block)
+function LLVMDIBuilderInsertDeclareRecordBefore(Builder, Storage, VarInfo, Expr, DebugLoc, Instr)
+    ccall((:LLVMDIBuilderInsertDeclareRecordBefore, libllvm), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMValueRef), Builder, Storage, VarInfo, Expr, DebugLoc, Instr)
 end
 
 """
-    LLVMDIBuilderInsertDbgValueBefore(Builder, Val, VarInfo, Expr, DebugLoc, Instr)
+    LLVMDIBuilderInsertDeclareRecordAtEnd(Builder, Storage, VarInfo, Expr, DebugLoc, Block)
 
-Insert a new llvm.dbg.value intrinsic call before the given instruction.
+Only use in "new debug format" ([`LLVMIsNewDbgInfoFormat`](@ref)() is true). See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
+
+The debug format can be switched later after inserting the records using [`LLVMSetIsNewDbgInfoFormat`](@ref), if needed for legacy or transitionary reasons.
+
+Insert a Declare DbgRecord at the end of the given basic block. If the basic block has a terminator instruction, the record is inserted before that terminator instruction.
+
+# Arguments
+* `Builder`: The DIBuilder.
+* `Storage`: The storage of the variable to declare.
+* `VarInfo`: The variable's debug info descriptor.
+* `Expr`: A complex location expression for the variable.
+* `DebugLoc`: Debug info location.
+* `Block`: Basic block acting as a location for the new record.
+"""
+function LLVMDIBuilderInsertDeclareRecordAtEnd(Builder, Storage, VarInfo, Expr, DebugLoc, Block)
+    ccall((:LLVMDIBuilderInsertDeclareRecordAtEnd, libllvm), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef), Builder, Storage, VarInfo, Expr, DebugLoc, Block)
+end
+
+"""
+    LLVMDIBuilderInsertDbgValueRecordBefore(Builder, Val, VarInfo, Expr, DebugLoc, Instr)
+
+Only use in "new debug format" ([`LLVMIsNewDbgInfoFormat`](@ref)() is true). See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
+
+The debug format can be switched later after inserting the records using [`LLVMSetIsNewDbgInfoFormat`](@ref), if needed for legacy or transitionary reasons.
+
+Insert a new debug record before the given instruction.
 
 # Arguments
 * `Builder`: The DIBuilder.
@@ -7950,16 +8760,20 @@ Insert a new llvm.dbg.value intrinsic call before the given instruction.
 * `VarInfo`: The variable's debug info descriptor.
 * `Expr`: A complex location expression for the variable.
 * `DebugLoc`: Debug info location.
-* `Instr`: Instruction acting as a location for the new intrinsic.
+* `Instr`: Instruction acting as a location for the new record.
 """
-function LLVMDIBuilderInsertDbgValueBefore(Builder, Val, VarInfo, Expr, DebugLoc, Instr)
-    ccall((:LLVMDIBuilderInsertDbgValueBefore, libllvm), LLVMValueRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMValueRef), Builder, Val, VarInfo, Expr, DebugLoc, Instr)
+function LLVMDIBuilderInsertDbgValueRecordBefore(Builder, Val, VarInfo, Expr, DebugLoc, Instr)
+    ccall((:LLVMDIBuilderInsertDbgValueRecordBefore, libllvm), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMValueRef), Builder, Val, VarInfo, Expr, DebugLoc, Instr)
 end
 
 """
-    LLVMDIBuilderInsertDbgValueAtEnd(Builder, Val, VarInfo, Expr, DebugLoc, Block)
+    LLVMDIBuilderInsertDbgValueRecordAtEnd(Builder, Val, VarInfo, Expr, DebugLoc, Block)
 
-Insert a new llvm.dbg.value intrinsic call at the end of the given basic block. If the basic block has a terminator instruction, the intrinsic is inserted before that terminator instruction.
+Only use in "new debug format" ([`LLVMIsNewDbgInfoFormat`](@ref)() is true). See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
+
+The debug format can be switched later after inserting the records using [`LLVMSetIsNewDbgInfoFormat`](@ref), if needed for legacy or transitionary reasons.
+
+Insert a new debug record at the end of the given basic block. If the basic block has a terminator instruction, the record is inserted before that terminator instruction.
 
 # Arguments
 * `Builder`: The DIBuilder.
@@ -7967,10 +8781,10 @@ Insert a new llvm.dbg.value intrinsic call at the end of the given basic block. 
 * `VarInfo`: The variable's debug info descriptor.
 * `Expr`: A complex location expression for the variable.
 * `DebugLoc`: Debug info location.
-* `Block`: Basic block acting as a location for the new intrinsic.
+* `Block`: Basic block acting as a location for the new record.
 """
-function LLVMDIBuilderInsertDbgValueAtEnd(Builder, Val, VarInfo, Expr, DebugLoc, Block)
-    ccall((:LLVMDIBuilderInsertDbgValueAtEnd, libllvm), LLVMValueRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef), Builder, Val, VarInfo, Expr, DebugLoc, Block)
+function LLVMDIBuilderInsertDbgValueRecordAtEnd(Builder, Val, VarInfo, Expr, DebugLoc, Block)
+    ccall((:LLVMDIBuilderInsertDbgValueRecordAtEnd, libllvm), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef), Builder, Val, VarInfo, Expr, DebugLoc, Block)
 end
 
 """
@@ -8077,6 +8891,60 @@ llvm::Instruction::setDebugLoc()
 """
 function LLVMInstructionSetDebugLoc(Inst, Loc)
     ccall((:LLVMInstructionSetDebugLoc, libllvm), Cvoid, (LLVMValueRef, LLVMMetadataRef), Inst, Loc)
+end
+
+"""
+    LLVMDIBuilderCreateLabel(Builder, Context, Name, NameLen, File, LineNo, AlwaysPreserve)
+
+Create a new descriptor for a label
+
+# Arguments
+* `Builder`: The DIBuilder.
+* `Scope`: The scope to create the label in.
+* `Name`: Variable name.
+* `NameLen`: Length of variable name.
+* `File`: The file to create the label in.
+* `LineNo`: Line Number.
+* `AlwaysPreserve`: Preserve the label regardless of optimization.
+# See also
+llvm::DIBuilder::createLabel()
+"""
+function LLVMDIBuilderCreateLabel(Builder, Context, Name, NameLen, File, LineNo, AlwaysPreserve)
+    ccall((:LLVMDIBuilderCreateLabel, libllvm), LLVMMetadataRef, (LLVMDIBuilderRef, LLVMMetadataRef, Cstring, Csize_t, LLVMMetadataRef, Cuint, LLVMBool), Builder, Context, Name, NameLen, File, LineNo, AlwaysPreserve)
+end
+
+"""
+    LLVMDIBuilderInsertLabelBefore(Builder, LabelInfo, Location, InsertBefore)
+
+Insert a new llvm.dbg.label intrinsic call
+
+# Arguments
+* `Builder`: The DIBuilder.
+* `LabelInfo`: The Label's debug info descriptor
+* `Location`: The debug info location
+* `InsertBefore`: Location for the new intrinsic.
+# See also
+llvm::DIBuilder::insertLabel()
+"""
+function LLVMDIBuilderInsertLabelBefore(Builder, LabelInfo, Location, InsertBefore)
+    ccall((:LLVMDIBuilderInsertLabelBefore, libllvm), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMMetadataRef, LLVMMetadataRef, LLVMValueRef), Builder, LabelInfo, Location, InsertBefore)
+end
+
+"""
+    LLVMDIBuilderInsertLabelAtEnd(Builder, LabelInfo, Location, InsertAtEnd)
+
+Insert a new llvm.dbg.label intrinsic call
+
+# Arguments
+* `Builder`: The DIBuilder.
+* `LabelInfo`: The Label's debug info descriptor
+* `Location`: The debug info location
+* `InsertAtEnd`: Location for the new intrinsic.
+# See also
+llvm::DIBuilder::insertLabel()
+"""
+function LLVMDIBuilderInsertLabelAtEnd(Builder, LabelInfo, Location, InsertAtEnd)
+    ccall((:LLVMDIBuilderInsertLabelAtEnd, libllvm), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef), Builder, LabelInfo, Location, InsertAtEnd)
 end
 
 """
@@ -8208,6 +9076,17 @@ Dispose of the given error without handling it. This operation consumes the erro
 """
 function LLVMConsumeError(Err)
     ccall((:LLVMConsumeError, libllvm), Cvoid, (LLVMErrorRef,), Err)
+end
+
+"""
+    LLVMCantFail(Err)
+
+Report a fatal error if Err is a failure value.
+
+This function can be used to wrap calls to fallible functions ONLY when it is known that the Error will always be a success value.
+"""
+function LLVMCantFail(Err)
+    ccall((:LLVMCantFail, libllvm), Cvoid, (LLVMErrorRef,), Err)
 end
 
 """
@@ -8431,11 +9310,6 @@ function LLVMGetExecutionEngineTargetData(EE)
     ccall((:LLVMGetExecutionEngineTargetData, libllvm), LLVMTargetDataRef, (LLVMExecutionEngineRef,), EE)
 end
 
-"""
-` LLVMCTarget`
-
-@{
-"""
 const LLVMTargetMachineRef = Ptr{LLVMOpaqueTargetMachine}
 
 function LLVMGetExecutionEngineTargetMachine(EE)
@@ -8542,14 +9416,10 @@ Object linking layers returned by this function will become owned by the LLJIT i
 """
 const LLVMOrcLLJITBuilderObjectLinkingLayerCreatorFunction = Ptr{Cvoid}
 
-mutable struct LLVMOrcOpaqueLLJITBuilder end
-
 """
 A reference to an orc::LLJITBuilder instance.
 """
 const LLVMOrcLLJITBuilderRef = Ptr{LLVMOrcOpaqueLLJITBuilder}
-
-mutable struct LLVMOrcOpaqueLLJIT end
 
 """
 A reference to an orc::LLJIT instance.
@@ -8808,6 +9678,15 @@ This string is owned by the LLJIT instance and does not need to be freed by the 
 """
 function LLVMOrcLLJITGetDataLayoutStr(J)
     ccall((:LLVMOrcLLJITGetDataLayoutStr, libllvm), Cstring, (LLVMOrcLLJITRef,), J)
+end
+
+"""
+    LLVMOrcLLJITEnableDebugSupport(J)
+
+Install the plugin that submits debug objects to the executor. Executors must expose the llvm\\_orc\\_registerJITLoaderGDBWrapper symbol.
+"""
+function LLVMOrcLLJITEnableDebugSupport(J)
+    ccall((:LLVMOrcLLJITEnableDebugSupport, libllvm), LLVMErrorRef, (LLVMOrcLLJITRef,), J)
 end
 
 """
@@ -9293,6 +10172,17 @@ Represents a list of (JITDylibRef, ([`LLVMOrcSymbolStringPoolEntryRef`](@ref)*, 
 const LLVMOrcCDependenceMapPairs = Ptr{LLVMOrcCDependenceMapPair}
 
 """
+    LLVMOrcCSymbolDependenceGroup
+
+A set of symbols that share dependencies.
+"""
+struct LLVMOrcCSymbolDependenceGroup
+    Symbols::LLVMOrcCSymbolsList
+    Dependencies::LLVMOrcCDependenceMapPairs
+    NumDependencies::Csize_t
+end
+
+"""
     LLVMOrcLookupKind
 
 Lookup kind. This can be used by definition generators when deciding whether to produce a definition for a requested symbol.
@@ -9426,7 +10316,7 @@ The Kind argument can be inspected to determine the lookup kind (e.g. as-if-duri
 
 The JD argument specifies which JITDylib the definitions should be generated into.
 
-The JDLookupFlags argument can be inspected to determine whether the original lookup included non-exported symobls.
+The JDLookupFlags argument can be inspected to determine whether the original lookup included non-exported symbols.
 
 Finally, the LookupSet argument contains the set of symbols that could not be found in JD already (the set of generation candidates).
 """
@@ -9535,7 +10425,7 @@ end
 """
     LLVMOrcExecutionSessionIntern(ES, Name)
 
-Intern a string in the ExecutionSession's SymbolStringPool and return a reference to it. This increments the ref-count of the pool entry, and the returned value should be released once the client is done with it by calling LLVMOrReleaseSymbolStringPoolEntry.
+Intern a string in the ExecutionSession's SymbolStringPool and return a reference to it. This increments the ref-count of the pool entry, and the returned value should be released once the client is done with it by calling [`LLVMOrcReleaseSymbolStringPoolEntry`](@ref).
 
 Since strings are uniqued within the SymbolStringPool LLVMOrcSymbolStringPoolEntryRefs can be compared by value to test string equality.
 
@@ -9798,21 +10688,29 @@ end
 
 Notifies the target JITDylib that the given symbols have been resolved. This will update the given symbols' addresses in the JITDylib, and notify any pending queries on the given symbols of their resolution. The given symbols must be ones covered by this MaterializationResponsibility instance. Individual calls to this method may resolve a subset of the symbols, but all symbols must have been resolved prior to calling emit.
 
-This method will return an error if any symbols being resolved have been moved to the error state due to the failure of a dependency. If this method returns an error then clients should log it and call [`LLVMOrcMaterializationResponsibilityFailMaterialization`](@ref). If no dependencies have been registered for the symbols covered by this MaterializationResponsibiility then this method is guaranteed to return [`LLVMErrorSuccess`](@ref).
+This method will return an error if any symbols being resolved have been moved to the error state due to the failure of a dependency. If this method returns an error then clients should log it and call [`LLVMOrcMaterializationResponsibilityFailMaterialization`](@ref). If no dependencies have been registered for the symbols covered by this MaterializationResponsibility then this method is guaranteed to return [`LLVMErrorSuccess`](@ref).
 """
 function LLVMOrcMaterializationResponsibilityNotifyResolved(MR, Symbols, NumPairs)
     ccall((:LLVMOrcMaterializationResponsibilityNotifyResolved, libllvm), LLVMErrorRef, (LLVMOrcMaterializationResponsibilityRef, LLVMOrcCSymbolMapPairs, Csize_t), MR, Symbols, NumPairs)
 end
 
 """
-    LLVMOrcMaterializationResponsibilityNotifyEmitted(MR)
+    LLVMOrcMaterializationResponsibilityNotifyEmitted(MR, SymbolDepGroups, NumSymbolDepGroups)
 
 Notifies the target JITDylib (and any pending queries on that JITDylib) that all symbols covered by this MaterializationResponsibility instance have been emitted.
 
-This method will return an error if any symbols being resolved have been moved to the error state due to the failure of a dependency. If this method returns an error then clients should log it and call [`LLVMOrcMaterializationResponsibilityFailMaterialization`](@ref). If no dependencies have been registered for the symbols covered by this MaterializationResponsibiility then this method is guaranteed to return [`LLVMErrorSuccess`](@ref).
+This function takes ownership of the symbols in the Dependencies struct. This allows the following pattern...
+
+[`LLVMOrcSymbolStringPoolEntryRef`](@ref) Names[] = {...}; [`LLVMOrcCDependenceMapPair`](@ref) Dependence = {JD, {Names, sizeof(Names)}} LLVMOrcMaterializationResponsibilityAddDependencies(JD, Name, &Dependence, 1);
+
+... without requiring cleanup of the elements of the Names array afterwards.
+
+The client is still responsible for deleting the Dependencies.Names arrays, and the Dependencies array itself.
+
+This method will return an error if any symbols being resolved have been moved to the error state due to the failure of a dependency. If this method returns an error then clients should log it and call [`LLVMOrcMaterializationResponsibilityFailMaterialization`](@ref). If no dependencies have been registered for the symbols covered by this MaterializationResponsibility then this method is guaranteed to return [`LLVMErrorSuccess`](@ref).
 """
-function LLVMOrcMaterializationResponsibilityNotifyEmitted(MR)
-    ccall((:LLVMOrcMaterializationResponsibilityNotifyEmitted, libllvm), LLVMErrorRef, (LLVMOrcMaterializationResponsibilityRef,), MR)
+function LLVMOrcMaterializationResponsibilityNotifyEmitted(MR, SymbolDepGroups, NumSymbolDepGroups)
+    ccall((:LLVMOrcMaterializationResponsibilityNotifyEmitted, libllvm), LLVMErrorRef, (LLVMOrcMaterializationResponsibilityRef, Ptr{LLVMOrcCSymbolDependenceGroup}, Csize_t), MR, SymbolDepGroups, NumSymbolDepGroups)
 end
 
 """
@@ -9829,7 +10727,7 @@ end
 """
     LLVMOrcMaterializationResponsibilityFailMaterialization(MR)
 
-Notify all not-yet-emitted covered by this MaterializationResponsibility instance that an error has occurred. This will remove all symbols covered by this MaterializationResponsibilty from the target JITDylib, and send an error to any queries waiting on these symbols.
+Notify all not-yet-emitted covered by this MaterializationResponsibility instance that an error has occurred. This will remove all symbols covered by this MaterializationResponsibility from the target JITDylib, and send an error to any queries waiting on these symbols.
 """
 function LLVMOrcMaterializationResponsibilityFailMaterialization(MR)
     ccall((:LLVMOrcMaterializationResponsibilityFailMaterialization, libllvm), Cvoid, (LLVMOrcMaterializationResponsibilityRef,), MR)
@@ -9853,32 +10751,6 @@ The caller retains responsibility of the the passed MaterializationResponsibilit
 """
 function LLVMOrcMaterializationResponsibilityDelegate(MR, Symbols, NumSymbols, Result)
     ccall((:LLVMOrcMaterializationResponsibilityDelegate, libllvm), LLVMErrorRef, (LLVMOrcMaterializationResponsibilityRef, Ptr{LLVMOrcSymbolStringPoolEntryRef}, Csize_t, Ptr{LLVMOrcMaterializationResponsibilityRef}), MR, Symbols, NumSymbols, Result)
-end
-
-"""
-    LLVMOrcMaterializationResponsibilityAddDependencies(MR, Name, Dependencies, NumPairs)
-
-Adds dependencies to a symbol that the MaterializationResponsibility is responsible for.
-
-This function takes ownership of Dependencies struct. The Names array have been retained for this function. This allows the following pattern...
-
-[`LLVMOrcSymbolStringPoolEntryRef`](@ref) Names[] = {...}; [`LLVMOrcCDependenceMapPair`](@ref) Dependence = {JD, {Names, sizeof(Names)}} [`LLVMOrcMaterializationResponsibilityAddDependencies`](@ref)(JD, Name, &Dependence, 1);
-
-... without requiring cleanup of the elements of the Names array afterwards.
-
-The client is still responsible for deleting the Dependencies.Names array itself.
-"""
-function LLVMOrcMaterializationResponsibilityAddDependencies(MR, Name, Dependencies, NumPairs)
-    ccall((:LLVMOrcMaterializationResponsibilityAddDependencies, libllvm), Cvoid, (LLVMOrcMaterializationResponsibilityRef, LLVMOrcSymbolStringPoolEntryRef, LLVMOrcCDependenceMapPairs, Csize_t), MR, Name, Dependencies, NumPairs)
-end
-
-"""
-    LLVMOrcMaterializationResponsibilityAddDependenciesForAll(MR, Dependencies, NumPairs)
-
-Adds dependencies to all symbols that the MaterializationResponsibility is responsible for. See [`LLVMOrcMaterializationResponsibilityAddDependencies`](@ref) for notes about memory responsibility.
-"""
-function LLVMOrcMaterializationResponsibilityAddDependenciesForAll(MR, Dependencies, NumPairs)
-    ccall((:LLVMOrcMaterializationResponsibilityAddDependenciesForAll, libllvm), Cvoid, (LLVMOrcMaterializationResponsibilityRef, LLVMOrcCDependenceMapPairs, Csize_t), MR, Dependencies, NumPairs)
 end
 
 """
@@ -10018,7 +10890,7 @@ function LLVMOrcCreateDynamicLibrarySearchGeneratorForPath(Result, FileName, Glo
 end
 
 """
-    LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName, TargetTriple)
+    LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName)
 
 Get a [`LLVMOrcCreateStaticLibrarySearchGeneratorForPath`](@ref) that will reflect static library symbols into the JITDylib. On success the resulting generator is owned by the client. Ownership is typically transferred by adding the instance to a JITDylib using [`LLVMOrcJITDylibAddGenerator`](@ref),
 
@@ -10026,8 +10898,8 @@ Call with the optional TargetTriple argument will succeed if the file at the giv
 
 THIS API IS EXPERIMENTAL AND LIKELY TO CHANGE IN THE NEAR FUTURE!
 """
-function LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName, TargetTriple)
-    ccall((:LLVMOrcCreateStaticLibrarySearchGeneratorForPath, libllvm), LLVMErrorRef, (Ptr{LLVMOrcDefinitionGeneratorRef}, LLVMOrcObjectLayerRef, Cstring, Cstring), Result, ObjLayer, FileName, TargetTriple)
+function LLVMOrcCreateStaticLibrarySearchGeneratorForPath(Result, ObjLayer, FileName)
+    ccall((:LLVMOrcCreateStaticLibrarySearchGeneratorForPath, libllvm), LLVMErrorRef, (Ptr{LLVMOrcDefinitionGeneratorRef}, LLVMOrcObjectLayerRef, Cstring), Result, ObjLayer, FileName)
 end
 
 """
@@ -10884,7 +11756,7 @@ end
 """
     LLVMSizeOfTypeInBits(TD, Ty)
 
-Computes the size of a type in bytes for a target. See the method llvm::DataLayout::getTypeSizeInBits.
+Computes the size of a type in bits for a target. See the method llvm::DataLayout::getTypeSizeInBits.
 """
 function LLVMSizeOfTypeInBits(TD, Ty)
     ccall((:LLVMSizeOfTypeInBits, libllvm), Culonglong, (LLVMTargetDataRef, LLVMTypeRef), TD, Ty)
@@ -10962,6 +11834,13 @@ function LLVMOffsetOfElement(TD, StructTy, Element)
     ccall((:LLVMOffsetOfElement, libllvm), Culonglong, (LLVMTargetDataRef, LLVMTypeRef, Cuint), TD, StructTy, Element)
 end
 
+"""
+` LLVMCTarget`
+
+@{
+"""
+const LLVMTargetMachineOptionsRef = Ptr{LLVMOpaqueTargetMachineOptions}
+
 const LLVMTargetRef = Ptr{LLVMTarget}
 
 @cenum LLVMCodeGenOptLevel::UInt32 begin
@@ -10984,6 +11863,12 @@ end
 @cenum LLVMCodeGenFileType::UInt32 begin
     LLVMAssemblyFile = 0
     LLVMObjectFile = 1
+end
+
+@cenum LLVMGlobalISelAbortMode::UInt32 begin
+    LLVMGlobalISelAbortEnable = 0
+    LLVMGlobalISelAbortDisable = 1
+    LLVMGlobalISelAbortDisableWithDiag = 2
 end
 
 """
@@ -11068,6 +11953,72 @@ function LLVMTargetHasAsmBackend(T)
 end
 
 """
+    LLVMCreateTargetMachineOptions()
+
+Create a new set of options for an llvm::TargetMachine.
+
+The returned option structure must be released with [`LLVMDisposeTargetMachineOptions`](@ref)() after the call to [`LLVMCreateTargetMachineWithOptions`](@ref)().
+"""
+function LLVMCreateTargetMachineOptions()
+    ccall((:LLVMCreateTargetMachineOptions, libllvm), LLVMTargetMachineOptionsRef, ())
+end
+
+"""
+    LLVMDisposeTargetMachineOptions(Options)
+
+Dispose of an [`LLVMTargetMachineOptionsRef`](@ref) instance.
+"""
+function LLVMDisposeTargetMachineOptions(Options)
+    ccall((:LLVMDisposeTargetMachineOptions, libllvm), Cvoid, (LLVMTargetMachineOptionsRef,), Options)
+end
+
+function LLVMTargetMachineOptionsSetCPU(Options, CPU)
+    ccall((:LLVMTargetMachineOptionsSetCPU, libllvm), Cvoid, (LLVMTargetMachineOptionsRef, Cstring), Options, CPU)
+end
+
+"""
+    LLVMTargetMachineOptionsSetFeatures(Options, Features)
+
+Set the list of features for the target machine.
+
+# Arguments
+* `Features`: a comma-separated list of features.
+"""
+function LLVMTargetMachineOptionsSetFeatures(Options, Features)
+    ccall((:LLVMTargetMachineOptionsSetFeatures, libllvm), Cvoid, (LLVMTargetMachineOptionsRef, Cstring), Options, Features)
+end
+
+function LLVMTargetMachineOptionsSetABI(Options, ABI)
+    ccall((:LLVMTargetMachineOptionsSetABI, libllvm), Cvoid, (LLVMTargetMachineOptionsRef, Cstring), Options, ABI)
+end
+
+function LLVMTargetMachineOptionsSetCodeGenOptLevel(Options, Level)
+    ccall((:LLVMTargetMachineOptionsSetCodeGenOptLevel, libllvm), Cvoid, (LLVMTargetMachineOptionsRef, LLVMCodeGenOptLevel), Options, Level)
+end
+
+function LLVMTargetMachineOptionsSetRelocMode(Options, Reloc)
+    ccall((:LLVMTargetMachineOptionsSetRelocMode, libllvm), Cvoid, (LLVMTargetMachineOptionsRef, LLVMRelocMode), Options, Reloc)
+end
+
+function LLVMTargetMachineOptionsSetCodeModel(Options, CodeModel)
+    ccall((:LLVMTargetMachineOptionsSetCodeModel, libllvm), Cvoid, (LLVMTargetMachineOptionsRef, LLVMCodeModel), Options, CodeModel)
+end
+
+"""
+    LLVMCreateTargetMachineWithOptions(T, Triple, Options)
+
+Create a new llvm::TargetMachine.
+
+# Arguments
+* `T`: the target to create a machine for.
+* `Triple`: a triple describing the target machine.
+* `Options`: additional configuration (see [`LLVMCreateTargetMachineOptions`](@ref)()).
+"""
+function LLVMCreateTargetMachineWithOptions(T, Triple, Options)
+    ccall((:LLVMCreateTargetMachineWithOptions, libllvm), LLVMTargetMachineRef, (LLVMTargetRef, Cstring, LLVMTargetMachineOptionsRef), T, Triple, Options)
+end
+
+"""
     LLVMCreateTargetMachine(T, Triple, CPU, Features, Level, Reloc, CodeModel)
 
 Creates a new llvm::TargetMachine. See llvm::Target::createTargetMachine
@@ -11137,6 +12088,42 @@ Set the target machine's ASM verbosity.
 """
 function LLVMSetTargetMachineAsmVerbosity(T, VerboseAsm)
     ccall((:LLVMSetTargetMachineAsmVerbosity, libllvm), Cvoid, (LLVMTargetMachineRef, LLVMBool), T, VerboseAsm)
+end
+
+"""
+    LLVMSetTargetMachineFastISel(T, Enable)
+
+Enable fast-path instruction selection.
+"""
+function LLVMSetTargetMachineFastISel(T, Enable)
+    ccall((:LLVMSetTargetMachineFastISel, libllvm), Cvoid, (LLVMTargetMachineRef, LLVMBool), T, Enable)
+end
+
+"""
+    LLVMSetTargetMachineGlobalISel(T, Enable)
+
+Enable global instruction selection.
+"""
+function LLVMSetTargetMachineGlobalISel(T, Enable)
+    ccall((:LLVMSetTargetMachineGlobalISel, libllvm), Cvoid, (LLVMTargetMachineRef, LLVMBool), T, Enable)
+end
+
+"""
+    LLVMSetTargetMachineGlobalISelAbort(T, Mode)
+
+Set abort behaviour when global instruction selection fails to lower/select an instruction.
+"""
+function LLVMSetTargetMachineGlobalISelAbort(T, Mode)
+    ccall((:LLVMSetTargetMachineGlobalISelAbort, libllvm), Cvoid, (LLVMTargetMachineRef, LLVMGlobalISelAbortMode), T, Mode)
+end
+
+"""
+    LLVMSetTargetMachineMachineOutliner(T, Enable)
+
+Enable the MachineOutliner pass.
+"""
+function LLVMSetTargetMachineMachineOutliner(T, Enable)
+    ccall((:LLVMSetTargetMachineMachineOutliner, libllvm), Cvoid, (LLVMTargetMachineRef, LLVMBool), T, Enable)
 end
 
 """
@@ -11225,6 +12212,17 @@ function LLVMRunPasses(M, Passes, TM, Options)
 end
 
 """
+    LLVMRunPassesOnFunction(F, Passes, TM, Options)
+
+Construct and run a set of passes over a function.
+
+This function behaves the same as [`LLVMRunPasses`](@ref), but operates on a single function instead of an entire module.
+"""
+function LLVMRunPassesOnFunction(F, Passes, TM, Options)
+    ccall((:LLVMRunPassesOnFunction, libllvm), LLVMErrorRef, (LLVMValueRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef), F, Passes, TM, Options)
+end
+
+"""
     LLVMCreatePassBuilderOptions()
 
 Create a new set of options for a PassBuilder
@@ -11251,6 +12249,15 @@ Toggle debug logging when running the PassBuilder
 """
 function LLVMPassBuilderOptionsSetDebugLogging(Options, DebugLogging)
     ccall((:LLVMPassBuilderOptionsSetDebugLogging, libllvm), Cvoid, (LLVMPassBuilderOptionsRef, LLVMBool), Options, DebugLogging)
+end
+
+"""
+    LLVMPassBuilderOptionsSetAAPipeline(Options, AAPipeline)
+
+Specify a custom alias analysis pipeline for the PassBuilder to be used instead of the default one. The string argument is not copied; the caller is responsible for ensuring it outlives the PassBuilderOptions instance.
+"""
+function LLVMPassBuilderOptionsSetAAPipeline(Options, AAPipeline)
+    ccall((:LLVMPassBuilderOptionsSetAAPipeline, libllvm), Cvoid, (LLVMPassBuilderOptionsRef, Cstring), Options, AAPipeline)
 end
 
 function LLVMPassBuilderOptionsSetLoopInterleaving(Options, LoopInterleaving)
@@ -12373,6 +13380,8 @@ const LLVMDisassembler_Option_AsmPrinterVariant = 4
 const LLVMDisassembler_Option_SetInstrComments = 8
 
 const LLVMDisassembler_Option_PrintLatency = 16
+
+const LLVMDisassembler_Option_Color = 32
 
 const LLVMDisassembler_VariantKind_None = 0
 

@@ -269,7 +269,14 @@ end
 
                 ts_mod = ThreadSafeModule("jit")
                 ts_mod() do mod
-                    LLVM.apply_datalayout!(lljit, mod)
+                    dl = datalayout(lljit)
+                    if LLVM.version() >= v"20"
+                        # XXX: LLVM 20 removed the ability to replace a data layout,
+                        #      resulting in Julia's JIT having a different DL from the TM's.
+                        #      https://github.com/llvm/llvm-project/pull/102993#issuecomment-2886101618
+                        dl = replace(dl, r"-ni.*" => "")
+                    end
+                    datalayout!(mod, dl)
 
                     T_Int32 = LLVM.Int32Type()
                     ft = LLVM.FunctionType(T_Int32, [T_Int32, T_Int32])

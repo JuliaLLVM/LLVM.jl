@@ -628,46 +628,6 @@ const_insertelement(vector::Constant, element::Value, index::Constant) =
 const_shufflevector(vector1::Constant, vector2::Constant, mask::Constant) =
     Value(API.LLVMConstShuffleVector(vector1, vector2, mask))
 
-if version() < v"15"
-
-export const_extractelement, const_insertelement, const_udiv, const_sdiv, const_fdiv,
-       const_urem, const_srem, const_frem, const_fadd, const_fsub, const_fmul
-
-const_extractvalue(agg::Constant, Idx::Vector{<:Integer}) =
-   Value(API.LLVMConstExtractValue(agg, Idx, length(Idx)))
-
-const_insertvalue(agg::Constant, element::Constant, Idx::Vector{<:Integer}) =
-   Value(API.LLVMConstInsertValue(agg, element, Idx, length(Idx)))
-
-const_udiv(lhs::Constant, rhs::Constant; exact::Bool=false) =
-    Value(exact ? API.LLVMConstExactUDiv(lhs, rhs) : API.LLVMConstUDiv(lhs, rhs))
-
-const_sdiv(lhs::Constant, rhs::Constant; exact::Bool=false) =
-    Value(exact ? API.LLVMConstExactSDiv(lhs, rhs) : API.LLVMConstSDiv(lhs, rhs))
-
-const_fdiv(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstFDiv(lhs, rhs))
-
-const_urem(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstURem(lhs, rhs))
-
-const_srem(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstSRem(lhs, rhs))
-
-const_frem(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstFRem(lhs, rhs))
-
-const_fadd(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstFAdd(lhs, rhs))
-
-const_fsub(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstFSub(lhs, rhs))
-
-const_fmul(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstFMul(lhs, rhs))
-
-end
-
 if version() < v"17"
 
 export const_select

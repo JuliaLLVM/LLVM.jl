@@ -29,11 +29,7 @@
     @check_ir retinst2 "ret i32 0"
 
     retinst3 = ret!(builder, Value[])
-    if version() < v"15"
-        @check_ir retinst3 "ret void undef"
-    else
-        @check_ir retinst3 "ret void poison"
-    end
+    @check_ir retinst3 "ret void poison"
     thenbb = BasicBlock(fn, "then")
     elsebb = BasicBlock(fn, "else")
 
@@ -416,10 +412,6 @@
     strptrinst = globalstring_ptr!(builder, "foobar")
     if supports_typed_pointers(ctx)
         @check_ir strptrinst "i8* getelementptr inbounds ([7 x i8], [7 x i8]* @2, i32 0, i32 0)"
-    elseif LLVM.version() < v"15"
-        # globalstring_ptr! returns a i8* ptr instead of a ptr to an i8 array.
-        # that difference is moot when we have opaque pointers...
-        @check_ir strptrinst "ptr getelementptr inbounds ([7 x i8], ptr @2, i32 0, i32 0)"
     else
         # ... so it is folded away now.
         @check_ir strptrinst "private unnamed_addr constant [7 x i8] c\"foobar\\00\""

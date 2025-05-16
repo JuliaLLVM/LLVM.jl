@@ -73,17 +73,11 @@ function triple(lljit::LLJIT)
     Base.unsafe_string(cstr)
 end
 
-if version() < v"13"
-function apply_datalayout!(lljit::LLJIT, mod::LLVM.Module)
-    API.LLVMOrcLLJITApplyDataLayout(lljit, mod)
-end
-else
 function datalayout(lljit::LLJIT)
     Base.unsafe_string(API.LLVMOrcLLJITGetDataLayoutStr(lljit))
 end
 function apply_datalayout!(lljit::LLJIT, mod::LLVM.Module)
     datalayout!(mod, datalayout(lljit))
-end
 end
 
 function get_prefix(lljit::LLJIT)

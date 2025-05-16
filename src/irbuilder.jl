@@ -561,10 +561,5 @@ isnotnull!(builder::IRBuilder, Val::Value, Name::String="") =
     Value(API.LLVMBuildIsNotNull(builder, Val, Name))
 
 function ptrdiff!(builder::IRBuilder, Ty::LLVMType, LHS::Value, RHS::Value, Name::String="")
-    @static if version() >= v"15"
-        # XXX: backport this to LLVM 11, if we care
-        Value(API.LLVMBuildPtrDiff2(builder, Ty, LHS, RHS, Name))
-    else
-        Value(API.LLVMBuildPtrDiff(builder, LHS, RHS, Name))
-    end
+    Value(API.LLVMBuildPtrDiff2(builder, Ty, LHS, RHS, Name))
 end

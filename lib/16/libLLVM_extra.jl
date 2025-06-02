@@ -190,6 +190,10 @@ function LLVMDumpJitDylibToString(JD)
     ccall((:LLVMDumpJitDylibToString, libLLVMExtra), Cstring, (LLVMOrcJITDylibRef,), JD)
 end
 
+function LLVMOrcLLJITGetObjectLinkingLayer(J)
+    ccall((:LLVMOrcLLJITGetObjectLinkingLayer, libLLVMExtra), LLVMOrcObjectLayerRef, (LLVMOrcLLJITRef,), J)
+end
+
 @cenum LLVMCloneFunctionChangeType::UInt32 begin
     LLVMCloneFunctionChangeTypeLocalChangesOnly = 0
     LLVMCloneFunctionChangeTypeGlobalChanges = 1

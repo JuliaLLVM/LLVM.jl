@@ -9,6 +9,7 @@
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/CodeGen/Passes.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/DebugInfo.h>
@@ -382,6 +383,18 @@ char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD) {
   jd->dump(rso);
   rso.flush();
   return strdup(str.c_str());
+}
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::ObjectLayer, LLVMOrcObjectLayerRef)
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::LLJIT, LLVMOrcLLJITRef)
+
+// expose JITLink
+LLVMOrcObjectLayerRef LLVMOrcLLJITGetObjectLinkingLayer(LLVMOrcLLJITRef J) {
+    if (!J)
+      return nullptr;
+    orc::LLJIT *LLJITInstance = unwrap(J);
+    return wrap(&LLJITInstance->getObjLinkingLayer());
 }
 
 

@@ -756,8 +756,7 @@ export GlobalValue, global_value_type,
        visibility, visibility!,
        dllstorage, dllstorage!,
        unnamed_addr, unnamed_addr!,
-       local_unnamed_addr, local_unnamed_addr!,
-       alignment, alignment!
+       local_unnamed_addr, local_unnamed_addr!
 
 """
     parent(val::LLVM.GlobalValue)
@@ -884,20 +883,6 @@ Set the local unnamed address flag of the global value.
 """
 local_unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(val, flag ? API.LLVMLocalUnnamedAddr : API.LLVMNoUnnamedAddr)
 
-"""
-    alignment(val::LLVM.GlobalValue)
-
-Get the alignment of the global value.
-"""
-alignment(val::GlobalValue) = API.LLVMGetAlignment(val)
-
-"""
-    alignment!(val::LLVM.GlobalValue, bytes::Integer)
-
-Set the alignment of the global value.
-"""
-alignment!(val::GlobalValue, bytes::Integer) = API.LLVMSetAlignment(val, bytes)
-
 
 ## global variables
 
@@ -908,7 +893,8 @@ export GlobalVariable, erase!,
        isthreadlocal, threadlocal!,
        threadlocalmode, threadlocalmode!,
        isconstant, constant!,
-       isextinit, extinit!
+       isextinit, extinit!,
+       alignment, alignment!
 
 """
     GlobalVariable <: LLVM.GlobalObject
@@ -1020,3 +1006,17 @@ isextinit(gv::GlobalVariable) = API.LLVMIsExternallyInitialized(gv) |> Bool
 Set the externally initialized flag of the global variable.
 """
 extinit!(gv::GlobalVariable, bool) = API.LLVMSetExternallyInitialized(gv, bool)
+
+"""
+    alignment(gv::GlobalVariable)
+
+Get the alignment of the global variable.
+"""
+alignment(gv::GlobalVariable) = API.LLVMGetAlignment(gv)
+
+"""
+    alignment!(gv::GlobalVariable, bytes::Integer)
+
+Set the alignment of the global variable.
+"""
+alignment!(gv::GlobalVariable, bytes::Integer) = API.LLVMSetAlignment(gv, bytes)

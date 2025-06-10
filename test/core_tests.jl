@@ -759,10 +759,6 @@ end
     @test !unnamed_addr(fn)
     @test local_unnamed_addr(fn)
 
-    @test alignment(fn) == 0
-    alignment!(fn, 4)
-    @test alignment(fn) == 4
-
     str = MDString("bar")
     md = MDNode([str])
     @test isempty(metadata(fn))
@@ -807,6 +803,10 @@ end
     @test !isextinit(gv)
     extinit!(gv, true)
     @test isextinit(gv)
+
+    @test alignment(gv) == 0
+    alignment!(gv, 4)
+    @test alignment(gv) == 4
 
     @test threadlocalmode(gv) == LLVM.API.LLVMGeneralDynamicTLSModel
     threadlocalmode!(gv, LLVM.API.LLVMNotThreadLocal)

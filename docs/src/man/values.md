@@ -199,7 +199,6 @@ couple of additional APIs:
 - `linkage`/`linkage!`: get or set the linkage of the global value.
 - `visibility`/`visibility!`: get or set the visibility of the global value.
 - `section`/`section!`: get or set the section of the global value.
-- `alignment`/`alignment!`: get or set the alignment of the global value.
 - `dllstorage`/`dllstorage!`: get or set the DLL storage class of the global value.
 - `unnamed_addr`/`unnamed_addr!`: get or set whether the global value has an unnamed address.
 - `local_unnamed_addr`/`local_unnamed_addr!`: get or set whether the global value has a local unnamed address.
@@ -223,6 +222,7 @@ Global variables support additional APIs:
 - `isconstant`/`isconstant!`: get or set whether the global variable is constant.
 - `isextinit`/`isextinit!`: get or set whether the global variable is externally initialized.
 - `erase!`: delete the global variable from its parent module, and delete the object.
+- `alignment`/`alignment!`: get or set the alignment of the global variable.
 
 
 ## Uses

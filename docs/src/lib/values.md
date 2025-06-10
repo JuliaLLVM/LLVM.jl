@@ -66,8 +66,6 @@ unnamed_addr
 unnamed_addr!
 local_unnamed_addr
 local_unnamed_addr!
-alignment(::LLVM.GlobalValue)
-alignment!(::LLVM.GlobalValue, ::Integer)
 ```
 
 ### Global variables
@@ -87,6 +85,8 @@ isconstant(::GlobalVariable)
 constant!
 isextinit
 extinit!
+alignment(::GlobalVariable)
+alignment!(::GlobalVariable, ::Integer)
 ```
 
 ## Uses

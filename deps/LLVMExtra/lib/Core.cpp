@@ -795,6 +795,15 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
   return wrap(&unwrap(Builder)->getContext());
 }
 
+
+//
+// More DataLayout queries
+//
+
+unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD) {
+  return unwrap(TD)->getDefaultGlobalsAddressSpace();
+}
+
 #endif
 
 #endif

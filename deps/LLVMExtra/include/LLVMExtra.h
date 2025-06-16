@@ -255,5 +255,8 @@ LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,
                                           LLVMPassBuilderOptionsRef Options,
                                           LLVMPassBuilderExtensionsRef Extensions);
 
+// More DataLayout queries
+unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);
+
 LLVM_C_EXTERN_C_END
 #endif

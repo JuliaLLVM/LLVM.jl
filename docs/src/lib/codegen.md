@@ -38,6 +38,7 @@ dispose(::DataLayout)
 byteorder
 pointersize
 intptr
+globals_addrspace
 sizeof(::DataLayout, ::LLVMType)
 storage_size
 abi_size

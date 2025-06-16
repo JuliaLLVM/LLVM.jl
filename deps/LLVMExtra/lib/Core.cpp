@@ -780,6 +780,8 @@ void LLVMSetAtomicSyncScopeID(LLVMValueRef AtomicInst, unsigned SSID) {
   setAtomicSyncScopeID(I, SSID);
 }
 
+#endif
+
 
 //
 // more LLVMContextRef getters
@@ -795,6 +797,8 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
   return wrap(&unwrap(Builder)->getContext());
 }
 
+#endif
+
 
 //
 // More DataLayout queries
@@ -803,7 +807,3 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD) {
   return unwrap(TD)->getDefaultGlobalsAddressSpace();
 }
-
-#endif
-
-#endif

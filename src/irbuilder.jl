@@ -523,14 +523,15 @@ not!(builder::IRBuilder, V::Value, Name::String="") =
 
 # re-implementation for flexibility (exposing addrspace, add_null)
 function globalstring!(mod::LLVM.Module, str::String, name::String="";
-                       addrspace::Integer=0, add_null::Bool=true)
+                       addrspace::Union{Integer,Nothing}=nothing, add_null::Bool=true)
     bytes = Vector{UInt8}(str)
     if add_null
         push!(bytes, 0x00)
     end
     constant = ConstantDataArray(bytes)
 
-    gv = GlobalVariable(mod, value_type(constant), name, addrspace)
+    gv = GlobalVariable(mod, value_type(constant), name,
+                        something(addrspace, globals_addrspace(datalayout(mod))))
     alignment!(gv, 1)
     unnamed_addr!(gv, true)
     initializer!(gv, constant)

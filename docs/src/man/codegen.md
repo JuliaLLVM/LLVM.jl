@@ -153,6 +153,7 @@ generating IR:
 - `byteorder`
 - `pointersize`
 - `intptr`
+- `globals_addrspace`
 - `sizeof`
 - `storage_size`
 - `abi_alignment`

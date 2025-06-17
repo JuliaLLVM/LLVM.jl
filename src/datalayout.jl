@@ -1,7 +1,7 @@
 ## data layout
 
 export DataLayout, dispose,
-       byteorder, pointersize, intptr,
+       byteorder, pointersize, intptr, globals_addrspace,
        sizeof, storage_size, abi_size,
        abi_alignment, frame_alignment, preferred_alignment,
        element_at, offsetof
@@ -38,119 +38,126 @@ This object needs to be disposed of using [`dispose`](@ref).
 DataLayout(tm::TargetMachine) = mark_alloc(DataLayout(API.LLVMCreateTargetDataLayout(tm)))
 
 """
-    dispose(data::DataLayout)
+    dispose(dl::DataLayout)
 
 Dispose of the given target data layout.
 """
-dispose(data::DataLayout) = mark_dispose(API.LLVMDisposeTargetData, data)
+dispose(dl::DataLayout) = mark_dispose(API.LLVMDisposeTargetData, dl)
 
 function DataLayout(f::Core.Function, args...; kwargs...)
-    data = DataLayout(args...; kwargs...)
+    dl = DataLayout(args...; kwargs...)
     try
-        f(data)
+        f(dl)
     finally
-        dispose(data)
+        dispose(dl)
     end
 end
 
-Base.string(data::DataLayout) =
-    unsafe_message(API.LLVMCopyStringRepOfTargetData(data))
+Base.string(dl::DataLayout) =
+    unsafe_message(API.LLVMCopyStringRepOfTargetData(dl))
 
-function Base.show(io::IO, data::DataLayout)
-    @printf(io, "DataLayout(%s)", string(data))
+function Base.show(io::IO, dl::DataLayout)
+    @printf(io, "DataLayout(%s)", string(dl))
 end
 
 """
-    byteorder(data::DataLayout)
+    byteorder(dl::DataLayout)
 
 Get the byte order of the target data layout.
 """
-byteorder(data::DataLayout) = API.LLVMByteOrder(data)
+byteorder(dl::DataLayout) = API.LLVMByteOrder(dl)
 
 """
-    pointersize(data::DataLayout, [addrspace::Integer])
+    pointersize(dl::DataLayout, [addrspace::Integer])
 
 Get the pointer size of the target data layout.
 """
-pointersize(data::DataLayout, addrspace::Integer=0) =
-    API.LLVMPointerSizeForAS(data, addrspace)
+pointersize(dl::DataLayout, addrspace::Integer=0) =
+    API.LLVMPointerSizeForAS(dl, addrspace)
 
 """
-    intptr(data::DataLayout, [addrspace::Integer])
+    intptr(dl::DataLayout, [addrspace::Integer])
 
 Get the integer type that is the same size as a pointer for the target data layout.
 """
-intptr(data::DataLayout, addrspace::Integer=0) =
-    IntegerType(API.LLVMIntPtrTypeForASInContext(context(), data, addrspace))
+intptr(dl::DataLayout, addrspace::Integer=0) =
+    IntegerType(API.LLVMIntPtrTypeForASInContext(context(), dl, addrspace))
 
 """
-    sizeof(data::DataLayout, typ::LLVMType)
+    globals_addrspace(dl::DataLayout)
+
+Get the address space used for global variables in the target data layout.
+"""
+globals_addrspace(dl::DataLayout) = API.LLVMGlobalsAddressSpace(dl) |> Int
+
+"""
+    sizeof(dl::DataLayout, typ::LLVMType)
 
 Get the size of the given type in bytes for the target data layout.
 """
-Base.sizeof(data::DataLayout, typ::LLVMType) = Int(API.LLVMSizeOfTypeInBits(data, typ) / 8)
+Base.sizeof(dl::DataLayout, typ::LLVMType) = Int(API.LLVMSizeOfTypeInBits(dl, typ) / 8)
 
 """
-    storage_size(data::DataLayout, typ::LLVMType)
+    storage_size(dl::DataLayout, typ::LLVMType)
 
 Get the storage size of the given type in bytes for the target data layout.
 """
-storage_size(data::DataLayout, typ::LLVMType) = API.LLVMStoreSizeOfType(data, typ)
+storage_size(dl::DataLayout, typ::LLVMType) = API.LLVMStoreSizeOfType(dl, typ)
 
 """
-    abi_size(data::DataLayout, typ::LLVMType)
+    abi_size(dl::DataLayout, typ::LLVMType)
 
 Get the ABI size of the given type in bytes for the target data layout.
 """
-abi_size(data::DataLayout, typ::LLVMType) = API.LLVMABISizeOfType(data, typ)
+abi_size(dl::DataLayout, typ::LLVMType) = API.LLVMABISizeOfType(dl, typ)
 
 """
-    abi_alignment(data::DataLayout, typ::LLVMType)
+    abi_alignment(dl::DataLayout, typ::LLVMType)
 
 Get the ABI alignment of the given type in bytes for the target data layout.
 """
-abi_alignment(data::DataLayout, typ::LLVMType) =
-    API.LLVMABIAlignmentOfType(data, typ)
+abi_alignment(dl::DataLayout, typ::LLVMType) =
+    API.LLVMABIAlignmentOfType(dl, typ)
 
 """
-    frame_alignment(data::DataLayout, typ::LLVMType)
+    frame_alignment(dl::DataLayout, typ::LLVMType)
 
 Get the call frame alignment of the given type in bytes for the target data layout.
 """
-frame_alignment(data::DataLayout, typ::LLVMType) =
-    API.LLVMCallFrameAlignmentOfType(data, typ)
+frame_alignment(dl::DataLayout, typ::LLVMType) =
+    API.LLVMCallFrameAlignmentOfType(dl, typ)
 
 
 """
-    preferred_alignment(data::DataLayout, typ::LLVMType)
-    preferred_alignment(data::DataLayout, var::GlobalVariable)
+    preferred_alignment(dl::DataLayout, typ::LLVMType)
+    preferred_alignment(dl::DataLayout, var::GlobalVariable)
 
 Get the preferred alignment of the given type or global variable in bytes for the target
 data layout.
 """
 preferred_alignment(::DataLayout, ::Union{LLVMType, GlobalVariable})
 
-preferred_alignment(data::DataLayout, typ::LLVMType) =
-    API.LLVMPreferredAlignmentOfType(data, typ)
-preferred_alignment(data::DataLayout, var::GlobalVariable) =
-    API.LLVMPreferredAlignmentOfGlobal(data, var)
+preferred_alignment(dl::DataLayout, typ::LLVMType) =
+    API.LLVMPreferredAlignmentOfType(dl, typ)
+preferred_alignment(dl::DataLayout, var::GlobalVariable) =
+    API.LLVMPreferredAlignmentOfGlobal(dl, var)
 
 """
-    element_at(data::DataLayout, typ::StructType, offset::Integer)
+    element_at(dl::DataLayout, typ::StructType, offset::Integer)
 
 Get the element at the given offset in a struct type for the target data layout.
 
 See also: [`offsetof`](@ref).
 """
-element_at(data::DataLayout, typ::StructType, offset::Integer) =
-    API.LLVMElementAtOffset(data, typ, Culonglong(offset))
+element_at(dl::DataLayout, typ::StructType, offset::Integer) =
+    API.LLVMElementAtOffset(dl, typ, Culonglong(offset))
 
 """
-    offsetof(data::DataLayout, typ::StructType, element::Integer)
+    offsetof(dl::DataLayout, typ::StructType, element::Integer)
 
 Get the offset of the given element in a struct type for the target data layout.
 
 See also: [`element_at`](@ref).
 """
-offsetof(data::DataLayout, typ::StructType, element::Integer) =
-    API.LLVMOffsetOfElement(data, typ, element)
+offsetof(dl::DataLayout, typ::StructType, element::Integer) =
+    API.LLVMOffsetOfElement(dl, typ, element)

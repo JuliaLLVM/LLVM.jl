@@ -1,4 +1,4 @@
-@testitem "utils" begin
+@testset "utils" begin
 
 @testset "function cloning" begin
     @dispose ctx=Context() mod=LLVM.Module("my_module") begin

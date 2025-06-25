@@ -252,6 +252,7 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcMaterializationResponsibilityRef}, mr::MaterializationResponsibility) = mr.ref
 
 function emit(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    mark_dispose(tsm)
     API.LLVMOrcIRTransformLayerEmit(il, mr, tsm)
 end
 
@@ -455,6 +456,7 @@ function emit(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::Thread
             decorate_module(mod)
         end
     end
+    mark_dispose(tsm)
     API.LLVMOrcIRCompileLayerEmit(il, mr, tsm)
 end
 

@@ -1,20 +1,20 @@
 @checked struct LLJITBuilder
     ref::API.LLVMOrcLLJITBuilderRef
 end
-Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) = builder.ref
+Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) = mark_use(builder).ref
 
 @checked mutable struct LLJIT
     ref::API.LLVMOrcLLJITRef
 end
-Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = lljit.ref
+Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
 
 function LLJITBuilder()
     ref = API.LLVMOrcCreateLLJITBuilder()
-    LLJITBuilder(ref)
+    mark_alloc(LLJITBuilder(ref))
 end
 
 function dispose(builder::LLJITBuilder)
-    API.LLVMOrcDisposeLLJITBuilder(builder)
+    mark_dispose(API.LLVMOrcDisposeLLJITBuilder, builder)
 end
 
 function targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
@@ -36,11 +36,12 @@ Creates a LLJIT stack based on the provided builder.
 function LLJIT(builder::LLJITBuilder)
     ref = Ref{API.LLVMOrcLLJITRef}()
     @check API.LLVMOrcCreateLLJIT(ref, builder)
-    LLJIT(ref[])
+    mark_dispose(builder)
+    mark_alloc(LLJIT(ref[]))
 end
 
 function dispose(lljit::LLJIT)
-    API.LLVMOrcDisposeLLJIT(lljit)
+    mark_dispose(API.LLVMOrcDisposeLLJIT, lljit)
 end
 
 """

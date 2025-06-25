@@ -8,7 +8,7 @@ A thread-safe version of [`Context`](@ref).
 @checked struct ThreadSafeContext
     ref::API.LLVMOrcThreadSafeContextRef
 end
-Base.unsafe_convert(::Type{API.LLVMOrcThreadSafeContextRef}, ctx::ThreadSafeContext) = ctx.ref
+Base.unsafe_convert(::Type{API.LLVMOrcThreadSafeContextRef}, ctx::ThreadSafeContext) = mark_use(ctx).ref
 
 """
     ThreadSafeContext(; opaque_pointers=nothing)
@@ -19,7 +19,7 @@ Create a new thread-safe context. The behavior of `opaque_pointers` is the same 
 This object needs to be disposed of using [`dispose(::ThreadSafeContext)`](@ref).
 """
 function ThreadSafeContext(; opaque_pointers=nothing)
-    ts_ctx = ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext())
+    ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext()))
     if opaque_pointers !== nothing
         opaque_pointers!(context(ts_ctx), opaque_pointers)
     end
@@ -58,7 +58,7 @@ Dispose of the thread-safe context, releasing all resources associated with it.
 """
 function dispose(ctx::ThreadSafeContext)
     deactivate(ctx)
-    API.LLVMOrcDisposeThreadSafeContext(ctx)
+    mark_dispose(API.LLVMOrcDisposeThreadSafeContext, ctx)
 end
 
 """
@@ -95,11 +95,12 @@ function ThreadSafeModule(mod::Module)
         mod = context!(context(ts_context())) do
             parse(Module, bitcode)
         end
+        dispose(bitcode)
     end
     @assert context(mod) == context(ts_context())
 
     ref = API.LLVMOrcCreateNewThreadSafeModule(mod, ts_context())
-    tsm = ThreadSafeModule(ref)
+    tsm = mark_alloc(ThreadSafeModule(ref))
     mark_dispose(mod)
     return tsm
 end
@@ -127,7 +128,7 @@ end
 Dispose of the thread-safe module, releasing all resources associated with it.
 """
 function dispose(mod::ThreadSafeModule)
-    API.LLVMOrcDisposeThreadSafeModule(mod)
+    mark_dispose(API.LLVMOrcDisposeThreadSafeModule, mod)
 end
 
 mutable struct ThreadSafeModuleCallback

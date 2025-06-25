@@ -1,4 +1,4 @@
-@testitem "transform" begin
+@testset "transform" begin
 
 let
     pmb = PassManagerBuilder()

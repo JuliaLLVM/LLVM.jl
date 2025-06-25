@@ -1,5 +1,5 @@
 
-@testitem "newpm" begin
+@testset "newpm" begin
 
 using LLVM.Interop
 using IOCapture

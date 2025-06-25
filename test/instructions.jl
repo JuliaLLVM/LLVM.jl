@@ -1,4 +1,4 @@
-@testitem "instructions" setup=[TestHelpers] begin
+@testset "instructions" begin
 
 @testset "irbuilder" begin
 

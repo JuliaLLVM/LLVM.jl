@@ -1,4 +1,4 @@
-@testitem "orc" begin
+@testset "orc" begin
 
 let lljit=LLJIT()
     dispose(lljit)
@@ -15,8 +15,7 @@ ThreadSafeContext() do ctx
 end
 
 @testset "ThreadSafeModule" begin
-    @dispose ts_ctx=ThreadSafeContext() begin
-        ts_mod = ThreadSafeModule("jit")
+    @dispose ts_ctx=ThreadSafeContext() ts_mod=ThreadSafeModule("jit") begin
         @test_throws LLVMException ts_mod() do mod
             error("Error")
         end

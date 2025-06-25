@@ -243,7 +243,7 @@ end
 Convert the given module to a memory buffer containing its bitcode.
 """
 Base.convert(::Type{MemoryBuffer}, mod::Module) =
-    MemoryBuffer(API.LLVMWriteBitcodeToMemoryBuffer(mod))
+    mark_alloc(MemoryBuffer(API.LLVMWriteBitcodeToMemoryBuffer(mod)))
 
 """
     convert(::Type{Vector}, mod::Module)

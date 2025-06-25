@@ -17,7 +17,11 @@ end
         T_ptr = LLVM.PointerType(eltyp)
 
         # create a function
-        paramtyps = [T_int, T_int]
+        paramtyps = if VERSION >= v"1.12-"
+            [T_ptr, T_int]
+        else
+            [T_int, T_int]
+        end
         llvmf, _ = create_function(eltyp, paramtyps)
 
         # generate IR
@@ -25,7 +29,10 @@ end
             entry = BasicBlock(llvmf, "entry")
             position!(builder, entry)
 
-            ptr = inttoptr!(builder, parameters(llvmf)[1], T_ptr)
+            ptr = parameters(llvmf)[1]
+            if value_type(ptr) isa LLVM.IntegerType
+                ptr = inttoptr!(builder, ptr, T_ptr)
+            end
 
             ptr = gep!(builder, eltyp, ptr, [parameters(llvmf)[2]])
             val = load!(builder, eltyp, ptr)

@@ -1,4 +1,4 @@
-@testitem "core" setup=[TestHelpers] begin
+@testset "core" begin
 
 using BFloat16s
 

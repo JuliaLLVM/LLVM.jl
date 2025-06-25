@@ -1,4 +1,4 @@
-@testitem "Aqua" begin
+@testset "Aqua" begin
 
 using Aqua
 

@@ -1,4 +1,4 @@
-@testitem "essentials" begin
+@testset "essentials" begin
 
 @test InitializeNativeTarget() === nothing
 @test InitializeAllTargetInfos() === nothing

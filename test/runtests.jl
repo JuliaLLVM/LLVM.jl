@@ -1,4 +1,5 @@
 using LLVM
+using Test
 
 using InteractiveUtils
 @info "System information:\n" * sprint(io->versioninfo(io))
@@ -20,26 +21,43 @@ end
 
 @info "Debug settings: typecheck = $(LLVM.typecheck_enabled), memcheck = $(LLVM.memcheck_enabled)"
 
-worker_init_expr = quote
-    using LLVM
 
-    # HACK: if a test throws within a Context() do block, displaying the LLVM value may
-    #       crash because the context has been disposed already. avoid that by disabling
-    #       `dispose`, and only have it pop the context off the stack (but not destroy it).
-    LLVM.dispose(ctx::Context) = LLVM.mark_dispose(LLVM.deactivate, ctx)
+@testset "LLVM" verbose=true begin
+
+# HACK: if a test throws within a Context() do block, displaying the LLVM value may crash
+#       because the context has been disposed already. avoid that by disabling `dispose`,
+#       and only have it pop the context off the stack (but not destroy it).
+LLVM.dispose(ctx::Context) = LLVM.deactivate(ctx)
+
+include("helpers.jl")
+
+include("essential.jl")
+include("support.jl")
+include("core.jl")
+include("linker.jl")
+include("instructions.jl")
+include("buffer.jl")
+include("analysis.jl")
+include("passmanager.jl")
+include("newpm.jl")
+include("pass.jl")
+include("execution.jl")
+include("target.jl")
+include("targetmachine.jl")
+include("datalayout.jl")
+include("debuginfo.jl")
+include("util.jl")
+include("interop.jl")
+include("orc.jl")
+if !Sys.iswindows()
+    # XXX: hangs on Windows
+    include("jljit.jl")
 end
+if LLVM.has_oldpm()
+    include("transform.jl")
+end
+include("Kaleidoscope.jl")
+include("examples.jl")
+include("aqua.jl")
 
-using ReTestItems
-runtests(LLVM; worker_init_expr, nworkers=min(Sys.CPU_THREADS,4), nworker_threads=1,
-               testitem_timeout=120) do ti
-    if ti.name == "jljit"
-        # XXX: hangs on Windows
-        Sys.iswindows() && return false
-    end
-
-    if ti.name == "transform"
-        LLVM.has_oldpm() || return false
-    end
-
-    true
 end

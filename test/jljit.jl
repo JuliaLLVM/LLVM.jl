@@ -1,4 +1,4 @@
-@testitem "jljit" begin
+@testset "jljit" begin
 
 let jljit=JuliaOJIT()
     dispose(jljit)

@@ -1,4 +1,4 @@
-@testitem "linker" begin
+@testset "linker" begin
 
 @dispose ctx=Context() builder=IRBuilder() begin
     mod1 = let

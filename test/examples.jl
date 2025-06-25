@@ -1,4 +1,4 @@
-@testitem "examples" begin
+@testset "examples" begin
 
 function find_sources(path::String, sources=String[])
     if isdir(path)

@@ -1,4 +1,4 @@
-@testitem "support" begin
+@testset "support" begin
 
 function execute_code(code)
     script = """

@@ -1,4 +1,4 @@
-@testitem "interop" begin
+@testset "interop" begin
 
 using LLVM.Interop
 using InteractiveUtils

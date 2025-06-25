@@ -1,4 +1,4 @@
-@testitem "orc" begin
+@testset "orc" begin
 
 let lljit=LLJIT()
     dispose(lljit)

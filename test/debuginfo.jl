@@ -1,4 +1,4 @@
-@testitem "debuginfo" begin
+@testset "debuginfo" begin
 
 DEBUG_METADATA_VERSION()
 

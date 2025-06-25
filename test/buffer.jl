@@ -1,4 +1,4 @@
-@testitem "buffer" begin
+@testset "buffer" begin
 
 data = rand(UInt8, 8)
 

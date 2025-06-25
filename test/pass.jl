@@ -1,4 +1,4 @@
-@testitem "pass" begin
+@testset "pass" begin
 
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())

@@ -59,7 +59,7 @@ function MemoryBufferFile(path::String)
         throw(LLVMException(error))
     end
 
-    MemoryBuffer(out_ref[])
+    mark_alloc(MemoryBuffer(out_ref[]))
 end
 
 function MemoryBufferFile(f::Core.Function, args...; kwargs...)

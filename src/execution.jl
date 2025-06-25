@@ -72,7 +72,7 @@ Base.convert(::Type{T}, val::GenericValue) where {T<:Unsigned} =
 Create a generic value from a floating point number of the given type.
 """
 GenericValue(typ::FloatingPointType, N::AbstractFloat) =
-    GenericValue(API.LLVMCreateGenericValueOfFloat(typ, convert(Cdouble, N)))
+    mark_alloc(GenericValue(API.LLVMCreateGenericValueOfFloat(typ, convert(Cdouble, N))))
 
 # NOTE: this ugly three-arg convert is needed to match the C API,
 #       which uses the type to call the correct C++ function.
@@ -93,7 +93,7 @@ Base.convert(::Type{T}, val::GenericValue, typ::LLVMType) where {T<:AbstractFloa
 Create a generic value from a pointer.
 """
 GenericValue(ptr::Ptr) =
-    GenericValue(API.LLVMCreateGenericValueOfPointer(convert(Ptr{Cvoid}, ptr)))
+    mark_alloc(GenericValue(API.LLVMCreateGenericValueOfPointer(convert(Ptr{Cvoid}, ptr))))
 
 """
     convert(::Type{Ptr{T}}, val::GenericValue)
@@ -234,8 +234,8 @@ end
 Run the given function with the given arguments in the execution engine.
 """
 Base.run(engine::ExecutionEngine, f::Function, args::Vector{GenericValue}=GenericValue[]) =
-    GenericValue(API.LLVMRunFunction(engine, f,
-                                     length(args), args))
+    mark_alloc(GenericValue(API.LLVMRunFunction(engine, f,
+                                                length(args), args)))
 
 """
     lookup(engine::ExecutionEngine, fn::String)

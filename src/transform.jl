@@ -9,11 +9,11 @@ export PassManagerBuilder, dispose,
     ref::API.LLVMPassManagerBuilderRef
 end
 
-Base.unsafe_convert(::Type{API.LLVMPassManagerBuilderRef}, pmb::PassManagerBuilder) = pmb.ref
+Base.unsafe_convert(::Type{API.LLVMPassManagerBuilderRef}, pmb::PassManagerBuilder) = mark_use(pmb).ref
 
-PassManagerBuilder() = PassManagerBuilder(API.LLVMPassManagerBuilderCreate())
+PassManagerBuilder() = mark_alloc(PassManagerBuilder(API.LLVMPassManagerBuilderCreate()))
 
-dispose(pmb::PassManagerBuilder) = API.LLVMPassManagerBuilderDispose(pmb)
+dispose(pmb::PassManagerBuilder) = mark_dispose(API.LLVMPassManagerBuilderDispose, pmb)
 
 function PassManagerBuilder(f::Core.Function)
     pmb = PassManagerBuilder()

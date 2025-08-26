@@ -1,6 +1,7 @@
 @checked struct DisasmContext
     ref::API.LLVMDisasmContextRef
 end
+Base.unsafe_convert(::Type{API.LLVMDisasmContextRef}, dc::DisasmContext) = dc.ref
 
 function create_disasm(triple)
     ctx = DisasmContext(API.LLVMCreateDisasm(triple, C_NULL, 0, C_NULL, C_NULL))
@@ -17,11 +18,12 @@ function disassemble_code(io, ctx::DisasmContext, native_code::Vector{UInt8}, co
     buf = Vector{UInt8}(undef, bufsize)
 
     while pos < length(native_code)
-        GC.@preserve native_code begin
+        GC.@preserve native_code buf begin
             bytes = pointer(native_code, pos)
             pc = code_addr + pos - 1
             nbytes = length(native_code) - pos + 1
-            nb = API.LLVMDisasmInstruction(ctx, bytes, nbytes, pc, buf, bufsize)
+            # Need to use pointer(buf) here since the API is annotated as Cstring
+            nb = API.LLVMDisasmInstruction(ctx, bytes, nbytes, pc, pointer(buf), bufsize)
         end
         if nb == 0
             # Disassembly failed

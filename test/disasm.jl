@@ -1,3 +1,5 @@
+import LLVM: create_disasm, disassemble_code
+
 @testset "X86 Disassembly" begin
     # Example from jitdump
     native_code = UInt8[0x55, 0x48, 0x89, 0xe5, 0x49, 0x8b, 0x45, 0x10, 0x48, 0x8b, 0x40, 0x10, 0x48, 0x8b, 0x00, 0x48, 0x8b, 0x16, 0x48, 0x83, 0xc6, 0x08, 0x48, 0xb8, 0xe0, 0x7c, 0xf5, 0x81, 0xe4, 0x7f, 0x00, 0x00, 0xff, 0xd0, 0x5d, 0xc3]
@@ -5,6 +7,7 @@
 
     ctx = create_disasm("x86_64-pc-linux-gnu")
     disassembled = sprint(disassemble_code, ctx, native_code, code_addr)
+    LLVM.dispose(ctx)
 
     @test disassembled == "\tpushq\t%rbp\n\tmovq\t%rsp, %rbp\n\tmovq\t16(%r13), %rax\n\tmovq\t16(%rax), %rax\n\tmovq\t(%rax), %rax\n\tmovq\t(%rsi), %rdx\n\taddq\t\$8, %rsi\n\tmovabsq\t\$140619409620192, %rax\n\tcallq\t*%rax\n\tpopq\t%rbp\n"
 end

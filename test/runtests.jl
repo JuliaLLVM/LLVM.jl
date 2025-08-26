@@ -41,6 +41,7 @@ include("debuginfo.jl")
 include("util.jl")
 include("interop.jl")
 include("orc.jl")
+include("disasm.jl")
 if !Sys.iswindows()
     # XXX: hangs on Windows
     include("jljit.jl")

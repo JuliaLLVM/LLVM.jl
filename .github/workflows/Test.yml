@@ -49,7 +49,7 @@ jobs:
             arch: 'x64'
             llvm_args: '--opaque-pointers'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
 
@@ -127,7 +127,7 @@ jobs:
             os: 'ubuntu-latest'
             arch: 'x64'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
 
@@ -185,7 +185,7 @@ jobs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: julia-actions/setup-julia@latest
         with:
           version: '1.11'

@@ -32,11 +32,11 @@ jobs:
             arch: 'x64'
             llvm_args: '--opaque-pointers'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
       - name: Clone Downstream
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: EnzymeAD/Enzyme.jl
           path: downstream

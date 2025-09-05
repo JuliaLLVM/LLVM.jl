@@ -143,6 +143,54 @@ void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensi
 }
 #endif
 
+// Register target specific parsing callbacks
+static void registerCallbackParsing(PassBuilder &PB) {
+    PB.registerPipelineParsingCallback(
+        [&](StringRef Name, FunctionPassManager &PM,
+           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
+#define FUNCTION_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
+#include "callbacks.inc"
+#undef FUNCTION_CALLBACK
+            return false;
+        }
+      );
+
+    PB.registerPipelineParsingCallback(
+        [&](StringRef Name, ModulePassManager &PM,
+           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
+#define MODULE_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
+#include "callbacks.inc"
+#undef MODULE_CALLBACK
+#if LLVM_VERSION_MAJOR >= 20
+#define MODULE_LTO_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2, ThinOrFullLTOPhase::None); return true; }
+#else
+#define MODULE_LTO_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
+#endif
+#include "callbacks.inc"
+#undef MODULE_LTO_CALLBACK
+            return false;
+        }
+      );
+
+    PB.registerPipelineParsingCallback(
+        [&](StringRef Name, CGSCCPassManager &CGPM,
+           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
+#define CGSCC_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(CGPM, OptimizationLevel::O2); return true; }
+#include "callbacks.inc"
+#undef CGSCC_CALLBACK
+          return false;
+        }
+      );
+    PB.registerPipelineParsingCallback(
+        [&](StringRef Name, LoopPassManager &PM,
+           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
+#define LOOP_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
+#include "callbacks.inc"
+#undef LOOP_CALLBACK
+          return false;
+      }
+    );
+}
 
 // Vendored API entrypoint
 
@@ -164,7 +212,7 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
     PB.registerPipelineParsingCallback(Callback);
   for (auto &Callback : PassExts->FunctionPipelineParsingCallbacks)
     PB.registerPipelineParsingCallback(Callback);
-
+  registerCallbackParsing(PB); // Parsing for target-specific callbacks
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
   CGSCCAnalysisManager CGAM;

@@ -514,6 +514,11 @@ function InternalizePass(; preserved_gvs::Vector=String[], kwargs...)
 
     "internalize" * kwargs_to_params(kwargs)
 end
+# Module callbacks
+@module_pass "PipelineStartCallbacks" PipelineStartCallbacks
+@module_pass "PipelineEarlySimplificationCallbacks" PipelineEarlySimplificationCallbacks
+@module_pass "OptimizerEarlyCallbacks" OptimizerEarlyCallbacks
+@module_pass "OptimizerLastCallbacks" OptimizerLastCallbacks
 
 # CGSCC passes
 
@@ -525,6 +530,9 @@ end
 @cgscc_pass "no-op-cgscc" NoOpCGSCCPass
 @cgscc_pass "inline" InlinerPass
 @cgscc_pass "coro-split" CoroSplitPass
+
+#CGSCC callbacks
+@cgscc_pass "CGSCCOptimizerLateCallbacks" CGSCCOptimizerLateCallbacks
 
 # function passes
 
@@ -709,6 +717,10 @@ end
 @function_pass "gvn" GVNPass
 @function_pass "print<stack-lifetime>" StackLifetimePrinterPass
 
+# Function pass callbacks
+@function_pass "PeepholeCallbacks" PeepholeCallbacks
+@function_pass "ScalarOptimizerLateCallbacks" ScalarOptimizerLateCallbacks
+@function_pass "VectorizerStartCallbacks" VectorizerStartCallbacks
 # loop nest passes
 
 @loop_pass "loop-flatten" LoopFlattenPass
@@ -745,6 +757,10 @@ end
 @loop_pass "simple-loop-unswitch" SimpleLoopUnswitchPass
 @loop_pass "licm" LICMPass
 @loop_pass "lnicm" LNICMPass
+
+# Loop Callbacks
+@loop_pass "LateLoopOptimizationsCallbacks" LateLoopOptimizationsCallbacks
+@loop_pass "LoopOptimizerEndCallbacks" LoopOptimizerEndCallbacks
 
 
 ## alias analyses

@@ -409,4 +409,31 @@ end
     end
 end
 
+@testset "callbacks" begin
+    # just check that the callbacks can be registered and run without errors
+    @dispose ctx=Context() begin
+        # module callbacks
+        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+            run!("PipelineStartCallbacks", mod) === nothing
+        end
+        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+            run!(PipelineStartCallbacks(), mod) === nothing
+        end
+        # CGSCC callback
+        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+            run!("CGSCCOptimizerLateCallbacks", mod) === nothing
+        end
+        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+            run!(CGSCCOptimizerLateCallbacks(), mod) === nothing
+        end
+        # function callbacks
+        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+            run!("PeepholeCallbacks", mod) === nothing
+        end
+        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+            run!(PeepholeCallbacks(), mod) === nothing
+        end
+    end
+end
+
 end

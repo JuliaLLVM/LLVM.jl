@@ -230,7 +230,7 @@ typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
 LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
 void LLVMDisposePassBuilderExtensions(LLVMPassBuilderExtensionsRef Extensions);
 void LLVMPassBuilderExtensionsPushRegistrationCallbacks(LLVMPassBuilderExtensionsRef Options,
-                                                      void (*RegistrationCallback)(void *));
+                                                        void (*RegistrationCallback)(void *));
 typedef LLVMBool (*LLVMJuliaModulePassCallback)(LLVMModuleRef M, void *Thunk);
 typedef LLVMBool (*LLVMJuliaFunctionPassCallback)(LLVMValueRef F, void *Thunk);
 void LLVMPassBuilderExtensionsRegisterModulePass(LLVMPassBuilderExtensionsRef Options,
@@ -359,6 +359,14 @@ void LLVMTTIOptionsSetCollectFlatAddressOperands(
 // to the default TTI.
 void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
                                      LLVMTTIOptionsRef Options);
+
+// Testing hooks for the pipeline EP pseudo-passes. `LLVMExtraInstallTestEPCallbacks`
+// has the signature expected by `LLVMPassBuilderExtensionsPushRegistrationCallbacks`
+// and registers callbacks at every extension point that simply increment a
+// global counter. `LLVMExtraReadTestEPCounter` returns that counter and resets
+// it to zero.
+void LLVMExtraInstallTestEPCallbacks(void *PBRef);
+unsigned LLVMExtraReadTestEPCounter(void);
 
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);

@@ -47,7 +47,7 @@ LLVM_DIR = joinpath(LLVM.artifact_dir, "lib", "cmake", "llvm")
 
 # build and install
 @info "Building" source_dir scratch_dir build_dir LLVM_DIR
-cmake(adjust_LIBPATH=false) do cmake_path
+cmake(adjust_LIBPATH=!Sys.iswindows()) do cmake_path
     config_opts = `-DLLVM_ROOT=$(LLVM_DIR) -DCMAKE_INSTALL_PREFIX=$(scratch_dir)`
     if Sys.iswindows()
         # prevent picking up MSVC

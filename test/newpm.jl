@@ -195,7 +195,12 @@ end
     end
 
     @testset "loop" begin
-        test_passes("loop", LLVM.loop_passes)
+        # skip opt-level callback pseudo-passes, they require parameters and are provided as functions
+        skip_loop = [
+            "late-loop-optimizations-callbacks",
+            "loop-optimizer-end-callbacks",
+        ]
+        test_passes("loop", LLVM.loop_passes, skip_loop)
     end
 end
 
@@ -414,24 +419,24 @@ end
     @dispose ctx=Context() begin
         # module callbacks
         @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            run!("PipelineStartCallbacks", mod) === nothing
+            @test run!("pipeline-start-callbacks<O0>", mod) === nothing
         end
         @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            run!(PipelineStartCallbacks(), mod) === nothing
+            @test run!(PipelineStartCallbacks(opt_level=0), mod) === nothing
         end
         # CGSCC callback
         @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            run!("CGSCCOptimizerLateCallbacks", mod) === nothing
+            @test run!("cgscc-optimizer-late-callbacks<O0>", mod) === nothing
         end
         @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            run!(CGSCCOptimizerLateCallbacks(), mod) === nothing
+            @test run!(CGSCCOptimizerLateCallbacks(opt_level=0), mod) === nothing
         end
         # function callbacks
         @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            run!("PeepholeCallbacks", mod) === nothing
+            @test run!("peephole-callbacks<O0>", mod) === nothing
         end
         @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            run!(PeepholeCallbacks(), mod) === nothing
+            @test run!(PeepholeCallbacks(opt_level=0), mod) === nothing
         end
     end
 end

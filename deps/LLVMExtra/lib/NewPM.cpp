@@ -6,6 +6,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Support/CBindingWrapping.h>
+#include <optional>
 
 using namespace llvm;
 
@@ -143,53 +144,166 @@ void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensi
 }
 #endif
 
+static bool checkParametrizedPassName(StringRef Name, StringRef PassName) {
+  if (!Name.consume_front(PassName))
+    return false;
+  // normal pass name w/o parameters == default parameters
+  if (Name.empty())
+    return true;
+#if LLVM_VERSION_MAJOR >= 16
+  return Name.starts_with("<") && Name.ends_with(">");
+#else
+  return Name.startswith("<") && Name.endswith(">");
+#endif
+}
+
+static std::optional<OptimizationLevel> parseOptLevel(StringRef S) {
+  return StringSwitch<std::optional<OptimizationLevel>>(S)
+      .Case("O0", OptimizationLevel::O0)
+      .Case("O1", OptimizationLevel::O1)
+      .Case("O2", OptimizationLevel::O2)
+      .Case("O3", OptimizationLevel::O3)
+      .Case("Os", OptimizationLevel::Os)
+      .Case("Oz", OptimizationLevel::Oz)
+      .Default(std::nullopt);
+}
+
+static Expected<OptimizationLevel> parseOptLevelParam(StringRef S) {
+  std::optional<OptimizationLevel> OptLevel = parseOptLevel(S);
+  if (OptLevel)
+    return *OptLevel;
+  return make_error<StringError>(
+      formatv("invalid optimization level '{}'", S).str(),
+      inconvertibleErrorCode());
+}
+
+template <typename ParametersParseCallableT>
+static auto parsePassParameters(ParametersParseCallableT &&Parser,
+                                StringRef Name, StringRef PassName)
+    -> decltype(Parser(StringRef{})) {
+  using ParametersT = typename decltype(Parser(StringRef{}))::value_type;
+
+  StringRef Params = Name;
+  if (!Params.consume_front(PassName)) {
+    llvm_unreachable(
+        "unable to strip pass name from parametrized pass specification");
+  }
+  if (!Params.empty() &&
+      (!Params.consume_front("<") || !Params.consume_back(">"))) {
+    llvm_unreachable("invalid format for parametrized pass name");
+  }
+
+  Expected<ParametersT> Result = Parser(Params);
+  assert((Result || Result.template errorIsA<StringError>()) &&
+          "Pass parameter parser can only return StringErrors.");
+  return Result;
+}
+
+
 // Register target specific parsing callbacks
 static void registerCallbackParsing(PassBuilder &PB) {
-    PB.registerPipelineParsingCallback(
-        [&](StringRef Name, FunctionPassManager &PM,
-           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
-#define FUNCTION_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
-#include "callbacks.inc"
-#undef FUNCTION_CALLBACK
-            return false;
-        }
-      );
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, ModulePassManager &PM,
+             ArrayRef<PassBuilder::PipelineElement>) {
+#define MODULE_CALLBACK(NAME, INVOKE)                                          \
+    if (checkParametrizedPassName(Name, NAME)) {                    \
+      auto L = parsePassParameters(parseOptLevelParam, Name, NAME); \
+      if (!L) {                                                                  \
+        errs() << NAME ": " << toString(L.takeError()) << '\n';                  \
+        return false;                                                            \
+      }                                                                          \
+      PB.INVOKE(PM, L.get());                                                       \
+      return true;                                                               \
+    }
+    #include "callbacks.inc"
+    return false;
+  });
 
-    PB.registerPipelineParsingCallback(
-        [&](StringRef Name, ModulePassManager &PM,
-           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
-#define MODULE_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
-#include "callbacks.inc"
-#undef MODULE_CALLBACK
-#if LLVM_VERSION_MAJOR >= 20
-#define MODULE_LTO_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2, ThinOrFullLTOPhase::None); return true; }
+  // Module-level callbacks with LTO phase (use Phase::None for string API)
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, ModulePassManager &PM,
+             ArrayRef<PassBuilder::PipelineElement>) {
+#if LLVM_VERSION_MAJOR > 20
+#define MODULE_LTO_CALLBACK(NAME, INVOKE)                                      \
+    if (checkParametrizedPassName(Name, NAME)) {                    \
+      auto L = parsePassParameters(parseOptLevelParam, Name, NAME); \
+      if (!L) {                                                                  \
+        errs() << NAME ": " << toString(L.takeError()) << '\n';                  \
+        return false;                                                            \
+      }                                                                          \
+      PB.INVOKE(PM, L.get(), ThinOrFullLTOPhase::None);                             \
+      return true;                                                               \
+    }
+    #include "callbacks.inc"
 #else
-#define MODULE_LTO_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
+#define MODULE_LTO_CALLBACK(NAME, INVOKE)                                      \
+    if (checkParametrizedPassName(Name, NAME)) {                    \
+      auto L = parsePassParameters(parseOptLevelParam, Name, NAME); \
+      if (!L) {                                                                  \
+        errs() << NAME ": " << toString(L.takeError()) << '\n';                  \
+        return false;                                                            \
+      }                                                                          \
+      PB.INVOKE(PM, L.get());                             \
+      return true;                                                               \
+    }
+    #include "callbacks.inc"
 #endif
-#include "callbacks.inc"
-#undef MODULE_LTO_CALLBACK
-            return false;
-        }
-      );
+    return false;
+  });
 
-    PB.registerPipelineParsingCallback(
-        [&](StringRef Name, CGSCCPassManager &CGPM,
-           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
-#define CGSCC_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(CGPM, OptimizationLevel::O2); return true; }
-#include "callbacks.inc"
-#undef CGSCC_CALLBACK
-          return false;
-        }
-      );
-    PB.registerPipelineParsingCallback(
-        [&](StringRef Name, LoopPassManager &PM,
-           ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
-#define LOOP_CALLBACK(NAME, INVOKE) if (Name == NAME) { PB.INVOKE(PM, OptimizationLevel::O2); return true; }
-#include "callbacks.inc"
-#undef LOOP_CALLBACK
-          return false;
+  // Function-level callbacks
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, FunctionPassManager &PM,
+             ArrayRef<PassBuilder::PipelineElement>) {
+#define FUNCTION_CALLBACK(NAME, INVOKE)                                        \
+    if (checkParametrizedPassName(Name, NAME)) {                    \
+      auto L = parsePassParameters(parseOptLevelParam, Name, NAME); \
+      if (!L) {                                                                  \
+        errs() << NAME ": " << toString(L.takeError()) << '\n';                  \
+        return false;                                                            \
+      }                                                                          \
+      PB.INVOKE(PM, L.get());                                                       \
+      return true;                                                               \
+    }
+    #include "callbacks.inc"
+    return false;
+  });
+
+  // CGSCC-level callbacks
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, CGSCCPassManager &PM,
+             ArrayRef<PassBuilder::PipelineElement>) {
+#define CGSCC_CALLBACK(NAME, INVOKE)                                           \
+    if (checkParametrizedPassName(Name, NAME)) {                    \
+      auto L = parsePassParameters(parseOptLevelParam, Name, NAME); \
+      if (!L) {                                                                  \
+        errs() << NAME ": " << toString(L.takeError()) << '\n';                  \
+        return false;                                                            \
+      }                                                                          \
+      PB.INVOKE(PM, L.get());                                                       \
+      return true;                                                               \
+    }
+    #include "callbacks.inc"
+    return false;
+  });
+
+  // Loop-level callbacks
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, LoopPassManager &PM,
+             ArrayRef<PassBuilder::PipelineElement>) {
+#define LOOP_CALLBACK(NAME, INVOKE)                                            \
+      if (checkParametrizedPassName(Name, NAME)) {                    \
+        auto L = parsePassParameters(parseOptLevelParam, Name, NAME); \
+        if (!L) {                                                                  \
+          errs() << NAME ": " << toString(L.takeError()) << '\n';                  \
+          return false;                                                            \
+        }                                                                          \
+        PB.INVOKE(PM, L.get());                                                       \
+        return true;                                                               \
       }
-    );
+    #include "callbacks.inc"
+    return false;
+  });
 }
 
 // Vendored API entrypoint

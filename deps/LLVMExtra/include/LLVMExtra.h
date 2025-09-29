@@ -231,7 +231,7 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder);
 typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
 LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
 void LLVMDisposePassBuilderExtensions(LLVMPassBuilderExtensionsRef Extensions);
-void LLVMPassBuilderExtensionsSetRegistrationCallback(LLVMPassBuilderExtensionsRef Options,
+void LLVMPassBuilderExtensionsPushRegistrationCallbacks(LLVMPassBuilderExtensionsRef Options,
                                                       void (*RegistrationCallback)(void *));
 typedef LLVMBool (*LLVMJuliaModulePassCallback)(LLVMModuleRef M, void *Thunk);
 typedef LLVMBool (*LLVMJuliaFunctionPassCallback)(LLVMValueRef F, void *Thunk);

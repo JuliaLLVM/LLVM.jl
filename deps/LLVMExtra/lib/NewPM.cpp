@@ -6,6 +6,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Support/CBindingWrapping.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <optional>
 
 using namespace llvm;
@@ -223,7 +224,7 @@ static void registerCallbackParsing(PassBuilder &PB) {
   PB.registerPipelineParsingCallback(
       [&](StringRef Name, ModulePassManager &PM,
              ArrayRef<PassBuilder::PipelineElement>) {
-#if LLVM_VERSION_MAJOR > 20
+#if LLVM_VERSION_MAJOR >= 20
 #define MODULE_LTO_CALLBACK(NAME, INVOKE)                                      \
     if (checkParametrizedPassName(Name, NAME)) {                    \
       auto L = parsePassParameters(parseOptLevelParam, Name, NAME); \

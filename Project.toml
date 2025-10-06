@@ -1,6 +1,6 @@
 name = "LLVM"
 uuid = "929cbde3-209d-540e-8aea-75f648917ca0"
-version = "9.4.2"
+version = "9.4.3"
 
 [deps]
 CEnum = "fa961155-64e5-5f13-b03f-caf6b980ea82"
@@ -17,7 +17,7 @@ BFloat16s = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
 BFloat16sExt = "BFloat16s"
 
 [compat]
-BFloat16s = "0.4, 0.5"
+BFloat16s = "0.4, 0.5, 0.6"
 CEnum = "0.2, 0.3, 0.4, 0.5"
 LLVMExtra_jll = "=0.0.37"
 Libdl = "1.8"

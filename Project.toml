@@ -17,7 +17,7 @@ BFloat16s = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
 BFloat16sExt = "BFloat16s"
 
 [compat]
-BFloat16s = "0.4, 0.5"
+BFloat16s = "0.4, 0.5, 0.6"
 CEnum = "0.2, 0.3, 0.4, 0.5"
 LLVMExtra_jll = "=0.0.37"
 Libdl = "1.8"

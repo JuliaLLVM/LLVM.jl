@@ -33,7 +33,7 @@ class LLVMPassBuilderExtensions {
 public:
   // A callback to register additional pipeline parsing callbacks with the pass builder.
   // This is used to support Julia's passes.
-  void (*RegistrationCallback)(void *);
+  SmallVector<std::function<void(void*)>> RegistrationCallbacks;
 
   // A list of callbacks that each register a single custom module or function pass.
   // These callbacks are generated here in C++, and match against a pass name.
@@ -66,10 +66,10 @@ void LLVMDisposePassBuilderExtensions(LLVMPassBuilderExtensionsRef Extensions) {
 
 // Pass registration
 
-void LLVMPassBuilderExtensionsSetRegistrationCallback(
+void LLVMPassBuilderExtensionsPushRegistrationCallbacks(
     LLVMPassBuilderExtensionsRef Extensions, void (*RegistrationCallback)(void *)) {
   LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
-  PassExts->RegistrationCallback = RegistrationCallback;
+  PassExts->RegistrationCallbacks.push_back(RegistrationCallback);
   return;
 }
 
@@ -158,8 +158,9 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
 #else
   PassBuilder PB(Machine, PassOpts->PTO, None, &PIC);
 #endif
-  if (PassExts->RegistrationCallback)
-    PassExts->RegistrationCallback(&PB);
+
+  for (auto &Callback : PassExts->RegistrationCallbacks)
+    Callback(&PB);
   for (auto &Callback : PassExts->ModulePipelineParsingCallbacks)
     PB.registerPipelineParsingCallback(Callback);
   for (auto &Callback : PassExts->FunctionPipelineParsingCallbacks)

@@ -276,7 +276,7 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
 
         # register Julia passes
         julia_callback = cglobal(:jl_register_passbuilder_callbacks)
-        API.LLVMPassBuilderExtensionsSetRegistrationCallback(pb.exts, julia_callback)
+        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(pb.exts, julia_callback)
 
         # register AA pipeline
         if !isempty(aa_pipeline)

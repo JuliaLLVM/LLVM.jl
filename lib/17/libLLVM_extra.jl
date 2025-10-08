@@ -331,8 +331,8 @@ function LLVMDisposePassBuilderExtensions(Extensions)
     ccall((:LLVMDisposePassBuilderExtensions, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef,), Extensions)
 end
 
-function LLVMPassBuilderExtensionsSetRegistrationCallback(Options, RegistrationCallback)
-    ccall((:LLVMPassBuilderExtensionsSetRegistrationCallback, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Ptr{Cvoid}), Options, RegistrationCallback)
+function LLVMPassBuilderExtensionsPushRegistrationCallbacks(Options, RegistrationCallback)
+    ccall((:LLVMPassBuilderExtensionsPushRegistrationCallbacks, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Ptr{Cvoid}), Options, RegistrationCallback)
 end
 
 # typedef LLVMBool ( * LLVMJuliaModulePassCallback ) ( LLVMModuleRef M , void * Thunk )

@@ -173,10 +173,6 @@ function LLVMReplaceAllMetadataUsesWith(Old, New)
     ccall((:LLVMReplaceAllMetadataUsesWith, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Old, New)
 end
 
-function LLVMConstDataArray(ElementTy, Data, SizeInBytes)
-    ccall((:LLVMConstDataArray, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, Ptr{Cvoid}, Csize_t), ElementTy, Data, SizeInBytes)
-end
-
 mutable struct LLVMOpaqueDominatorTree end
 
 const LLVMDominatorTreeRef = Ptr{LLVMOpaqueDominatorTree}
@@ -338,5 +334,9 @@ end
 
 function LLVMGlobalsAddressSpace(TD)
     ccall((:LLVMGlobalsAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
+end
+
+function LLVMOrcThreadSafeContextGetContext(TSCtx)
+    ccall((:LLVMOrcThreadSafeContextGetContext, libLLVMExtra), LLVMContextRef, (LLVMOrcThreadSafeContextRef,), TSCtx)
 end
 

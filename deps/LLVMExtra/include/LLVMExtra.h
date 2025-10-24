@@ -11,10 +11,6 @@
 
 LLVM_C_EXTERN_C_BEGIN
 
-// XXX: without this, Clang.jl doesn't emit LLVMExtraInitializeNativeTarget.
-//      maybe LLVM_C_EXTERN_C_BEGIN somehow eats the function definition?
-void dummy();
-
 // Initialization functions
 LLVMBool LLVMExtraInitializeNativeTarget(void);
 LLVMBool LLVMExtraInitializeNativeAsmParser(void);

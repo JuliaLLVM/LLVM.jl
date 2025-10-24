@@ -1,4 +1,4 @@
-using CEnum
+using CEnum: CEnum, @cenum
 
 const IS_LIBC_MUSL = occursin("musl", Base.MACHINE)
 
@@ -848,11 +848,11 @@ end
 end
 
 """
-    ##Ctag#236
+    ##Ctag#283
 
 Attribute index are either LLVMAttributeReturnIndex, LLVMAttributeFunctionIndex or a parameter number from 1 to N.
 """
-@cenum var"##Ctag#236"::Int32 begin
+@cenum var"##Ctag#283"::Int32 begin
     LLVMAttributeReturnIndex = 0
     LLVMAttributeFunctionIndex = -1
 end
@@ -876,7 +876,7 @@ end
 
 const LLVMAttributeIndex = Cuint
 
-@cenum var"##Ctag#237"::UInt32 begin
+@cenum var"##Ctag#284"::UInt32 begin
     LLVMFastMathAllowReassoc = 1
     LLVMFastMathNoNaNs = 2
     LLVMFastMathNoInfs = 4
@@ -3507,6 +3507,14 @@ function LLVMGetAggregateElement(C, Idx)
     ccall((:LLVMGetAggregateElement, libllvm), LLVMValueRef, (LLVMValueRef, Cuint), C, Idx)
 end
 
+"""
+    LLVMGetElementAsConstant(C, idx)
+
+Get an element at specified index as a constant.
+
+# See also
+ConstantDataSequential::getElementAsConstant()
+"""
 function LLVMGetElementAsConstant(C, idx)
     ccall((:LLVMGetElementAsConstant, libllvm), LLVMValueRef, (LLVMValueRef, Cuint), C, idx)
 end
@@ -6827,11 +6835,11 @@ The amount of debug information to emit.
 end
 
 """
-    ##Ctag#238
+    ##Ctag#285
 
 The kind of metadata nodes.
 """
-@cenum var"##Ctag#238"::UInt32 begin
+@cenum var"##Ctag#285"::UInt32 begin
     LLVMMDStringMetadataKind = 0
     LLVMConstantAsMetadataMetadataKind = 1
     LLVMLocalAsMetadataMetadataKind = 2

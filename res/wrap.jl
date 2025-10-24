@@ -8,7 +8,7 @@ import Clang
 @add_def off_t
 
 # based on the supported Julia versions
-const llvm_versions = ["15", "16", "17", "18", "19", "20"]
+const llvm_versions = ["15", "16", "17", "18", "19", "20", "21"]
 const llvm_configs = Dict()
 
 function main()
@@ -41,6 +41,29 @@ function main()
     end
 end
 
+# custom rewriter
+function rewrite!(e::Expr)
+    Meta.isexpr(e, :function) || return e
+    fname = e.args[1].args[1]
+    if fname == :LLVMConstDataArray
+        # The data argument for LLVMConstDataArray accepts a memory buffer not a c-string
+        ccall_ex = e.args[2].args[1]
+        @assert Meta.isexpr(ccall_ex, :call) && ccall_ex.args[1] == :ccall
+        types_arg = ccall_ex.args[4]
+        @assert Meta.isexpr(types_arg, :tuple) && types_arg.args[2] == :Cstring
+        types_arg.args[2] = :(Ptr{Cvoid})
+    end
+    return e
+end
+
+function rewrite!(dag::ExprDAG)
+    for node in get_nodes(dag)
+        for expr in get_exprs(node)
+            rewrite!(expr)
+        end
+    end
+end
+
 function wrap(version; includedir, cppflags)
 
     args = get_default_args("x86_64-linux-gnu")
@@ -59,6 +82,8 @@ function wrap(version; includedir, cppflags)
         ctx = create_context(header_files, args, options)
 
         build!(ctx, BUILDSTAGE_NO_PRINTING)
+
+        rewrite!(ctx.dag)
 
         build!(ctx, BUILDSTAGE_PRINTING_ONLY)
     end

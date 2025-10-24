@@ -1,4 +1,4 @@
-using CEnum
+using CEnum: CEnum, @cenum
 
 const IS_LIBC_MUSL = occursin("musl", Base.MACHINE)
 
@@ -840,11 +840,11 @@ end
 end
 
 """
-    ##Ctag#230
+    ##Ctag#277
 
 Attribute index are either LLVMAttributeReturnIndex, LLVMAttributeFunctionIndex or a parameter number from 1 to N.
 """
-@cenum var"##Ctag#230"::Int32 begin
+@cenum var"##Ctag#277"::Int32 begin
     LLVMAttributeReturnIndex = 0
     LLVMAttributeFunctionIndex = -1
 end
@@ -3350,6 +3350,14 @@ function LLVMGetAggregateElement(C, Idx)
     ccall((:LLVMGetAggregateElement, libllvm), LLVMValueRef, (LLVMValueRef, Cuint), C, Idx)
 end
 
+"""
+    LLVMGetElementAsConstant(C, idx)
+
+Get an element at specified index as a constant.
+
+# See also
+ConstantDataSequential::getElementAsConstant()
+"""
 function LLVMGetElementAsConstant(C, idx)
     ccall((:LLVMGetElementAsConstant, libllvm), LLVMValueRef, (LLVMValueRef, Cuint), C, idx)
 end
@@ -3886,6 +3894,18 @@ function LLVMSetExternallyInitialized(GlobalVar, IsExtInit)
     ccall((:LLVMSetExternallyInitialized, libllvm), Cvoid, (LLVMValueRef, LLVMBool), GlobalVar, IsExtInit)
 end
 
+"""
+    LLVMAddAlias(M, Ty, Aliasee, Name)
+
+` LLVMCoreValueConstantGlobalAlias Global Aliases`
+
+This group contains function that operate on global alias values.
+
+@{
+
+# See also
+llvm::GlobalAlias
+"""
 function LLVMAddAlias(M, Ty, Aliasee, Name)
     ccall((:LLVMAddAlias, libllvm), LLVMValueRef, (LLVMModuleRef, LLVMTypeRef, LLVMValueRef, Cstring), M, Ty, Aliasee, Name)
 end
@@ -6534,11 +6554,11 @@ The amount of debug information to emit.
 end
 
 """
-    ##Ctag#231
+    ##Ctag#278
 
 The kind of metadata nodes.
 """
-@cenum var"##Ctag#231"::UInt32 begin
+@cenum var"##Ctag#278"::UInt32 begin
     LLVMMDStringMetadataKind = 0
     LLVMConstantAsMetadataMetadataKind = 1
     LLVMLocalAsMetadataMetadataKind = 2

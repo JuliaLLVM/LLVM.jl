@@ -569,12 +569,14 @@ void LLVMReplaceMDNodeOperandWith(LLVMValueRef V, unsigned Index,
 // Constant data
 //
 
+#if LLVM_VERSION_MAJOR < 21
 LLVMValueRef LLVMConstDataArray(LLVMTypeRef ElementTy, const void *Data,
-                                unsigned NumElements) {
-  StringRef S((const char *)Data,
-              NumElements * unwrap(ElementTy)->getPrimitiveSizeInBits() / 8);
-  return wrap(ConstantDataArray::getRaw(S, NumElements, unwrap(ElementTy)));
+                                size_t SizeInBytes) {
+  Type *Ty = unwrap(ElementTy);
+  size_t Len = SizeInBytes / (Ty->getPrimitiveSizeInBits() / 8);
+  return wrap(ConstantDataArray::getRaw(StringRef((const char*)Data, SizeInBytes), Len, Ty));
 }
+#endif
 
 
 //
@@ -807,3 +809,18 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD) {
   return unwrap(TD)->getDefaultGlobalsAddressSpace();
 }
+
+#if LLVM_VERSION_MAJOR >= 21
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::ThreadSafeContext, LLVMOrcThreadSafeContextRef)
+
+//
+// Removed from LLVM and unsafe but it's only used to provide an unsafe API
+// on the julia side anyway
+//
+
+LLVMContextRef LLVMOrcThreadSafeContextGetContext(LLVMOrcThreadSafeContextRef TSCtx) {
+  return wrap(unwrap(TSCtx)->withContextDo([] (LLVMContext *ctx) { return ctx; }));
+}
+
+#endif

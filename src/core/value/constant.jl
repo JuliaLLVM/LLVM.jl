@@ -270,7 +270,7 @@ Create a constant array of simple data values of the given type and data.
 function ConstantDataArray(typ::LLVMType, data::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
     # TODO: can we look up the primitive size of the LLVM type?
     #       use that to assert it matches the Julia element type.
-    return ConstantDataArray(API.LLVMConstDataArray(typ, data, length(data)))
+    return ConstantDataArray(API.LLVMConstDataArray(typ, data, sizeof(data)))
 end
 
 """

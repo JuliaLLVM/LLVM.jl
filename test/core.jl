@@ -607,9 +607,11 @@ end
             @check_ir ce "i32 40"
         end
 
-        for f in [const_mul, const_nswmul, const_nuwmul]
-            ce = f(val, other_val)::LLVM.Constant
-            @check_ir ce "i32 84"
+        if LLVM.version() < v"21"
+            for f in [const_mul, const_nswmul, const_nuwmul]
+                ce = f(val, other_val)::LLVM.Constant
+                @check_ir ce "i32 84"
+            end
         end
 
         ce = const_xor(val, other_val)::LLVM.Constant

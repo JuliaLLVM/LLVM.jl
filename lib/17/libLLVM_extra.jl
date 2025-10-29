@@ -1,4 +1,4 @@
-using CEnum
+using CEnum: CEnum, @cenum
 
 function LLVMExtraInitializeNativeTarget()
     ccall((:LLVMExtraInitializeNativeTarget, libLLVMExtra), LLVMBool, ())

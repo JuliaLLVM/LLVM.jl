@@ -718,7 +718,12 @@ end
                 @check_ir ce "ptr addrspace(1) addrspacecast (ptr null to ptr addrspace(1))"
             end
             # deletion of a constant
-            @test !isempty(uses(ptr))
+            if LLVM.version() < v"21"
+                @test !isempty(uses(ptr))
+            else
+                # LLVM 21+ removed uselist from constants
+                @test isempty(uses(ptr))
+            end
             LLVM.unsafe_destroy!(ce)
             @test isempty(uses(ptr))
         end

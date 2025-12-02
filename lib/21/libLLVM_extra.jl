@@ -110,14 +110,6 @@ function LLVMGetGlobalValueType(Fn)
     ccall((:LLVMGetGlobalValueType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
-function LLVMSetInitializer2(GlobalVar, ConstantVal)
-    ccall((:LLVMSetInitializer2, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, ConstantVal)
-end
-
-function LLVMSetPersonalityFn2(Fn, PersonalityFn)
-    ccall((:LLVMSetPersonalityFn2, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, PersonalityFn)
-end
-
 function LLVMGetMDString2(MD, Length)
     ccall((:LLVMGetMDString2, libLLVMExtra), Cstring, (LLVMMetadataRef, Ptr{Cuint}), MD, Length)
 end
@@ -181,10 +173,6 @@ function LLVMReplaceAllMetadataUsesWith(Old, New)
     ccall((:LLVMReplaceAllMetadataUsesWith, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Old, New)
 end
 
-function LLVMConstDataArray(ElementTy, Data, NumElements)
-    ccall((:LLVMConstDataArray, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, Ptr{Cvoid}, Cuint), ElementTy, Data, NumElements)
-end
-
 mutable struct LLVMOpaqueDominatorTree end
 
 const LLVMDominatorTreeRef = Ptr{LLVMOpaqueDominatorTree}
@@ -217,42 +205,6 @@ function LLVMPostDominatorTreeInstructionDominates(Tree, InstA, InstB)
     ccall((:LLVMPostDominatorTreeInstructionDominates, libLLVMExtra), LLVMBool, (LLVMPostDominatorTreeRef, LLVMValueRef, LLVMValueRef), Tree, InstA, InstB)
 end
 
-function LLVMGetSyncScopeID(C, Name, SLen)
-    ccall((:LLVMGetSyncScopeID, libLLVMExtra), Cuint, (LLVMContextRef, Cstring, Csize_t), C, Name, SLen)
-end
-
-function LLVMBuildFenceSyncScope(B, ordering, SSID, Name)
-    ccall((:LLVMBuildFenceSyncScope, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMAtomicOrdering, Cuint, Cstring), B, ordering, SSID, Name)
-end
-
-function LLVMBuildAtomicRMWSyncScope(B, op, PTR, Val, ordering, SSID)
-    ccall((:LLVMBuildAtomicRMWSyncScope, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMAtomicRMWBinOp, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, Cuint), B, op, PTR, Val, ordering, SSID)
-end
-
-function LLVMBuildAtomicCmpXchgSyncScope(B, Ptr, Cmp, New, SuccessOrdering, FailureOrdering, SSID)
-    ccall((:LLVMBuildAtomicCmpXchgSyncScope, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, LLVMAtomicOrdering, Cuint), B, Ptr, Cmp, New, SuccessOrdering, FailureOrdering, SSID)
-end
-
-function LLVMIsAtomic(Inst)
-    ccall((:LLVMIsAtomic, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
-end
-
-function LLVMGetAtomicSyncScopeID(AtomicInst)
-    ccall((:LLVMGetAtomicSyncScopeID, libLLVMExtra), Cuint, (LLVMValueRef,), AtomicInst)
-end
-
-function LLVMSetAtomicSyncScopeID(AtomicInst, SSID)
-    ccall((:LLVMSetAtomicSyncScopeID, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint), AtomicInst, SSID)
-end
-
-function LLVMGetValueContext(Val)
-    ccall((:LLVMGetValueContext, libLLVMExtra), LLVMContextRef, (LLVMValueRef,), Val)
-end
-
-function LLVMGetBuilderContext(Builder)
-    ccall((:LLVMGetBuilderContext, libLLVMExtra), LLVMContextRef, (LLVMBuilderRef,), Builder)
-end
-
 mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
@@ -283,10 +235,6 @@ function LLVMPassBuilderExtensionsRegisterFunctionPass(Options, PassName, Callba
     ccall((:LLVMPassBuilderExtensionsRegisterFunctionPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
 end
 
-function LLVMPassBuilderExtensionsSetAAPipeline(Extensions, AAPipeline)
-    ccall((:LLVMPassBuilderExtensionsSetAAPipeline, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring), Extensions, AAPipeline)
-end
-
 function LLVMRunJuliaPasses(M, Passes, TM, Options, Extensions)
     ccall((:LLVMRunJuliaPasses, libLLVMExtra), LLVMErrorRef, (LLVMModuleRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef), M, Passes, TM, Options, Extensions)
 end
@@ -297,5 +245,9 @@ end
 
 function LLVMGlobalsAddressSpace(TD)
     ccall((:LLVMGlobalsAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
+end
+
+function LLVMOrcThreadSafeContextGetContext(TSCtx)
+    ccall((:LLVMOrcThreadSafeContextGetContext, libLLVMExtra), LLVMContextRef, (LLVMOrcThreadSafeContextRef,), TSCtx)
 end
 

@@ -232,7 +232,7 @@ typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
 LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
 void LLVMDisposePassBuilderExtensions(LLVMPassBuilderExtensionsRef Extensions);
 void LLVMPassBuilderExtensionsPushRegistrationCallbacks(LLVMPassBuilderExtensionsRef Options,
-                                                      void (*RegistrationCallback)(void *));
+                                                        void (*RegistrationCallback)(void *));
 typedef LLVMBool (*LLVMJuliaModulePassCallback)(LLVMModuleRef M, void *Thunk);
 typedef LLVMBool (*LLVMJuliaFunctionPassCallback)(LLVMValueRef F, void *Thunk);
 void LLVMPassBuilderExtensionsRegisterModulePass(LLVMPassBuilderExtensionsRef Options,

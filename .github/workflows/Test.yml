@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, master]
     tags: ["*"]
-  pull_request:
+  pull_request_target:
   workflow_dispatch:
 
 concurrency:
@@ -51,6 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
 
       # install Julia
@@ -127,24 +128,12 @@ jobs:
             os: 'ubuntu-latest'
             arch: 'x64'
     steps:
+      # First checkout base branch to get trusted download script
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
-
-      # XXX: secrets can't be used in `if` conditions directly, so we need a dedicated step
-      #      to check token availability and use the result in _every_ subsequent step...
-      - name: Check for Buildkite token
-        id: buildkite-token
-        shell: bash
-        run: |
-          if [ "${{ secrets.BUILDKITE_TOKEN }}" != '' ]; then
-            echo "available=true" >> $GITHUB_OUTPUT;
-          else
-            echo "available=false" >> $GITHUB_OUTPUT;
-          fi
+          fetch-depth: 0
 
       - name: Download Julia
-        if: ${{ steps.buildkite-token.outputs.available == 'true' }}
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -153,17 +142,21 @@ jobs:
           rm julia.tar.gz
           echo $PWD/../julia-*/bin >> $GITHUB_PATH
 
+      # Now checkout PR code for testing
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          clean: false
+
       # set-up packages
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
-        if: ${{ steps.buildkite-token.outputs.available == 'true' }}
 
       - name: Build libLLVMExtra
-        if: ${{ steps.buildkite-token.outputs.available == 'true' }}
         run: julia --project=deps deps/build_ci.jl
 
       - name: Run tests
-        if: ${{ steps.buildkite-token.outputs.available == 'true' }}
         run: |
           julia -e 'open("LocalPreferences.toml", "a") do io
                       println(io, "typecheck = \"true\"")
@@ -173,9 +166,7 @@ jobs:
         env:
           JULIA_LLVM_ARGS: ${{ matrix.llvm_args }}
       - uses: julia-actions/julia-processcoverage@v1
-        if: ${{ steps.buildkite-token.outputs.available == 'true' }}
       - uses: codecov/codecov-action@v5
-        if: ${{ steps.buildkite-token.outputs.available == 'true' }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false

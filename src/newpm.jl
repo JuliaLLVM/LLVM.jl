@@ -109,16 +109,51 @@ NewPMModulePass(name, callback)   = NewPMCustomPass(:module, name, callback)
 @doc (@doc NewPMCustomPass)
 NewPMFunctionPass(name, callback) = NewPMCustomPass(:function, name, callback)
 
-function module_callback(ref::API.LLVMModuleRef, thunk::Ptr{Any})
-    mod = LLVM.Module(ref)
-    f = Base.unsafe_load(thunk)
-    f(mod)::Bool
+# State struct to store callback and any caught exception
+mutable struct CustomPassState
+    callback::Any
+    exception::Union{Nothing, Tuple{Any, Vector}}  # (exception, backtrace)
+    CustomPassState(callback) = new(callback, nothing)
 end
 
-function function_callback(ref::API.LLVMValueRef, thunk::Ptr{Any})
-    fun = LLVM.Function(ref)
-    f = Base.unsafe_load(thunk)
-    f(fun)::Bool
+# Exception type to preserve original error and backtrace
+export PassException
+struct PassException <: Exception
+    ex::Any
+    processed_bt::Vector{Any}
+
+    function PassException(ex, bt_raw::Vector{Union{Ptr{Nothing}, Base.InterpreterIP}})
+        bt_processed = Base.process_backtrace(bt_raw)
+        new(ex, bt_processed[1:min(100, end)])
+    end
+    PassException(ex, processed_bt::Vector{Any}) = new(ex, processed_bt)
+end
+
+function Base.showerror(io::IO, e::PassException)
+    print(io, "PassException: exception in custom pass callback\n\n    nested exception: ")
+    showerror(io, e.ex, e.processed_bt, backtrace=true)
+end
+
+function module_callback(ref::API.LLVMModuleRef, thunk::Ptr{Cvoid})
+    state = Base.unsafe_pointer_to_objref(thunk)::CustomPassState
+    try
+        mod = LLVM.Module(ref)
+        return state.callback(mod)::Bool
+    catch err
+        state.exception = (err, Base.catch_backtrace())
+        return false
+    end
+end
+
+function function_callback(ref::API.LLVMValueRef, thunk::Ptr{Cvoid})
+    state = Base.unsafe_pointer_to_objref(thunk)::CustomPassState
+    try
+        fun = LLVM.Function(ref)
+        return state.callback(fun)::Bool
+    catch err
+        state.exception = (err, Base.catch_backtrace())
+        return false
+    end
 end
 
 
@@ -257,21 +292,21 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
     #      or Julia's pass registration callback
     #@check API.LLVMRunPasses(mod, string(pb), tm, pb.opts)
 
-    thunks = Vector{Any}(undef, length(pb.custom_passes))
-    GC.@preserve thunks aa_pipeline begin
+    # Create state objects to hold callbacks and any caught exceptions
+    states = [CustomPassState(pass.callback) for pass in pb.custom_passes]
+    GC.@preserve states aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)
             if pass.type === :module
-                cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Any}))
+                cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Cvoid}))
                 api = API.LLVMPassBuilderExtensionsRegisterModulePass
             elseif pass.type === :function
-                cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Any}))
+                cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Cvoid}))
                 api = API.LLVMPassBuilderExtensionsRegisterFunctionPass
             else
                 throw(ArgumentError("invalid pass type $(pass.type)"))
             end
-            thunks[i] = pass.callback
-            api(pb.exts, pass.name, cb, pointer(thunks, i))
+            api(pb.exts, pass.name, cb, Ref(states, i))
         end
 
         # register Julia passes
@@ -293,6 +328,14 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
         elseif target isa Function
             @check API.LLVMRunJuliaPassesOnFunction(target, pipeline, something(tm, C_NULL),
                                                     pb.opts, pb.exts)
+        end
+
+        # Check for any exceptions caught in custom pass callbacks
+        for state in states
+            if state.exception !== nothing
+                (err, bt) = state.exception
+                throw(PassException(err, bt))
+            end
         end
     end
 end

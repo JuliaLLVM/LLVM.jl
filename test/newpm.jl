@@ -230,6 +230,87 @@ end
     end
 end
 
+@testset "custom pass exceptions" begin
+    # Test that exceptions in module passes are caught and rethrown
+    @dispose ctx=Context() mod=test_module() begin
+        function throwing_pass!(mod::LLVM.Module)
+            error("test error from pass")
+        end
+
+        @dispose pb=NewPMPassBuilder() begin
+            pass = NewPMModulePass("throwing-pass", throwing_pass!)
+            register!(pb, pass)
+            add!(pb, pass)
+
+            @test_throws LLVM.PassException run!(pb, mod)
+        end
+
+        # Test that module is still valid after exception
+        @test verify(mod) === nothing
+    end
+
+    # Test function pass exception
+    @dispose ctx=Context() mod=test_module() begin
+        function throwing_fn_pass!(f::LLVM.Function)
+            error("function pass error")
+        end
+
+        @dispose pb=NewPMPassBuilder() begin
+            pass = NewPMFunctionPass("throwing-fn-pass", throwing_fn_pass!)
+            register!(pb, pass)
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, pass)
+            end
+
+            @test_throws LLVM.PassException run!(pb, mod)
+        end
+    end
+
+    # Test that exception message and backtrace are preserved
+    @dispose ctx=Context() mod=test_module() begin
+        function pass_with_message!(mod)
+            throw(ArgumentError("specific error message"))
+        end
+
+        @dispose pb=NewPMPassBuilder() begin
+            register!(pb, NewPMModulePass("msg-pass", pass_with_message!))
+            add!(pb, "msg-pass")
+
+            try
+                run!(pb, mod)
+                @test false  # Should not reach here
+            catch e
+                @test e isa LLVM.PassException
+                @test e.ex isa ArgumentError
+                @test occursin("specific error message", string(e.ex))
+                @test !isempty(e.processed_bt)
+            end
+        end
+    end
+
+    # Test that a pass that succeeds before a throwing pass runs correctly
+    @dispose ctx=Context() mod=test_module() begin
+        success_count = 0
+        function success_pass!(mod)
+            success_count += 1
+            return false
+        end
+        function throwing_pass!(mod)
+            error("later error")
+        end
+
+        @dispose pb=NewPMPassBuilder() begin
+            register!(pb, NewPMModulePass("success-pass", success_pass!))
+            register!(pb, NewPMModulePass("throw-pass", throwing_pass!))
+            add!(pb, "success-pass")
+            add!(pb, "throw-pass")
+
+            @test_throws LLVM.PassException run!(pb, mod)
+            @test success_count == 1
+        end
+    end
+end
+
 @testset "julia" begin
     @testset "passes" begin
         @dispose ctx=Context() pb=NewPMPassBuilder() begin

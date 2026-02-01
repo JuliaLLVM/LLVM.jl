@@ -557,6 +557,29 @@ function InternalizePass(; preserved_gvs::Vector=String[], kwargs...)
 
     "internalize" * kwargs_to_params(kwargs)
 end
+# Module callbacks (not part of general pass sweep)
+export PipelineStartCallbacks, PipelineEarlySimplificationCallbacks,
+       OptimizerEarlyCallbacks, OptimizerLastCallbacks
+function PipelineStartCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "pipeline-start-callbacks" * kwargs_to_params(opts)
+end
+function PipelineEarlySimplificationCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "pipeline-early-simplification-callbacks" * kwargs_to_params(opts)
+end
+function OptimizerEarlyCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "optimizer-early-callbacks" * kwargs_to_params(opts)
+end
+function OptimizerLastCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "optimizer-last-callbacks" * kwargs_to_params(opts)
+end
 
 # CGSCC passes
 
@@ -568,6 +591,14 @@ end
 @cgscc_pass "no-op-cgscc" NoOpCGSCCPass
 @cgscc_pass "inline" InlinerPass
 @cgscc_pass "coro-split" CoroSplitPass
+
+#CGSCC callbacks (not part of general pass sweep)
+export CGSCCOptimizerLateCallbacks
+function CGSCCOptimizerLateCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "cgscc-optimizer-late-callbacks" * kwargs_to_params(opts)
+end
 
 # function passes
 
@@ -752,6 +783,31 @@ end
 @function_pass "gvn" GVNPass
 @function_pass "print<stack-lifetime>" StackLifetimePrinterPass
 
+# Function pass callbacks (not part of general pass sweep)
+export PeepholeCallbacks, ScalarOptimizerLateCallbacks, VectorizerStartCallbacks
+function PeepholeCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "peephole-callbacks" * kwargs_to_params(opts)
+end
+function ScalarOptimizerLateCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "scalar-optimizer-late-callbacks" * kwargs_to_params(opts)
+end
+function VectorizerStartCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "vectorizer-start-callbacks" * kwargs_to_params(opts)
+end
+@static if version() >= v"21"
+    export VectorizerEndCallbacks
+    function VectorizerEndCallbacks(; opt_level=0)
+        opts = Dict{Symbol,Any}()
+        opts[Symbol("O$opt_level")] = true
+        "vectorizer-end-callbacks" * kwargs_to_params(opts)
+    end
+end
 # loop nest passes
 
 @loop_pass "loop-flatten" LoopFlattenPass
@@ -788,6 +844,19 @@ end
 @loop_pass "simple-loop-unswitch" SimpleLoopUnswitchPass
 @loop_pass "licm" LICMPass
 @loop_pass "lnicm" LNICMPass
+
+# Loop Callbacks (not part of general pass sweep)
+export LateLoopOptimizationsCallbacks, LoopOptimizerEndCallbacks
+function LateLoopOptimizationsCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "late-loop-optimizations-callbacks" * kwargs_to_params(opts)
+end
+function LoopOptimizerEndCallbacks(; opt_level=0)
+    opts = Dict{Symbol,Any}()
+    opts[Symbol("O$opt_level")] = true
+    "loop-optimizer-end-callbacks" * kwargs_to_params(opts)
+end
 
 
 ## alias analyses

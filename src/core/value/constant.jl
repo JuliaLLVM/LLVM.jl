@@ -270,7 +270,7 @@ Create a constant array of simple data values of the given type and data.
 function ConstantDataArray(typ::LLVMType, data::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
     # TODO: can we look up the primitive size of the LLVM type?
     #       use that to assert it matches the Julia element type.
-    return ConstantDataArray(API.LLVMConstDataArray(typ, data, length(data)))
+    return ConstantDataArray(API.LLVMConstDataArray(typ, data, sizeof(data)))
 end
 
 """
@@ -526,8 +526,7 @@ register(ConstantVector, API.LLVMConstantVectorValueKind)
 export ConstantExpr,
 
        const_neg, const_nswneg, const_nuwneg, const_not, const_add,
-       const_nswadd, const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_mul,
-       const_nswmul, const_nuwmul, const_xor,
+       const_nswadd, const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_xor,
        const_gep, const_inbounds_gep, const_trunc,
        const_ptrtoint, const_inttoptr, const_bitcast,
        const_addrspacecast, const_truncorbitcast,
@@ -577,15 +576,6 @@ const_nswsub(lhs::Constant, rhs::Constant) =
 
 const_nuwsub(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstNUWSub(lhs, rhs))
-
-const_mul(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstMul(lhs, rhs))
-
-const_nswmul(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstNSWMul(lhs, rhs))
-
-const_nuwmul(lhs::Constant, rhs::Constant) =
-    Value(API.LLVMConstNUWMul(lhs, rhs))
 
 const_xor(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstXor(lhs, rhs))
@@ -706,6 +696,21 @@ const_fcmp(Predicate::API.LLVMRealPredicate, lhs::Constant, rhs::Constant) =
 
 const_shl(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstShl(lhs, rhs))
+
+end
+
+if version() < v"21"
+
+export const_mul, const_nswmul, const_nuwmul
+
+const_mul(lhs::Constant, rhs::Constant) =
+    Value(API.LLVMConstMul(lhs, rhs))
+
+const_nswmul(lhs::Constant, rhs::Constant) =
+    Value(API.LLVMConstNSWMul(lhs, rhs))
+
+const_nuwmul(lhs::Constant, rhs::Constant) =
+    Value(API.LLVMConstNUWMul(lhs, rhs))
 
 end
 

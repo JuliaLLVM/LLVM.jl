@@ -480,7 +480,9 @@ end
 @module_pass "print<inline-advisor>" InlineAdvisorAnalysisPrinterPass
 @module_pass "inliner-wrapper-no-mandatory-first" ModuleInlinerWrapperNoMandatoryFirstPass
 @module_pass "insert-gcov-profiling" GCOVProfilerPass
-@module_pass "instrorderfile" InstrOrderFilePass
+@static if version() < v"21"
+    @module_pass "instrorderfile" InstrOrderFilePass
+end
 @module_pass "instrprof" InstrProfiling
 @module_pass "invalidate<all>" InvalidateAllAnalysesPass
 @module_pass "ipsccp" IPSCCPPass

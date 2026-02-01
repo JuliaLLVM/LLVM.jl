@@ -45,9 +45,25 @@ end
 end
 Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) = oll.ref
 
+# RTDyld
 function ObjectLinkingLayer(es::ExecutionSession)
     ref = API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
     ObjectLinkingLayer(ref)
+end
+
+"""
+    JITLinkObjectLayer(lljit::LLJIT)
+
+Gets the default JITLink-based ObjectLinkingLayer from an LLJIT instance.
+The lifetime of this layer is tied to the LLJIT instance.
+"""
+function JITLinkObjectLayer(lljit::LLJIT) # Takes LLJIT instance
+    ref = API.LLVMOrcLLJITGetObjectLinkingLayer(lljit)
+    if ref == C_NULL
+        error("Failed to get ObjectLinkingLayer from LLJIT instance.")
+    end
+    # XXX: owned by the JIT, so can't dispose
+    return ObjectLinkingLayer(ref)
 end
 
 function dispose(oll::ObjectLinkingLayer)

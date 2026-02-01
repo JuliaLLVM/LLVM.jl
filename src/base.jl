@@ -88,7 +88,7 @@ macro dispose(ex...)
     for res in reverse(resources)
         Meta.isexpr(res, :(=)) ||
             error("Resource arguments to LLVM.@dispose should be assignments")
-        push!(cleanup.args, :(LLVM.dispose($(res.args[1]))))
+        push!(cleanup.args, :($dispose($(res.args[1]))))
     end
 
     ex = quote

@@ -42,7 +42,7 @@ jobs:
             llvm_args: ''
     steps:
       - name: Report in-progress
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.checks.create({
@@ -91,7 +91,7 @@ jobs:
 
       - name: Report check run
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.checks.create({
@@ -114,7 +114,7 @@ jobs:
     if: github.event.workflow_run.conclusion == 'failure'
     steps:
       - name: Report check runs
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             // Keep in sync with the matrix above

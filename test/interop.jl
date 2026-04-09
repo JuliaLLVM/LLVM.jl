@@ -315,6 +315,10 @@ end
     else
         @test contains(ir, r"load i64, ptr %.+?, align 4")
     end
+
+    # alignment must be a power of 2 (LLVM requirement)
+    @test_throws "power of 2" unsafe_load(ptr, 1, Val(3))
+    @test_throws "power of 2" unsafe_store!(ptr, Int64(0), 1, Val(6))
 end
 
 @testset "reinterpret with addrspacecast" begin

@@ -8,6 +8,7 @@ using Core: LLVMPtr
 
 @inline @generated function pointerref(ptr::LLVMPtr{T,A}, i::I, ::Val{align}) where {T,A,I,align}
     sizeof(T) == 0 && return T.instance
+    ispow2(align) || return :(error("pointerref: alignment must be a power of 2, got $($align)"))
     @dispose ctx=Context() begin
         eltyp = convert(LLVMType, T)
 
@@ -45,6 +46,7 @@ end
 
 @inline @generated function pointerset(ptr::LLVMPtr{T,A}, x::T, i::I, ::Val{align}) where {T,A,I,align}
     sizeof(T) == 0 && return
+    ispow2(align) || return :(error("pointerset: alignment must be a power of 2, got $($align)"))
     @dispose ctx=Context() begin
         eltyp = convert(LLVMType, T)
 

@@ -39,7 +39,7 @@ julia> isboxed(String)
 true
 
 julia> convert(LLVMType, String; allow_boxed=true)
-{} addrspace(10)*
+ptr addrspace(10)
 ```
 
 Another useful query is `isghosttype`, which returns whether a type is a ghost type, i.e.,

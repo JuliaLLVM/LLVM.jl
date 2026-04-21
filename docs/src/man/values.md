@@ -59,7 +59,7 @@ that take a single type as argument:
 
 ```jldoctest
 julia> PointerNull(LLVM.PointerType(LLVM.Int1Type()))
-i1* null
+ptr null
 
 julia> UndefValue(LLVM.Int1Type())
 i1 undef
@@ -167,7 +167,7 @@ julia> const_neg(ConstantInt(1))
 i64 -1
 
 julia> const_inttoptr(ConstantInt(42), LLVM.PointerType(LLVM.Int1Type()))
-i1* inttoptr (i64 42 to i1*)
+ptr inttoptr (i64 42 to ptr)
 ```
 
 For the exact list of supported constant expressions, refer to the LLVM documentation.
@@ -183,7 +183,7 @@ a boolean indicating whether the assembly has side effects:
 
 ```jldoctest
 julia> InlineAsm(LLVM.FunctionType(LLVM.VoidType()), "nop", "", false)
-void ()* asm "nop", ""
+ptr asm "nop", ""
 ```
 
 For more details on inline assembly, particularly the format of the constraints string,
@@ -239,7 +239,7 @@ julia> c2 = const_inttoptr(c1, LLVM.PointerType(LLVM.Int1Type()));
 julia> use = only(uses(c1));
 
 julia> user(use)
-i1* inttoptr (i64 42 to i1*)
+ptr inttoptr (i64 42 to ptr)
 
 julia> value(use)
 i64 42

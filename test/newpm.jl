@@ -230,6 +230,117 @@ end
     end
 end
 
+@testset "custom TTI" begin
+    # IR with an `addrspacecast` from AS 2 to the generic AS. With no TTI
+    # attached, `InferAddressSpacesPass` has no flat AS to infer against and
+    # bails. With a TTI that reports AS 0 as flat and declares the cast a
+    # noop, the pass folds it away and the load moves to AS 2.
+    function make_mod()
+        ir = if supports_typed_pointers()
+            """
+            @g = internal addrspace(2) constant i32 42
+            define i32 @f() {
+              %p = addrspacecast i32 addrspace(2)* @g to i32*
+              %v = load i32, i32* %p
+              ret i32 %v
+            }
+            """
+        else
+            """
+            @g = internal addrspace(2) constant i32 42
+            define i32 @f() {
+              %p = addrspacecast ptr addrspace(2) @g to ptr
+              %v = load i32, ptr %p
+              ret i32 %v
+            }
+            """
+        end
+        return parse(LLVM.Module, ir)
+    end
+    has_addrspacecast(mod) = occursin("addrspacecast", string(functions(mod)["f"]))
+
+    # Baseline: no TTI → pass can't fold anything.
+    @dispose ctx=Context() mod=make_mod() begin
+        @dispose pb=NewPMPassBuilder() begin
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test has_addrspacecast(mod)
+    end
+
+    # With a TTI: cast gets folded.
+    @dispose ctx=Context() mod=make_mod() begin
+        tti = CustomTargetTransformInfo(
+            flat_address_space = 0,
+            is_noop_addr_space_cast = (from, to) -> from == 0 || to == 0,
+        )
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, tti)
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test !has_addrspacecast(mod)
+    end
+
+    # Callbacks fire: observe the counter getting incremented.
+    # `get_assumed_addr_space` is queried unconditionally per pointer Value
+    # during inference, making it a reliable observable; the other callbacks
+    # fire only on paths InferAddressSpaces may or may not take for a given
+    # module.
+    calls = 0
+    @dispose ctx=Context() mod=make_mod() begin
+        tti = CustomTargetTransformInfo(
+            flat_address_space = 0,
+            is_noop_addr_space_cast = (from, to) -> from == 0 || to == 0,
+            get_assumed_addr_space = (v) -> (calls += 1; typemax(UInt)),
+        )
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, tti)
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+    end
+    @test calls > 0
+
+    # `target_transform_info!(pb, nothing)` reverts to the default TTI.
+    @dispose ctx=Context() mod=make_mod() begin
+        tti = CustomTargetTransformInfo(
+            flat_address_space = 0,
+            is_noop_addr_space_cast = (from, to) -> from == 0 || to == 0,
+        )
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, tti)
+            target_transform_info!(pb, nothing)
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test has_addrspacecast(mod)
+    end
+
+    # Exceptions in TTI callbacks are caught and rethrown as PassException.
+    @dispose ctx=Context() mod=make_mod() begin
+        tti = CustomTargetTransformInfo(
+            flat_address_space = 0,
+            get_assumed_addr_space = (v) -> error("TTI callback boom"),
+        )
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, tti)
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            @test_throws LLVM.PassException run!(pb, mod)
+        end
+    end
+end
+
 @testset "custom pass exceptions" begin
     # Test that exceptions in module passes are caught and rethrown
     @dispose ctx=Context() mod=test_module() begin

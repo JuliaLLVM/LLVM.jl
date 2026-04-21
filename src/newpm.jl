@@ -120,13 +120,16 @@ end
 export PassException
 struct PassException <: Exception
     ex::Any
-    processed_bt::Vector{Any}
+    processed_bt::Vector{Base.StackTraces.StackFrame}
 
-    function PassException(ex, bt_raw::Vector{Union{Ptr{Nothing}, Base.InterpreterIP}})
-        bt_processed = Base.process_backtrace(bt_raw)
+    function PassException(ex, bt)
+        # `stacktrace` accepts either a raw bt from `catch_backtrace()` or
+        # an already-processed frame vector, and is stable across Julia
+        # versions (unlike `Base.process_backtrace`, whose method for the
+        # raw bt type was dropped in 1.14).
+        bt_processed = stacktrace(bt)
         new(ex, bt_processed[1:min(100, end)])
     end
-    PassException(ex, processed_bt::Vector{Any}) = new(ex, processed_bt)
 end
 
 function Base.showerror(io::IO, e::PassException)

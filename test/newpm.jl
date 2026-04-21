@@ -259,9 +259,14 @@ end
     end
     has_addrspacecast(mod) = occursin("addrspacecast", string(functions(mod)["f"]))
 
-    # Baseline: no TTI → pass can't fold anything.
+    # A do-nothing subtype: exercises the abstract defaults, which must match
+    # LLVM's baseline well enough that InferAddressSpaces can't find a flat AS
+    # and therefore folds nothing — same observable behavior as no TTI at all.
+    struct BaselineTTI <: AbstractTargetTransformInfo end
+
     @dispose ctx=Context() mod=make_mod() begin
         @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, BaselineTTI())
             add!(pb, NewPMFunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
             end
@@ -270,14 +275,15 @@ end
         @test has_addrspacecast(mod)
     end
 
-    # With a TTI: cast gets folded.
+    # With an overriding subtype: cast gets folded.
+    struct FlatZeroTTI <: AbstractTargetTransformInfo end
+    LLVM.flat_address_space(::FlatZeroTTI) = UInt(0)
+    LLVM.is_noop_addr_space_cast(::FlatZeroTTI, from::Unsigned, to::Unsigned) =
+        from == 0 || to == 0
+
     @dispose ctx=Context() mod=make_mod() begin
-        tti = CustomTargetTransformInfo(
-            flat_address_space = 0,
-            is_noop_addr_space_cast = (from, to) -> from == 0 || to == 0,
-        )
         @dispose pb=NewPMPassBuilder() begin
-            target_transform_info!(pb, tti)
+            target_transform_info!(pb, FlatZeroTTI())
             add!(pb, NewPMFunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
             end
@@ -291,31 +297,33 @@ end
     # during inference, making it a reliable observable; the other callbacks
     # fire only on paths InferAddressSpaces may or may not take for a given
     # module.
-    calls = 0
-    @dispose ctx=Context() mod=make_mod() begin
-        tti = CustomTargetTransformInfo(
-            flat_address_space = 0,
-            is_noop_addr_space_cast = (from, to) -> from == 0 || to == 0,
-            get_assumed_addr_space = (v) -> (calls += 1; typemax(UInt)),
-        )
-        @dispose pb=NewPMPassBuilder() begin
-            target_transform_info!(pb, tti)
-            add!(pb, NewPMFunctionPassManager()) do fpm
-                add!(fpm, InferAddressSpacesPass())
-            end
-            run!(pb, mod)
+    let calls = Ref(0)
+        # Subtype-local field lets the method see per-instance state.
+        struct CountingTTI <: AbstractTargetTransformInfo
+            calls::Base.RefValue{Int}
         end
-    end
-    @test calls > 0
+        LLVM.flat_address_space(::CountingTTI) = UInt(0)
+        LLVM.is_noop_addr_space_cast(::CountingTTI, from::Unsigned, to::Unsigned) =
+            from == 0 || to == 0
+        LLVM.get_assumed_addr_space(t::CountingTTI, ::LLVM.Value) =
+            (t.calls[] += 1; typemax(UInt))
 
-    # `target_transform_info!(pb, nothing)` reverts to the default TTI.
+        @dispose ctx=Context() mod=make_mod() begin
+            @dispose pb=NewPMPassBuilder() begin
+                target_transform_info!(pb, CountingTTI(calls))
+                add!(pb, NewPMFunctionPassManager()) do fpm
+                    add!(fpm, InferAddressSpacesPass())
+                end
+                run!(pb, mod)
+            end
+        end
+        @test calls[] > 0
+    end
+
+    # `target_transform_info!(pb, nothing)` reverts to LLVM's native TTI.
     @dispose ctx=Context() mod=make_mod() begin
-        tti = CustomTargetTransformInfo(
-            flat_address_space = 0,
-            is_noop_addr_space_cast = (from, to) -> from == 0 || to == 0,
-        )
         @dispose pb=NewPMPassBuilder() begin
-            target_transform_info!(pb, tti)
+            target_transform_info!(pb, FlatZeroTTI())
             target_transform_info!(pb, nothing)
             add!(pb, NewPMFunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
@@ -326,13 +334,13 @@ end
     end
 
     # Exceptions in TTI callbacks are caught and rethrown as PassException.
+    struct BoomTTI <: AbstractTargetTransformInfo end
+    LLVM.flat_address_space(::BoomTTI) = UInt(0)
+    LLVM.get_assumed_addr_space(::BoomTTI, ::LLVM.Value) = error("TTI callback boom")
+
     @dispose ctx=Context() mod=make_mod() begin
-        tti = CustomTargetTransformInfo(
-            flat_address_space = 0,
-            get_assumed_addr_space = (v) -> error("TTI callback boom"),
-        )
         @dispose pb=NewPMPassBuilder() begin
-            target_transform_info!(pb, tti)
+            target_transform_info!(pb, BoomTTI())
             add!(pb, NewPMFunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
             end

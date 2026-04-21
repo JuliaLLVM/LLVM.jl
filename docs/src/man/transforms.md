@@ -132,6 +132,60 @@ Hello, World!
 ```
 
 
+## Custom target info
+
+Some analyses and passes consult LLVM's `TargetTransformInfo` (TTI) to decide
+whether they can do anything useful — `InferAddressSpacesPass` wants to know
+the flat address space, `UniformityAnalysis` wants to know which values are
+divergent, and so on.
+
+Most users don't need to think about this. In-tree back-ends (host CPU, NVPTX,
+AMDGPU) carry their own TTI through a `TargetMachine`, and passing that
+machine to `run!(pb, mod, tm)` is enough — the machine provides everything
+these passes need.
+
+The `AbstractTargetTransformInfo` interface is for the cases where that isn't
+enough:
+
+- **Out-of-tree back-ends** whose TTI isn't linked into the `libLLVM` that
+  Julia loads (e.g. Metal). Pipelines targeting them have no `TargetMachine`
+  to derive TTI from, so the baseline TTI takes over and TTI-sensitive passes
+  silently no-op.
+- **Tooling / analysis flows** that run passes without any target at all.
+- **Per-query overrides on top of a real `TargetMachine`**: a custom TTI
+  attached via `target_transform_info!` takes precedence over the
+  machine-derived one, useful for forcing a particular knob while leaving
+  everything else alone.
+
+Subtype `AbstractTargetTransformInfo` and override only the queries you care
+about; every other query falls back to a default matching LLVM's
+`TargetTransformInfoImplBase`. Attach the instance to a `NewPMPassBuilder`
+with `target_transform_info!`:
+
+```julia
+using LLVM
+
+struct MyTTI <: AbstractTargetTransformInfo end
+LLVM.flat_address_space(::MyTTI) = UInt(0)
+LLVM.is_noop_addr_space_cast(::MyTTI, from::Unsigned, to::Unsigned) =
+    from == 0 || to == 0
+
+@dispose pb=NewPMPassBuilder() begin
+    target_transform_info!(pb, MyTTI())
+    add!(pb, NewPMFunctionPassManager()) do fpm
+        add!(fpm, InferAddressSpacesPass())
+    end
+    run!(pb, mod)
+end
+```
+
+Pass `nothing` to `target_transform_info!` to revert to LLVM's native TTI
+(the `TargetMachine`-derived one if you supply a machine to `run!`, otherwise
+the conservative baseline).
+
+See the API reference for the full list of overridable queries.
+
+
 ## IR cloning
 
 Somewhat distinct from IR passes, it is also possible to clone bits of the IR. This can be

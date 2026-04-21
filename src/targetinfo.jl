@@ -18,64 +18,39 @@ export AbstractTargetTransformInfo
 """
     abstract type AbstractTargetTransformInfo
 
-Subtype this and override the query methods to supply a `TargetTransformInfo`
-for pipelines that lack a `TargetMachine` (e.g. out-of-tree backends invoked
-through a CLI) where the default TTI would otherwise be the conservative
-baseline and disable TTI-sensitive passes such as `InferAddressSpacesPass` or
-`UniformityAnalysis`.
+Subtype this to supply a custom `TargetTransformInfo` to pass pipelines that
+would otherwise see only LLVM's conservative baseline.
 
-Only the subset of TTI hooks relevant to those passes is exposed; each has a
-default method on `AbstractTargetTransformInfo` that matches LLVM's
-`TargetTransformInfoImplBase` behavior, so subtypes only need to override the
-queries they care about.
+Most LLVM back-ends (host CPU, NVPTX, AMDGPU) carry their own TTI through a
+`TargetMachine`; callers that already have one and pass it to
+[`run!`](@ref) don't need this. The feature is aimed at **out-of-tree
+back-ends not linked into libLLVM** (e.g. Metal) and at tooling that runs
+passes without a `TargetMachine` at all. In those pipelines, the baseline TTI
+reports no flat address space, no branch divergence, etc., and TTI-sensitive
+passes such as `InferAddressSpacesPass` or `UniformityAnalysis` silently
+no-op.
 
-Attach an instance with [`target_transform_info!`](@ref). To run a pipeline
-against LLVM's native TTI (including `TargetMachine`-derived and
-`DataLayout`/`Module`-dependent defaults), pass `nothing` instead of an
-instance — no callbacks are registered in that case.
+Each exposed query has a default method on `AbstractTargetTransformInfo` that
+matches LLVM's `TargetTransformInfoImplBase`, so subtypes override only what
+they need.
 
-# Simple knobs
+Attach an instance with [`target_transform_info!`](@ref); attaching `nothing`
+reverts to LLVM's native TTI. When a `TargetMachine` is also supplied to
+[`run!`](@ref), a custom TTI takes precedence — so this type is usable as a
+one-off override on top of an existing target as well.
 
-- [`flat_address_space`](@ref)`(tti) -> UInt`: address space LLVM should treat
-  as "flat" / generic. Required for `InferAddressSpacesPass` and for folding
-  `addrspacecast`s. Default: `typemax(UInt)` (no flat AS).
-- [`has_branch_divergence`](@ref)`(tti) -> Bool`: whether this target can
-  produce divergent control flow. Default: `false`.
-- [`is_single_threaded`](@ref)`(tti) -> Bool`: whether this target is
-  single-threaded. Default: `false`.
+Overridable queries:
 
-# Address-space predicates
-
-- [`is_noop_addr_space_cast`](@ref)`(tti, from, to) -> Bool`: whether an
-  addrspacecast between the given AS pair is a noop. Required (alongside
-  `flat_address_space`) for `InferAddressSpacesPass` to actually fold casts.
-  Default: `false`.
-- [`is_valid_addr_space_cast`](@ref)`(tti, from, to) -> Bool`. Default: `false`.
-- [`addrspaces_may_alias`](@ref)`(tti, as0, as1) -> Bool`. Default: `true`
-  (conservative — pointers may alias unless proven otherwise).
-- [`can_have_non_undef_global_initializer_in_address_space`](@ref)`(tti, as) -> Bool`.
-  Default: `true`. LLVM's real baseline also considers
-  `DataLayout::isNonIntegralAddressSpace`, which isn't reachable from a
-  Julia-side default; override if your target has non-integral ASes.
-
-# Value-oriented queries
-
-- [`is_source_of_divergence`](@ref)`(tti, v::Value) -> Bool`. Default: `false`.
-- [`is_always_uniform`](@ref)`(tti, v::Value) -> Bool`. Default: `false`.
-- [`get_assumed_addr_space`](@ref)`(tti, v::Value) -> Unsigned`: an AS known to
-  hold for this value, or `typemax(UInt)` for "no assumption". Default:
-  `typemax(UInt)`.
-- [`get_predicated_addr_space`](@ref)`(tti, v::Value) -> (predicate, as)`: an
-  AS that holds when `predicate::Union{Value,Nothing}` is true. Default:
-  `(nothing, typemax(UInt))`.
-
-# Intrinsic hooks
-
-- [`rewrite_intrinsic_with_address_space`](@ref)`(tti, ii::Value, old::Value, new::Value) -> Union{Value,Nothing}`.
-  Default: `nothing` (no rewrite).
-- [`collect_flat_address_operands`](@ref)`(tti, iid::UInt) -> Vector{Int}`:
-  flat-AS pointer operand indices of intrinsic `iid`. Capped at 32 entries.
-  Default: `Int[]`.
+- Target-level knobs: [`flat_address_space`](@ref),
+  [`has_branch_divergence`](@ref), [`is_single_threaded`](@ref).
+- Address-space predicates: [`is_noop_addr_space_cast`](@ref),
+  [`is_valid_addr_space_cast`](@ref), [`addrspaces_may_alias`](@ref),
+  [`can_have_non_undef_global_initializer_in_address_space`](@ref).
+- Per-`Value` queries: [`is_source_of_divergence`](@ref),
+  [`is_always_uniform`](@ref), [`get_assumed_addr_space`](@ref),
+  [`get_predicated_addr_space`](@ref).
+- Intrinsic hooks: [`rewrite_intrinsic_with_address_space`](@ref),
+  [`collect_flat_address_operands`](@ref).
 """
 abstract type AbstractTargetTransformInfo end
 
@@ -84,23 +59,123 @@ abstract type AbstractTargetTransformInfo end
 # have LLVM baselines that depend on `DataLayout`/`Module` state not reachable
 # from these callbacks; we pick the common-case static answer and document that
 # subtypes must override if they need the full LLVM behavior.
+
+"""
+    flat_address_space(tti::AbstractTargetTransformInfo) -> UInt
+
+Address space the target treats as "flat" / generic. Required — alongside
+[`is_noop_addr_space_cast`](@ref) — for `InferAddressSpacesPass` to fold
+`addrspacecast`s. Default: `typemax(UInt)` (no flat AS).
+"""
 flat_address_space(::AbstractTargetTransformInfo) = typemax(UInt)
+
+"""
+    has_branch_divergence(tti::AbstractTargetTransformInfo) -> Bool
+
+Whether the target can produce divergent control flow. Enables
+divergence-aware passes (`SimplifyCFG`, loop analyses) when true. Default:
+`false`.
+"""
 has_branch_divergence(::AbstractTargetTransformInfo) = false
+
+"""
+    is_single_threaded(tti::AbstractTargetTransformInfo) -> Bool
+
+Whether the target is single-threaded. A few passes skip concurrency-related
+transformations when true. Default: `false`. LLVM's actual baseline also
+consults the module's `"single-thread"` flag — override if you rely on that.
+"""
 is_single_threaded(::AbstractTargetTransformInfo) = false
 
+"""
+    is_noop_addr_space_cast(tti::AbstractTargetTransformInfo,
+                            from::Unsigned, to::Unsigned) -> Bool
+
+Whether an `addrspacecast` from `from` to `to` is a noop at runtime. Default:
+`false`.
+"""
 is_noop_addr_space_cast(::AbstractTargetTransformInfo, from::Unsigned, to::Unsigned) = false
+
+"""
+    is_valid_addr_space_cast(tti::AbstractTargetTransformInfo,
+                             from::Unsigned, to::Unsigned) -> Bool
+
+Whether an `addrspacecast` from `from` to `to` is permitted. Default: `false`.
+"""
 is_valid_addr_space_cast(::AbstractTargetTransformInfo, from::Unsigned, to::Unsigned) = false
+
+"""
+    addrspaces_may_alias(tti::AbstractTargetTransformInfo,
+                         as0::Unsigned, as1::Unsigned) -> Bool
+
+Whether pointers in address spaces `as0` and `as1` may alias. Default: `true`
+(conservative — pointers may alias unless proven otherwise).
+"""
 addrspaces_may_alias(::AbstractTargetTransformInfo, as0::Unsigned, as1::Unsigned) = true
+
+"""
+    can_have_non_undef_global_initializer_in_address_space(
+        tti::AbstractTargetTransformInfo, as::Unsigned) -> Bool
+
+Whether globals in address space `as` may have non-`undef` initializers.
+Default: `true`. LLVM's real baseline additionally consults
+`DataLayout::isNonIntegralAddressSpace`, which this default can't reach —
+override if the target has non-integral address spaces.
+"""
 can_have_non_undef_global_initializer_in_address_space(::AbstractTargetTransformInfo, as::Unsigned) = true
 
+"""
+    is_source_of_divergence(tti::AbstractTargetTransformInfo, v::Value) -> Bool
+
+Whether `v` is a source of divergence. Consulted by `UniformityAnalysis`.
+Default: `false`.
+"""
 is_source_of_divergence(::AbstractTargetTransformInfo, v::Value) = false
+
+"""
+    is_always_uniform(tti::AbstractTargetTransformInfo, v::Value) -> Bool
+
+Whether `v` is known to hold the same value across all threads. Consulted by
+`UniformityAnalysis`. Default: `false`.
+"""
 is_always_uniform(::AbstractTargetTransformInfo, v::Value) = false
+
+"""
+    get_assumed_addr_space(tti::AbstractTargetTransformInfo, v::Value) -> Unsigned
+
+Address space statically known to hold for `v`, or `typemax(UInt)` for "no
+assumption". Default: `typemax(UInt)`.
+"""
 get_assumed_addr_space(::AbstractTargetTransformInfo, v::Value) = typemax(UInt)
+
+"""
+    get_predicated_addr_space(tti::AbstractTargetTransformInfo, v::Value)
+        -> (predicate::Union{Value,Nothing}, as::Unsigned)
+
+Address space that holds for `v` when `predicate` is true. Return
+`(nothing, typemax(UInt))` for "no inference". Default: that sentinel.
+"""
 get_predicated_addr_space(::AbstractTargetTransformInfo, v::Value) =
     (nothing, typemax(UInt))
 
+"""
+    rewrite_intrinsic_with_address_space(tti::AbstractTargetTransformInfo,
+        ii::Value, old::Value, new::Value) -> Union{Value,Nothing}
+
+Rewrite an intrinsic call `ii` after its pointer operand `old` has been
+replaced by `new` (in a different address space). Return the rewritten value,
+or `nothing` to keep the existing call. Default: `nothing`.
+"""
 rewrite_intrinsic_with_address_space(::AbstractTargetTransformInfo,
                                      ii::Value, old::Value, new::Value) = nothing
+
+"""
+    collect_flat_address_operands(tti::AbstractTargetTransformInfo, iid::Unsigned)
+        -> Vector{Int}
+
+Operand indices of intrinsic `iid` that are flat-address-space pointer
+operands. Capped at 32 entries by the underlying C API. Default: `Int[]`.
+"""
 collect_flat_address_operands(::AbstractTargetTransformInfo, iid::Unsigned) = Int[]
 
 # Mutable shim that holds the `AbstractTargetTransformInfo` alongside any

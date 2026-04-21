@@ -42,6 +42,17 @@ public:
     return BaseT::isNoopAddrSpaceCast(FromAS, ToAS);
   }
 
+  bool canHaveNonUndefGlobalInitializerInAddressSpace(unsigned AS) const {
+    if (Opts.CanHaveGlobalInitializerInAS)
+      return Opts.CanHaveGlobalInitializerInAS(
+                 AS, Opts.CanHaveGlobalInitializerInASUD) != 0;
+    return BaseT::canHaveNonUndefGlobalInitializerInAddressSpace(AS);
+  }
+
+  // `isValidAddrSpaceCast` and `addrspacesMayAlias` were added in LLVM 17.
+  // On earlier versions the pass framework doesn't query them, so we skip
+  // providing the override entirely.
+#if LLVM_VERSION_MAJOR >= 17
   bool isValidAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
     if (Opts.IsValidAddrSpaceCast)
       return Opts.IsValidAddrSpaceCast(FromAS, ToAS,
@@ -55,23 +66,28 @@ public:
                                      Opts.AddrSpacesMayAliasUD) != 0;
     return BaseT::addrspacesMayAlias(AS0, AS1);
   }
+#endif
 
-  bool canHaveNonUndefGlobalInitializerInAddressSpace(unsigned AS) const {
-    if (Opts.CanHaveGlobalInitializerInAS)
-      return Opts.CanHaveGlobalInitializerInAS(
-                 AS, Opts.CanHaveGlobalInitializerInASUD) != 0;
-    return BaseT::canHaveNonUndefGlobalInitializerInAddressSpace(AS);
-  }
-
+  // `hasBranchDivergence` grew a `Function*` parameter in LLVM 17.
+#if LLVM_VERSION_MAJOR >= 17
   bool hasBranchDivergence(const Function *F = nullptr) const {
     if (Opts.HasBranchDivergence < 0) return BaseT::hasBranchDivergence(F);
     return Opts.HasBranchDivergence != 0;
   }
+#else
+  bool hasBranchDivergence() const {
+    if (Opts.HasBranchDivergence < 0) return BaseT::hasBranchDivergence();
+    return Opts.HasBranchDivergence != 0;
+  }
+#endif
 
+  // `isSingleThreaded` was added to the CRTP base in LLVM 16.
+#if LLVM_VERSION_MAJOR >= 16
   bool isSingleThreaded() const {
     if (Opts.IsSingleThreaded < 0) return BaseT::isSingleThreaded();
     return Opts.IsSingleThreaded != 0;
   }
+#endif
 
   bool isSourceOfDivergence(const Value *V) const {
     if (Opts.IsSourceOfDivergence)

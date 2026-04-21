@@ -1,13 +1,143 @@
 #include "LLVMExtra.h"
 
 #include <llvm/Analysis/AliasAnalysis.h>
+#include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/Analysis/TargetTransformInfoImpl.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Support/CBindingWrapping.h>
 
+#include <optional>
+
 using namespace llvm;
+
+// Minimal TargetTransformInfo for pipelines that don't have a TargetMachine.
+// Wraps an `LLVMTTIOptions` POD struct (see LLVMExtra.h) and falls back
+// to the default `TargetTransformInfoImplCRTPBase` behavior for any field
+// left at its sentinel value.
+namespace {
+
+// Fixed-size scratch buffer for CollectFlatAddressOperands. More than enough
+// for any real intrinsic (pointer operand counts are tiny). If a caller
+// produces more, the tail is silently dropped — callbacks know the buffer
+// size in advance and can clamp themselves.
+constexpr unsigned CollectFlatAddressOperandsBufSize = 32;
+
+class CustomTargetTransformInfo final
+    : public TargetTransformInfoImplCRTPBase<CustomTargetTransformInfo> {
+  typedef TargetTransformInfoImplCRTPBase<CustomTargetTransformInfo> BaseT;
+
+public:
+  CustomTargetTransformInfo(const DataLayout &DL, LLVMTTIOptions Opts)
+      : BaseT(DL), Opts(Opts) {}
+
+  unsigned getFlatAddressSpace() const { return Opts.FlatAddressSpace; }
+
+  bool isNoopAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
+    if (Opts.IsNoopAddrSpaceCast)
+      return Opts.IsNoopAddrSpaceCast(FromAS, ToAS,
+                                      Opts.IsNoopAddrSpaceCastUD) != 0;
+    return BaseT::isNoopAddrSpaceCast(FromAS, ToAS);
+  }
+
+  bool isValidAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
+    if (Opts.IsValidAddrSpaceCast)
+      return Opts.IsValidAddrSpaceCast(FromAS, ToAS,
+                                       Opts.IsValidAddrSpaceCastUD) != 0;
+    return BaseT::isValidAddrSpaceCast(FromAS, ToAS);
+  }
+
+  bool addrspacesMayAlias(unsigned AS0, unsigned AS1) const {
+    if (Opts.AddrSpacesMayAlias)
+      return Opts.AddrSpacesMayAlias(AS0, AS1,
+                                     Opts.AddrSpacesMayAliasUD) != 0;
+    return BaseT::addrspacesMayAlias(AS0, AS1);
+  }
+
+  bool canHaveNonUndefGlobalInitializerInAddressSpace(unsigned AS) const {
+    if (Opts.CanHaveGlobalInitializerInAS)
+      return Opts.CanHaveGlobalInitializerInAS(
+                 AS, Opts.CanHaveGlobalInitializerInASUD) != 0;
+    return BaseT::canHaveNonUndefGlobalInitializerInAddressSpace(AS);
+  }
+
+  bool hasBranchDivergence(const Function *F = nullptr) const {
+    if (Opts.HasBranchDivergence < 0) return BaseT::hasBranchDivergence(F);
+    return Opts.HasBranchDivergence != 0;
+  }
+
+  bool isSingleThreaded() const {
+    if (Opts.IsSingleThreaded < 0) return BaseT::isSingleThreaded();
+    return Opts.IsSingleThreaded != 0;
+  }
+
+  bool isSourceOfDivergence(const Value *V) const {
+    if (Opts.IsSourceOfDivergence)
+      return Opts.IsSourceOfDivergence(
+                 wrap(V), Opts.IsSourceOfDivergenceUD) != 0;
+    return BaseT::isSourceOfDivergence(V);
+  }
+
+  bool isAlwaysUniform(const Value *V) const {
+    if (Opts.IsAlwaysUniform)
+      return Opts.IsAlwaysUniform(wrap(V), Opts.IsAlwaysUniformUD) != 0;
+    return BaseT::isAlwaysUniform(V);
+  }
+
+  unsigned getAssumedAddrSpace(const Value *V) const {
+    if (Opts.GetAssumedAddressSpace)
+      return Opts.GetAssumedAddressSpace(wrap(V),
+                                         Opts.GetAssumedAddressSpaceUD);
+    return BaseT::getAssumedAddrSpace(V);
+  }
+
+  std::pair<const Value *, unsigned>
+  getPredicatedAddrSpace(const Value *V) const {
+    if (Opts.GetPredicatedAddressSpace) {
+      LLVMValueRef Predicate = nullptr;
+      unsigned AS = Opts.GetPredicatedAddressSpace(
+          wrap(V), &Predicate, Opts.GetPredicatedAddressSpaceUD);
+      return {unwrap(Predicate), AS};
+    }
+    return BaseT::getPredicatedAddrSpace(V);
+  }
+
+  Value *rewriteIntrinsicWithAddressSpace(IntrinsicInst *II, Value *OldV,
+                                          Value *NewV) const {
+    if (Opts.RewriteIntrinsicWithAS) {
+      LLVMValueRef Result = Opts.RewriteIntrinsicWithAS(
+          wrap(static_cast<Value *>(II)), wrap(OldV), wrap(NewV),
+          Opts.RewriteIntrinsicWithASUD);
+      return unwrap(Result);
+    }
+    return BaseT::rewriteIntrinsicWithAddressSpace(II, OldV, NewV);
+  }
+
+  bool collectFlatAddressOperands(SmallVectorImpl<int> &OpIndexes,
+                                  Intrinsic::ID IID) const {
+    if (Opts.CollectFlatAddressOperands) {
+      int Buf[CollectFlatAddressOperandsBufSize];
+      unsigned Count = 0;
+      LLVMBool Any = Opts.CollectFlatAddressOperands(
+          static_cast<unsigned>(IID), Buf,
+          CollectFlatAddressOperandsBufSize, &Count,
+          Opts.CollectFlatAddressOperandsUD);
+      if (!Any)
+        return false;
+      if (Count > CollectFlatAddressOperandsBufSize)
+        Count = CollectFlatAddressOperandsBufSize;
+      OpIndexes.append(Buf, Buf + Count);
+      return Count > 0;
+    }
+    return BaseT::collectFlatAddressOperands(OpIndexes, IID);
+  }
+
+private:
+  LLVMTTIOptions Opts;
+};
+} // namespace
 
 static TargetMachine *unwrap(LLVMTargetMachineRef P) {
   return reinterpret_cast<TargetMachine *>(P);
@@ -51,6 +181,10 @@ public:
   // A pipeline describing the alias analysis passes to run.
   const char *AAPipeline;
 #endif
+
+  // If set, passes requesting TargetTransformInfo will see this custom TTI
+  // instead of the default one derived from the (possibly-missing) TargetMachine.
+  std::optional<LLVMTTIOptions> TTI;
 };
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(LLVMPassBuilderExtensions, LLVMPassBuilderExtensionsRef)
 } // namespace llvm
@@ -143,6 +277,18 @@ void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensi
 }
 #endif
 
+// Custom TargetTransformInfo
+
+void LLVMPassBuilderExtensionsSetTTI(
+    LLVMPassBuilderExtensionsRef Extensions,
+    const LLVMTTIOptions *Options) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  if (Options)
+    PassExts->TTI = *Options;
+  else
+    PassExts->TTI.reset();
+}
+
 
 // Vendored API entrypoint
 
@@ -170,6 +316,19 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
   FunctionAnalysisManager FAM;
   CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
+
+  // If a custom TTI was requested, register it with FAM *before*
+  // PB.registerFunctionAnalyses, so our TargetIRAnalysis wins over the default
+  // one (which would otherwise be derived from the TargetMachine, if any).
+  if (PassExts->TTI) {
+    auto Opts = *PassExts->TTI;
+    FAM.registerPass([Opts] {
+      return TargetIRAnalysis([Opts](const Function &F) {
+        return TargetTransformInfo(
+            CustomTargetTransformInfo(F.getParent()->getDataLayout(), Opts));
+      });
+    });
+  }
   const char *AAPipeline =
 #if LLVM_VERSION_MAJOR >= 20
     PassOpts->AAPipeline;

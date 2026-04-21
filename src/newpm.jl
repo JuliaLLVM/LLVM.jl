@@ -213,6 +213,7 @@ mutable struct NewPMPassBuilder <: AbstractPassManager
     passes::Vector{String}
     aa_passes::Vector{String}
     custom_passes::Vector{NewPMCustomPass}
+    custom_tti::Any  # ::Union{CustomTargetTransformInfo,Nothing}; forward ref
 end
 
 Base.string(pm::NewPMPassBuilder) = join(pm.passes, ",")
@@ -223,7 +224,7 @@ Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::NewPMPassBuilder)
 function NewPMPassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
     exts = API.LLVMCreatePassBuilderExtensions()
-    obj = mark_alloc(NewPMPassBuilder(opts, exts, [], [], []))
+    obj = mark_alloc(NewPMPassBuilder(opts, exts, [], [], [], nothing))
 
     for (name, value) in pairs(kwargs)
         if name == :verify_each
@@ -274,6 +275,317 @@ function register!(pb::NewPMPassBuilder, pass::NewPMCustomPass)
     push!(pb.custom_passes, pass)
 end
 
+export CustomTargetTransformInfo, target_transform_info!
+
+"""
+    CustomTargetTransformInfo(; kwargs...)
+
+A data-driven override for LLVM's `TargetTransformInfo`, intended for pipelines
+that lack a `TargetMachine` (e.g. out-of-tree backends invoked through a CLI)
+where the default TTI would otherwise be the conservative baseline and disable
+TTI-sensitive passes such as `InferAddressSpacesPass` or `UniformityAnalysis`.
+
+Any field left as `nothing` defers to the baseline TTI's behavior for that
+query. Callback fields take Julia functions and are invoked through a cfunction
+trampoline at pass-run time.
+
+# Simple knobs
+
+- `flat_address_space::Integer`: address space LLVM should treat as "flat" /
+  generic. Required for `InferAddressSpacesPass` and for folding
+  `addrspacecast`s.
+- `has_branch_divergence::Bool`: declare that this target can produce divergent
+  control flow. Enables divergence-aware variants in passes like `SimplifyCFG`.
+- `is_single_threaded::Bool`: declare that this target is single-threaded. A
+  few passes skip concurrency-related transformations under this.
+
+# Address-space predicate callbacks
+
+Each is a function `(from::UInt, to::UInt) -> Bool` (or `(as::UInt) -> Bool`):
+
+- `is_noop_addr_space_cast`: whether an addrspacecast between the given AS pair
+  is a noop at runtime. Required (alongside `flat_address_space`) for
+  `InferAddressSpacesPass` to actually fold casts — without it the pass sees
+  that it has a flat AS to infer but finds no casts it may eliminate.
+  A common GPU-style choice is `(from, to) -> from == flat || to == flat`,
+  but this is target-specific and must be supplied by the caller.
+- `is_valid_addr_space_cast`: whether an addrspacecast between the given AS
+  pair is permitted.
+- `addrspaces_may_alias`: whether pointers in the two ASes may alias.
+- `can_have_non_undef_global_initializer_in_address_space`: whether globals in
+  the given AS may have non-undef initializers.
+
+# Value-oriented callbacks
+
+- `get_assumed_addr_space(v::Value) -> Unsigned`: an AS known to hold for this
+  Value, or `typemax(UInt)` (i.e. `~0u`) for "no assumption".
+- `get_predicated_addr_space(v::Value) -> (predicate::Union{Value,Nothing}, as::Unsigned)`:
+  an AS that holds for this Value when `predicate` is true. Return `nothing`
+  for the predicate and `typemax(UInt)` for the AS to indicate no inference.
+- `is_source_of_divergence(v::Value) -> Bool`: used by `UniformityAnalysis`.
+- `is_always_uniform(v::Value) -> Bool`: used by `UniformityAnalysis`.
+
+# Intrinsic callbacks
+
+- `rewrite_intrinsic_with_address_space(ii::Value, old::Value, new::Value) -> Union{Value,Nothing}`:
+  rewrite a target intrinsic call after one of its pointer operands has been
+  moved to a specific AS. Return `nothing` to keep the existing call.
+- `collect_flat_address_operands(iid::UInt) -> Vector{Int}`: which operand
+  indices of intrinsic `iid` are flat-AS pointer operands. Capped at 32 entries.
+"""
+Base.@kwdef struct CustomTargetTransformInfo
+    # Simple knobs
+    flat_address_space::Union{Integer,Nothing} = nothing
+    has_branch_divergence::Union{Bool,Nothing} = nothing
+    is_single_threaded::Union{Bool,Nothing}    = nothing
+
+    # AS-pair predicates: (from, to) -> Bool
+    is_noop_addr_space_cast                              = nothing
+    is_valid_addr_space_cast                             = nothing
+    addrspaces_may_alias                                 = nothing
+
+    # AS predicate: (as) -> Bool
+    can_have_non_undef_global_initializer_in_address_space = nothing
+
+    # Value predicates: (v) -> Bool
+    is_source_of_divergence = nothing
+    is_always_uniform       = nothing
+
+    # Value → AS
+    get_assumed_addr_space     = nothing
+    get_predicated_addr_space  = nothing
+
+    # Intrinsic rewriting
+    rewrite_intrinsic_with_address_space = nothing
+    collect_flat_address_operands        = nothing
+end
+
+# Mutable shim that holds the `CustomTargetTransformInfo` alongside any caught
+# exception. A pointer to this object is passed to C as the `UserData` for
+# every callback, and the trampolines unwrap it to dispatch.
+mutable struct CustomTTIState
+    tti::CustomTargetTransformInfo
+    exception::Union{Nothing,Tuple{Any,Vector}}
+    CustomTTIState(tti) = new(tti, nothing)
+end
+
+# Each trampoline is a top-level (non-closure) function so it can be
+# `@cfunction`'d. They swallow exceptions and record them on the state —
+# LLVM must not see a Julia exception unwind into C. Trampolines that run
+# multiple ccall-visible variants (e.g. the three AS-pair predicates) share
+# an inner generic body that dispatches on a `Val(::Symbol)` field tag.
+
+function custom_tti_capture_exception!(state::CustomTTIState, err)
+    # Keep the first caught exception; ignore subsequent ones from the same run.
+    if state.exception === nothing
+        state.exception = (err, Base.catch_backtrace())
+    end
+end
+
+@inline function custom_tti_as_pair_dispatch(from::Cuint, to::Cuint,
+                                             ud::Ptr{Cvoid},
+                                             ::Val{field})::API.LLVMBool where {field}
+    state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
+    try
+        return getfield(state.tti, field)(from, to)::Bool
+    catch err
+        custom_tti_capture_exception!(state, err)
+        return false
+    end
+end
+custom_tti_is_noop_addr_space_cast_callback(from::Cuint, to::Cuint, ud::Ptr{Cvoid}) =
+    custom_tti_as_pair_dispatch(from, to, ud, Val(:is_noop_addr_space_cast))
+custom_tti_is_valid_addr_space_cast_callback(from::Cuint, to::Cuint, ud::Ptr{Cvoid}) =
+    custom_tti_as_pair_dispatch(from, to, ud, Val(:is_valid_addr_space_cast))
+custom_tti_addrspaces_may_alias_callback(from::Cuint, to::Cuint, ud::Ptr{Cvoid}) =
+    custom_tti_as_pair_dispatch(from, to, ud, Val(:addrspaces_may_alias))
+
+function custom_tti_can_have_global_initializer_in_as_callback(
+        as::Cuint, ud::Ptr{Cvoid})::API.LLVMBool
+    state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
+    try
+        return state.tti.can_have_non_undef_global_initializer_in_address_space(as)::Bool
+    catch err
+        custom_tti_capture_exception!(state, err)
+        return false
+    end
+end
+
+@inline function custom_tti_value_predicate_dispatch(ref::API.LLVMValueRef,
+                                                     ud::Ptr{Cvoid},
+                                                     ::Val{field})::API.LLVMBool where {field}
+    state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
+    try
+        return getfield(state.tti, field)(Value(ref))::Bool
+    catch err
+        custom_tti_capture_exception!(state, err)
+        return false
+    end
+end
+custom_tti_is_source_of_divergence_callback(ref::API.LLVMValueRef, ud::Ptr{Cvoid}) =
+    custom_tti_value_predicate_dispatch(ref, ud, Val(:is_source_of_divergence))
+custom_tti_is_always_uniform_callback(ref::API.LLVMValueRef, ud::Ptr{Cvoid}) =
+    custom_tti_value_predicate_dispatch(ref, ud, Val(:is_always_uniform))
+
+function custom_tti_get_assumed_address_space_callback(
+        ref::API.LLVMValueRef, ud::Ptr{Cvoid})::Cuint
+    state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
+    try
+        # `% Cuint` truncates modulo 2^32 rather than throwing on
+        # `typemax(UInt)` — users naturally reach for that as the "no
+        # assumption" sentinel, and we want both 32- and 64-bit spellings
+        # of ~0 to work.
+        return state.tti.get_assumed_addr_space(Value(ref))::Integer % Cuint
+    catch err
+        custom_tti_capture_exception!(state, err)
+        return typemax(Cuint)
+    end
+end
+
+function custom_tti_get_predicated_address_space_callback(
+        ref::API.LLVMValueRef,
+        out_predicate::Ptr{API.LLVMValueRef},
+        ud::Ptr{Cvoid})::Cuint
+    state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
+    try
+        (pred, as) = state.tti.get_predicated_addr_space(Value(ref))
+        pred_ref = pred === nothing ? API.LLVMValueRef(C_NULL) :
+                                      Base.unsafe_convert(API.LLVMValueRef, pred::Value)
+        unsafe_store!(out_predicate, pred_ref)
+        return as::Integer % Cuint
+    catch err
+        custom_tti_capture_exception!(state, err)
+        unsafe_store!(out_predicate, API.LLVMValueRef(C_NULL))
+        return typemax(Cuint)
+    end
+end
+
+function custom_tti_rewrite_intrinsic_with_as_callback(
+        ii::API.LLVMValueRef, old::API.LLVMValueRef, new::API.LLVMValueRef,
+        ud::Ptr{Cvoid})::API.LLVMValueRef
+    state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
+    try
+        result = state.tti.rewrite_intrinsic_with_address_space(
+                     Value(ii), Value(old), Value(new))
+        result === nothing && return API.LLVMValueRef(C_NULL)
+        return Base.unsafe_convert(API.LLVMValueRef, result::Value)
+    catch err
+        custom_tti_capture_exception!(state, err)
+        return API.LLVMValueRef(C_NULL)
+    end
+end
+
+function custom_tti_collect_flat_address_operands_callback(
+        iid::Cuint, out_ops::Ptr{Cint},
+        max_count::Cuint, out_count::Ptr{Cuint},
+        ud::Ptr{Cvoid})::API.LLVMBool
+    state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
+    try
+        ops = state.tti.collect_flat_address_operands(iid)::AbstractVector
+        n = min(length(ops), Int(max_count))
+        for i in 1:n
+            unsafe_store!(out_ops, Cint(ops[i]), i)
+        end
+        unsafe_store!(out_count, Cuint(n))
+        return !isempty(ops)
+    catch err
+        custom_tti_capture_exception!(state, err)
+        unsafe_store!(out_count, Cuint(0))
+        return false
+    end
+end
+
+# Build the C-side `LLVMTTIOptions` and attach it to the extensions
+# struct. The C side copies the options struct, but the function pointers and
+# the UD pointer (into `state`) remain live references — the returned state
+# must outlive `run!`.
+function install_custom_tti!(exts::API.LLVMPassBuilderExtensionsRef,
+                             tti::CustomTargetTransformInfo)
+    state = CustomTTIState(tti)
+    ud = Base.pointer_from_objref(state)
+
+    # For each callback field: (fnptr, userdata) if the callback is set,
+    # (C_NULL, C_NULL) otherwise.
+    cbptr(f::Nothing, _cf) = (Ptr{Cvoid}(C_NULL), Ptr{Cvoid}(C_NULL))
+    cbptr(_,          cf)  = (Base.unsafe_convert(Ptr{Cvoid}, cf), ud)
+
+    noop_cb, noop_ud = cbptr(tti.is_noop_addr_space_cast,
+        @cfunction(custom_tti_is_noop_addr_space_cast_callback,
+                   API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})))
+    valid_cb, valid_ud = cbptr(tti.is_valid_addr_space_cast,
+        @cfunction(custom_tti_is_valid_addr_space_cast_callback,
+                   API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})))
+    alias_cb, alias_ud = cbptr(tti.addrspaces_may_alias,
+        @cfunction(custom_tti_addrspaces_may_alias_callback,
+                   API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})))
+    ginit_cb, ginit_ud = cbptr(tti.can_have_non_undef_global_initializer_in_address_space,
+        @cfunction(custom_tti_can_have_global_initializer_in_as_callback,
+                   API.LLVMBool, (Cuint, Ptr{Cvoid})))
+    srcdiv_cb, srcdiv_ud = cbptr(tti.is_source_of_divergence,
+        @cfunction(custom_tti_is_source_of_divergence_callback,
+                   API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid})))
+    unif_cb, unif_ud = cbptr(tti.is_always_uniform,
+        @cfunction(custom_tti_is_always_uniform_callback,
+                   API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid})))
+    assas_cb, assas_ud = cbptr(tti.get_assumed_addr_space,
+        @cfunction(custom_tti_get_assumed_address_space_callback,
+                   Cuint, (API.LLVMValueRef, Ptr{Cvoid})))
+    predas_cb, predas_ud = cbptr(tti.get_predicated_addr_space,
+        @cfunction(custom_tti_get_predicated_address_space_callback, Cuint,
+                   (API.LLVMValueRef, Ptr{API.LLVMValueRef}, Ptr{Cvoid})))
+    rewrite_cb, rewrite_ud = cbptr(tti.rewrite_intrinsic_with_address_space,
+        @cfunction(custom_tti_rewrite_intrinsic_with_as_callback,
+                   API.LLVMValueRef,
+                   (API.LLVMValueRef, API.LLVMValueRef, API.LLVMValueRef, Ptr{Cvoid})))
+    collect_cb, collect_ud = cbptr(tti.collect_flat_address_operands,
+        @cfunction(custom_tti_collect_flat_address_operands_callback,
+                   API.LLVMBool,
+                   (Cuint, Ptr{Cint}, Cuint, Ptr{Cuint}, Ptr{Cvoid})))
+
+    tri_state(::Nothing) = Int32(-1)
+    tri_state(x::Bool)   = Int32(x)
+
+    opts = Ref(API.LLVMTTIOptions(
+        tti.flat_address_space === nothing ? typemax(Cuint) :
+                                             Cuint(tti.flat_address_space),
+        tri_state(tti.has_branch_divergence),
+        tri_state(tti.is_single_threaded),
+        noop_cb,    noop_ud,
+        valid_cb,   valid_ud,
+        alias_cb,   alias_ud,
+        ginit_cb,   ginit_ud,
+        srcdiv_cb,  srcdiv_ud,
+        unif_cb,    unif_ud,
+        assas_cb,   assas_ud,
+        predas_cb,  predas_ud,
+        rewrite_cb, rewrite_ud,
+        collect_cb, collect_ud,
+    ))
+
+    API.LLVMPassBuilderExtensionsSetTTI(exts, opts)
+    return state
+end
+
+"""
+    target_transform_info!(pb::NewPMPassBuilder, tti::CustomTargetTransformInfo)
+    target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
+
+Attach a [`CustomTargetTransformInfo`](@ref) to the pass builder, replacing any
+previously-attached custom TTI. Pass `nothing` to revert to the default TTI
+(derived from the `TargetMachine`, if any).
+"""
+function target_transform_info!(pb::NewPMPassBuilder,
+                                tti::CustomTargetTransformInfo)
+    pb.custom_tti = tti
+    return pb
+end
+
+function target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
+    pb.custom_tti = nothing
+    API.LLVMPassBuilderExtensionsSetTTI(pb.exts, Ptr{API.LLVMTTIOptions}(C_NULL))
+    return pb
+end
+
 """
     run!(pb::NewPMPassBuilder, mod::Module, [tm::TargetMachine])
     run!(pipeline::String, mod::Module, [tm::TargetMachine])
@@ -294,7 +606,9 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
 
     # Create state objects to hold callbacks and any caught exceptions
     states = [CustomPassState(pass.callback) for pass in pb.custom_passes]
-    GC.@preserve states aa_pipeline begin
+    tti_state = pb.custom_tti === nothing ? nothing :
+                install_custom_tti!(pb.exts, pb.custom_tti)
+    GC.@preserve states tti_state aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)
             if pass.type === :module
@@ -336,6 +650,10 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
                 (err, bt) = state.exception
                 throw(PassException(err, bt))
             end
+        end
+        if tti_state !== nothing && tti_state.exception !== nothing
+            (err, bt) = tti_state.exception
+            throw(PassException(err, bt))
         end
     end
 end

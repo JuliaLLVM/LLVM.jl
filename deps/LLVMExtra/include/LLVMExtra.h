@@ -255,6 +255,109 @@ LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,
                                           LLVMPassBuilderOptionsRef Options,
                                           LLVMPassBuilderExtensionsRef Extensions);
 
+// Custom TargetTransformInfo
+//
+// Pipelines that don't have a TargetMachine (e.g. out-of-tree backends invoked
+// through a CLI) normally see the baseline `TargetTransformInfoImplBase`, which
+// reports conservative defaults (e.g. no flat address space, no branch
+// divergence). That disables TTI-sensitive passes like InferAddressSpaces and
+// UniformityAnalysis.
+//
+// Populate an `LLVMTTIOptions` struct and call
+// `LLVMPassBuilderExtensionsSetTTI` to attach a minimal, data-driven TTI to
+// the pass builder. Pass `NULL` to revert to the default TTI (derived from
+// the `TargetMachine`, if any).
+//
+// Callback fields come in `(fnptr, userdata)` pairs. `userdata` is threaded
+// back to the callback on each invocation; the caller must keep the pointee
+// alive for the duration of each `LLVMRunJuliaPasses` call.
+
+// Callback signatures.
+
+// Predicate over an (FromAS, ToAS) pair. Used by isNoopAddrSpaceCast,
+// isValidAddrSpaceCast, addrspacesMayAlias.
+typedef LLVMBool (*LLVMTTIASPairPredicateFn)(unsigned FromAS, unsigned ToAS,
+                                             void *UserData);
+
+// Predicate over a single AS. Used by
+// canHaveNonUndefGlobalInitializerInAddressSpace.
+typedef LLVMBool (*LLVMTTIASPredicateFn)(unsigned AS, void *UserData);
+
+// Predicate over a single Value. Used by isSourceOfDivergence, isAlwaysUniform.
+typedef LLVMBool (*LLVMTTIValuePredicateFn)(LLVMValueRef V, void *UserData);
+
+// Returns the inferred AS for a Value, or ~0u if no inference is made.
+typedef unsigned (*LLVMTTIGetAssumedAddressSpaceFn)(LLVMValueRef V,
+                                                    void *UserData);
+
+// Returns the inferred AS for a Value guarded by a predicate. Writes the
+// predicate value to `*OutPredicate` (or leaves it null if none), and returns
+// the AS (or ~0u if no inference is made).
+typedef unsigned (*LLVMTTIGetPredicatedAddressSpaceFn)(
+    LLVMValueRef V, LLVMValueRef *OutPredicate, void *UserData);
+
+// Rewrites an intrinsic call `II` after its operand `OldV` has been replaced
+// by `NewV` (in a different address space). Returns the rewritten Value, or
+// null if no rewrite is needed.
+typedef LLVMValueRef (*LLVMTTIRewriteIntrinsicFn)(LLVMValueRef II,
+                                                  LLVMValueRef OldV,
+                                                  LLVMValueRef NewV,
+                                                  void *UserData);
+
+// Reports which operand indices of an intrinsic call are flat-AS pointer
+// operands. The callback writes up to `MaxCount` indices into `OutOps`, stores
+// the number written in `*OutCount`, and returns true if any operands were
+// reported. If the target needs to report more than `MaxCount` operands
+// (currently 32), the excess is silently truncated.
+typedef LLVMBool (*LLVMTTICollectFlatAddressOperandsFn)(
+    unsigned IID, int *OutOps, unsigned MaxCount, unsigned *OutCount,
+    void *UserData);
+
+// POD options struct. "Unset" sentinels:
+//  - unsigned fields: ~0u
+//  - int32_t   tri-state bool fields: -1 (0 = false, 1 = true)
+//  - callback fields: NULL (the paired UserData is then ignored)
+typedef struct {
+  // The address space LLVM should treat as "flat" / generic. Required for
+  // InferAddressSpacesPass and for folding addrspacecasts.
+  unsigned FlatAddressSpace;
+
+  // Declare that this target can produce divergent control flow. Enables
+  // divergence-aware variants in SimplifyCFG, the loop passes, etc.
+  int32_t HasBranchDivergence;
+
+  // Declare that the target is single-threaded. A few passes use this to skip
+  // transformations that only matter in the presence of concurrent execution.
+  int32_t IsSingleThreaded;
+
+  LLVMTTIASPairPredicateFn IsNoopAddrSpaceCast;
+  void *IsNoopAddrSpaceCastUD;
+  LLVMTTIASPairPredicateFn IsValidAddrSpaceCast;
+  void *IsValidAddrSpaceCastUD;
+  LLVMTTIASPairPredicateFn AddrSpacesMayAlias;
+  void *AddrSpacesMayAliasUD;
+  LLVMTTIASPredicateFn CanHaveGlobalInitializerInAS;
+  void *CanHaveGlobalInitializerInASUD;
+  LLVMTTIValuePredicateFn IsSourceOfDivergence;
+  void *IsSourceOfDivergenceUD;
+  LLVMTTIValuePredicateFn IsAlwaysUniform;
+  void *IsAlwaysUniformUD;
+  LLVMTTIGetAssumedAddressSpaceFn GetAssumedAddressSpace;
+  void *GetAssumedAddressSpaceUD;
+  LLVMTTIGetPredicatedAddressSpaceFn GetPredicatedAddressSpace;
+  void *GetPredicatedAddressSpaceUD;
+  LLVMTTIRewriteIntrinsicFn RewriteIntrinsicWithAS;
+  void *RewriteIntrinsicWithASUD;
+  LLVMTTICollectFlatAddressOperandsFn CollectFlatAddressOperands;
+  void *CollectFlatAddressOperandsUD;
+} LLVMTTIOptions;
+
+// Attach a custom TTI to the pass builder. Copies `*Options` into internal
+// state. Pass `NULL` to revert to the default TTI.
+void LLVMPassBuilderExtensionsSetTTI(
+    LLVMPassBuilderExtensionsRef Extensions,
+    const LLVMTTIOptions *Options);
+
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);
 

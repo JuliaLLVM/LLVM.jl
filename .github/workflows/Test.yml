@@ -70,7 +70,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           path-type: inherit
-          install: mingw-w64-x86_64-gcc
+          install: make mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake
         if: runner.os == 'Windows'
 
       - name: Build libLLVMExtra

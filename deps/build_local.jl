@@ -8,7 +8,10 @@ if haskey(ENV, "GITHUB_ACTIONS")
     println("::warning ::Using a locally-built LLVMExtra; A bump of LLVMExtra_jll will be required before releasing LLVM.jl.")
 end
 
-using Pkg, Scratch, Preferences, Libdl, CMake_jll
+using Pkg, Scratch, Preferences, Libdl
+
+cmake_path = Sys.which("cmake")
+cmake_path === nothing && error("cmake not found on PATH; please install it (e.g. `pacman -S mingw-w64-x86_64-cmake` inside msys2 on Windows)")
 
 LLVM = Base.UUID("929cbde3-209d-540e-8aea-75f648917ca0")
 
@@ -46,16 +49,14 @@ end
 LLVM_DIR = joinpath(LLVM.artifact_dir, "lib", "cmake", "llvm")
 
 # build and install
-@info "Building" source_dir scratch_dir build_dir LLVM_DIR
-cmake() do cmake_path
-    config_opts = `-DLLVM_ROOT=$(LLVM_DIR) -DCMAKE_INSTALL_PREFIX=$(scratch_dir)`
-    if Sys.iswindows()
-        # prevent picking up MSVC
-        config_opts = `$config_opts -G "MSYS Makefiles"`
-    end
-    run(`$cmake_path $config_opts -B$(build_dir) -S$(source_dir)`)
-    run(`$cmake_path --build $(build_dir) --target install`)
+@info "Building" source_dir scratch_dir build_dir LLVM_DIR cmake_path
+config_opts = `-DLLVM_ROOT=$(LLVM_DIR) -DCMAKE_INSTALL_PREFIX=$(scratch_dir)`
+if Sys.iswindows()
+    # prevent picking up MSVC
+    config_opts = `$config_opts -G "MSYS Makefiles"`
 end
+run(`$cmake_path $config_opts -B$(build_dir) -S$(source_dir)`)
+run(`$cmake_path --build $(build_dir) --target install`)
 
 # discover built libraries
 built_libs = filter(readdir(joinpath(scratch_dir, "lib"))) do file

@@ -37,6 +37,11 @@ function Context(; opaque_pointers=nothing)
     ctx
 end
 
+# when set, `dispose(::Context)` only pops the context off the stack without actually
+# freeing it. intended for test setups that need to keep LLVM values alive for display
+# after the enclosing `Context() do`/`@dispose ctx=Context()` block has exited.
+const leak_contexts = Ref(false)
+
 """
     dispose(ctx::Context)
 
@@ -45,6 +50,7 @@ be used after this operation.
 """
 function dispose(ctx::Context)
     deactivate(ctx)
+    leak_contexts[] && return
     mark_dispose(API.LLVMContextDispose, ctx)
 end
 

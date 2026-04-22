@@ -321,25 +321,72 @@ const LLVMTTIRewriteIntrinsicFn = Ptr{Cvoid}
 # typedef LLVMBool ( * LLVMTTICollectFlatAddressOperandsFn ) ( unsigned IID , int * OutOps , unsigned MaxCount , unsigned * OutCount , void * UserData )
 const LLVMTTICollectFlatAddressOperandsFn = Ptr{Cvoid}
 
-struct LLVMTTIOptions
-    FlatAddressSpace::Cuint
-    HasBranchDivergence::Int32
-    IsSingleThreaded::Int32
-    IsNoopAddrSpaceCast::LLVMTTIASPairPredicateFn
-    IsValidAddrSpaceCast::LLVMTTIASPairPredicateFn
-    AddrSpacesMayAlias::LLVMTTIASPairPredicateFn
-    CanHaveGlobalInitializerInAS::LLVMTTIASPredicateFn
-    IsSourceOfDivergence::LLVMTTIValuePredicateFn
-    IsAlwaysUniform::LLVMTTIValuePredicateFn
-    GetAssumedAddressSpace::LLVMTTIGetAssumedAddressSpaceFn
-    GetPredicatedAddressSpace::LLVMTTIGetPredicatedAddressSpaceFn
-    RewriteIntrinsicWithAS::LLVMTTIRewriteIntrinsicFn
-    CollectFlatAddressOperands::LLVMTTICollectFlatAddressOperandsFn
-    UserData::Ptr{Cvoid}
+mutable struct LLVMOpaqueTTIOptions end
+
+const LLVMTTIOptionsRef = Ptr{LLVMOpaqueTTIOptions}
+
+function LLVMCreateTTIOptions()
+    ccall((:LLVMCreateTTIOptions, libLLVMExtra), LLVMTTIOptionsRef, ())
+end
+
+function LLVMDisposeTTIOptions(Options)
+    ccall((:LLVMDisposeTTIOptions, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef,), Options)
+end
+
+function LLVMTTIOptionsSetFlatAddressSpace(Options, AS)
+    ccall((:LLVMTTIOptionsSetFlatAddressSpace, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, Cuint), Options, AS)
+end
+
+function LLVMTTIOptionsSetHasBranchDivergence(Options, Value)
+    ccall((:LLVMTTIOptionsSetHasBranchDivergence, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMBool), Options, Value)
+end
+
+function LLVMTTIOptionsSetIsSingleThreaded(Options, Value)
+    ccall((:LLVMTTIOptionsSetIsSingleThreaded, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMBool), Options, Value)
+end
+
+function LLVMTTIOptionsSetIsNoopAddrSpaceCast(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetIsNoopAddrSpaceCast, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPairPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetIsValidAddrSpaceCast(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetIsValidAddrSpaceCast, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPairPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetAddrSpacesMayAlias(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetAddrSpacesMayAlias, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPairPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetCanHaveGlobalInitializerInAS(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetCanHaveGlobalInitializerInAS, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetIsSourceOfDivergence(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetIsSourceOfDivergence, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIValuePredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetIsAlwaysUniform(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetIsAlwaysUniform, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIValuePredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetGetAssumedAddressSpace(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetGetAssumedAddressSpace, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIGetAssumedAddressSpaceFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetGetPredicatedAddressSpace(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetGetPredicatedAddressSpace, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIGetPredicatedAddressSpaceFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetRewriteIntrinsicWithAS(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetRewriteIntrinsicWithAS, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIRewriteIntrinsicFn, Ptr{Cvoid}), Options, Callback, UserData)
+end
+
+function LLVMTTIOptionsSetCollectFlatAddressOperands(Options, Callback, UserData)
+    ccall((:LLVMTTIOptionsSetCollectFlatAddressOperands, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTICollectFlatAddressOperandsFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
 function LLVMPassBuilderExtensionsSetTTI(Extensions, Options)
-    ccall((:LLVMPassBuilderExtensionsSetTTI, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Ptr{LLVMTTIOptions}), Extensions, Options)
+    ccall((:LLVMPassBuilderExtensionsSetTTI, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, LLVMTTIOptionsRef), Extensions, Options)
 end
 
 function LLVMGlobalsAddressSpace(TD)

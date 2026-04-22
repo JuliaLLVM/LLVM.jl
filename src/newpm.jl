@@ -281,14 +281,14 @@ end
 export target_transform_info!
 
 function install_custom_tti!(exts::API.LLVMPassBuilderExtensionsRef,
-                             tti::AbstractTargetTransformInfo)
+                              tti::AbstractTargetTransformInfo)
     state, opts = build_custom_tti_options(tti)
     API.LLVMPassBuilderExtensionsSetTTI(exts, opts)
-    # Return both: `state` owns the CustomTTIState (exception capture +
-    # `ud` backing pointer); `opts` owns the `LLVMTTIOptions` Ref that
-    # holds the `@cfunction` handles. Both must stay GC-rooted until
-    # `run!` completes.
-    return state, opts
+    # `SetTTI` copies the options into the extensions, so `opts` can be freed
+    # right away. `state` backs the `UserData` pointer the C++ side kept and
+    # must stay GC-rooted until `run!` completes.
+    API.LLVMDisposeTTIOptions(opts)
+    return state
 end
 
 """
@@ -309,7 +309,7 @@ end
 
 function target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
     pb.custom_tti = nothing
-    API.LLVMPassBuilderExtensionsSetTTI(pb.exts, Ptr{API.LLVMTTIOptions}(C_NULL))
+    API.LLVMPassBuilderExtensionsSetTTI(pb.exts, API.LLVMTTIOptionsRef(C_NULL))
     return pb
 end
 
@@ -333,9 +333,9 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
 
     # Create state objects to hold callbacks and any caught exceptions
     states = [CustomPassState(pass.callback) for pass in pb.custom_passes]
-    tti_state, tti_opts = pb.custom_tti === nothing ? (nothing, nothing) :
-                          install_custom_tti!(pb.exts, pb.custom_tti)
-    GC.@preserve states tti_state tti_opts aa_pipeline begin
+    tti_state = pb.custom_tti === nothing ? nothing :
+                install_custom_tti!(pb.exts, pb.custom_tti)
+    GC.@preserve states tti_state aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)
             if pass.type === :module

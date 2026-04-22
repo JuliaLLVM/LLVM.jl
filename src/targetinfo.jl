@@ -336,54 +336,51 @@ function custom_tti_collect_flat_address_operands_callback(
     end
 end
 
-# Build the C-side `LLVMTTIOptions` struct from the TTI object. Returns a
-# `(state, opts_ref)` pair; callers pass `opts_ref` to whatever
-# `…SetTTI` entrypoint their pipeline wrapper exposes, and must keep both
-# `state` and `opts_ref` alive for the duration of the pipeline run.
+# Allocate an `LLVMTTIOptionsRef` populated from the TTI object, along with
+# the `CustomTTIState` that backs its `UserData` pointer. The caller owns both:
+# `state` must stay GC-rooted for the duration of the pipeline run, and `opts`
+# must be freed with `API.LLVMDisposeTTIOptions` afterwards.
 function build_custom_tti_options(tti::AbstractTargetTransformInfo)
     state = CustomTTIState(tti)
+    ud = Base.pointer_from_objref(state)
+    opts = API.LLVMCreateTTIOptions()
 
-    noop_cb = @cfunction(custom_tti_is_noop_addr_space_cast_callback,
-                         API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid}))
-    valid_cb = @cfunction(custom_tti_is_valid_addr_space_cast_callback,
-                          API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid}))
-    alias_cb = @cfunction(custom_tti_addrspaces_may_alias_callback,
-                          API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid}))
-    ginit_cb = @cfunction(custom_tti_can_have_global_initializer_in_as_callback,
-                          API.LLVMBool, (Cuint, Ptr{Cvoid}))
-    srcdiv_cb = @cfunction(custom_tti_is_source_of_divergence_callback,
-                           API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid}))
-    unif_cb = @cfunction(custom_tti_is_always_uniform_callback,
-                         API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid}))
-    assas_cb = @cfunction(custom_tti_get_assumed_address_space_callback,
-                          Cuint, (API.LLVMValueRef, Ptr{Cvoid}))
-    predas_cb = @cfunction(custom_tti_get_predicated_address_space_callback,
-                           Cuint, (API.LLVMValueRef, Ptr{API.LLVMValueRef}, Ptr{Cvoid}))
-    rewrite_cb = @cfunction(custom_tti_rewrite_intrinsic_with_as_callback,
-                            API.LLVMValueRef,
-                            (API.LLVMValueRef, API.LLVMValueRef, API.LLVMValueRef, Ptr{Cvoid}))
-    collect_cb = @cfunction(custom_tti_collect_flat_address_operands_callback,
-                            API.LLVMBool,
-                            (Cuint, Ptr{Cint}, Cuint, Ptr{Cuint}, Ptr{Cvoid}))
+    API.LLVMTTIOptionsSetFlatAddressSpace(opts, flat_address_space(tti) % Cuint)
+    API.LLVMTTIOptionsSetHasBranchDivergence(opts, has_branch_divergence(tti))
+    API.LLVMTTIOptionsSetIsSingleThreaded(opts, is_single_threaded(tti))
 
-    p(cf) = Base.unsafe_convert(Ptr{Cvoid}, cf)
-
-    opts = Ref(API.LLVMTTIOptions(
-        flat_address_space(tti) % Cuint,
-        Int32(has_branch_divergence(tti)),
-        Int32(is_single_threaded(tti)),
-        p(noop_cb),
-        p(valid_cb),
-        p(alias_cb),
-        p(ginit_cb),
-        p(srcdiv_cb),
-        p(unif_cb),
-        p(assas_cb),
-        p(predas_cb),
-        p(rewrite_cb),
-        p(collect_cb),
-        Base.pointer_from_objref(state),
-    ))
+    API.LLVMTTIOptionsSetIsNoopAddrSpaceCast(opts,
+        @cfunction(custom_tti_is_noop_addr_space_cast_callback,
+                   API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetIsValidAddrSpaceCast(opts,
+        @cfunction(custom_tti_is_valid_addr_space_cast_callback,
+                   API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetAddrSpacesMayAlias(opts,
+        @cfunction(custom_tti_addrspaces_may_alias_callback,
+                   API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetCanHaveGlobalInitializerInAS(opts,
+        @cfunction(custom_tti_can_have_global_initializer_in_as_callback,
+                   API.LLVMBool, (Cuint, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetIsSourceOfDivergence(opts,
+        @cfunction(custom_tti_is_source_of_divergence_callback,
+                   API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetIsAlwaysUniform(opts,
+        @cfunction(custom_tti_is_always_uniform_callback,
+                   API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetGetAssumedAddressSpace(opts,
+        @cfunction(custom_tti_get_assumed_address_space_callback,
+                   Cuint, (API.LLVMValueRef, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetGetPredicatedAddressSpace(opts,
+        @cfunction(custom_tti_get_predicated_address_space_callback,
+                   Cuint, (API.LLVMValueRef, Ptr{API.LLVMValueRef}, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetRewriteIntrinsicWithAS(opts,
+        @cfunction(custom_tti_rewrite_intrinsic_with_as_callback,
+                   API.LLVMValueRef,
+                   (API.LLVMValueRef, API.LLVMValueRef, API.LLVMValueRef, Ptr{Cvoid})), ud)
+    API.LLVMTTIOptionsSetCollectFlatAddressOperands(opts,
+        @cfunction(custom_tti_collect_flat_address_operands_callback,
+                   API.LLVMBool,
+                   (Cuint, Ptr{Cint}, Cuint, Ptr{Cuint}, Ptr{Cvoid})), ud)
 
     return state, opts
 end

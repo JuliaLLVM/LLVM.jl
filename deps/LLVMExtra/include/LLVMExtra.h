@@ -263,14 +263,12 @@ LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,
 // divergence). That disables TTI-sensitive passes like InferAddressSpaces and
 // UniformityAnalysis.
 //
-// Populate an `LLVMTTIOptions` struct and call
-// `LLVMPassBuilderExtensionsSetTTI` to attach a minimal, data-driven TTI to
-// the pass builder. Pass `NULL` to revert to the default TTI (derived from
-// the `TargetMachine`, if any).
-//
-// A single `UserData` pointer is threaded back to every callback; the caller
-// must keep the pointee alive for the duration of each `LLVMRunJuliaPasses`
-// call.
+// Create an options handle with `LLVMCreateTTIOptions`, populate it through
+// the `LLVMTTIOptionsSet*` setters, and attach it with
+// `LLVMPassBuilderExtensionsSetTTI`. Unset fields fall back to the
+// `TargetTransformInfoImplBase` behavior. Each callback is paired with its
+// own `UserData` pointer (LLVM C-API convention); the caller must keep any
+// pointee alive for the duration of each `LLVMRunJuliaPasses` call.
 
 // Callback signatures.
 
@@ -313,43 +311,56 @@ typedef LLVMBool (*LLVMTTICollectFlatAddressOperandsFn)(
     unsigned IID, int *OutOps, unsigned MaxCount, unsigned *OutCount,
     void *UserData);
 
-// POD options struct. "Unset" sentinels:
-//  - unsigned fields: ~0u
-//  - int32_t   tri-state bool fields: -1 (0 = false, 1 = true)
-//  - callback fields: NULL
-typedef struct {
-  // The address space LLVM should treat as "flat" / generic. Required for
-  // InferAddressSpacesPass and for folding addrspacecasts.
-  unsigned FlatAddressSpace;
+// Opaque options handle; allocate with LLVMCreateTTIOptions, free with
+// LLVMDisposeTTIOptions.
+typedef struct LLVMOpaqueTTIOptions *LLVMTTIOptionsRef;
 
-  // Declare that this target can produce divergent control flow. Enables
-  // divergence-aware variants in SimplifyCFG, the loop passes, etc.
-  int32_t HasBranchDivergence;
+LLVMTTIOptionsRef LLVMCreateTTIOptions(void);
+void LLVMDisposeTTIOptions(LLVMTTIOptionsRef Options);
 
-  // Declare that the target is single-threaded. A few passes use this to skip
-  // transformations that only matter in the presence of concurrent execution.
-  int32_t IsSingleThreaded;
+// Field setters. Unset fields fall back to TargetTransformInfoImplBase
+// behavior. Each callback setter takes a `(Callback, UserData)` pair; the
+// user data is threaded back to that callback on every invocation.
+void LLVMTTIOptionsSetFlatAddressSpace(LLVMTTIOptionsRef Options, unsigned AS);
+void LLVMTTIOptionsSetHasBranchDivergence(LLVMTTIOptionsRef Options,
+                                          LLVMBool Value);
+void LLVMTTIOptionsSetIsSingleThreaded(LLVMTTIOptionsRef Options,
+                                       LLVMBool Value);
+void LLVMTTIOptionsSetIsNoopAddrSpaceCast(LLVMTTIOptionsRef Options,
+                                          LLVMTTIASPairPredicateFn Callback,
+                                          void *UserData);
+void LLVMTTIOptionsSetIsValidAddrSpaceCast(LLVMTTIOptionsRef Options,
+                                           LLVMTTIASPairPredicateFn Callback,
+                                           void *UserData);
+void LLVMTTIOptionsSetAddrSpacesMayAlias(LLVMTTIOptionsRef Options,
+                                         LLVMTTIASPairPredicateFn Callback,
+                                         void *UserData);
+void LLVMTTIOptionsSetCanHaveGlobalInitializerInAS(
+    LLVMTTIOptionsRef Options, LLVMTTIASPredicateFn Callback, void *UserData);
+void LLVMTTIOptionsSetIsSourceOfDivergence(LLVMTTIOptionsRef Options,
+                                           LLVMTTIValuePredicateFn Callback,
+                                           void *UserData);
+void LLVMTTIOptionsSetIsAlwaysUniform(LLVMTTIOptionsRef Options,
+                                      LLVMTTIValuePredicateFn Callback,
+                                      void *UserData);
+void LLVMTTIOptionsSetGetAssumedAddressSpace(
+    LLVMTTIOptionsRef Options, LLVMTTIGetAssumedAddressSpaceFn Callback,
+    void *UserData);
+void LLVMTTIOptionsSetGetPredicatedAddressSpace(
+    LLVMTTIOptionsRef Options, LLVMTTIGetPredicatedAddressSpaceFn Callback,
+    void *UserData);
+void LLVMTTIOptionsSetRewriteIntrinsicWithAS(LLVMTTIOptionsRef Options,
+                                             LLVMTTIRewriteIntrinsicFn Callback,
+                                             void *UserData);
+void LLVMTTIOptionsSetCollectFlatAddressOperands(
+    LLVMTTIOptionsRef Options, LLVMTTICollectFlatAddressOperandsFn Callback,
+    void *UserData);
 
-  LLVMTTIASPairPredicateFn IsNoopAddrSpaceCast;
-  LLVMTTIASPairPredicateFn IsValidAddrSpaceCast;
-  LLVMTTIASPairPredicateFn AddrSpacesMayAlias;
-  LLVMTTIASPredicateFn CanHaveGlobalInitializerInAS;
-  LLVMTTIValuePredicateFn IsSourceOfDivergence;
-  LLVMTTIValuePredicateFn IsAlwaysUniform;
-  LLVMTTIGetAssumedAddressSpaceFn GetAssumedAddressSpace;
-  LLVMTTIGetPredicatedAddressSpaceFn GetPredicatedAddressSpace;
-  LLVMTTIRewriteIntrinsicFn RewriteIntrinsicWithAS;
-  LLVMTTICollectFlatAddressOperandsFn CollectFlatAddressOperands;
-
-  // Threaded back to every callback as its last argument.
-  void *UserData;
-} LLVMTTIOptions;
-
-// Attach a custom TTI to the pass builder. Copies `*Options` into internal
-// state. Pass `NULL` to revert to the default TTI.
-void LLVMPassBuilderExtensionsSetTTI(
-    LLVMPassBuilderExtensionsRef Extensions,
-    const LLVMTTIOptions *Options);
+// Attach a custom TTI to the pass builder. Copies the options into internal
+// state; the caller retains ownership of the handle. Pass `NULL` to revert
+// to the default TTI.
+void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
+                                     LLVMTTIOptionsRef Options);
 
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);

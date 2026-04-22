@@ -6,6 +6,7 @@ using Printf
 using Libdl
 
 using CEnum
+using PrecompileTools
 
 
 ## source code includes
@@ -87,6 +88,8 @@ include("state.jl")
 include("interop.jl")
 
 include("deprecated.jl")
+
+include("precompile.jl")
 
 
 ## initialization

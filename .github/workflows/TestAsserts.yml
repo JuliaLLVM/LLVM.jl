@@ -40,6 +40,9 @@ jobs:
           - version: '1.12'
             build: 'x86_64-linux-gnuassert'
             llvm_args: ''
+          - version: '1.13'
+            build: 'x86_64-linux-gnuassert'
+            llvm_args: ''
     steps:
       - name: Report in-progress
         uses: actions/github-script@v8

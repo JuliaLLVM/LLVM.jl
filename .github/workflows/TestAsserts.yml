@@ -73,7 +73,7 @@ jobs:
           fetch-depth: 0
 
       # set-up packages
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build libLLVMExtra

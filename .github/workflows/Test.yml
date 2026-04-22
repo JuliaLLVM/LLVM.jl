@@ -64,7 +64,7 @@ jobs:
           arch: ${{ matrix.arch }}
 
       # set-up packages
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Install MSYS2
@@ -108,7 +108,7 @@ jobs:
       - uses: julia-actions/setup-julia@latest
         with:
           version: '1.12'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: Build libLLVMExtra
         run: julia --project=deps deps/build_ci.jl

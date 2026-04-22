@@ -37,15 +37,13 @@ public:
 
   bool isNoopAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
     if (Opts.IsNoopAddrSpaceCast)
-      return Opts.IsNoopAddrSpaceCast(FromAS, ToAS,
-                                      Opts.IsNoopAddrSpaceCastUD) != 0;
+      return Opts.IsNoopAddrSpaceCast(FromAS, ToAS, Opts.UserData) != 0;
     return BaseT::isNoopAddrSpaceCast(FromAS, ToAS);
   }
 
   bool canHaveNonUndefGlobalInitializerInAddressSpace(unsigned AS) const {
     if (Opts.CanHaveGlobalInitializerInAS)
-      return Opts.CanHaveGlobalInitializerInAS(
-                 AS, Opts.CanHaveGlobalInitializerInASUD) != 0;
+      return Opts.CanHaveGlobalInitializerInAS(AS, Opts.UserData) != 0;
     return BaseT::canHaveNonUndefGlobalInitializerInAddressSpace(AS);
   }
 
@@ -55,15 +53,13 @@ public:
 #if LLVM_VERSION_MAJOR >= 17
   bool isValidAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
     if (Opts.IsValidAddrSpaceCast)
-      return Opts.IsValidAddrSpaceCast(FromAS, ToAS,
-                                       Opts.IsValidAddrSpaceCastUD) != 0;
+      return Opts.IsValidAddrSpaceCast(FromAS, ToAS, Opts.UserData) != 0;
     return BaseT::isValidAddrSpaceCast(FromAS, ToAS);
   }
 
   bool addrspacesMayAlias(unsigned AS0, unsigned AS1) const {
     if (Opts.AddrSpacesMayAlias)
-      return Opts.AddrSpacesMayAlias(AS0, AS1,
-                                     Opts.AddrSpacesMayAliasUD) != 0;
+      return Opts.AddrSpacesMayAlias(AS0, AS1, Opts.UserData) != 0;
     return BaseT::addrspacesMayAlias(AS0, AS1);
   }
 #endif
@@ -91,21 +87,19 @@ public:
 
   bool isSourceOfDivergence(const Value *V) const {
     if (Opts.IsSourceOfDivergence)
-      return Opts.IsSourceOfDivergence(
-                 wrap(V), Opts.IsSourceOfDivergenceUD) != 0;
+      return Opts.IsSourceOfDivergence(wrap(V), Opts.UserData) != 0;
     return BaseT::isSourceOfDivergence(V);
   }
 
   bool isAlwaysUniform(const Value *V) const {
     if (Opts.IsAlwaysUniform)
-      return Opts.IsAlwaysUniform(wrap(V), Opts.IsAlwaysUniformUD) != 0;
+      return Opts.IsAlwaysUniform(wrap(V), Opts.UserData) != 0;
     return BaseT::isAlwaysUniform(V);
   }
 
   unsigned getAssumedAddrSpace(const Value *V) const {
     if (Opts.GetAssumedAddressSpace)
-      return Opts.GetAssumedAddressSpace(wrap(V),
-                                         Opts.GetAssumedAddressSpaceUD);
+      return Opts.GetAssumedAddressSpace(wrap(V), Opts.UserData);
     return BaseT::getAssumedAddrSpace(V);
   }
 
@@ -113,8 +107,8 @@ public:
   getPredicatedAddrSpace(const Value *V) const {
     if (Opts.GetPredicatedAddressSpace) {
       LLVMValueRef Predicate = nullptr;
-      unsigned AS = Opts.GetPredicatedAddressSpace(
-          wrap(V), &Predicate, Opts.GetPredicatedAddressSpaceUD);
+      unsigned AS = Opts.GetPredicatedAddressSpace(wrap(V), &Predicate,
+                                                   Opts.UserData);
       return {unwrap(Predicate), AS};
     }
     return BaseT::getPredicatedAddrSpace(V);
@@ -125,7 +119,7 @@ public:
     if (Opts.RewriteIntrinsicWithAS) {
       LLVMValueRef Result = Opts.RewriteIntrinsicWithAS(
           wrap(static_cast<Value *>(II)), wrap(OldV), wrap(NewV),
-          Opts.RewriteIntrinsicWithASUD);
+          Opts.UserData);
       return unwrap(Result);
     }
     return BaseT::rewriteIntrinsicWithAddressSpace(II, OldV, NewV);
@@ -138,8 +132,7 @@ public:
       unsigned Count = 0;
       LLVMBool Any = Opts.CollectFlatAddressOperands(
           static_cast<unsigned>(IID), Buf,
-          CollectFlatAddressOperandsBufSize, &Count,
-          Opts.CollectFlatAddressOperandsUD);
+          CollectFlatAddressOperandsBufSize, &Count, Opts.UserData);
       if (!Any)
         return false;
       if (Count > CollectFlatAddressOperandsBufSize)

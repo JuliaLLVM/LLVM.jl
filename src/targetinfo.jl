@@ -342,7 +342,6 @@ end
 # `state` and `opts_ref` alive for the duration of the pipeline run.
 function build_custom_tti_options(tti::AbstractTargetTransformInfo)
     state = CustomTTIState(tti)
-    ud = Base.pointer_from_objref(state)
 
     noop_cb = @cfunction(custom_tti_is_noop_addr_space_cast_callback,
                          API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid}))
@@ -373,16 +372,17 @@ function build_custom_tti_options(tti::AbstractTargetTransformInfo)
         flat_address_space(tti) % Cuint,
         Int32(has_branch_divergence(tti)),
         Int32(is_single_threaded(tti)),
-        p(noop_cb),    ud,
-        p(valid_cb),   ud,
-        p(alias_cb),   ud,
-        p(ginit_cb),   ud,
-        p(srcdiv_cb),  ud,
-        p(unif_cb),    ud,
-        p(assas_cb),   ud,
-        p(predas_cb),  ud,
-        p(rewrite_cb), ud,
-        p(collect_cb), ud,
+        p(noop_cb),
+        p(valid_cb),
+        p(alias_cb),
+        p(ginit_cb),
+        p(srcdiv_cb),
+        p(unif_cb),
+        p(assas_cb),
+        p(predas_cb),
+        p(rewrite_cb),
+        p(collect_cb),
+        Base.pointer_from_objref(state),
     ))
 
     return state, opts

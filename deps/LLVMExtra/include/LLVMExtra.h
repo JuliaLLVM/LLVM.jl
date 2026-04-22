@@ -268,9 +268,9 @@ LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,
 // the pass builder. Pass `NULL` to revert to the default TTI (derived from
 // the `TargetMachine`, if any).
 //
-// Callback fields come in `(fnptr, userdata)` pairs. `userdata` is threaded
-// back to the callback on each invocation; the caller must keep the pointee
-// alive for the duration of each `LLVMRunJuliaPasses` call.
+// A single `UserData` pointer is threaded back to every callback; the caller
+// must keep the pointee alive for the duration of each `LLVMRunJuliaPasses`
+// call.
 
 // Callback signatures.
 
@@ -316,7 +316,7 @@ typedef LLVMBool (*LLVMTTICollectFlatAddressOperandsFn)(
 // POD options struct. "Unset" sentinels:
 //  - unsigned fields: ~0u
 //  - int32_t   tri-state bool fields: -1 (0 = false, 1 = true)
-//  - callback fields: NULL (the paired UserData is then ignored)
+//  - callback fields: NULL
 typedef struct {
   // The address space LLVM should treat as "flat" / generic. Required for
   // InferAddressSpacesPass and for folding addrspacecasts.
@@ -331,25 +331,18 @@ typedef struct {
   int32_t IsSingleThreaded;
 
   LLVMTTIASPairPredicateFn IsNoopAddrSpaceCast;
-  void *IsNoopAddrSpaceCastUD;
   LLVMTTIASPairPredicateFn IsValidAddrSpaceCast;
-  void *IsValidAddrSpaceCastUD;
   LLVMTTIASPairPredicateFn AddrSpacesMayAlias;
-  void *AddrSpacesMayAliasUD;
   LLVMTTIASPredicateFn CanHaveGlobalInitializerInAS;
-  void *CanHaveGlobalInitializerInASUD;
   LLVMTTIValuePredicateFn IsSourceOfDivergence;
-  void *IsSourceOfDivergenceUD;
   LLVMTTIValuePredicateFn IsAlwaysUniform;
-  void *IsAlwaysUniformUD;
   LLVMTTIGetAssumedAddressSpaceFn GetAssumedAddressSpace;
-  void *GetAssumedAddressSpaceUD;
   LLVMTTIGetPredicatedAddressSpaceFn GetPredicatedAddressSpace;
-  void *GetPredicatedAddressSpaceUD;
   LLVMTTIRewriteIntrinsicFn RewriteIntrinsicWithAS;
-  void *RewriteIntrinsicWithASUD;
   LLVMTTICollectFlatAddressOperandsFn CollectFlatAddressOperands;
-  void *CollectFlatAddressOperandsUD;
+
+  // Threaded back to every callback as its last argument.
+  void *UserData;
 } LLVMTTIOptions;
 
 // Attach a custom TTI to the pass builder. Copies `*Options` into internal

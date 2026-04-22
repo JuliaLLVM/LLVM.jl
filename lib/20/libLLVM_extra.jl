@@ -278,25 +278,16 @@ struct LLVMTTIOptions
     HasBranchDivergence::Int32
     IsSingleThreaded::Int32
     IsNoopAddrSpaceCast::LLVMTTIASPairPredicateFn
-    IsNoopAddrSpaceCastUD::Ptr{Cvoid}
     IsValidAddrSpaceCast::LLVMTTIASPairPredicateFn
-    IsValidAddrSpaceCastUD::Ptr{Cvoid}
     AddrSpacesMayAlias::LLVMTTIASPairPredicateFn
-    AddrSpacesMayAliasUD::Ptr{Cvoid}
     CanHaveGlobalInitializerInAS::LLVMTTIASPredicateFn
-    CanHaveGlobalInitializerInASUD::Ptr{Cvoid}
     IsSourceOfDivergence::LLVMTTIValuePredicateFn
-    IsSourceOfDivergenceUD::Ptr{Cvoid}
     IsAlwaysUniform::LLVMTTIValuePredicateFn
-    IsAlwaysUniformUD::Ptr{Cvoid}
     GetAssumedAddressSpace::LLVMTTIGetAssumedAddressSpaceFn
-    GetAssumedAddressSpaceUD::Ptr{Cvoid}
     GetPredicatedAddressSpace::LLVMTTIGetPredicatedAddressSpaceFn
-    GetPredicatedAddressSpaceUD::Ptr{Cvoid}
     RewriteIntrinsicWithAS::LLVMTTIRewriteIntrinsicFn
-    RewriteIntrinsicWithASUD::Ptr{Cvoid}
     CollectFlatAddressOperands::LLVMTTICollectFlatAddressOperandsFn
-    CollectFlatAddressOperandsUD::Ptr{Cvoid}
+    UserData::Ptr{Cvoid}
 end
 
 function LLVMPassBuilderExtensionsSetTTI(Extensions, Options)

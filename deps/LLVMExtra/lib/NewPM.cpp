@@ -9,6 +9,7 @@
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Support/CBindingWrapping.h>
 
+#include <memory>
 #include <optional>
 
 using namespace llvm;
@@ -447,8 +448,16 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
     auto Opts = *PassExts->TTI;
     FAM.registerPass([Opts] {
       return TargetIRAnalysis([Opts](const Function &F) {
+#if LLVM_VERSION_MAJOR >= 21
+        // LLVM 21 replaced the templated `Model<T>` constructor with one that
+        // takes a `unique_ptr<const TargetTransformInfoImplBase>`; the impl
+        // base now dispatches through virtual methods rather than type erasure.
+        return TargetTransformInfo(std::make_unique<CustomTargetTransformInfo>(
+            F.getParent()->getDataLayout(), Opts));
+#else
         return TargetTransformInfo(
             CustomTargetTransformInfo(F.getParent()->getDataLayout(), Opts));
+#endif
       });
     });
   }

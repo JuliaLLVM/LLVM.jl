@@ -349,59 +349,72 @@ function build_custom_tti_options(tti::AbstractTargetTransformInfo)
 
     # Scalar fields: only set when the subtype has an override. Unset fields
     # leave LLVM's `TargetTransformInfoImplBase` to answer the query.
-    hasmethod(flat_address_space, Tuple{T}) &&
+    if hasmethod(flat_address_space, Tuple{T})
         API.LLVMTTIOptionsSetFlatAddressSpace(opts, flat_address_space(tti) % Cuint)
-    hasmethod(has_branch_divergence, Tuple{T}) &&
+    end
+    if hasmethod(has_branch_divergence, Tuple{T})
         API.LLVMTTIOptionsSetHasBranchDivergence(opts, has_branch_divergence(tti))
-    hasmethod(is_single_threaded, Tuple{T}) &&
+    end
+    if hasmethod(is_single_threaded, Tuple{T})
         API.LLVMTTIOptionsSetIsSingleThreaded(opts, is_single_threaded(tti))
+    end
 
     # Callbacks: install the @cfunction trampoline only when a concrete
     # override exists for this subtype.
-    hasmethod(is_noop_addr_space_cast, Tuple{T, Unsigned, Unsigned}) &&
-        API.LLVMTTIOptionsSetIsNoopAddrSpaceCast(opts,
-            @cfunction(custom_tti_is_noop_addr_space_cast_callback,
-                       API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})), ud)
-    hasmethod(is_valid_addr_space_cast, Tuple{T, Unsigned, Unsigned}) &&
-        API.LLVMTTIOptionsSetIsValidAddrSpaceCast(opts,
-            @cfunction(custom_tti_is_valid_addr_space_cast_callback,
-                       API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})), ud)
-    hasmethod(addrspaces_may_alias, Tuple{T, Unsigned, Unsigned}) &&
-        API.LLVMTTIOptionsSetAddrSpacesMayAlias(opts,
-            @cfunction(custom_tti_addrspaces_may_alias_callback,
-                       API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid})), ud)
-    hasmethod(can_have_non_undef_global_initializer_in_address_space,
-              Tuple{T, Unsigned}) &&
-        API.LLVMTTIOptionsSetCanHaveGlobalInitializerInAS(opts,
-            @cfunction(custom_tti_can_have_global_initializer_in_as_callback,
-                       API.LLVMBool, (Cuint, Ptr{Cvoid})), ud)
-    hasmethod(is_source_of_divergence, Tuple{T, Value}) &&
-        API.LLVMTTIOptionsSetIsSourceOfDivergence(opts,
-            @cfunction(custom_tti_is_source_of_divergence_callback,
-                       API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid})), ud)
-    hasmethod(is_always_uniform, Tuple{T, Value}) &&
-        API.LLVMTTIOptionsSetIsAlwaysUniform(opts,
-            @cfunction(custom_tti_is_always_uniform_callback,
-                       API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid})), ud)
-    hasmethod(get_assumed_addr_space, Tuple{T, Value}) &&
-        API.LLVMTTIOptionsSetGetAssumedAddressSpace(opts,
-            @cfunction(custom_tti_get_assumed_address_space_callback,
-                       Cuint, (API.LLVMValueRef, Ptr{Cvoid})), ud)
-    hasmethod(get_predicated_addr_space, Tuple{T, Value}) &&
-        API.LLVMTTIOptionsSetGetPredicatedAddressSpace(opts,
-            @cfunction(custom_tti_get_predicated_address_space_callback,
-                       Cuint, (API.LLVMValueRef, Ptr{API.LLVMValueRef}, Ptr{Cvoid})), ud)
-    hasmethod(rewrite_intrinsic_with_address_space,
-              Tuple{T, Value, Value, Value}) &&
-        API.LLVMTTIOptionsSetRewriteIntrinsicWithAS(opts,
-            @cfunction(custom_tti_rewrite_intrinsic_with_as_callback,
-                       API.LLVMValueRef,
-                       (API.LLVMValueRef, API.LLVMValueRef, API.LLVMValueRef, Ptr{Cvoid})), ud)
-    hasmethod(collect_flat_address_operands, Tuple{T, Unsigned}) &&
-        API.LLVMTTIOptionsSetCollectFlatAddressOperands(opts,
-            @cfunction(custom_tti_collect_flat_address_operands_callback,
-                       API.LLVMBool,
-                       (Cuint, Ptr{Cint}, Cuint, Ptr{Cuint}, Ptr{Cvoid})), ud)
+    if hasmethod(is_noop_addr_space_cast, Tuple{T, Unsigned, Unsigned})
+        cb = @cfunction(custom_tti_is_noop_addr_space_cast_callback,
+                        API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetIsNoopAddrSpaceCast(opts, cb, ud)
+    end
+    if hasmethod(is_valid_addr_space_cast, Tuple{T, Unsigned, Unsigned})
+        cb = @cfunction(custom_tti_is_valid_addr_space_cast_callback,
+                        API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetIsValidAddrSpaceCast(opts, cb, ud)
+    end
+    if hasmethod(addrspaces_may_alias, Tuple{T, Unsigned, Unsigned})
+        cb = @cfunction(custom_tti_addrspaces_may_alias_callback,
+                        API.LLVMBool, (Cuint, Cuint, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetAddrSpacesMayAlias(opts, cb, ud)
+    end
+    if hasmethod(can_have_non_undef_global_initializer_in_address_space,
+                 Tuple{T, Unsigned})
+        cb = @cfunction(custom_tti_can_have_global_initializer_in_as_callback,
+                        API.LLVMBool, (Cuint, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetCanHaveGlobalInitializerInAS(opts, cb, ud)
+    end
+    if hasmethod(is_source_of_divergence, Tuple{T, Value})
+        cb = @cfunction(custom_tti_is_source_of_divergence_callback,
+                        API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetIsSourceOfDivergence(opts, cb, ud)
+    end
+    if hasmethod(is_always_uniform, Tuple{T, Value})
+        cb = @cfunction(custom_tti_is_always_uniform_callback,
+                        API.LLVMBool, (API.LLVMValueRef, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetIsAlwaysUniform(opts, cb, ud)
+    end
+    if hasmethod(get_assumed_addr_space, Tuple{T, Value})
+        cb = @cfunction(custom_tti_get_assumed_address_space_callback,
+                        Cuint, (API.LLVMValueRef, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetGetAssumedAddressSpace(opts, cb, ud)
+    end
+    if hasmethod(get_predicated_addr_space, Tuple{T, Value})
+        cb = @cfunction(custom_tti_get_predicated_address_space_callback,
+                        Cuint, (API.LLVMValueRef, Ptr{API.LLVMValueRef}, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetGetPredicatedAddressSpace(opts, cb, ud)
+    end
+    if hasmethod(rewrite_intrinsic_with_address_space,
+                 Tuple{T, Value, Value, Value})
+        cb = @cfunction(custom_tti_rewrite_intrinsic_with_as_callback,
+                        API.LLVMValueRef,
+                        (API.LLVMValueRef, API.LLVMValueRef, API.LLVMValueRef, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetRewriteIntrinsicWithAS(opts, cb, ud)
+    end
+    if hasmethod(collect_flat_address_operands, Tuple{T, Unsigned})
+        cb = @cfunction(custom_tti_collect_flat_address_operands_callback,
+                        API.LLVMBool,
+                        (Cuint, Ptr{Cint}, Cuint, Ptr{Cuint}, Ptr{Cvoid}))
+        API.LLVMTTIOptionsSetCollectFlatAddressOperands(opts, cb, ud)
+    end
 
     return state, opts
 end

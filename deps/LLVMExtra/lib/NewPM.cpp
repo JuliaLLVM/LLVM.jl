@@ -13,14 +13,14 @@
 
 using namespace llvm;
 
-// Backing struct for the opaque `LLVMTTIOptionsRef` handle. Fields left at
-// their defaults below cause `CustomTargetTransformInfo` to fall back to the
-// `TargetTransformInfoImplCRTPBase` behavior. Each callback is paired with
-// its own UserData (LLVM C-API convention).
+// Backing struct for the opaque `LLVMTTIOptionsRef` handle. Unset scalar
+// fields are `std::nullopt`; unset callbacks are `nullptr`. In both cases
+// `CustomTargetTransformInfo` falls back to `TargetTransformInfoImplCRTPBase`.
+// Each callback is paired with its own UserData (LLVM C-API convention).
 struct LLVMTTIOptions {
-  unsigned FlatAddressSpace = ~0u;
-  int32_t HasBranchDivergence = -1;
-  int32_t IsSingleThreaded = -1;
+  std::optional<unsigned> FlatAddressSpace;
+  std::optional<bool> HasBranchDivergence;
+  std::optional<bool> IsSingleThreaded;
   LLVMTTIASPairPredicateFn IsNoopAddrSpaceCast = nullptr;
   void *IsNoopAddrSpaceCastUD = nullptr;
   LLVMTTIASPairPredicateFn IsValidAddrSpaceCast = nullptr;
@@ -63,7 +63,10 @@ public:
   CustomTargetTransformInfo(const DataLayout &DL, LLVMTTIOptions Opts)
       : BaseT(DL), Opts(Opts) {}
 
-  unsigned getFlatAddressSpace() const { return Opts.FlatAddressSpace; }
+  unsigned getFlatAddressSpace() const {
+    if (Opts.FlatAddressSpace) return *Opts.FlatAddressSpace;
+    return BaseT::getFlatAddressSpace();
+  }
 
   bool isNoopAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
     if (Opts.IsNoopAddrSpaceCast)
@@ -101,21 +104,21 @@ public:
   // `hasBranchDivergence` grew a `Function*` parameter in LLVM 17.
 #if LLVM_VERSION_MAJOR >= 17
   bool hasBranchDivergence(const Function *F = nullptr) const {
-    if (Opts.HasBranchDivergence < 0) return BaseT::hasBranchDivergence(F);
-    return Opts.HasBranchDivergence != 0;
+    if (Opts.HasBranchDivergence) return *Opts.HasBranchDivergence;
+    return BaseT::hasBranchDivergence(F);
   }
 #else
   bool hasBranchDivergence() const {
-    if (Opts.HasBranchDivergence < 0) return BaseT::hasBranchDivergence();
-    return Opts.HasBranchDivergence != 0;
+    if (Opts.HasBranchDivergence) return *Opts.HasBranchDivergence;
+    return BaseT::hasBranchDivergence();
   }
 #endif
 
   // `isSingleThreaded` was added to the CRTP base in LLVM 16.
 #if LLVM_VERSION_MAJOR >= 16
   bool isSingleThreaded() const {
-    if (Opts.IsSingleThreaded < 0) return BaseT::isSingleThreaded();
-    return Opts.IsSingleThreaded != 0;
+    if (Opts.IsSingleThreaded) return *Opts.IsSingleThreaded;
+    return BaseT::isSingleThreaded();
   }
 #endif
 
@@ -338,11 +341,11 @@ void LLVMTTIOptionsSetFlatAddressSpace(LLVMTTIOptionsRef Options, unsigned AS) {
 }
 void LLVMTTIOptionsSetHasBranchDivergence(LLVMTTIOptionsRef Options,
                                           LLVMBool Value) {
-  unwrap(Options)->HasBranchDivergence = Value ? 1 : 0;
+  unwrap(Options)->HasBranchDivergence = (Value != 0);
 }
 void LLVMTTIOptionsSetIsSingleThreaded(LLVMTTIOptionsRef Options,
                                        LLVMBool Value) {
-  unwrap(Options)->IsSingleThreaded = Value ? 1 : 0;
+  unwrap(Options)->IsSingleThreaded = (Value != 0);
 }
 void LLVMTTIOptionsSetIsNoopAddrSpaceCast(LLVMTTIOptionsRef Options,
                                           LLVMTTIASPairPredicateFn Callback,

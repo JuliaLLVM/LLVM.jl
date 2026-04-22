@@ -61,7 +61,7 @@ To create a new LLVM context, use the `Context()` constructor:
 
 ```jldoctest
 julia> ctx = Context()
-LLVM.Context(0x0000600003d18980, typed ptrs)
+LLVM.Context(0x0000600001f95470)
 
 julia> dispose(ctx) # see next section
 ```
@@ -79,7 +79,7 @@ ERROR: No LLVM context is active
 julia> ctx = Context();
 
 julia> context()
-LLVM.Context(0x0000600000ae1470, typed ptrs)
+LLVM.Context(0x0000600001fa07e0)
 ```
 
 Although the context is automatically managed by LLVM.jl, it is still important to keep
@@ -88,7 +88,7 @@ context:
 
 ```jldoctest
 julia> ctx = Context()
-LLVM.Context(0x000060000007c4b0, typed ptrs)
+LLVM.Context(0x0000600001fb8fb0)
 
 julia> dispose(ctx)
 

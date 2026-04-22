@@ -43,7 +43,7 @@ name and signature will be treated as such:
 julia> mod = LLVM.Module("SomeModule");
 
 julia> f = LLVM.Function(mod, "llvm.trap", LLVM.FunctionType(LLVM.VoidType()))
-; Function Attrs: cold noreturn nounwind
+; Function Attrs: cold noreturn nounwind memory(inaccessiblemem: write)
 declare void @llvm.trap() #0
 
 julia> isintrinsic(f)
@@ -62,7 +62,7 @@ overloaded name is correct:
 julia> mod = LLVM.Module("SomeModule");
 
 julia> intr = LLVM.Intrinsic("llvm.abs")
-Intrinsic(1): overloaded intrinsic
+Intrinsic(5): overloaded intrinsic
 
 julia> isoverloaded(intr)
 true
@@ -108,13 +108,13 @@ Different kinds of attributes are supported:
 
 ```jldoctest
 julia> EnumAttribute("nounwind")
-EnumAttribute 36=0
+EnumAttribute 38=0
 
 julia> StringAttribute("frame-pointer", "none")
 StringAttribute frame-pointer=none
 
 julia> TypeAttribute("byval", LLVM.Int32Type())
-TypeAttribute 70=LLVM.IntegerType(i32)
+TypeAttribute 74=LLVM.IntegerType(i32)
 ```
 
 

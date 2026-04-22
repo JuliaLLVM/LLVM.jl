@@ -79,6 +79,7 @@ end
 include("debuginfo.jl")
 include("utils.jl")
 include("orc.jl")
+include("targetinfo.jl")
 include("newpm.jl")
 
 # high-level functionality

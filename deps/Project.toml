@@ -1,5 +1,4 @@
 [deps]
-CMake_jll = "3f4e10e2-61f2-5801-8945-23b9d642d0e6"
 Git = "d7ba0133-e1db-5d97-8f8c-041e4b3a1eb2"
 LLVMExtra_jll = "dad2f222-ce93-54a1-a47d-0025e8a3acab"
 Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"

@@ -92,13 +92,13 @@ they can be opaque or have an element type that can be queried using the `eltype
 
 ```jldoctest
 julia> supports_typed_pointers()
-true
+false
 
 julia> ty = LLVM.PointerType(LLVM.Int1Type())
-i1*
+ptr
 
 julia> eltype(ty)
-i1
+ERROR: Taking the type of an opaque pointer is illegal
 ```
 
 ```julia-repl
@@ -117,7 +117,7 @@ using the `addrspace` function:
 
 ```jldoctest
 julia> ty = LLVM.PointerType(LLVM.Int1Type(), 1)
-i1 addrspace(1)*
+ptr addrspace(1)
 
 julia> addrspace(ty)
 1

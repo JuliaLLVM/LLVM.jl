@@ -48,7 +48,8 @@ function main()
         doctest = true,
         doctestfilters = [
             r"0x[0-9a-f]+",     # pointer values
-            r"@julia_\w+_\d+"   # function names in generated code
+            r"@julia_\w+_\d+",  # function names in generated code
+            r"(?s)\nStacktrace:.*",  # stack traces (path- and version-dependent)
         ]
     )
 

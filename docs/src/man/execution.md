@@ -104,7 +104,7 @@ when using them. On the Julia side, they are created much like regular contexts:
 
 ```jldoctest
 julia> ts_ctx = ThreadSafeContext()
-ThreadSafeContext(Ptr{LLVM.API.LLVMOrcOpaqueThreadSafeContext} @0x00006000035fb8a0)
+ThreadSafeContext(Ptr{LLVM.API.LLVMOrcOpaqueThreadSafeContext}(0x0000600001fac180))
 
 julia> dispose(ts_ctx)
 ```
@@ -142,7 +142,7 @@ much like a regular module:
 
 ```jldoctest
 julia> ts_mod = ThreadSafeModule("SomeModule")
-ThreadSafeModule(Ptr{LLVM.API.LLVMOrcOpaqueThreadSafeModule} @0x00006000037fb640)
+ThreadSafeModule(Ptr{LLVM.API.LLVMOrcOpaqueThreadSafeModule}(0x0000600001d893a0))
 
 julia> dispose(ts_mod)
 ```

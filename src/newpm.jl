@@ -120,13 +120,16 @@ end
 export PassException
 struct PassException <: Exception
     ex::Any
-    processed_bt::Vector{Any}
+    processed_bt::Vector{Base.StackTraces.StackFrame}
 
-    function PassException(ex, bt_raw::Vector{Union{Ptr{Nothing}, Base.InterpreterIP}})
-        bt_processed = Base.process_backtrace(bt_raw)
+    function PassException(ex, bt)
+        # `stacktrace` accepts either a raw bt from `catch_backtrace()` or
+        # an already-processed frame vector, and is stable across Julia
+        # versions (unlike `Base.process_backtrace`, whose method for the
+        # raw bt type was dropped in 1.14).
+        bt_processed = stacktrace(bt)
         new(ex, bt_processed[1:min(100, end)])
     end
-    PassException(ex, processed_bt::Vector{Any}) = new(ex, processed_bt)
 end
 
 function Base.showerror(io::IO, e::PassException)
@@ -213,6 +216,7 @@ mutable struct NewPMPassBuilder <: AbstractPassManager
     passes::Vector{String}
     aa_passes::Vector{String}
     custom_passes::Vector{NewPMCustomPass}
+    custom_tti::Union{AbstractTargetTransformInfo,Nothing}
 end
 
 Base.string(pm::NewPMPassBuilder) = join(pm.passes, ",")
@@ -223,7 +227,7 @@ Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::NewPMPassBuilder)
 function NewPMPassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
     exts = API.LLVMCreatePassBuilderExtensions()
-    obj = mark_alloc(NewPMPassBuilder(opts, exts, [], [], []))
+    obj = mark_alloc(NewPMPassBuilder(opts, exts, [], [], [], nothing))
 
     for (name, value) in pairs(kwargs)
         if name == :verify_each
@@ -274,6 +278,41 @@ function register!(pb::NewPMPassBuilder, pass::NewPMCustomPass)
     push!(pb.custom_passes, pass)
 end
 
+export target_transform_info!
+
+function install_custom_tti!(exts::API.LLVMPassBuilderExtensionsRef,
+                              tti::AbstractTargetTransformInfo)
+    state, opts = build_custom_tti_options(tti)
+    API.LLVMPassBuilderExtensionsSetTTI(exts, opts)
+    # `SetTTI` copies the options into the extensions, so `opts` can be freed
+    # right away. `state` backs the `UserData` pointer the C++ side kept and
+    # must stay GC-rooted until `run!` completes.
+    API.LLVMDisposeTTIOptions(opts)
+    return state
+end
+
+"""
+    target_transform_info!(pb::NewPMPassBuilder, tti::AbstractTargetTransformInfo)
+    target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
+
+Attach an [`AbstractTargetTransformInfo`](@ref) subtype instance to the pass
+builder, replacing any previously-attached custom TTI. Pass `nothing` to
+revert to LLVM's native TTI (derived from the `TargetMachine`, if any;
+otherwise `TargetTransformInfoImplBase` with full `DataLayout`/`Module`-aware
+defaults).
+"""
+function target_transform_info!(pb::NewPMPassBuilder,
+                                tti::AbstractTargetTransformInfo)
+    pb.custom_tti = tti
+    return pb
+end
+
+function target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
+    pb.custom_tti = nothing
+    API.LLVMPassBuilderExtensionsSetTTI(pb.exts, API.LLVMTTIOptionsRef(C_NULL))
+    return pb
+end
+
 """
     run!(pb::NewPMPassBuilder, mod::Module, [tm::TargetMachine])
     run!(pipeline::String, mod::Module, [tm::TargetMachine])
@@ -294,7 +333,9 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
 
     # Create state objects to hold callbacks and any caught exceptions
     states = [CustomPassState(pass.callback) for pass in pb.custom_passes]
-    GC.@preserve states aa_pipeline begin
+    tti_state = pb.custom_tti === nothing ? nothing :
+                install_custom_tti!(pb.exts, pb.custom_tti)
+    GC.@preserve states tti_state aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)
             if pass.type === :module
@@ -336,6 +377,10 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
                 (err, bt) = state.exception
                 throw(PassException(err, bt))
             end
+        end
+        if tti_state !== nothing && tti_state.exception !== nothing
+            (err, bt) = tti_state.exception
+            throw(PassException(err, bt))
         end
     end
 end

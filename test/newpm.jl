@@ -230,6 +230,125 @@ end
     end
 end
 
+@testset "custom TTI" begin
+    # IR with an `addrspacecast` from AS 2 to the generic AS. With no TTI
+    # attached, `InferAddressSpacesPass` has no flat AS to infer against and
+    # bails. With a TTI that reports AS 0 as flat and declares the cast a
+    # noop, the pass folds it away and the load moves to AS 2.
+    function make_mod()
+        ir = if supports_typed_pointers()
+            """
+            @g = internal addrspace(2) constant i32 42
+            define i32 @f() {
+              %p = addrspacecast i32 addrspace(2)* @g to i32*
+              %v = load i32, i32* %p
+              ret i32 %v
+            }
+            """
+        else
+            """
+            @g = internal addrspace(2) constant i32 42
+            define i32 @f() {
+              %p = addrspacecast ptr addrspace(2) @g to ptr
+              %v = load i32, ptr %p
+              ret i32 %v
+            }
+            """
+        end
+        return parse(LLVM.Module, ir)
+    end
+    has_addrspacecast(mod) = occursin("addrspacecast", string(functions(mod)["f"]))
+
+    # A do-nothing subtype: exercises the abstract defaults, which must match
+    # LLVM's baseline well enough that InferAddressSpaces can't find a flat AS
+    # and therefore folds nothing — same observable behavior as no TTI at all.
+    struct BaselineTTI <: AbstractTargetTransformInfo end
+
+    @dispose ctx=Context() mod=make_mod() begin
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, BaselineTTI())
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test has_addrspacecast(mod)
+    end
+
+    # With an overriding subtype: cast gets folded.
+    struct FlatZeroTTI <: AbstractTargetTransformInfo end
+    LLVM.flat_address_space(::FlatZeroTTI) = UInt(0)
+    LLVM.is_noop_addr_space_cast(::FlatZeroTTI, from::Unsigned, to::Unsigned) =
+        from == 0 || to == 0
+
+    @dispose ctx=Context() mod=make_mod() begin
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, FlatZeroTTI())
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test !has_addrspacecast(mod)
+    end
+
+    # Callbacks fire: observe the counter getting incremented.
+    # `get_assumed_addr_space` is queried unconditionally per pointer Value
+    # during inference, making it a reliable observable; the other callbacks
+    # fire only on paths InferAddressSpaces may or may not take for a given
+    # module.
+    let calls = Ref(0)
+        # Subtype-local field lets the method see per-instance state.
+        struct CountingTTI <: AbstractTargetTransformInfo
+            calls::Base.RefValue{Int}
+        end
+        LLVM.flat_address_space(::CountingTTI) = UInt(0)
+        LLVM.is_noop_addr_space_cast(::CountingTTI, from::Unsigned, to::Unsigned) =
+            from == 0 || to == 0
+        LLVM.get_assumed_addr_space(t::CountingTTI, ::LLVM.Value) =
+            (t.calls[] += 1; typemax(UInt))
+
+        @dispose ctx=Context() mod=make_mod() begin
+            @dispose pb=NewPMPassBuilder() begin
+                target_transform_info!(pb, CountingTTI(calls))
+                add!(pb, NewPMFunctionPassManager()) do fpm
+                    add!(fpm, InferAddressSpacesPass())
+                end
+                run!(pb, mod)
+            end
+        end
+        @test calls[] > 0
+    end
+
+    # `target_transform_info!(pb, nothing)` reverts to LLVM's native TTI.
+    @dispose ctx=Context() mod=make_mod() begin
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, FlatZeroTTI())
+            target_transform_info!(pb, nothing)
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test has_addrspacecast(mod)
+    end
+
+    # Exceptions in TTI callbacks are caught and rethrown as PassException.
+    struct BoomTTI <: AbstractTargetTransformInfo end
+    LLVM.flat_address_space(::BoomTTI) = UInt(0)
+    LLVM.get_assumed_addr_space(::BoomTTI, ::LLVM.Value) = error("TTI callback boom")
+
+    @dispose ctx=Context() mod=make_mod() begin
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, BoomTTI())
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            @test_throws LLVM.PassException run!(pb, mod)
+        end
+    end
+end
+
 @testset "custom pass exceptions" begin
     # Test that exceptions in module passes are caught and rethrown
     @dispose ctx=Context() mod=test_module() begin

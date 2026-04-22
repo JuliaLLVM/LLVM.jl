@@ -16,7 +16,6 @@ using namespace llvm;
 // Backing struct for the opaque `LLVMTTIOptionsRef` handle. Unset scalar
 // fields are `std::nullopt`; unset callbacks are `nullptr`. In both cases
 // `CustomTargetTransformInfo` falls back to `TargetTransformInfoImplCRTPBase`.
-// Each callback is paired with its own UserData (LLVM C-API convention).
 struct LLVMTTIOptions {
   std::optional<unsigned> FlatAddressSpace;
   std::optional<bool> HasBranchDivergence;
@@ -82,9 +81,6 @@ public:
     return BaseT::canHaveNonUndefGlobalInitializerInAddressSpace(AS);
   }
 
-  // `isValidAddrSpaceCast` and `addrspacesMayAlias` were added in LLVM 17.
-  // On earlier versions the pass framework doesn't query them, so we skip
-  // providing the override entirely.
 #if LLVM_VERSION_MAJOR >= 17
   bool isValidAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
     if (Opts.IsValidAddrSpaceCast)

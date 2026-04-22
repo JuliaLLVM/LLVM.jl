@@ -20,13 +20,13 @@ i1
 julia&gt; parameters(ft)
 1-element Vector{LLVMType}:
  float</code></pre><p>To create vararg functions, the <code>vararg</code> keyword argument to the <code>FunctionType</code> constructor can be used. This property can be queried using the <code>isvararg</code> function.</p><h2 id="Pointer-types"><a class="docs-heading-anchor" href="#Pointer-types">Pointer types</a><a id="Pointer-types-1"></a><a class="docs-heading-anchor-permalink" href="#Pointer-types" title="Permalink"></a></h2><p>Pointer types are represented by the <code>LLVM.PointerType</code> type. Depending on the LLVM version, they can be opaque or have an element type that can be queried using the <code>eltype</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; supports_typed_pointers()
-true
+false
 
 julia&gt; ty = LLVM.PointerType(LLVM.Int1Type())
-i1*
+ptr
 
 julia&gt; eltype(ty)
-i1</code></pre><pre><code class="language-julia-repl hljs">julia&gt; supports_typed_pointers()
+ERROR: Taking the type of an opaque pointer is illegal</code></pre><pre><code class="language-julia-repl hljs">julia&gt; supports_typed_pointers()
 false
 
 julia&gt; ty = LLVM.PointerType()
@@ -34,7 +34,7 @@ ptr
 
 julia&gt; eltype(ty)
 ERROR: Taking the type of an opaque pointer is illegal</code></pre><p>When constructing a pointer type, you can also set the address space, and query it back using the <code>addrspace</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; ty = LLVM.PointerType(LLVM.Int1Type(), 1)
-i1 addrspace(1)*
+ptr addrspace(1)
 
 julia&gt; addrspace(ty)
 1</code></pre><h2 id="Array-types"><a class="docs-heading-anchor" href="#Array-types">Array types</a><a id="Array-types-1"></a><a class="docs-heading-anchor-permalink" href="#Array-types" title="Permalink"></a></h2><p>LLVM arrays represent a fixed-size, homoeneous collection of elements. They can be created using the <code>LLVM.ArrayType</code> constructor:</p><pre><code class="language-julia-repl hljs">julia&gt; ty = LLVM.ArrayType(LLVM.Int1Type(), 8)
@@ -70,4 +70,4 @@ julia&gt; haskey(types(ctx), &quot;Foo&quot;)
 true
 
 julia&gt; types(ctx)[&quot;Foo&quot;]
-%Foo = type opaque</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../essentials/">« Essentials</a><a class="docs-footer-nextpage" href="../values/">Values »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.7.0 on <span class="colophon-date" title="Thursday 9 April 2026 16:11">Thursday 9 April 2026</span>. Using Julia version 1.11.9.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+%Foo = type opaque</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../essentials/">« Essentials</a><a class="docs-footer-nextpage" href="../values/">Values »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.7.0 on <span class="colophon-date" title="Wednesday 22 April 2026 07:34">Wednesday 22 April 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

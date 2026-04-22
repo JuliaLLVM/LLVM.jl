@@ -737,6 +737,8 @@ end
 # global values
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     st = LLVM.StructType("SomeType")
+    # LLVM 21 disallows opaque types as SSA values, so give the struct a body.
+    elements!(st, [LLVM.Int32Type()])
     ft = LLVM.FunctionType(st, [st])
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
@@ -1123,6 +1125,7 @@ end
 # function iteration
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     st = LLVM.StructType("SomeType")
+    elements!(st, [LLVM.Int32Type()])
     ft = LLVM.FunctionType(st, [st])
     @test isempty(functions(mod))
 

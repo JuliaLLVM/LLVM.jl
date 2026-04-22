@@ -11,10 +11,6 @@
 
 LLVM_C_EXTERN_C_BEGIN
 
-// XXX: without this, Clang.jl doesn't emit LLVMExtraInitializeNativeTarget.
-//      maybe LLVM_C_EXTERN_C_BEGIN somehow eats the function definition?
-void dummy();
-
 // Initialization functions
 LLVMBool LLVMExtraInitializeNativeTarget(void);
 LLVMBool LLVMExtraInitializeNativeAsmParser(void);
@@ -162,8 +158,10 @@ void LLVMReplaceMDNodeOperandWith(LLVMValueRef V, unsigned Index,
 #endif
 
 // Constant data
+#if LLVM_VERSION_MAJOR < 21
 LLVMValueRef LLVMConstDataArray(LLVMTypeRef ElementTy, const void *Data,
-                                unsigned NumElements);
+                                size_t SizeInBytes);
+#endif
 
 // Missing opaque pointer APIs
 #if LLVM_VERSION_MAJOR < 17
@@ -364,6 +362,10 @@ void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
 
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);
+
+#if LLVM_VERSION_MAJOR >= 21
+LLVMContextRef LLVMOrcThreadSafeContextGetContext(LLVMOrcThreadSafeContextRef TSCtx);
+#endif
 
 LLVM_C_EXTERN_C_END
 #endif

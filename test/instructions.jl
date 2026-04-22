@@ -147,7 +147,9 @@
     ptr = parameters(fn)[6]
 
     array_mallocinst = array_malloc!(builder, LLVM.Int8Type(), ConstantInt(Int32(42)))
-    if supports_typed_pointers(ctx)
+    if LLVM.version() >= v"21"
+        @check_ir array_mallocinst r"call ptr @malloc\(.+\)"
+    elseif supports_typed_pointers(ctx)
         @check_ir array_mallocinst r"call i8\* @malloc\(.+, i32 42\)"
     else
         @check_ir array_mallocinst r"call ptr @malloc\(.+, i32 42\)"

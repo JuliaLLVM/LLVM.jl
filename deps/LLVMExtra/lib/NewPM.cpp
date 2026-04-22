@@ -9,6 +9,7 @@
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Support/CBindingWrapping.h>
 
+#include <memory>
 #include <optional>
 
 using namespace llvm;
@@ -54,6 +55,15 @@ namespace {
 // size in advance and can clamp themselves.
 constexpr unsigned CollectFlatAddressOperandsBufSize = 32;
 
+// The CRTP base's methods went from non-virtual (template dispatch via
+// `Model<T>`) to virtual in LLVM 21. Use `override` only where it's a
+// real override; otherwise it's a compile error.
+#if LLVM_VERSION_MAJOR >= 21
+#define TTI_OVERRIDE override
+#else
+#define TTI_OVERRIDE
+#endif
+
 class CustomTargetTransformInfo final
     : public TargetTransformInfoImplCRTPBase<CustomTargetTransformInfo> {
   typedef TargetTransformInfoImplCRTPBase<CustomTargetTransformInfo> BaseT;
@@ -62,19 +72,19 @@ public:
   CustomTargetTransformInfo(const DataLayout &DL, LLVMTTIOptions Opts)
       : BaseT(DL), Opts(Opts) {}
 
-  unsigned getFlatAddressSpace() const {
+  unsigned getFlatAddressSpace() const TTI_OVERRIDE {
     if (Opts.FlatAddressSpace) return *Opts.FlatAddressSpace;
     return BaseT::getFlatAddressSpace();
   }
 
-  bool isNoopAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
+  bool isNoopAddrSpaceCast(unsigned FromAS, unsigned ToAS) const TTI_OVERRIDE {
     if (Opts.IsNoopAddrSpaceCast)
       return Opts.IsNoopAddrSpaceCast(FromAS, ToAS,
                                       Opts.IsNoopAddrSpaceCastUD) != 0;
     return BaseT::isNoopAddrSpaceCast(FromAS, ToAS);
   }
 
-  bool canHaveNonUndefGlobalInitializerInAddressSpace(unsigned AS) const {
+  bool canHaveNonUndefGlobalInitializerInAddressSpace(unsigned AS) const TTI_OVERRIDE {
     if (Opts.CanHaveGlobalInitializerInAS)
       return Opts.CanHaveGlobalInitializerInAS(
                  AS, Opts.CanHaveGlobalInitializerInASUD) != 0;
@@ -82,14 +92,14 @@ public:
   }
 
 #if LLVM_VERSION_MAJOR >= 17
-  bool isValidAddrSpaceCast(unsigned FromAS, unsigned ToAS) const {
+  bool isValidAddrSpaceCast(unsigned FromAS, unsigned ToAS) const TTI_OVERRIDE {
     if (Opts.IsValidAddrSpaceCast)
       return Opts.IsValidAddrSpaceCast(FromAS, ToAS,
                                        Opts.IsValidAddrSpaceCastUD) != 0;
     return BaseT::isValidAddrSpaceCast(FromAS, ToAS);
   }
 
-  bool addrspacesMayAlias(unsigned AS0, unsigned AS1) const {
+  bool addrspacesMayAlias(unsigned AS0, unsigned AS1) const TTI_OVERRIDE {
     if (Opts.AddrSpacesMayAlias)
       return Opts.AddrSpacesMayAlias(AS0, AS1,
                                      Opts.AddrSpacesMayAliasUD) != 0;
@@ -99,7 +109,7 @@ public:
 
   // `hasBranchDivergence` grew a `Function*` parameter in LLVM 17.
 #if LLVM_VERSION_MAJOR >= 17
-  bool hasBranchDivergence(const Function *F = nullptr) const {
+  bool hasBranchDivergence(const Function *F = nullptr) const TTI_OVERRIDE {
     if (Opts.HasBranchDivergence) return *Opts.HasBranchDivergence;
     return BaseT::hasBranchDivergence(F);
   }
@@ -112,26 +122,26 @@ public:
 
   // `isSingleThreaded` was added to the CRTP base in LLVM 16.
 #if LLVM_VERSION_MAJOR >= 16
-  bool isSingleThreaded() const {
+  bool isSingleThreaded() const TTI_OVERRIDE {
     if (Opts.IsSingleThreaded) return *Opts.IsSingleThreaded;
     return BaseT::isSingleThreaded();
   }
 #endif
 
-  bool isSourceOfDivergence(const Value *V) const {
+  bool isSourceOfDivergence(const Value *V) const TTI_OVERRIDE {
     if (Opts.IsSourceOfDivergence)
       return Opts.IsSourceOfDivergence(wrap(V),
                                        Opts.IsSourceOfDivergenceUD) != 0;
     return BaseT::isSourceOfDivergence(V);
   }
 
-  bool isAlwaysUniform(const Value *V) const {
+  bool isAlwaysUniform(const Value *V) const TTI_OVERRIDE {
     if (Opts.IsAlwaysUniform)
       return Opts.IsAlwaysUniform(wrap(V), Opts.IsAlwaysUniformUD) != 0;
     return BaseT::isAlwaysUniform(V);
   }
 
-  unsigned getAssumedAddrSpace(const Value *V) const {
+  unsigned getAssumedAddrSpace(const Value *V) const TTI_OVERRIDE {
     if (Opts.GetAssumedAddressSpace)
       return Opts.GetAssumedAddressSpace(wrap(V),
                                          Opts.GetAssumedAddressSpaceUD);
@@ -139,7 +149,7 @@ public:
   }
 
   std::pair<const Value *, unsigned>
-  getPredicatedAddrSpace(const Value *V) const {
+  getPredicatedAddrSpace(const Value *V) const TTI_OVERRIDE {
     if (Opts.GetPredicatedAddressSpace) {
       LLVMValueRef Predicate = nullptr;
       unsigned AS = Opts.GetPredicatedAddressSpace(
@@ -150,7 +160,7 @@ public:
   }
 
   Value *rewriteIntrinsicWithAddressSpace(IntrinsicInst *II, Value *OldV,
-                                          Value *NewV) const {
+                                          Value *NewV) const TTI_OVERRIDE {
     if (Opts.RewriteIntrinsicWithAS) {
       LLVMValueRef Result = Opts.RewriteIntrinsicWithAS(
           wrap(static_cast<Value *>(II)), wrap(OldV), wrap(NewV),
@@ -161,7 +171,7 @@ public:
   }
 
   bool collectFlatAddressOperands(SmallVectorImpl<int> &OpIndexes,
-                                  Intrinsic::ID IID) const {
+                                  Intrinsic::ID IID) const TTI_OVERRIDE {
     if (Opts.CollectFlatAddressOperands) {
       int Buf[CollectFlatAddressOperandsBufSize];
       unsigned Count = 0;
@@ -447,8 +457,16 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
     auto Opts = *PassExts->TTI;
     FAM.registerPass([Opts] {
       return TargetIRAnalysis([Opts](const Function &F) {
+#if LLVM_VERSION_MAJOR >= 21
+        // LLVM 21 replaced the templated `Model<T>` constructor with one that
+        // takes a `unique_ptr<const TargetTransformInfoImplBase>`; the impl
+        // base now dispatches through virtual methods rather than type erasure.
+        return TargetTransformInfo(std::make_unique<CustomTargetTransformInfo>(
+            F.getParent()->getDataLayout(), Opts));
+#else
         return TargetTransformInfo(
             CustomTargetTransformInfo(F.getParent()->getDataLayout(), Opts));
+#endif
       });
     });
   }

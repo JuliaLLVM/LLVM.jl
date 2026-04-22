@@ -607,9 +607,11 @@ end
             @check_ir ce "i32 40"
         end
 
-        for f in [const_mul, const_nswmul, const_nuwmul]
-            ce = f(val, other_val)::LLVM.Constant
-            @check_ir ce "i32 84"
+        if LLVM.version() < v"21"
+            for f in [const_mul, const_nswmul, const_nuwmul]
+                ce = f(val, other_val)::LLVM.Constant
+                @check_ir ce "i32 84"
+            end
         end
 
         ce = const_xor(val, other_val)::LLVM.Constant
@@ -716,7 +718,12 @@ end
                 @check_ir ce "ptr addrspace(1) addrspacecast (ptr null to ptr addrspace(1))"
             end
             # deletion of a constant
-            @test !isempty(uses(ptr))
+            if LLVM.version() < v"21"
+                @test !isempty(uses(ptr))
+            else
+                # LLVM 21+ removed uselist from constants
+                @test isempty(uses(ptr))
+            end
             LLVM.unsafe_destroy!(ce)
             @test isempty(uses(ptr))
         end
@@ -730,6 +737,8 @@ end
 # global values
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     st = LLVM.StructType("SomeType")
+    # LLVM 21 disallows opaque types as SSA values, so give the struct a body.
+    elements!(st, [LLVM.Int32Type()])
     ft = LLVM.FunctionType(st, [st])
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
@@ -1116,6 +1125,7 @@ end
 # function iteration
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     st = LLVM.StructType("SomeType")
+    elements!(st, [LLVM.Int32Type()])
     ft = LLVM.FunctionType(st, [st])
     @test isempty(functions(mod))
 

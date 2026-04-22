@@ -1,10 +1,5 @@
 using CEnum: CEnum, @cenum
 
-# no prototype is found for this function at LLVMExtra.h:16:6, please use with caution
-function dummy()
-    ccall((:dummy, libLLVMExtra), Cvoid, ())
-end
-
 function LLVMExtraInitializeNativeTarget()
     ccall((:LLVMExtraInitializeNativeTarget, libLLVMExtra), LLVMBool, ())
 end
@@ -262,8 +257,8 @@ function LLVMReplaceMDNodeOperandWith(V, Index, Replacement)
     ccall((:LLVMReplaceMDNodeOperandWith, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint, LLVMMetadataRef), V, Index, Replacement)
 end
 
-function LLVMConstDataArray(ElementTy, Data, NumElements)
-    ccall((:LLVMConstDataArray, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, Ptr{Cvoid}, Cuint), ElementTy, Data, NumElements)
+function LLVMConstDataArray(ElementTy, Data, SizeInBytes)
+    ccall((:LLVMConstDataArray, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, Ptr{Cvoid}, Csize_t), ElementTy, Data, SizeInBytes)
 end
 
 function LLVMContextSupportsTypedPointers(C)

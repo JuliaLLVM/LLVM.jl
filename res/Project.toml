@@ -3,4 +3,4 @@ Clang = "40e3b903-d033-50b4-a0cc-940c62c95e31"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 
 [compat]
-Clang = "0.18.2"
+Clang = "0.18.2, 0.19"

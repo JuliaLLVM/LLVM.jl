@@ -2,6 +2,9 @@ name = "LLVM"
 uuid = "929cbde3-209d-540e-8aea-75f648917ca0"
 version = "9.4.6"
 
+[workspace]
+projects = ["test", "docs", "examples"]
+
 [deps]
 CEnum = "fa961155-64e5-5f13-b03f-caf6b980ea82"
 LLVMExtra_jll = "dad2f222-ce93-54a1-a47d-0025e8a3acab"
@@ -25,6 +28,3 @@ Preferences = "1.4"
 Printf = "1.8"
 Unicode = "1.8"
 julia = "1.10"
-
-[extras]
-BFloat16s = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"

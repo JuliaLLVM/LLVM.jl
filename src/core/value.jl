@@ -222,8 +222,14 @@ uses(val::Value) = ValueUseSet(val)
 
 Base.eltype(::ValueUseSet) = Use
 
-function Base.iterate(iter::ValueUseSet, state=API.LLVMGetFirstUse(iter.val))
+function Base.iterate(iter::ValueUseSet, state=first_use(iter.val))
     state == C_NULL ? nothing : (Use(state), API.LLVMGetNextUse(state))
+end
+
+first_use(val::Value) = API.LLVMGetFirstUse(val)
+@static if version() >= v"21"
+    # LLVM 21 removed the uselist from ConstantData values
+    first_use(::ConstantData) = C_NULL
 end
 
 Base.IteratorSize(::ValueUseSet) = Base.SizeUnknown()

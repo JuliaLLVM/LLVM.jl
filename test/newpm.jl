@@ -195,12 +195,7 @@ end
     end
 
     @testset "loop" begin
-        # skip opt-level callback pseudo-passes, they require parameters and are provided as functions
-        skip_loop = [
-            "late-loop-optimizations-callbacks",
-            "loop-optimizer-end-callbacks",
-        ]
-        test_passes("loop", LLVM.loop_passes, skip_loop)
+        test_passes("loop", LLVM.loop_passes)
     end
 end
 
@@ -614,31 +609,63 @@ end
     end
 end
 
+@static if LLVM.version() >= v"17"
 @testset "callbacks" begin
-    # just check that the callbacks can be registered and run without errors
     @dispose ctx=Context() begin
-        # module callbacks
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            @test run!("pipeline-start-callbacks<O0>", mod) === nothing
+        # Each pseudo-pass pairs a (pipeline-context, pass-name, constructor)
+        # where `constructor()` must return the same canonical string.
+        module_cbs = [
+            ("",       "pipeline-start-callbacks",                PipelineStartCallbacks),
+            ("",       "pipeline-early-simplification-callbacks", PipelineEarlySimplificationCallbacks),
+            ("",       "optimizer-early-callbacks",               OptimizerEarlyCallbacks),
+            ("",       "optimizer-last-callbacks",                OptimizerLastCallbacks),
+            ("cgscc",  "cgscc-optimizer-late-callbacks",          CGSCCOptimizerLateCallbacks),
+            ("function", "peephole-callbacks",                    PeepholeCallbacks),
+            ("function", "scalar-optimizer-late-callbacks",       ScalarOptimizerLateCallbacks),
+            ("function", "vectorizer-start-callbacks",            VectorizerStartCallbacks),
+            ("loop",   "late-loop-optimizations-callbacks",       LateLoopOptimizationsCallbacks),
+            ("loop",   "loop-optimizer-end-callbacks",            LoopOptimizerEndCallbacks),
+        ]
+        if LLVM.version() >= v"21"
+            push!(module_cbs,
+                ("function", "vectorizer-end-callbacks", VectorizerEndCallbacks))
         end
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            @test run!(PipelineStartCallbacks(opt_level=0), mod) === nothing
+
+        # The pseudo-passes parse and run without error, both as raw strings
+        # and through their Julia constructors.
+        for (wrap, name, ctor) in module_cbs
+            pipeline = isempty(wrap) ? "$(name)<O0>" : "$(wrap)($(name)<O0>)"
+            @dispose mod=test_module() begin
+                @test run!(pipeline, mod) === nothing
+            end
+            @dispose mod=test_module() begin
+                wrapped = isempty(wrap) ? ctor(opt_level=0) : "$(wrap)($(ctor(opt_level=0)))"
+                @test run!(wrapped, mod) === nothing
+            end
         end
-        # CGSCC callback
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            @test run!("cgscc-optimizer-late-callbacks<O0>", mod) === nothing
-        end
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            @test run!(CGSCCOptimizerLateCallbacks(opt_level=0), mod) === nothing
-        end
-        # function callbacks
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            @test run!("peephole-callbacks<O0>", mod) === nothing
-        end
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            @test run!(PeepholeCallbacks(opt_level=0), mod) === nothing
+
+        # The EP callbacks actually fire: register counter-based callbacks at
+        # every EP via `LLVMExtraInstallTestEPCallbacks`, run each pseudo-pass,
+        # and verify the counter was incremented at least once. (LLVM's parser
+        # does a check-then-parse pass, so each EP invocation actually happens
+        # twice — once on a discarded DummyPM and once on the real PM — so we
+        # don't assert an exact count.)
+        install_cb = cglobal((:LLVMExtraInstallTestEPCallbacks, LLVM.API.libLLVMExtra))
+        read_counter() = ccall((:LLVMExtraReadTestEPCounter, LLVM.API.libLLVMExtra),
+                               Cuint, ())
+
+        for (wrap, name, _) in module_cbs
+            @dispose pb=NewPMPassBuilder() mod=test_module() begin
+                LLVM.API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(pb.exts, install_cb)
+                read_counter()  # reset
+                pipeline = isempty(wrap) ? "$(name)<O0>" : "$(wrap)($(name)<O0>)"
+                add!(pb, pipeline)
+                run!(pb, mod)
+                @test read_counter() >= 1
+            end
         end
     end
 end
+end # version() >= v"17"
 
 end

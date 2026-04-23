@@ -604,28 +604,25 @@ function InternalizePass(; preserved_gvs::Vector=String[], kwargs...)
 
     "internalize" * kwargs_to_params(kwargs)
 end
-# Module callbacks (not part of general pass sweep)
+
+# Helper for extension-point callback passes (not part of general pass sweep).
+# Back-ported by LLVMExtra to LLVM 17..21; supported upstream from LLVM 22 on.
+function ep_callbacks_pass(name; opt_level=0)
+    name * kwargs_to_params(Dict{Symbol,Any}(Symbol("O$opt_level") => true))
+end
+
+# module callbacks
+@static if version() >= v"17"
 export PipelineStartCallbacks, PipelineEarlySimplificationCallbacks,
        OptimizerEarlyCallbacks, OptimizerLastCallbacks
-function PipelineStartCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "pipeline-start-callbacks" * kwargs_to_params(opts)
-end
-function PipelineEarlySimplificationCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "pipeline-early-simplification-callbacks" * kwargs_to_params(opts)
-end
-function OptimizerEarlyCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "optimizer-early-callbacks" * kwargs_to_params(opts)
-end
-function OptimizerLastCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "optimizer-last-callbacks" * kwargs_to_params(opts)
+PipelineStartCallbacks(; opt_level=0) =
+    ep_callbacks_pass("pipeline-start-callbacks"; opt_level)
+PipelineEarlySimplificationCallbacks(; opt_level=0) =
+    ep_callbacks_pass("pipeline-early-simplification-callbacks"; opt_level)
+OptimizerEarlyCallbacks(; opt_level=0) =
+    ep_callbacks_pass("optimizer-early-callbacks"; opt_level)
+OptimizerLastCallbacks(; opt_level=0) =
+    ep_callbacks_pass("optimizer-last-callbacks"; opt_level)
 end
 
 # CGSCC passes
@@ -639,12 +636,11 @@ end
 @cgscc_pass "inline" InlinerPass
 @cgscc_pass "coro-split" CoroSplitPass
 
-#CGSCC callbacks (not part of general pass sweep)
+# CGSCC callbacks
+@static if version() >= v"17"
 export CGSCCOptimizerLateCallbacks
-function CGSCCOptimizerLateCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "cgscc-optimizer-late-callbacks" * kwargs_to_params(opts)
+CGSCCOptimizerLateCallbacks(; opt_level=0) =
+    ep_callbacks_pass("cgscc-optimizer-late-callbacks"; opt_level)
 end
 
 # function passes
@@ -830,31 +826,21 @@ end
 @function_pass "gvn" GVNPass
 @function_pass "print<stack-lifetime>" StackLifetimePrinterPass
 
-# Function pass callbacks (not part of general pass sweep)
+# Function pass callbacks
+@static if version() >= v"17"
 export PeepholeCallbacks, ScalarOptimizerLateCallbacks, VectorizerStartCallbacks
-function PeepholeCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "peephole-callbacks" * kwargs_to_params(opts)
-end
-function ScalarOptimizerLateCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "scalar-optimizer-late-callbacks" * kwargs_to_params(opts)
-end
-function VectorizerStartCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "vectorizer-start-callbacks" * kwargs_to_params(opts)
-end
+PeepholeCallbacks(; opt_level=0) =
+    ep_callbacks_pass("peephole-callbacks"; opt_level)
+ScalarOptimizerLateCallbacks(; opt_level=0) =
+    ep_callbacks_pass("scalar-optimizer-late-callbacks"; opt_level)
+VectorizerStartCallbacks(; opt_level=0) =
+    ep_callbacks_pass("vectorizer-start-callbacks"; opt_level)
 @static if version() >= v"21"
     export VectorizerEndCallbacks
-    function VectorizerEndCallbacks(; opt_level=0)
-        opts = Dict{Symbol,Any}()
-        opts[Symbol("O$opt_level")] = true
-        "vectorizer-end-callbacks" * kwargs_to_params(opts)
-    end
+    VectorizerEndCallbacks(; opt_level=0) =
+        ep_callbacks_pass("vectorizer-end-callbacks"; opt_level)
 end
+end # version() >= v"17"
 # loop nest passes
 
 @loop_pass "loop-flatten" LoopFlattenPass
@@ -892,17 +878,13 @@ end
 @loop_pass "licm" LICMPass
 @loop_pass "lnicm" LNICMPass
 
-# Loop Callbacks (not part of general pass sweep)
+# loop callbacks
+@static if version() >= v"17"
 export LateLoopOptimizationsCallbacks, LoopOptimizerEndCallbacks
-function LateLoopOptimizationsCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "late-loop-optimizations-callbacks" * kwargs_to_params(opts)
-end
-function LoopOptimizerEndCallbacks(; opt_level=0)
-    opts = Dict{Symbol,Any}()
-    opts[Symbol("O$opt_level")] = true
-    "loop-optimizer-end-callbacks" * kwargs_to_params(opts)
+LateLoopOptimizationsCallbacks(; opt_level=0) =
+    ep_callbacks_pass("late-loop-optimizations-callbacks"; opt_level)
+LoopOptimizerEndCallbacks(; opt_level=0) =
+    ep_callbacks_pass("loop-optimizer-end-callbacks"; opt_level)
 end
 
 

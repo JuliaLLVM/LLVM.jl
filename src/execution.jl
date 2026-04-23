@@ -243,7 +243,9 @@ Base.run(engine::ExecutionEngine, f::Function, args::Vector{GenericValue}=Generi
 Look up the address of the given function in the execution engine.
 """
 function lookup(engine::ExecutionEngine, fn::String)
-    addr = Ptr{Nothing}(API.LLVMGetFunctionAddress(engine, fn))
+    # LLVMGetFunctionAddress returns UInt64 (even on 32-bit platforms)
+    # so we need to convert it to UInt first.
+    addr = Ptr{Nothing}(API.LLVMGetFunctionAddress(engine, fn) % UInt)
     if addr == C_NULL
         throw(KeyError(fn))
     end

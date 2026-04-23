@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['master', '1.11', '1.12']
+        version: ['master', '1.11', '1.12', '1.13']
         build: ['x86_64-linux-gnuassert']
     steps:
       # Only checks out the base branch (never PR code)

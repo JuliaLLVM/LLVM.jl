@@ -47,6 +47,13 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/julia-buildpkg@latest
+      - name: Build libLLVMExtra
+        run: julia --project=deps deps/build_ci.jl
+      - name: Propagate libLLVMExtra preference to downstream
+        run: |
+          if [ -f LocalPreferences.toml ]; then
+            cp LocalPreferences.toml downstream/LocalPreferences.toml
+          fi
       - name: Load this and run the downstream tests
         shell: julia --color=yes --project=downstream {0}
         run: |

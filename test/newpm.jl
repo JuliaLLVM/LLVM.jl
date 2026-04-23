@@ -644,24 +644,27 @@ end
             end
         end
 
-        # The EP callbacks actually fire: register counter-based callbacks at
-        # every EP via `LLVMExtraInstallTestEPCallbacks`, run each pseudo-pass,
-        # and verify the counter was incremented at least once. (LLVM's parser
-        # does a check-then-parse pass, so each EP invocation actually happens
-        # twice — once on a discarded DummyPM and once on the real PM — so we
-        # don't assert an exact count.)
-        install_cb = cglobal((:LLVMExtraInstallTestEPCallbacks, LLVM.API.libLLVMExtra))
-        read_counter() = ccall((:LLVMExtraReadTestEPCounter, LLVM.API.libLLVMExtra),
-                               Cuint, ())
-
-        for (wrap, name, _) in module_cbs
-            @dispose pb=NewPMPassBuilder() mod=test_module() begin
-                LLVM.API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(pb.exts, install_cb)
-                read_counter()  # reset
-                pipeline = isempty(wrap) ? "$(name)<O0>" : "$(wrap)($(name)<O0>)"
-                add!(pb, pipeline)
-                run!(pb, mod)
-                @test read_counter() >= 1
+        # End-to-end: a real TargetMachine whose `registerPassBuilderCallbacks`
+        # hooks an EP should have its callback fan out when the matching
+        # pseudo-pass runs. NVPTX registers `NVVMReflectPass` at PipelineStart,
+        # which is observable through debug_logging.
+        if :NVPTX in LLVM.backends()
+            LLVM.InitializeNVPTXTarget()
+            LLVM.InitializeNVPTXTargetInfo()
+            LLVM.InitializeNVPTXTargetMC()
+            triple = "nvptx64-nvidia-cuda"
+            t = LLVM.Target(triple=triple)
+            tm = LLVM.TargetMachine(t, triple, "sm_80")
+            try
+                @dispose pb=NewPMPassBuilder(debug_logging=true) mod=test_module() begin
+                    add!(pb, "pipeline-start-callbacks<O3>")
+                    cap = IOCapture.capture() do
+                        run!(pb, mod, tm)
+                    end
+                    @test occursin("NVVMReflectPass", cap.output)
+                end
+            finally
+                dispose(tm)
             end
         end
     end

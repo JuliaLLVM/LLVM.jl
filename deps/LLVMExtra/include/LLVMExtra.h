@@ -360,14 +360,6 @@ void LLVMTTIOptionsSetCollectFlatAddressOperands(
 void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
                                      LLVMTTIOptionsRef Options);
 
-// Testing hooks for the pipeline EP pseudo-passes. `LLVMExtraInstallTestEPCallbacks`
-// has the signature expected by `LLVMPassBuilderExtensionsPushRegistrationCallbacks`
-// and registers callbacks at every extension point that simply increment a
-// global counter. `LLVMExtraReadTestEPCounter` returns that counter and resets
-// it to zero.
-void LLVMExtraInstallTestEPCallbacks(void *PBRef);
-unsigned LLVMExtraReadTestEPCounter(void);
-
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);
 

@@ -10,7 +10,6 @@
 #include <llvm/Support/CBindingWrapping.h>
 #include <llvm/Support/FormatVariadic.h>
 
-#include <atomic>
 #include <memory>
 #include <optional>
 
@@ -528,61 +527,6 @@ void registerCallbackParsing(PassBuilder &PB) {
 
 } // namespace
 #endif // LLVM 17..21
-
-// Test-only hook for verifying that the EP pseudo-passes above actually
-// invoke the underlying `PassBuilder::invokeXXXEPCallbacks` methods.
-// Counts how many times a registered EP callback fires. Intended to be used
-// with `LLVMPassBuilderExtensionsPushRegistrationCallbacks`.
-
-#if LLVM_VERSION_MAJOR >= 17
-static std::atomic<unsigned> LLVMExtraTestEPCounter{0};
-
-extern "C" void LLVMExtraInstallTestEPCallbacks(void *PBRef) {
-  PassBuilder *PB = static_cast<PassBuilder *>(PBRef);
-  auto inc = [] { LLVMExtraTestEPCounter.fetch_add(1, std::memory_order_relaxed); };
-  PB->registerPipelineStartEPCallback(
-      [inc](ModulePassManager &, OptimizationLevel) { inc(); });
-  PB->registerPipelineEarlySimplificationEPCallback(
-      [inc](ModulePassManager &, OptimizationLevel
-#if LLVM_VERSION_MAJOR >= 20
-            , ThinOrFullLTOPhase
-#endif
-            ) { inc(); });
-  PB->registerOptimizerEarlyEPCallback(
-      [inc](ModulePassManager &, OptimizationLevel
-#if LLVM_VERSION_MAJOR >= 20
-            , ThinOrFullLTOPhase
-#endif
-            ) { inc(); });
-  PB->registerOptimizerLastEPCallback(
-      [inc](ModulePassManager &, OptimizationLevel
-#if LLVM_VERSION_MAJOR >= 20
-            , ThinOrFullLTOPhase
-#endif
-            ) { inc(); });
-  PB->registerPeepholeEPCallback(
-      [inc](FunctionPassManager &, OptimizationLevel) { inc(); });
-  PB->registerScalarOptimizerLateEPCallback(
-      [inc](FunctionPassManager &, OptimizationLevel) { inc(); });
-  PB->registerVectorizerStartEPCallback(
-      [inc](FunctionPassManager &, OptimizationLevel) { inc(); });
-#if LLVM_VERSION_MAJOR >= 21
-  PB->registerVectorizerEndEPCallback(
-      [inc](FunctionPassManager &, OptimizationLevel) { inc(); });
-#endif
-  PB->registerCGSCCOptimizerLateEPCallback(
-      [inc](CGSCCPassManager &, OptimizationLevel) { inc(); });
-  PB->registerLateLoopOptimizationsEPCallback(
-      [inc](LoopPassManager &, OptimizationLevel) { inc(); });
-  PB->registerLoopOptimizerEndEPCallback(
-      [inc](LoopPassManager &, OptimizationLevel) { inc(); });
-}
-
-extern "C" unsigned LLVMExtraReadTestEPCounter(void) {
-  return LLVMExtraTestEPCounter.exchange(0, std::memory_order_relaxed);
-}
-#endif // LLVM >= 17
-
 
 // Vendored API entrypoint
 

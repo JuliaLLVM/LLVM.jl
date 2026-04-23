@@ -340,3 +340,13 @@ function LLVMGlobalsAddressSpace(TD)
     ccall((:LLVMGlobalsAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
 end
 
+@cenum LLVMLinkerFlags::UInt32 begin
+    LLVMLinkerNone = 0
+    LLVMLinkerOverrideFromSrc = 1
+    LLVMLinkerLinkOnlyNeeded = 2
+end
+
+function LLVMLinkModules3(Dest, Src, Flags)
+    ccall((:LLVMLinkModules3, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMModuleRef, Cuint), Dest, Src, Flags)
+end
+

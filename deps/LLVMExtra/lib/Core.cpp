@@ -20,6 +20,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Linker/Linker.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/Scalar.h>
@@ -808,6 +809,16 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
 
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD) {
   return unwrap(TD)->getDefaultGlobalsAddressSpace();
+}
+
+//
+// Linker extensions
+//
+
+LLVMBool LLVMLinkModules3(LLVMModuleRef Dest, LLVMModuleRef Src, unsigned Flags) {
+  Module *D = unwrap(Dest);
+  std::unique_ptr<Module> M(unwrap(Src));
+  return Linker::linkModules(*D, std::move(M), Flags);
 }
 
 #if LLVM_VERSION_MAJOR >= 21

@@ -213,27 +213,47 @@ Base.string(mod::Module) = unsafe_message(API.LLVMPrintModuleToString(mod))
 ## binary bitcode handling
 
 """
-    parse(::Type{Module}, membuf::MemoryBuffer)
+    parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
 
 Parse bitcode from the given memory buffer into a module.
+
+If `lazy` is `true`, only the module header is read; function bodies are deserialized on
+demand. The module then takes ownership of `membuf`, and the underlying byte storage
+(`membuf`'s data) must remain valid for the module's lifetime.
 """
-function Base.parse(::Type{Module}, membuf::MemoryBuffer)
+function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     out_ref = Ref{API.LLVMModuleRef}()
 
-    status = API.LLVMParseBitcodeInContext2(context(), membuf, out_ref) |> Bool
-    @assert !status # caught by diagnostics handler
+    if lazy
+        # `LLVMGetBitcodeModuleInContext2` consumes `membuf` regardless of success
+        status = API.LLVMGetBitcodeModuleInContext2(context(), membuf, out_ref) |> Bool
+        mark_dispose(membuf)
+        @assert !status # caught by diagnostics handler
+    else
+        status = API.LLVMParseBitcodeInContext2(context(), membuf, out_ref) |> Bool
+        @assert !status # caught by diagnostics handler
+    end
 
     mark_alloc(Module(out_ref[]))
 end
 
 """
-    parse(::Type{Module}, data::Vector)
+    parse(::Type{Module}, data::Vector; lazy::Bool=false)
 
 Parse bitcode from the given byte vector into a module.
+
+If `lazy` is `true`, `data` must remain live (unmutated) for the module's lifetime, as the
+bitcode reader keeps reading from it on demand.
 """
-function Base.parse(::Type{Module}, data::Vector)
-    @dispose membuf = MemoryBuffer(data, "", false) begin
-        parse(Module, membuf)
+function Base.parse(::Type{Module}, data::Vector; lazy::Bool=false)
+    if lazy
+        # the module takes ownership of `membuf`, so don't @dispose it here
+        membuf = MemoryBuffer(data, "", false)
+        parse(Module, membuf; lazy=true)
+    else
+        @dispose membuf = MemoryBuffer(data, "", false) begin
+            parse(Module, membuf)
+        end
     end
 end
 

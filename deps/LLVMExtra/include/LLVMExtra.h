@@ -363,6 +363,18 @@ void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);
 
+// Linker flags (mirrors `llvm::Linker::Flags`).
+typedef enum {
+  LLVMLinkerNone = 0,
+  LLVMLinkerOverrideFromSrc = (1 << 0),
+  LLVMLinkerLinkOnlyNeeded = (1 << 1),
+} LLVMLinkerFlags;
+
+// Extended variant of `LLVMLinkModules2` that accepts a bitmask of
+// `LLVMLinkerFlags`. Destroys `Src` on success or failure, matching
+// `LLVMLinkModules2`. Returns true on error.
+LLVMBool LLVMLinkModules3(LLVMModuleRef Dest, LLVMModuleRef Src, unsigned Flags);
+
 #if LLVM_VERSION_MAJOR >= 21
 LLVMContextRef LLVMOrcThreadSafeContextGetContext(LLVMOrcThreadSafeContextRef TSCtx);
 #endif

@@ -178,3 +178,35 @@ define void @foo() {
   ret void
 }
 ```
+
+Pass `only_needed=true` to only link symbols from the source module that are
+referenced (but not defined) in the destination module, leaving unreferenced
+definitions behind:
+
+```jldoctest
+julia> src = parse(LLVM.Module, """
+           define void @needed() { ret void }
+           define void @extra() { ret void }""");
+
+julia> dst = parse(LLVM.Module, """
+           declare void @needed()
+           define void @caller() {
+             call void @needed()
+             ret void
+           }""");
+
+julia> link!(dst, src; only_needed=true)
+
+julia> dst
+define void @caller() {
+  call void @needed()
+  ret void
+}
+
+define void @needed() {
+  ret void
+}
+```
+
+Pass `override_from_src=true` to have definitions in the source module shadow
+any conflicting definitions in the destination module.

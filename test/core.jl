@@ -1217,6 +1217,14 @@ end
             @test haskey(functions(mod), "SomeFunction")
         end
 
+        # lazy parse: module header is read but function bodies stay deferred
+        let lazy_bitcode = copy(bitcode)  # kept alive for the module's lifetime
+            @dispose mod = parse(LLVM.Module, lazy_bitcode; lazy=true) begin
+                verify(mod)
+                @test haskey(functions(mod), "SomeFunction")
+            end
+        end
+
         mktemp() do path, io
             mark(io)
             @test write(io, source_mod) > 0

@@ -8,6 +8,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Support/CBindingWrapping.h>
+#include <llvm/Support/FormatVariadic.h>
 
 #include <memory>
 #include <optional>
@@ -422,6 +423,110 @@ void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
     PassExts->TTI.reset();
 }
 
+// Pipeline extension-point callbacks as named pseudo-passes (back-port of
+// llvm/llvm-project#157153, merged for LLVM 22). These let string-API
+// pipelines invoke the callbacks registered at each EP — mirroring what the
+// default pipelines do — by writing e.g. `pipeline-start-callbacks<O2>`.
+
+#if LLVM_VERSION_MAJOR >= 17 && LLVM_VERSION_MAJOR < 22
+namespace {
+
+bool checkParametrizedPassName(StringRef Name, StringRef PassName) {
+  if (!Name.consume_front(PassName))
+    return false;
+  // bare name == default (empty) parameter list
+  if (Name.empty())
+    return true;
+  return Name.starts_with("<") && Name.ends_with(">");
+}
+
+Expected<OptimizationLevel> parseOptLevelPass(StringRef Name,
+                                              StringRef PassName) {
+  if (!Name.consume_front(PassName))
+    llvm_unreachable("pass name was already verified");
+  if (!Name.empty() &&
+      !(Name.consume_front("<") && Name.consume_back(">")))
+    llvm_unreachable("invalid format for parametrized pass name");
+
+  auto Level = StringSwitch<std::optional<OptimizationLevel>>(Name)
+                   .Case("", OptimizationLevel::O0)
+                   .Case("O0", OptimizationLevel::O0)
+                   .Case("O1", OptimizationLevel::O1)
+                   .Case("O2", OptimizationLevel::O2)
+                   .Case("O3", OptimizationLevel::O3)
+                   .Case("Os", OptimizationLevel::Os)
+                   .Case("Oz", OptimizationLevel::Oz)
+                   .Default(std::nullopt);
+  if (Level)
+    return *Level;
+  return make_error<StringError>(
+      formatv("invalid optimization level '{}'", Name).str(),
+      inconvertibleErrorCode());
+}
+
+#define EP_CALLBACK_BODY(NAME, ARGS)                                        \
+  if (checkParametrizedPassName(Name, NAME)) {                              \
+    auto L = parseOptLevelPass(Name, NAME);                                 \
+    if (!L) {                                                               \
+      errs() << NAME ": " << toString(L.takeError()) << '\n';               \
+      return false;                                                         \
+    }                                                                       \
+    PB.ARGS;                                                                \
+    return true;                                                            \
+  }
+
+void registerCallbackParsing(PassBuilder &PB) {
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, ModulePassManager &PM,
+          ArrayRef<PassBuilder::PipelineElement>) {
+#define MODULE_CALLBACK(NAME, INVOKE) EP_CALLBACK_BODY(NAME, INVOKE(PM, L.get()))
+#include "callbacks.inc"
+        return false;
+      });
+
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, ModulePassManager &PM,
+          ArrayRef<PassBuilder::PipelineElement>) {
+#if LLVM_VERSION_MAJOR >= 20
+#define MODULE_LTO_CALLBACK(NAME, INVOKE)                                   \
+  EP_CALLBACK_BODY(NAME, INVOKE(PM, L.get(), ThinOrFullLTOPhase::None))
+#else
+#define MODULE_LTO_CALLBACK(NAME, INVOKE)                                   \
+  EP_CALLBACK_BODY(NAME, INVOKE(PM, L.get()))
+#endif
+#include "callbacks.inc"
+        return false;
+      });
+
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, FunctionPassManager &PM,
+          ArrayRef<PassBuilder::PipelineElement>) {
+#define FUNCTION_CALLBACK(NAME, INVOKE) EP_CALLBACK_BODY(NAME, INVOKE(PM, L.get()))
+#include "callbacks.inc"
+        return false;
+      });
+
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, CGSCCPassManager &PM,
+          ArrayRef<PassBuilder::PipelineElement>) {
+#define CGSCC_CALLBACK(NAME, INVOKE) EP_CALLBACK_BODY(NAME, INVOKE(PM, L.get()))
+#include "callbacks.inc"
+        return false;
+      });
+
+  PB.registerPipelineParsingCallback(
+      [&](StringRef Name, LoopPassManager &PM,
+          ArrayRef<PassBuilder::PipelineElement>) {
+#define LOOP_CALLBACK(NAME, INVOKE) EP_CALLBACK_BODY(NAME, INVOKE(PM, L.get()))
+#include "callbacks.inc"
+        return false;
+      });
+}
+
+#undef EP_CALLBACK_BODY
+
+} // namespace
+#endif // LLVM 17..21
 
 // Vendored API entrypoint
 
@@ -444,6 +549,9 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
     PB.registerPipelineParsingCallback(Callback);
   for (auto &Callback : PassExts->FunctionPipelineParsingCallbacks)
     PB.registerPipelineParsingCallback(Callback);
+#if LLVM_VERSION_MAJOR >= 17 && LLVM_VERSION_MAJOR < 22
+  registerCallbackParsing(PB);
+#endif
 
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;

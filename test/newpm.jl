@@ -609,4 +609,66 @@ end
     end
 end
 
+@static if LLVM.version() >= v"17"
+@testset "callbacks" begin
+    @dispose ctx=Context() begin
+        # Each pseudo-pass pairs a (pipeline-context, pass-name, constructor)
+        # where `constructor()` must return the same canonical string.
+        module_cbs = [
+            ("",       "pipeline-start-callbacks",                PipelineStartCallbacks),
+            ("",       "pipeline-early-simplification-callbacks", PipelineEarlySimplificationCallbacks),
+            ("",       "optimizer-early-callbacks",               OptimizerEarlyCallbacks),
+            ("",       "optimizer-last-callbacks",                OptimizerLastCallbacks),
+            ("cgscc",  "cgscc-optimizer-late-callbacks",          CGSCCOptimizerLateCallbacks),
+            ("function", "peephole-callbacks",                    PeepholeCallbacks),
+            ("function", "scalar-optimizer-late-callbacks",       ScalarOptimizerLateCallbacks),
+            ("function", "vectorizer-start-callbacks",            VectorizerStartCallbacks),
+            ("loop",   "late-loop-optimizations-callbacks",       LateLoopOptimizationsCallbacks),
+            ("loop",   "loop-optimizer-end-callbacks",            LoopOptimizerEndCallbacks),
+        ]
+        if LLVM.version() >= v"21"
+            push!(module_cbs,
+                ("function", "vectorizer-end-callbacks", VectorizerEndCallbacks))
+        end
+
+        # The pseudo-passes parse and run without error, both as raw strings
+        # and through their Julia constructors.
+        for (wrap, name, ctor) in module_cbs
+            pipeline = isempty(wrap) ? "$(name)<O0>" : "$(wrap)($(name)<O0>)"
+            @dispose mod=test_module() begin
+                @test run!(pipeline, mod) === nothing
+            end
+            @dispose mod=test_module() begin
+                wrapped = isempty(wrap) ? ctor(opt_level=0) : "$(wrap)($(ctor(opt_level=0)))"
+                @test run!(wrapped, mod) === nothing
+            end
+        end
+
+        # End-to-end: a real TargetMachine whose `registerPassBuilderCallbacks`
+        # hooks an EP should have its callback fan out when the matching
+        # pseudo-pass runs. NVPTX registers `NVVMReflectPass` at PipelineStart,
+        # which is observable through debug_logging.
+        if :NVPTX in LLVM.backends()
+            LLVM.InitializeNVPTXTarget()
+            LLVM.InitializeNVPTXTargetInfo()
+            LLVM.InitializeNVPTXTargetMC()
+            triple = "nvptx64-nvidia-cuda"
+            t = LLVM.Target(triple=triple)
+            tm = LLVM.TargetMachine(t, triple, "sm_80")
+            try
+                @dispose pb=NewPMPassBuilder(debug_logging=true) mod=test_module() begin
+                    add!(pb, "pipeline-start-callbacks<O3>")
+                    cap = IOCapture.capture() do
+                        run!(pb, mod, tm)
+                    end
+                    @test occursin("NVVMReflectPass", cap.output)
+                end
+            finally
+                dispose(tm)
+            end
+        end
+    end
+end
+end # version() >= v"17"
+
 end

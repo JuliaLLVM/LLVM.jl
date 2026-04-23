@@ -605,6 +605,26 @@ function InternalizePass(; preserved_gvs::Vector=String[], kwargs...)
     "internalize" * kwargs_to_params(kwargs)
 end
 
+# Helper for extension-point callback passes (not part of general pass sweep).
+# Back-ported by LLVMExtra to LLVM 17..21; supported upstream from LLVM 22 on.
+function ep_callbacks_pass(name; opt_level=0)
+    name * kwargs_to_params(Dict{Symbol,Any}(Symbol("O$opt_level") => true))
+end
+
+# module callbacks
+@static if version() >= v"17"
+export PipelineStartCallbacks, PipelineEarlySimplificationCallbacks,
+       OptimizerEarlyCallbacks, OptimizerLastCallbacks
+PipelineStartCallbacks(; opt_level=0) =
+    ep_callbacks_pass("pipeline-start-callbacks"; opt_level)
+PipelineEarlySimplificationCallbacks(; opt_level=0) =
+    ep_callbacks_pass("pipeline-early-simplification-callbacks"; opt_level)
+OptimizerEarlyCallbacks(; opt_level=0) =
+    ep_callbacks_pass("optimizer-early-callbacks"; opt_level)
+OptimizerLastCallbacks(; opt_level=0) =
+    ep_callbacks_pass("optimizer-last-callbacks"; opt_level)
+end
+
 # CGSCC passes
 
 @cgscc_pass "argpromotion" ArgumentPromotionPass
@@ -615,6 +635,13 @@ end
 @cgscc_pass "no-op-cgscc" NoOpCGSCCPass
 @cgscc_pass "inline" InlinerPass
 @cgscc_pass "coro-split" CoroSplitPass
+
+# CGSCC callbacks
+@static if version() >= v"17"
+export CGSCCOptimizerLateCallbacks
+CGSCCOptimizerLateCallbacks(; opt_level=0) =
+    ep_callbacks_pass("cgscc-optimizer-late-callbacks"; opt_level)
+end
 
 # function passes
 
@@ -799,6 +826,21 @@ end
 @function_pass "gvn" GVNPass
 @function_pass "print<stack-lifetime>" StackLifetimePrinterPass
 
+# Function pass callbacks
+@static if version() >= v"17"
+export PeepholeCallbacks, ScalarOptimizerLateCallbacks, VectorizerStartCallbacks
+PeepholeCallbacks(; opt_level=0) =
+    ep_callbacks_pass("peephole-callbacks"; opt_level)
+ScalarOptimizerLateCallbacks(; opt_level=0) =
+    ep_callbacks_pass("scalar-optimizer-late-callbacks"; opt_level)
+VectorizerStartCallbacks(; opt_level=0) =
+    ep_callbacks_pass("vectorizer-start-callbacks"; opt_level)
+@static if version() >= v"21"
+    export VectorizerEndCallbacks
+    VectorizerEndCallbacks(; opt_level=0) =
+        ep_callbacks_pass("vectorizer-end-callbacks"; opt_level)
+end
+end # version() >= v"17"
 # loop nest passes
 
 @loop_pass "loop-flatten" LoopFlattenPass
@@ -835,6 +877,15 @@ end
 @loop_pass "simple-loop-unswitch" SimpleLoopUnswitchPass
 @loop_pass "licm" LICMPass
 @loop_pass "lnicm" LNICMPass
+
+# loop callbacks
+@static if version() >= v"17"
+export LateLoopOptimizationsCallbacks, LoopOptimizerEndCallbacks
+LateLoopOptimizationsCallbacks(; opt_level=0) =
+    ep_callbacks_pass("late-loop-optimizations-callbacks"; opt_level)
+LoopOptimizerEndCallbacks(; opt_level=0) =
+    ep_callbacks_pass("loop-optimizer-end-callbacks"; opt_level)
+end
 
 
 ## alias analyses

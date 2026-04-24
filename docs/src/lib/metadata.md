@@ -198,6 +198,21 @@ LLVM.globalvariableexpression!
 LLVM.tempglobalvariablefwddecl!
 ```
 
+### Instruction-level insertion
+
+The `declare_*!` / `value_*!` methods return an `Instruction` on LLVM ≤ 18
+(legacy `llvm.dbg.*` intrinsics) and a `LLVM.DbgRecord` on LLVM ≥ 19
+(the new `#dbg_*` record format).
+
+```@docs
+LLVM.declare_before!
+LLVM.declare_at_end!
+LLVM.value_before!
+LLVM.value_at_end!
+LLVM.debuglocation(::Instruction)
+LLVM.debuglocation!(::Instruction, ::DILocation)
+```
+
 ### Compile Unit
 
 ```@docs

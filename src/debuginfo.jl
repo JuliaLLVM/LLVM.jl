@@ -7,8 +7,10 @@ export DIBuilder
 
 A builder for constructing debug information metadata.
 
-This object needs to be disposed of using [`dispose`](@ref), after first having
-called [`finalize!`](@ref).
+This object needs to be disposed of using [`dispose`](@ref), which also resolves
+any pending temporary metadata. Call [`finalize!`](@ref) explicitly only if you
+need to use the finalized debug info (e.g. emit code) *before* disposing of the
+builder.
 """
 @checked struct DIBuilder
     ref::API.LLVMDIBuilderRef
@@ -23,9 +25,8 @@ Base.unsafe_convert(::Type{API.LLVMDIBuilderRef}, builder::DIBuilder) =
 Create a new debug info builder that emits metadata into `mod`.
 
 When `allow_unresolved` is `true` (the default), the builder collects unresolved
-metadata nodes attached to the module so that cycles can be resolved during a
-call to [`finalize!`](@ref). When `false`, the builder errors on unresolved
-nodes instead.
+metadata nodes attached to the module so that cycles can be resolved during
+[`dispose`](@ref). When `false`, the builder errors on unresolved nodes instead.
 """
 function DIBuilder(mod::Module; allow_unresolved::Bool=true)
     ref = allow_unresolved ? API.LLVMCreateDIBuilder(mod) :
@@ -36,9 +37,13 @@ end
 """
     dispose(builder::DIBuilder)
 
-Dispose of a debug info builder. [`finalize!`](@ref) must be called first.
+Finalize the debug info (resolving any pending temporary metadata) and dispose
+of the builder.
 """
-dispose(builder::DIBuilder) = mark_dispose(API.LLVMDisposeDIBuilder, builder)
+function dispose(builder::DIBuilder)
+    API.LLVMDIBuilderFinalize(builder)
+    mark_dispose(API.LLVMDisposeDIBuilder, builder)
+end
 
 function DIBuilder(f::Core.Function, args...; kwargs...)
     builder = DIBuilder(args...; kwargs...)
@@ -55,8 +60,9 @@ Base.show(io::IO, builder::DIBuilder) = @printf(io, "DIBuilder(%p)", builder.ref
     finalize!(builder::DIBuilder)
 
 Resolve any unresolved metadata nodes and mark all compile units finalized.
-Must be called before [`dispose`](@ref) and before using the emitted debug
-information.
+Called automatically by [`dispose`](@ref); call explicitly only if the
+DI-enriched module must be consumed (e.g. for code emission) before the
+builder is disposed of.
 """
 finalize!(builder::DIBuilder) = API.LLVMDIBuilderFinalize(builder)
 
@@ -988,7 +994,6 @@ end # @static if version() >= v"21"
 ## subprogram
 
 export DISubProgram, line
-@public finalize_subprogram!
 
 """
     DISubProgram
@@ -1034,8 +1039,9 @@ end
 """
     finalize_subprogram!(builder::DIBuilder, sp::DISubProgram)
 
-Finalize the given subprogram, allowing later changes to be disallowed. Must be
-called before [`finalize!`](@ref).
+Finalize a single subprogram before the rest of the builder. Advanced helper
+for streaming-style DI construction; most callers should simply rely on
+[`dispose`](@ref) to finalize everything.
 """
 finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
     API.LLVMDIBuilderFinalizeSubprogram(builder, sp)

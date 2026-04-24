@@ -3,19 +3,25 @@
 DEBUG_METADATA_VERSION()
 
 @testset "DIBuilder lifecycle" begin
+    # dispose auto-finalizes
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         dib = DIBuilder(mod)
-        LLVM.finalize!(dib)
         dispose(dib)
     end
 
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         dib = DIBuilder(mod; allow_unresolved=false)
-        LLVM.finalize!(dib)
         dispose(dib)
     end
 
     # do-block form
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            # nothing — dispose will finalize on exit
+        end
+    end
+
+    # explicit finalize! before dispose is still valid (idempotent)
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             LLVM.finalize!(dib)
@@ -42,8 +48,6 @@ end
             dm = LLVM.dimodule!(dib, cu, "MyModule")
             @test dm isa DIModule
             @test LLVM.name(dm) == "MyModule"
-
-            LLVM.finalize!(dib)
         end
 
         # emitted DWARF should round-trip as text IR (compile unit is retained)
@@ -76,8 +80,6 @@ end
             outer = DILocation(5, 1, cu)
             inner = DILocation(10, 20, lb, outer)
             @test LLVM.inlined_at(inner) == outer
-
-            LLVM.finalize!(dib)
         end
     end
 end
@@ -167,8 +169,6 @@ end
             # forward decl / replaceable composite
             @test LLVM.forwarddecl!(dib, DW_TAG_structure_type, "Fwd", cu, file, 1) isa LLVM.DICompositeType
             @test LLVM.replaceablecompositetype!(dib, DW_TAG_structure_type, "Rep", cu, file, 1) isa LLVM.DICompositeType
-
-            LLVM.finalize!(dib)
         end
     end
 end
@@ -222,7 +222,6 @@ end
             @test tgv isa LLVM.DIGlobalVariable
 
             LLVM.finalize_subprogram!(dib, sp)
-            LLVM.finalize!(dib)
         end
     end
 end
@@ -281,7 +280,6 @@ end
             end
 
             LLVM.finalize_subprogram!(dib, sp)
-            LLVM.finalize!(dib)
         end
 
         # the IR should contain the dbg.declare (intrinsic) or #dbg_declare (record)
@@ -329,8 +327,6 @@ end
                 lbl = LLVM.label!(dib, cu, "my_label", file, 5)
                 @test lbl isa LLVM.DILabel
             end
-
-            LLVM.finalize!(dib)
         end
     end
 end
@@ -351,8 +347,6 @@ end
             real_node = MDNode([i64])
             LLVM.replace_all_uses_with!(temp2, real_node)
             # temp2 is disposed as a side effect of RAUW
-
-            LLVM.finalize!(dib)
         end
     end
 
@@ -377,8 +371,6 @@ end
             real_struct = LLVM.structtype!(dib, cu, "Node", file, 1, 128, 64,
                                            LLVM.Metadata[mem_val, mem_next])
             LLVM.replace_all_uses_with!(fwd, real_struct)
-
-            LLVM.finalize!(dib)
         end
     end
 end
@@ -404,8 +396,6 @@ end
             @test prop isa LLVM.DIDerivedType
             ivar = LLVM.objcivar!(dib, "_count", file, 1, 64, 64, 0, i64, prop)
             @test ivar isa LLVM.DIDerivedType
-
-            LLVM.finalize!(dib)
         end
 
         # module-level debug version accessor (returns 0 when no flag set)

@@ -111,7 +111,9 @@ end
             @test i64 isa LLVM.DIBasicType
             @test LLVM.name(i64) == "Int64"
             @test LLVM.align(i64) == 0
-            @test LLVM.tag(i64) != 0
+            if LLVM.version() >= v"17"
+                @test LLVM.tag(i64) != 0
+            end
 
             @test LLVM.unspecified_type!(dib, "unspec") isa LLVM.DIBasicType
             @test LLVM.nullptr_type!(dib) isa LLVM.DIBasicType

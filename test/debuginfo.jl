@@ -294,6 +294,47 @@ end
     end
 end
 
+@testset "DIBuilder: imported entities and macros" begin
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+
+            ns = LLVM.namespace!(dib, cu, "MyNS")
+            ie = LLVM.importedmodulefromnamespace!(dib, cu, ns, file, 1)
+            @test ie isa LLVM.DIImportedEntity
+
+            ie2 = LLVM.importedmodulefromalias!(dib, cu, ie, file, 2)
+            @test ie2 isa LLVM.DIImportedEntity
+
+            dm = LLVM.dimodule!(dib, cu, "MyMod")
+            ie3 = LLVM.importedmodulefrommodule!(dib, cu, dm, file, 3)
+            @test ie3 isa LLVM.DIImportedEntity
+
+            # imported declaration (decl = another scope)
+            ied = LLVM.importeddeclaration!(dib, cu, ns, file, 4, "alias")
+            @test ied isa LLVM.DIImportedEntity
+
+            # macros
+            mf = LLVM.tempmacrofile!(dib, nothing, 1, file)
+            @test mf isa LLVM.DIMacroFile
+
+            m = LLVM.macro!(dib, mf, 1,
+                            LLVM.API.LLVMDWARFMacinfoRecordTypeDefine,
+                            "FOO", "bar")
+            @test m isa LLVM.DIMacro
+
+            if LLVM.version() >= v"20"
+                lbl = LLVM.label!(dib, cu, "my_label", file, 5)
+                @test lbl isa LLVM.DILabel
+            end
+
+            LLVM.finalize!(dib)
+        end
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

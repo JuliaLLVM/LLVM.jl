@@ -186,7 +186,7 @@ end
             stype = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64, i64])
 
             # subprogram
-            sp = LLVM.subprogram!(dib, file, "add", "add", file, 1, stype, 1)
+            sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
             @test sp isa DISubProgram
             @test LLVM.line(sp) == 1
 
@@ -236,7 +236,7 @@ end
                                    file, "LLVM.jl Tests")
             i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
             stype = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64, i64])
-            sp = LLVM.subprogram!(dib, file, "add", "add", file, 1, stype, 1)
+            sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
 
             ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
             fn = LLVM.Function(mod, "add", ft)

@@ -187,7 +187,7 @@ LLVM.objcproperty!
 ```@docs
 DISubProgram
 line(::DISubProgram)
-LLVM.subprogram!(::DIBuilder, ::DIScope, ::AbstractString, ::AbstractString, ::DIFile, ::Integer, ::LLVM.DISubroutineType, ::Integer)
+LLVM.subprogram!(::DIBuilder, ::DIScope, ::AbstractString, ::DIFile, ::Integer, ::LLVM.DISubroutineType)
 ```
 
 ### Variables

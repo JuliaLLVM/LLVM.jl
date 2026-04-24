@@ -1014,17 +1014,19 @@ line(subprogram::DISubProgram) = Int(API.LLVMDISubprogramGetLine(subprogram))
 
 """
     subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
-                linkage_name::AbstractString, file::DIFile, line::Integer,
-                type::DISubroutineType, scope_line::Integer;
+                file::DIFile, line::Integer, type::DISubroutineType;
+                linkage_name::AbstractString="", scope_line::Integer=line,
                 is_local_to_unit::Bool=false, is_definition::Bool=true,
                 flags=API.LLVMDIFlagZero,
                 is_optimized::Bool=false) -> DISubProgram
 
-Create a new [`DISubProgram`](@ref) describing a function.
+Create a new [`DISubProgram`](@ref) describing a function. When
+`linkage_name` is empty, LLVM falls back to `name`. `scope_line`
+defaults to the function's `line`, which is the usual case.
 """
 function subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
-                     linkage_name::AbstractString, file::DIFile, line::Integer,
-                     type::DISubroutineType, scope_line::Integer;
+                     file::DIFile, line::Integer, type::DISubroutineType;
+                     linkage_name::AbstractString="", scope_line::Integer=line,
                      is_local_to_unit::Bool=false, is_definition::Bool=true,
                      flags=API.LLVMDIFlagZero,
                      is_optimized::Bool=false)

@@ -58,13 +58,20 @@ end
 end
 
 @testset "DIBuilder: lexical blocks" begin
+    DW_ATE_signed = 0x05
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
             cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
 
-            lb = LLVM.lexical_block!(dib, cu, file, 3, 5)
+            # Lexical blocks must be nested in a local scope (a subprogram or
+            # another lexical block) -- LLVM drops a DICompileUnit scope to null.
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
+            stype = LLVM.subroutine_type!(dib, file, i64)
+            sp = LLVM.subprogram!(dib, file, "f", file, 1, stype)
+
+            lb = LLVM.lexical_block!(dib, sp, file, 3, 5)
             @test lb isa DILexicalBlock
 
             lbf = LLVM.lexical_block_file!(dib, lb, file, 0)
@@ -77,9 +84,12 @@ end
             @test LLVM.scope(loc) == lb
 
             # inlined_at chain
-            outer = DILocation(5, 1, cu)
+            outer = DILocation(5, 1, sp)
             inner = DILocation(10, 20, lb, outer)
             @test LLVM.inlined_at(inner) == outer
+
+            # DILocation requires a scope
+            @test_throws UndefRefError DILocation(1, 2, nothing)
         end
     end
 end
@@ -175,9 +185,10 @@ end
             # void return
             @test LLVM.subroutine_type!(dib, file, nothing) isa LLVM.DISubroutineType
 
-            # forward decl / replaceable composite
+            # forward decl (a permanent declaration); the temporary
+            # `replaceable_composite_type!` is exercised in the mutation testset
+            # because it must be RAUW'd before finalize.
             @test LLVM.forward_decl!(dib, DW_TAG_structure_type, "Fwd", cu, file, 1) isa LLVM.DICompositeType
-            @test LLVM.replaceable_composite_type!(dib, DW_TAG_structure_type, "Rep", cu, file, 1) isa LLVM.DICompositeType
         end
     end
 end
@@ -298,10 +309,15 @@ end
         else
             @test occursin("llvm.dbg.declare", ir)
         end
+
+        # the resulting module must be structurally valid — `verify` checks
+        # that subprograms, scopes, locations and dbg records are well-formed
+        @test LLVM.verify(mod) === nothing
     end
 end
 
 @testset "DIBuilder: imported entities and macros" begin
+    DW_ATE_signed = 0x05
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
@@ -333,7 +349,11 @@ end
             @test m isa LLVM.DIMacro
 
             if LLVM.version() >= v"20"
-                lbl = LLVM.label!(dib, cu, "my_label", file, 5)
+                # labels live inside a subprogram, not at compile-unit scope
+                i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
+                stype = LLVM.subroutine_type!(dib, file, i64)
+                sp = LLVM.subprogram!(dib, file, "f", file, 1, stype)
+                lbl = LLVM.label!(dib, sp, "my_label", file, 5)
                 @test lbl isa LLVM.DILabel
             end
         end

@@ -82,6 +82,97 @@ end
     end
 end
 
+@testset "DIBuilder: type constructors" begin
+    DW_ATE_signed = 0x05
+    DW_TAG_structure_type = 0x13
+    DW_TAG_const_type = 0x26
+    DW_TAG_reference_type = 0x10
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+
+            # basic types
+            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+            @test i64 isa LLVM.DIBasicType
+            @test LLVM.name(i64) == "Int64"
+            @test LLVM.align(i64) == 0
+            @test LLVM.tag(i64) != 0
+
+            @test LLVM.unspecifiedtype!(dib, "unspec") isa LLVM.DIBasicType
+            @test LLVM.nullptrtype!(dib) isa LLVM.DIBasicType
+
+            # derived types
+            ptr = LLVM.pointertype!(dib, i64, 64; name="i64_ptr")
+            @test ptr isa LLVM.DIDerivedType
+
+            td = LLVM.typedeftype!(dib, i64, "MyInt", file, 1, cu)
+            @test td isa LLVM.DIDerivedType
+
+            cq = LLVM.qualifiedtype!(dib, DW_TAG_const_type, i64)
+            @test cq isa LLVM.DIDerivedType
+
+            at2 = LLVM.artificialtype!(dib, i64)
+            @test at2 isa LLVM.DIDerivedType
+
+            op = LLVM.objectpointertype!(dib, i64)
+            @test op isa LLVM.DIDerivedType
+
+            ref = LLVM.referencetype!(dib, DW_TAG_reference_type, i64)
+            @test ref isa LLVM.DIDerivedType
+
+            # composite types
+            mem = LLVM.membertype!(dib, cu, "x", file, 2, 64, 64, 0, i64)
+            @test mem isa LLVM.DIDerivedType
+
+            st = LLVM.structtype!(dib, cu, "Point", file, 1, 64, 64, LLVM.Metadata[mem])
+            @test st isa LLVM.DICompositeType
+            @test LLVM.name(st) == "Point"
+
+            un = LLVM.uniontype!(dib, cu, "U", file, 1, 64, 64, LLVM.Metadata[mem])
+            @test un isa LLVM.DICompositeType
+
+            ct = LLVM.classtype!(dib, cu, "C", file, 1, 64, 64, 0, LLVM.Metadata[mem])
+            @test ct isa LLVM.DICompositeType
+
+            # arrays/vectors via subrange
+            sr = LLVM.getorcreatesubrange!(dib, 0, 10)
+            @test sr isa LLVM.DISubrange
+            aty = LLVM.arraytype!(dib, 640, 64, i64, [sr])
+            @test aty isa LLVM.DICompositeType
+
+            vty = LLVM.vectortype!(dib, 256, 64, i64, [sr])
+            @test vty isa LLVM.DICompositeType
+
+            # enumerations
+            e1 = LLVM.enumerator!(dib, "A", 0)
+            @test e1 isa LLVM.DIEnumerator
+            et = LLVM.enumerationtype!(dib, cu, "Color", file, 1, 32, 32, LLVM.Metadata[e1])
+            @test et isa LLVM.DICompositeType
+
+            # bitfield + static + member-pointer + inheritance
+            @test LLVM.bitfieldmembertype!(dib, cu, "b", file, 1, 3, 0, 0, i64) isa LLVM.DIDerivedType
+            @test LLVM.staticmembertype!(dib, cu, "s", file, 1, i64) isa LLVM.DIDerivedType
+            @test LLVM.memberpointertype!(dib, i64, st, 64) isa LLVM.DIDerivedType
+
+            base = LLVM.classtype!(dib, cu, "Base", file, 1, 64, 64, 0, LLVM.Metadata[])
+            @test LLVM.inheritance!(dib, ct, base, 0) isa LLVM.DIDerivedType
+
+            # subroutine
+            sroute = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64])
+            @test sroute isa LLVM.DISubroutineType
+
+            # forward decl / replaceable composite
+            @test LLVM.forwarddecl!(dib, DW_TAG_structure_type, "Fwd", cu, file, 1) isa LLVM.DICompositeType
+            @test LLVM.replaceablecompositetype!(dib, DW_TAG_structure_type, "Rep", cu, file, 1) isa LLVM.DICompositeType
+
+            LLVM.finalize!(dib)
+        end
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

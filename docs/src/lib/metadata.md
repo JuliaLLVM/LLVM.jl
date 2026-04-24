@@ -118,6 +118,54 @@ Base.sizeof(::DIType)
 offset(::DIType)
 line(::DIType)
 flags(::DIType)
+LLVM.align
+LLVM.DIEnumerator
+LLVM.DISubrange
+```
+
+Built-in factories for primitive types:
+
+```@docs
+LLVM.basictype!
+LLVM.unspecifiedtype!
+LLVM.nullptrtype!
+```
+
+Derived types (pointers, qualifiers, members, inheritance, ...):
+
+```@docs
+LLVM.pointertype!
+LLVM.referencetype!
+LLVM.typedeftype!
+LLVM.qualifiedtype!
+LLVM.artificialtype!
+LLVM.objectpointertype!
+LLVM.membertype!
+LLVM.bitfieldmembertype!
+LLVM.staticmembertype!
+LLVM.memberpointertype!
+LLVM.inheritance!
+```
+
+Composite types:
+
+```@docs
+LLVM.structtype!
+LLVM.uniontype!
+LLVM.classtype!
+LLVM.arraytype!
+LLVM.vectortype!
+LLVM.enumerator!
+LLVM.enumerationtype!
+LLVM.forwarddecl!
+LLVM.replaceablecompositetype!
+LLVM.getorcreatesubrange!
+```
+
+Subroutine types:
+
+```@docs
+LLVM.subroutinetype!
 ```
 
 ### Subprogram

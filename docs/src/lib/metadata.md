@@ -198,6 +198,25 @@ LLVM.globalvariableexpression!
 LLVM.tempglobalvariablefwddecl!
 ```
 
+### Imported entities
+
+```@docs
+LLVM.DIImportedEntity
+LLVM.importedmodulefromnamespace!
+LLVM.importedmodulefromalias!
+LLVM.importedmodulefrommodule!
+LLVM.importeddeclaration!
+```
+
+### Macros
+
+```@docs
+LLVM.DIMacro
+LLVM.DIMacroFile
+LLVM.macro!
+LLVM.tempmacrofile!
+```
+
 ### Instruction-level insertion
 
 The `declare_*!` / `value_*!` methods return an `Instruction` on LLVM ≤ 18

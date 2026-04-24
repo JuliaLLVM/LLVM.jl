@@ -1498,6 +1498,141 @@ label_at_end!(builder::DIBuilder, label::DILabel,
 end # @static version check
 
 
+## imported entity
+
+export DIImportedEntity
+@public importedmodulefromnamespace!, importedmodulefromalias!,
+        importedmodulefrommodule!, importeddeclaration!
+
+"""
+    DIImportedEntity
+
+An imported entity, such as a C++ `using` declaration or module import.
+"""
+@checked struct DIImportedEntity <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIImportedEntity, API.LLVMDIImportedEntityMetadataKind)
+
+"""
+    importedmodulefromnamespace!(builder::DIBuilder, scope::DIScope,
+                                 ns::DINamespace, file::DIFile,
+                                 line::Integer) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from a namespace.
+"""
+importedmodulefromnamespace!(builder::DIBuilder, scope::DIScope, ns::DINamespace,
+                             file::DIFile, line::Integer) =
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromNamespace(
+        builder, scope, ns, file, Cuint(line)))
+
+"""
+    importedmodulefromalias!(builder::DIBuilder, scope::DIScope,
+                             imported::DIImportedEntity, file::DIFile,
+                             line::Integer,
+                             elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from an alias.
+"""
+function importedmodulefromalias!(builder::DIBuilder, scope::DIScope,
+                                  imported::DIImportedEntity, file::DIFile,
+                                  line::Integer,
+                                  elements::Vector{<:Metadata}=Metadata[])
+    elts = convert(Vector{Metadata}, elements)
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromAlias(
+        builder, scope, imported, file, Cuint(line),
+        elts, Cuint(length(elts))))
+end
+
+"""
+    importedmodulefrommodule!(builder::DIBuilder, scope::DIScope,
+                              mod::DIModule, file::DIFile, line::Integer,
+                              elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from a module.
+"""
+function importedmodulefrommodule!(builder::DIBuilder, scope::DIScope,
+                                   mod::DIModule, file::DIFile, line::Integer,
+                                   elements::Vector{<:Metadata}=Metadata[])
+    elts = convert(Vector{Metadata}, elements)
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromModule(
+        builder, scope, mod, file, Cuint(line),
+        elts, Cuint(length(elts))))
+end
+
+"""
+    importeddeclaration!(builder::DIBuilder, scope::DIScope, decl::Metadata,
+                        file::DIFile, line::Integer, name::AbstractString,
+                        elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from a declaration.
+"""
+function importeddeclaration!(builder::DIBuilder, scope::DIScope, decl::Metadata,
+                              file::DIFile, line::Integer, name::AbstractString,
+                              elements::Vector{<:Metadata}=Metadata[])
+    elts = convert(Vector{Metadata}, elements)
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedDeclaration(
+        builder, scope, decl, file, Cuint(line),
+        name, Csize_t(length(name)),
+        elts, Cuint(length(elts))))
+end
+
+
+## macro
+
+export DIMacro, DIMacroFile
+@public macro!, tempmacrofile!
+
+"""
+    DIMacro
+
+A single preprocessor macro definition or undefinition.
+"""
+@checked struct DIMacro <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIMacro, API.LLVMDIMacroMetadataKind)
+
+"""
+    DIMacroFile
+
+A collection of macro records corresponding to a single source file.
+"""
+@checked struct DIMacroFile <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIMacroFile, API.LLVMDIMacroFileMetadataKind)
+
+"""
+    macro!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
+           line::Integer, record_type, name::AbstractString,
+           value::AbstractString) -> DIMacro
+
+Create a new [`DIMacro`](@ref). `record_type` is a
+`LLVMDWARFMacinfoRecordType` value (e.g. `LLVM.API.LLVMDWARFMacinfoRecordTypeDefine`).
+"""
+function macro!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
+                line::Integer, record_type, name::AbstractString,
+                value::AbstractString)
+    DIMacro(API.LLVMDIBuilderCreateMacro(
+        builder, something(parent_macrofile, C_NULL), Cuint(line), record_type,
+        name, Csize_t(length(name)),
+        value, Csize_t(length(value))))
+end
+
+"""
+    tempmacrofile!(builder::DIBuilder,
+                   parent_macrofile::Union{DIMacroFile,Nothing},
+                   line::Integer, file::DIFile) -> DIMacroFile
+
+Create a new (temporary) [`DIMacroFile`](@ref).
+"""
+tempmacrofile!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
+               line::Integer, file::DIFile) =
+    DIMacroFile(API.LLVMDIBuilderCreateTempMacroFile(
+        builder, something(parent_macrofile, C_NULL), Cuint(line), file))
+
+
 ## instruction debug location
 
 # re-uses the existing `debuglocation` / `debuglocation!` exports on IRBuilder.

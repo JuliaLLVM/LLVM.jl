@@ -136,8 +136,12 @@ Derived types (pointers, qualifiers, members, inheritance, ...):
 ```@docs
 LLVM.pointertype!
 LLVM.referencetype!
+LLVM.lvaluereferencetype!
+LLVM.rvaluereferencetype!
 LLVM.typedeftype!
 LLVM.qualifiedtype!
+LLVM.consttype!
+LLVM.volatiletype!
 LLVM.artificialtype!
 LLVM.objectpointertype!
 LLVM.membertype!

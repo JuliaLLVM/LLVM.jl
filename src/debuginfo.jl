@@ -90,17 +90,22 @@ end
 register(DILocation, API.LLVMDILocationMetadataKind)
 
 """
-    DILocation([line::Int], [col::Int], [scope::Metadata], [inlined_at::Metadata])
+    DILocation(line::Integer, col::Integer, scope::DIScope,
+               [inlined_at::DILocation]) -> DILocation
 
-Creates a new DebugLocation that describes a source location.
+Creates a new DebugLocation that describes a source location. A scope is
+required: LLVM segfaults on a null scope.
 """
-function DILocation(line=0, col=0, scope=nothing, inlined_at=nothing)
-    # XXX: are null scopes valid? they crash LLVM:
-    #      DILocation(Context(), 1, 2).scope
-    DILocation(API.LLVMDIBuilderCreateDebugLocation(context(), line, col,
-                                                    something(scope, C_NULL),
+function DILocation(line::Integer, col::Integer, scope::Metadata,
+                    inlined_at::Union{DILocation,Nothing}=nothing)
+    # `scope` is typed as `Metadata` rather than `DIScope` because `DIScope`
+    # isn't defined yet at this point in the file.
+    DILocation(API.LLVMDIBuilderCreateDebugLocation(context(), line, col, scope,
                                                     something(inlined_at, C_NULL)))
 end
+
+DILocation(line::Integer, col::Integer, scope::Nothing, inlined_at=nothing) =
+    throw(UndefRefError())
 
 """
     line(location::DILocation)

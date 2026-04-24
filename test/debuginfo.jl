@@ -227,6 +227,73 @@ end
     end
 end
 
+@testset "DIBuilder: instruction-level insertion" begin
+    DW_ATE_signed = 0x05
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+            stype = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64, i64])
+            sp = LLVM.subprogram!(dib, file, "add", "add", file, 1, stype, 1)
+
+            ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
+            fn = LLVM.Function(mod, "add", ft)
+            LLVM.subprogram!(fn, sp)
+
+            bb = BasicBlock(fn, "entry")
+            position!(builder, bb)
+            x_alloca = alloca!(builder, LLVM.Int64Type(), "x.addr")
+
+            var = LLVM.autovariable!(dib, sp, "x", file, 2, i64)
+            expr = LLVM.expression!(dib)
+            loc = DILocation(2, 1, sp)
+
+            # declare_before!
+            declare_result = LLVM.declare_before!(dib, x_alloca, var, expr, loc, x_alloca)
+            if LLVM.version() >= v"19"
+                @test declare_result isa LLVM.DbgRecord
+            else
+                @test declare_result isa Instruction
+            end
+
+            p1 = LLVM.parameters(fn)[1]
+            p2 = LLVM.parameters(fn)[2]
+            r = add!(builder, p1, p2)
+            retinst = ret!(builder, r)
+
+            # instruction-level debug location read/write
+            @test LLVM.debuglocation(retinst) === nothing
+            LLVM.debuglocation!(retinst, loc)
+            got = LLVM.debuglocation(retinst)
+            @test got !== nothing
+            @test LLVM.line(got) == 2
+            @test LLVM.column(got) == 1
+
+            # value_before!
+            val_result = LLVM.value_before!(dib, r, var, expr, loc, retinst)
+            if LLVM.version() >= v"19"
+                @test val_result isa LLVM.DbgRecord
+            else
+                @test val_result isa Instruction
+            end
+
+            LLVM.finalize_subprogram!(dib, sp)
+            LLVM.finalize!(dib)
+        end
+
+        # the IR should contain the dbg.declare (intrinsic) or #dbg_declare (record)
+        ir = string(mod)
+        if LLVM.version() >= v"19"
+            @test occursin("#dbg_declare", ir) || occursin("dbg.declare", ir)
+        else
+            @test occursin("llvm.dbg.declare", ir)
+        end
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

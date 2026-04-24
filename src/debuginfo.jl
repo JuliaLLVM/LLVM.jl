@@ -1311,6 +1311,216 @@ function namespace!(builder::DIBuilder, parent_scope::DIScope, name::AbstractStr
 end
 
 
+## instruction insertion
+
+@public declare_before!, declare_at_end!, value_before!, value_at_end!
+
+@static if version() >= v"19"
+
+export DbgRecord
+
+"""
+    DbgRecord
+
+A non-instruction debug record attached to a basic block, replacing the
+legacy `llvm.dbg.*` intrinsics in LLVM ≥ 19.
+"""
+@checked struct DbgRecord
+    ref::API.LLVMDbgRecordRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMDbgRecordRef}, record::DbgRecord) = record.ref
+
+function Base.show(io::IO, record::DbgRecord)
+    str_ptr = API.LLVMPrintDbgRecordToString(record)
+    str = unsafe_string(str_ptr)
+    print(io, rstrip(str))
+    # LLVMPrintDbgRecordToString-returned memory is freed by LLVMDisposeMessage
+    API.LLVMDisposeMessage(str_ptr)
+end
+
+"""
+    declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    instr::Instruction) -> DbgRecord
+
+Insert a new `#dbg_declare` record describing `storage` as the runtime
+location of `var`, immediately before `instr`.
+"""
+declare_before!(builder::DIBuilder, storage::Value, var::DIVariable,
+                expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    DbgRecord(API.LLVMDIBuilderInsertDeclareRecordBefore(
+        builder, storage, var, expr, debugloc, instr))
+
+"""
+    declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    block::BasicBlock) -> DbgRecord
+
+Insert a new `#dbg_declare` record at the end of `block`.
+"""
+declare_at_end!(builder::DIBuilder, storage::Value, var::DIVariable,
+                expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    DbgRecord(API.LLVMDIBuilderInsertDeclareRecordAtEnd(
+        builder, storage, var, expr, debugloc, block))
+
+"""
+    value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  instr::Instruction) -> DbgRecord
+
+Insert a new `#dbg_value` record describing `val` as the value of `var`,
+immediately before `instr`.
+"""
+value_before!(builder::DIBuilder, val::Value, var::DIVariable,
+              expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordBefore(
+        builder, val, var, expr, debugloc, instr))
+
+"""
+    value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  block::BasicBlock) -> DbgRecord
+
+Insert a new `#dbg_value` record at the end of `block`.
+"""
+value_at_end!(builder::DIBuilder, val::Value, var::DIVariable,
+              expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordAtEnd(
+        builder, val, var, expr, debugloc, block))
+
+else # LLVM < 19: legacy intrinsic-based insertion
+
+"""
+    declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    instr::Instruction) -> Instruction
+
+Insert a new `llvm.dbg.declare` intrinsic call immediately before `instr`.
+"""
+declare_before!(builder::DIBuilder, storage::Value, var::DIVariable,
+                expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    Instruction(API.LLVMDIBuilderInsertDeclareBefore(
+        builder, storage, var, expr, debugloc, instr))
+
+"""
+    declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    block::BasicBlock) -> Instruction
+
+Insert a new `llvm.dbg.declare` intrinsic call at the end of `block`.
+"""
+declare_at_end!(builder::DIBuilder, storage::Value, var::DIVariable,
+                expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    Instruction(API.LLVMDIBuilderInsertDeclareAtEnd(
+        builder, storage, var, expr, debugloc, block))
+
+"""
+    value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  instr::Instruction) -> Instruction
+
+Insert a new `llvm.dbg.value` intrinsic call immediately before `instr`.
+"""
+value_before!(builder::DIBuilder, val::Value, var::DIVariable,
+              expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    Instruction(API.LLVMDIBuilderInsertDbgValueBefore(
+        builder, val, var, expr, debugloc, instr))
+
+"""
+    value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  block::BasicBlock) -> Instruction
+
+Insert a new `llvm.dbg.value` intrinsic call at the end of `block`.
+"""
+value_at_end!(builder::DIBuilder, val::Value, var::DIVariable,
+              expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    Instruction(API.LLVMDIBuilderInsertDbgValueAtEnd(
+        builder, val, var, expr, debugloc, block))
+
+end # @static version check
+
+
+## label (LLVM 20+)
+
+@static if version() >= v"20"
+
+export DILabel
+@public label!, label_before!, label_at_end!
+
+"""
+    DILabel
+
+A debug-info label, describing a source-level code location by name.
+Requires LLVM 20+.
+"""
+@checked struct DILabel <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DILabel, API.LLVMDILabelMetadataKind)
+
+"""
+    label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+           file::DIFile, line::Integer;
+           always_preserve::Bool=false) -> DILabel
+
+Create a new [`DILabel`](@ref). Requires LLVM 20+.
+"""
+function label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                file::DIFile, line::Integer;
+                always_preserve::Bool=false)
+    DILabel(API.LLVMDIBuilderCreateLabel(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line), always_preserve))
+end
+
+"""
+    label_before!(builder::DIBuilder, label::DILabel,
+                  location::DILocation, instr::Instruction) -> DbgRecord
+
+Insert a new label record immediately before `instr`. Requires LLVM 20+.
+"""
+label_before!(builder::DIBuilder, label::DILabel,
+              location::DILocation, instr::Instruction) =
+    DbgRecord(API.LLVMDIBuilderInsertLabelBefore(builder, label, location, instr))
+
+"""
+    label_at_end!(builder::DIBuilder, label::DILabel,
+                  location::DILocation, block::BasicBlock) -> DbgRecord
+
+Insert a new label record at the end of `block`. Requires LLVM 20+.
+"""
+label_at_end!(builder::DIBuilder, label::DILabel,
+              location::DILocation, block::BasicBlock) =
+    DbgRecord(API.LLVMDIBuilderInsertLabelAtEnd(builder, label, location, block))
+
+end # @static version check
+
+
+## instruction debug location
+
+# re-uses the existing `debuglocation` / `debuglocation!` exports on IRBuilder.
+
+"""
+    debuglocation(inst::Instruction) -> Union{DILocation,Nothing}
+
+Get the debug location attached to the given instruction, or `nothing`.
+"""
+function debuglocation(inst::Instruction)
+    ref = API.LLVMInstructionGetDebugLoc(inst)
+    ref == C_NULL ? nothing : Metadata(ref)::DILocation
+end
+
+"""
+    debuglocation!(inst::Instruction, loc::DILocation)
+
+Set the debug location of the given instruction.
+"""
+debuglocation!(inst::Instruction, loc::DILocation) =
+    API.LLVMInstructionSetDebugLoc(inst, loc)
+
+
 ## other
 
 export DEBUG_METADATA_VERSION, strip_debuginfo!, subprogram, subprogram!

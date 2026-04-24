@@ -1109,7 +1109,8 @@ end
     finalize_subprogram!(builder::DIBuilder, sp::DISubProgram)
 
 Finalize a single subprogram early, sealing its retained-nodes list. After
-this, no more local variables can be added to `sp`.
+this, no more local variables can be added to `sp`. A no-op if `sp` was not
+tracked by `builder` (e.g. created elsewhere or already finalized).
 
 Calling this is never required for correctness — [`dispose`](@ref) /
 [`finalize!`](@ref) finalize every tracked subprogram automatically. Use it

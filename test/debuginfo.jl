@@ -424,7 +424,7 @@ end
             # ObjC (not widely used from Julia but round-tripped)
             prop = LLVM.objc_property!(dib, "count", file, 1,
                                       "getCount", "setCount:", 0, i64)
-            @test prop isa LLVM.DIDerivedType
+            @test prop isa LLVM.DIObjCProperty
             ivar = LLVM.objc_ivar!(dib, "_count", file, 1, 64, 64, 0, i64, prop)
             @test ivar isa LLVM.DIDerivedType
         end

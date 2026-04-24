@@ -941,7 +941,18 @@ end
 
 # ObjC
 
+export DIObjCProperty
 @public objc_ivar!, objc_property!
+
+"""
+    DIObjCProperty
+
+An Objective-C `@property` descriptor.
+"""
+@checked struct DIObjCProperty <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIObjCProperty, API.LLVMDIObjCPropertyMetadataKind)
 
 """
     objc_ivar!(builder::DIBuilder, name::AbstractString, file::DIFile,
@@ -965,14 +976,14 @@ end
 """
     objc_property!(builder::DIBuilder, name::AbstractString, file::DIFile,
                   line::Integer, getter::AbstractString, setter::AbstractString,
-                  attributes::Integer, type::DIType) -> DIDerivedType
+                  attributes::Integer, type::DIType) -> DIObjCProperty
 
 Create a new Objective-C `@property` descriptor.
 """
 function objc_property!(builder::DIBuilder, name::AbstractString, file::DIFile,
                        line::Integer, getter::AbstractString, setter::AbstractString,
                        attributes::Integer, type::DIType)
-    DIDerivedType(API.LLVMDIBuilderCreateObjCProperty(
+    DIObjCProperty(API.LLVMDIBuilderCreateObjCProperty(
         builder, name, Csize_t(length(name)),
         file, Cuint(line),
         getter, Csize_t(length(getter)),

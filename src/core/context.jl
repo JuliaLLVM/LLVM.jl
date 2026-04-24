@@ -50,8 +50,10 @@ be used after this operation.
 """
 function dispose(ctx::Context)
     deactivate(ctx)
-    leak_contexts[] && return
-    mark_dispose(API.LLVMContextDispose, ctx)
+    # in the leak path we still record the dispose in memcheck bookkeeping,
+    # just without actually freeing, so report_leaks stays quiet and any real
+    # missing dispose still stands out.
+    mark_dispose(leak_contexts[] ? Returns(nothing) : API.LLVMContextDispose, ctx)
 end
 
 function Context(f::Core.Function; kwargs...)

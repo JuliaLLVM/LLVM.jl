@@ -1124,7 +1124,7 @@ register(DICompileUnit, API.LLVMDICompileUnitMetadataKind)
 
 """
     compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;
-                 optimized::Bool=true, flags::AbstractString="",
+                 optimized::Bool=true, cmdline::AbstractString="",
                  runtime_version::Integer=0,
                  split_name::Union{AbstractString,Nothing}=nothing,
                  emission_kind=API.LLVMDWARFEmissionFull,
@@ -1134,11 +1134,12 @@ register(DICompileUnit, API.LLVMDICompileUnitMetadataKind)
                  sysroot::AbstractString="", sdk::AbstractString="") -> DICompileUnit
 
 Create a new [`DICompileUnit`](@ref). `lang` is a `LLVMDWARFSourceLanguage`
-value (e.g. `LLVM.API.LLVMDWARFSourceLanguageJulia`).
+value (e.g. `LLVM.API.LLVMDWARFSourceLanguageJulia`). `cmdline` is a
+command-line string embedded verbatim in the emitted debug info.
 """
 function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;
                       optimized::Bool=true,
-                      flags::AbstractString="",
+                      cmdline::AbstractString="",
                       runtime_version::Integer=0,
                       split_name::Union{AbstractString,Nothing}=nothing,
                       emission_kind=API.LLVMDWARFEmissionFull,
@@ -1153,7 +1154,7 @@ function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::Abstrac
         builder, lang, file,
         producer, Csize_t(length(producer)),
         optimized,
-        flags, Csize_t(length(flags)),
+        cmdline, Csize_t(length(cmdline)),
         Cuint(runtime_version),
         split_name_ptr, split_name_len,
         emission_kind,

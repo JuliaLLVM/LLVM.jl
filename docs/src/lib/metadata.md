@@ -91,8 +91,8 @@ LLVM.file!
 ```@docs
 LLVM.DILexicalBlock
 LLVM.DILexicalBlockFile
-LLVM.lexicalblock!
-LLVM.lexicalblockfile!
+LLVM.lexical_block!
+LLVM.lexical_block_file!
 ```
 
 ### Module
@@ -126,64 +126,64 @@ LLVM.DISubrange
 Built-in factories for primitive types:
 
 ```@docs
-LLVM.basictype!
-LLVM.unspecifiedtype!
-LLVM.nullptrtype!
+LLVM.basic_type!
+LLVM.unspecified_type!
+LLVM.nullptr_type!
 ```
 
 Derived types (pointers, qualifiers, members, inheritance, ...):
 
 ```@docs
-LLVM.pointertype!
-LLVM.referencetype!
-LLVM.lvaluereferencetype!
-LLVM.rvaluereferencetype!
-LLVM.typedeftype!
-LLVM.qualifiedtype!
-LLVM.consttype!
-LLVM.volatiletype!
-LLVM.artificialtype!
-LLVM.objectpointertype!
-LLVM.membertype!
-LLVM.bitfieldmembertype!
-LLVM.staticmembertype!
-LLVM.memberpointertype!
+LLVM.pointer_type!
+LLVM.reference_type!
+LLVM.lvalue_reference_type!
+LLVM.rvalue_reference_type!
+LLVM.typedef_type!
+LLVM.qualified_type!
+LLVM.const_type!
+LLVM.volatile_type!
+LLVM.artificial_type!
+LLVM.object_pointer_type!
+LLVM.member_type!
+LLVM.bitfield_member_type!
+LLVM.static_member_type!
+LLVM.member_pointer_type!
 LLVM.inheritance!
 ```
 
 Composite types:
 
 ```@docs
-LLVM.structtype!
-LLVM.uniontype!
-LLVM.classtype!
-LLVM.arraytype!
-LLVM.vectortype!
+LLVM.struct_type!
+LLVM.union_type!
+LLVM.class_type!
+LLVM.array_type!
+LLVM.vector_type!
 LLVM.enumerator!
-LLVM.enumerationtype!
-LLVM.forwarddecl!
-LLVM.replaceablecompositetype!
-LLVM.getorcreatesubrange!
+LLVM.enumeration_type!
+LLVM.forward_decl!
+LLVM.replaceable_composite_type!
+LLVM.get_or_create_subrange!
 ```
 
 Subroutine types:
 
 ```@docs
-LLVM.subroutinetype!
+LLVM.subroutine_type!
 ```
 
 Array-node helpers:
 
 ```@docs
-LLVM.getorcreatearray!
-LLVM.getorcreatetypearray!
+LLVM.get_or_create_array!
+LLVM.get_or_create_type_array!
 ```
 
 Objective-C:
 
 ```@docs
-LLVM.objcivar!
-LLVM.objcproperty!
+LLVM.objc_ivar!
+LLVM.objc_property!
 ```
 
 ### Subprogram
@@ -199,8 +199,8 @@ LLVM.subprogram!(::DIBuilder, ::DIScope, ::AbstractString, ::DIFile, ::Integer, 
 Factories for local variables and parameters:
 
 ```@docs
-LLVM.autovariable!
-LLVM.parametervariable!
+LLVM.auto_variable!
+LLVM.parameter_variable!
 ```
 
 ### Expressions
@@ -209,21 +209,21 @@ LLVM.parametervariable!
 LLVM.DIExpression
 LLVM.DIGlobalVariableExpression
 LLVM.expression!
-LLVM.constantvalueexpression!
+LLVM.constant_value_expression!
 LLVM.variable
 LLVM.expression
-LLVM.globalvariableexpression!
-LLVM.tempglobalvariablefwddecl!
+LLVM.global_variable_expression!
+LLVM.temp_global_variable_fwd_decl!
 ```
 
 ### Imported entities
 
 ```@docs
 LLVM.DIImportedEntity
-LLVM.importedmodulefromnamespace!
-LLVM.importedmodulefromalias!
-LLVM.importedmodulefrommodule!
-LLVM.importeddeclaration!
+LLVM.imported_module_from_namespace!
+LLVM.imported_module_from_alias!
+LLVM.imported_module_from_module!
+LLVM.imported_declaration!
 ```
 
 ### Macros
@@ -232,7 +232,7 @@ LLVM.importeddeclaration!
 LLVM.DIMacro
 LLVM.DIMacroFile
 LLVM.macro!
-LLVM.tempmacrofile!
+LLVM.temp_macro_file!
 ```
 
 ### Instruction-level insertion
@@ -254,7 +254,7 @@ LLVM.debuglocation!(::Instruction, ::DILocation)
 
 ```@docs
 DICompileUnit
-LLVM.compileunit!
+LLVM.compile_unit!
 ```
 
 ### Mutation helpers
@@ -262,7 +262,7 @@ LLVM.compileunit!
 ```@docs
 LLVM.temporary_mdnode
 LLVM.dispose_temporary
-LLVM.replace_all_uses_with!
+LLVM.replace_uses!(::LLVM.Metadata, ::LLVM.Metadata)
 ```
 
 ### Other

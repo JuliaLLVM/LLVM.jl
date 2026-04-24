@@ -239,6 +239,14 @@ DICompileUnit
 LLVM.compileunit!
 ```
 
+### Mutation helpers
+
+```@docs
+LLVM.temporary_mdnode
+LLVM.dispose_temporary
+LLVM.replace_all_uses_with!
+```
+
 ### Other
 
 ```@docs

@@ -1656,6 +1656,69 @@ debuglocation!(inst::Instruction, loc::DILocation) =
     API.LLVMInstructionSetDebugLoc(inst, loc)
 
 
+## mutation / advanced helpers
+
+@public temporary_mdnode, dispose_temporary, replace_all_uses_with!
+
+"""
+    temporary_mdnode(operands::Vector{<:Metadata}=Metadata[]) -> MDNode
+
+Create a temporary metadata node in the task-local [`context`](@ref) with the
+given operands. Temporary nodes are useful for constructing cycles and must be
+either replaced via [`replace_all_uses_with!`](@ref) or disposed of via
+[`dispose_temporary`](@ref).
+"""
+function temporary_mdnode(operands::Vector{<:Metadata}=Metadata[])
+    ops = convert(Vector{Metadata}, operands)
+    ref = API.LLVMTemporaryMDNode(context(), ops, Csize_t(length(ops)))
+    Metadata(ref)
+end
+
+"""
+    dispose_temporary(md::Metadata)
+
+Dispose of a temporary metadata node returned by [`temporary_mdnode`](@ref).
+"""
+dispose_temporary(md::Metadata) = API.LLVMDisposeTemporaryMDNode(md)
+
+"""
+    replace_all_uses_with!(temp::Metadata, replacement::Metadata)
+
+Replace all uses of `temp` with `replacement`, and dispose of `temp`.
+"""
+replace_all_uses_with!(temp::Metadata, replacement::Metadata) =
+    API.LLVMMetadataReplaceAllUsesWith(temp, replacement)
+
+
+@static if version() >= v"21"
+
+@public replacearrays!, replacetype!
+
+"""
+    replacearrays!(builder::DIBuilder, T::DICompositeType,
+                   elements::Vector{<:Metadata})
+
+Replace the elements array of the given composite type `T`. Requires LLVM 21+.
+"""
+function replacearrays!(builder::DIBuilder, T::DICompositeType,
+                        elements::Vector{<:Metadata})
+    elts = convert(Vector{Metadata}, elements)
+    tref = Ref(T.ref)
+    API.LLVMReplaceArrays(builder, tref, elts, Cuint(length(elts)))
+    return Metadata(tref[])::DICompositeType
+end
+
+"""
+    replacetype!(sp::DISubProgram, ty::DISubroutineType)
+
+Replace the type of the given subprogram. Requires LLVM 21+.
+"""
+replacetype!(sp::DISubProgram, ty::DISubroutineType) =
+    API.LLVMDISubprogramReplaceType(sp, ty)
+
+end # @static version check
+
+
 ## other
 
 export DEBUG_METADATA_VERSION, strip_debuginfo!, subprogram, subprogram!

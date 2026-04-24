@@ -1495,7 +1495,7 @@ end
 Insert a new `#dbg_declare` record describing `storage` as the runtime
 location of `var`, immediately before `instr`.
 """
-declare_before!(builder::DIBuilder, storage::Value, var::DIVariable,
+declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     DbgRecord(API.LLVMDIBuilderInsertDeclareRecordBefore(
         builder, storage, var, expr, debugloc, instr))
@@ -1507,7 +1507,7 @@ declare_before!(builder::DIBuilder, storage::Value, var::DIVariable,
 
 Insert a new `#dbg_declare` record at the end of `block`.
 """
-declare_at_end!(builder::DIBuilder, storage::Value, var::DIVariable,
+declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     DbgRecord(API.LLVMDIBuilderInsertDeclareRecordAtEnd(
         builder, storage, var, expr, debugloc, block))
@@ -1520,7 +1520,7 @@ declare_at_end!(builder::DIBuilder, storage::Value, var::DIVariable,
 Insert a new `#dbg_value` record describing `val` as the value of `var`,
 immediately before `instr`.
 """
-value_before!(builder::DIBuilder, val::Value, var::DIVariable,
+value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordBefore(
         builder, val, var, expr, debugloc, instr))
@@ -1532,7 +1532,7 @@ value_before!(builder::DIBuilder, val::Value, var::DIVariable,
 
 Insert a new `#dbg_value` record at the end of `block`.
 """
-value_at_end!(builder::DIBuilder, val::Value, var::DIVariable,
+value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordAtEnd(
         builder, val, var, expr, debugloc, block))
@@ -1546,7 +1546,7 @@ else # LLVM < 19: legacy intrinsic-based insertion
 
 Insert a new `llvm.dbg.declare` intrinsic call immediately before `instr`.
 """
-declare_before!(builder::DIBuilder, storage::Value, var::DIVariable,
+declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     Instruction(API.LLVMDIBuilderInsertDeclareBefore(
         builder, storage, var, expr, debugloc, instr))
@@ -1558,7 +1558,7 @@ declare_before!(builder::DIBuilder, storage::Value, var::DIVariable,
 
 Insert a new `llvm.dbg.declare` intrinsic call at the end of `block`.
 """
-declare_at_end!(builder::DIBuilder, storage::Value, var::DIVariable,
+declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     Instruction(API.LLVMDIBuilderInsertDeclareAtEnd(
         builder, storage, var, expr, debugloc, block))
@@ -1570,7 +1570,7 @@ declare_at_end!(builder::DIBuilder, storage::Value, var::DIVariable,
 
 Insert a new `llvm.dbg.value` intrinsic call immediately before `instr`.
 """
-value_before!(builder::DIBuilder, val::Value, var::DIVariable,
+value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     Instruction(API.LLVMDIBuilderInsertDbgValueBefore(
         builder, val, var, expr, debugloc, instr))
@@ -1582,7 +1582,7 @@ value_before!(builder::DIBuilder, val::Value, var::DIVariable,
 
 Insert a new `llvm.dbg.value` intrinsic call at the end of `block`.
 """
-value_at_end!(builder::DIBuilder, val::Value, var::DIVariable,
+value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     Instruction(API.LLVMDIBuilderInsertDbgValueAtEnd(
         builder, val, var, expr, debugloc, block))

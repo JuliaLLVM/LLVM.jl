@@ -37,7 +37,7 @@ end
             @test LLVM.filename(file) == "test.jl"
             @test LLVM.directory(file) == "/tmp"
 
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
             @test cu isa DICompileUnit
 
@@ -61,13 +61,13 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
 
-            lb = LLVM.lexicalblock!(dib, cu, file, 3, 5)
+            lb = LLVM.lexical_block!(dib, cu, file, 3, 5)
             @test lb isa DILexicalBlock
 
-            lbf = LLVM.lexicalblockfile!(dib, lb, file, 0)
+            lbf = LLVM.lexical_block_file!(dib, lb, file, 0)
             @test lbf isa DILexicalBlockFile
 
             # DILocation with lexical block scope
@@ -93,88 +93,88 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
 
             # basic types
-            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
             @test i64 isa LLVM.DIBasicType
             @test LLVM.name(i64) == "Int64"
             @test LLVM.align(i64) == 0
             @test LLVM.tag(i64) != 0
 
-            @test LLVM.unspecifiedtype!(dib, "unspec") isa LLVM.DIBasicType
-            @test LLVM.nullptrtype!(dib) isa LLVM.DIBasicType
+            @test LLVM.unspecified_type!(dib, "unspec") isa LLVM.DIBasicType
+            @test LLVM.nullptr_type!(dib) isa LLVM.DIBasicType
 
             # derived types
-            ptr = LLVM.pointertype!(dib, i64, 64; name="i64_ptr")
+            ptr = LLVM.pointer_type!(dib, i64, 64; name="i64_ptr")
             @test ptr isa LLVM.DIDerivedType
 
-            td = LLVM.typedeftype!(dib, i64, "MyInt", file, 1, cu)
+            td = LLVM.typedef_type!(dib, i64, "MyInt", file, 1, cu)
             @test td isa LLVM.DIDerivedType
 
-            cq = LLVM.qualifiedtype!(dib, DW_TAG_const_type, i64)
+            cq = LLVM.qualified_type!(dib, DW_TAG_const_type, i64)
             @test cq isa LLVM.DIDerivedType
 
-            at2 = LLVM.artificialtype!(dib, i64)
+            at2 = LLVM.artificial_type!(dib, i64)
             @test at2 isa LLVM.DIDerivedType
 
-            op = LLVM.objectpointertype!(dib, i64)
+            op = LLVM.object_pointer_type!(dib, i64)
             @test op isa LLVM.DIDerivedType
 
-            ref = LLVM.referencetype!(dib, DW_TAG_reference_type, i64)
+            ref = LLVM.reference_type!(dib, DW_TAG_reference_type, i64)
             @test ref isa LLVM.DIDerivedType
 
             # named convenience wrappers
-            @test LLVM.consttype!(dib, i64) isa LLVM.DIDerivedType
-            @test LLVM.volatiletype!(dib, i64) isa LLVM.DIDerivedType
-            @test LLVM.lvaluereferencetype!(dib, i64) isa LLVM.DIDerivedType
-            @test LLVM.rvaluereferencetype!(dib, i64) isa LLVM.DIDerivedType
+            @test LLVM.const_type!(dib, i64) isa LLVM.DIDerivedType
+            @test LLVM.volatile_type!(dib, i64) isa LLVM.DIDerivedType
+            @test LLVM.lvalue_reference_type!(dib, i64) isa LLVM.DIDerivedType
+            @test LLVM.rvalue_reference_type!(dib, i64) isa LLVM.DIDerivedType
 
             # composite types
-            mem = LLVM.membertype!(dib, cu, "x", file, 2, 64, 64, 0, i64)
+            mem = LLVM.member_type!(dib, cu, "x", file, 2, 64, 64, 0, i64)
             @test mem isa LLVM.DIDerivedType
 
-            st = LLVM.structtype!(dib, cu, "Point", file, 1, 64, 64, LLVM.Metadata[mem])
+            st = LLVM.struct_type!(dib, cu, "Point", file, 1, 64, 64, LLVM.Metadata[mem])
             @test st isa LLVM.DICompositeType
             @test LLVM.name(st) == "Point"
 
-            un = LLVM.uniontype!(dib, cu, "U", file, 1, 64, 64, LLVM.Metadata[mem])
+            un = LLVM.union_type!(dib, cu, "U", file, 1, 64, 64, LLVM.Metadata[mem])
             @test un isa LLVM.DICompositeType
 
-            ct = LLVM.classtype!(dib, cu, "C", file, 1, 64, 64, 0, LLVM.Metadata[mem])
+            ct = LLVM.class_type!(dib, cu, "C", file, 1, 64, 64, 0, LLVM.Metadata[mem])
             @test ct isa LLVM.DICompositeType
 
             # arrays/vectors via subrange
-            sr = LLVM.getorcreatesubrange!(dib, 0, 10)
+            sr = LLVM.get_or_create_subrange!(dib, 0, 10)
             @test sr isa LLVM.DISubrange
-            aty = LLVM.arraytype!(dib, 640, 64, i64, [sr])
+            aty = LLVM.array_type!(dib, 640, 64, i64, [sr])
             @test aty isa LLVM.DICompositeType
 
-            vty = LLVM.vectortype!(dib, 256, 64, i64, [sr])
+            vty = LLVM.vector_type!(dib, 256, 64, i64, [sr])
             @test vty isa LLVM.DICompositeType
 
             # enumerations
             e1 = LLVM.enumerator!(dib, "A", 0)
             @test e1 isa LLVM.DIEnumerator
-            et = LLVM.enumerationtype!(dib, cu, "Color", file, 1, 32, 32, LLVM.Metadata[e1])
+            et = LLVM.enumeration_type!(dib, cu, "Color", file, 1, 32, 32, LLVM.Metadata[e1])
             @test et isa LLVM.DICompositeType
 
             # bitfield + static + member-pointer + inheritance
-            @test LLVM.bitfieldmembertype!(dib, cu, "b", file, 1, 3, 0, 0, i64) isa LLVM.DIDerivedType
-            @test LLVM.staticmembertype!(dib, cu, "s", file, 1, i64) isa LLVM.DIDerivedType
-            @test LLVM.memberpointertype!(dib, i64, st, 64) isa LLVM.DIDerivedType
+            @test LLVM.bitfield_member_type!(dib, cu, "b", file, 1, 3, 0, 0, i64) isa LLVM.DIDerivedType
+            @test LLVM.static_member_type!(dib, cu, "s", file, 1, i64) isa LLVM.DIDerivedType
+            @test LLVM.member_pointer_type!(dib, i64, st, 64) isa LLVM.DIDerivedType
 
-            base = LLVM.classtype!(dib, cu, "Base", file, 1, 64, 64, 0, LLVM.Metadata[])
+            base = LLVM.class_type!(dib, cu, "Base", file, 1, 64, 64, 0, LLVM.Metadata[])
             @test LLVM.inheritance!(dib, ct, base, 0) isa LLVM.DIDerivedType
 
             # subroutine
-            sroute = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64])
+            sroute = LLVM.subroutine_type!(dib, file, LLVM.Metadata[i64, i64])
             @test sroute isa LLVM.DISubroutineType
 
             # forward decl / replaceable composite
-            @test LLVM.forwarddecl!(dib, DW_TAG_structure_type, "Fwd", cu, file, 1) isa LLVM.DICompositeType
-            @test LLVM.replaceablecompositetype!(dib, DW_TAG_structure_type, "Rep", cu, file, 1) isa LLVM.DICompositeType
+            @test LLVM.forward_decl!(dib, DW_TAG_structure_type, "Fwd", cu, file, 1) isa LLVM.DICompositeType
+            @test LLVM.replaceable_composite_type!(dib, DW_TAG_structure_type, "Rep", cu, file, 1) isa LLVM.DICompositeType
         end
     end
 end
@@ -185,11 +185,11 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
 
-            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
-            stype = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64, i64])
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
+            stype = LLVM.subroutine_type!(dib, file, LLVM.Metadata[i64, i64, i64])
 
             # subprogram
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
@@ -197,24 +197,24 @@ end
             @test LLVM.line(sp) == 1
 
             # variables
-            v = LLVM.autovariable!(dib, sp, "x", file, 2, i64)
+            v = LLVM.auto_variable!(dib, sp, "x", file, 2, i64)
             @test v isa LLVM.DILocalVariable
             @test LLVM.line(v) == 2
             @test LLVM.file(v) == file
             @test LLVM.scope(v) == sp
 
-            p = LLVM.parametervariable!(dib, sp, "a", 1, file, 1, i64)
+            p = LLVM.parameter_variable!(dib, sp, "a", 1, file, 1, i64)
             @test p isa LLVM.DILocalVariable
 
             # expressions
             e = LLVM.expression!(dib)
             @test e isa LLVM.DIExpression
 
-            ce = LLVM.constantvalueexpression!(dib, 42)
+            ce = LLVM.constant_value_expression!(dib, 42)
             @test ce isa LLVM.DIExpression
 
             # global variable expression + accessors
-            gve = LLVM.globalvariableexpression!(dib, cu, "g", "g",
+            gve = LLVM.global_variable_expression!(dib, cu, "g", "g",
                                                   file, 1, i64, false, e)
             @test gve isa LLVM.DIGlobalVariableExpression
             gv = LLVM.variable(gve)
@@ -223,7 +223,7 @@ end
             @test LLVM.expression(gve) isa LLVM.DIExpression
 
             # temp global forward decl
-            tgv = LLVM.tempglobalvariablefwddecl!(dib, cu, "tg", "tg",
+            tgv = LLVM.temp_global_variable_fwd_decl!(dib, cu, "tg", "tg",
                                                    file, 2, i64, false)
             @test tgv isa LLVM.DIGlobalVariable
 
@@ -238,10 +238,10 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
-            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
-            stype = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64, i64])
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
+            stype = LLVM.subroutine_type!(dib, file, LLVM.Metadata[i64, i64, i64])
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
 
             ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
@@ -252,7 +252,7 @@ end
             position!(builder, bb)
             x_alloca = alloca!(builder, LLVM.Int64Type(), "x.addr")
 
-            var = LLVM.autovariable!(dib, sp, "x", file, 2, i64)
+            var = LLVM.auto_variable!(dib, sp, "x", file, 2, i64)
             expr = LLVM.expression!(dib)
             loc = DILocation(2, 1, sp)
 
@@ -302,26 +302,26 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
 
             ns = LLVM.namespace!(dib, cu, "MyNS")
-            ie = LLVM.importedmodulefromnamespace!(dib, cu, ns, file, 1)
+            ie = LLVM.imported_module_from_namespace!(dib, cu, ns, file, 1)
             @test ie isa LLVM.DIImportedEntity
 
-            ie2 = LLVM.importedmodulefromalias!(dib, cu, ie, file, 2)
+            ie2 = LLVM.imported_module_from_alias!(dib, cu, ie, file, 2)
             @test ie2 isa LLVM.DIImportedEntity
 
             dm = LLVM.dimodule!(dib, cu, "MyMod")
-            ie3 = LLVM.importedmodulefrommodule!(dib, cu, dm, file, 3)
+            ie3 = LLVM.imported_module_from_module!(dib, cu, dm, file, 3)
             @test ie3 isa LLVM.DIImportedEntity
 
             # imported declaration (decl = another scope)
-            ied = LLVM.importeddeclaration!(dib, cu, ns, file, 4, "alias")
+            ied = LLVM.imported_declaration!(dib, cu, ns, file, 4, "alias")
             @test ied isa LLVM.DIImportedEntity
 
             # macros
-            mf = LLVM.tempmacrofile!(dib, nothing, 1, file)
+            mf = LLVM.temp_macro_file!(dib, nothing, 1, file)
             @test mf isa LLVM.DIMacroFile
 
             m = LLVM.macro!(dib, mf, 1,
@@ -345,13 +345,13 @@ end
             @test temp isa LLVM.Metadata
             LLVM.dispose_temporary(temp)
 
-            # replace_all_uses_with! on a used temp
+            # replace_uses! on a used temp
             DW_ATE_signed = 0x05
-            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
 
             temp2 = LLVM.temporary_mdnode(LLVM.Metadata[i64])
             real_node = MDNode([i64])
-            LLVM.replace_all_uses_with!(temp2, real_node)
+            LLVM.replace_uses!(temp2, real_node)
             # temp2 is disposed as a side effect of RAUW
         end
     end
@@ -360,23 +360,23 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
 
             DW_TAG_structure_type = 0x13
             DW_ATE_signed = 0x05
 
-            fwd = LLVM.replaceablecompositetype!(dib, DW_TAG_structure_type, "Node",
+            fwd = LLVM.replaceable_composite_type!(dib, DW_TAG_structure_type, "Node",
                                                  cu, file, 1; size_in_bits=64)
-            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
-            ptr_to_fwd = LLVM.pointertype!(dib, fwd, 64)
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
+            ptr_to_fwd = LLVM.pointer_type!(dib, fwd, 64)
 
-            mem_val = LLVM.membertype!(dib, cu, "value", file, 1, 64, 64, 0, i64)
-            mem_next = LLVM.membertype!(dib, cu, "next", file, 2, 64, 64, 64, ptr_to_fwd)
+            mem_val = LLVM.member_type!(dib, cu, "value", file, 1, 64, 64, 0, i64)
+            mem_next = LLVM.member_type!(dib, cu, "next", file, 2, 64, 64, 64, ptr_to_fwd)
 
-            real_struct = LLVM.structtype!(dib, cu, "Node", file, 1, 128, 64,
+            real_struct = LLVM.struct_type!(dib, cu, "Node", file, 1, 128, 64,
                                            LLVM.Metadata[mem_val, mem_next])
-            LLVM.replace_all_uses_with!(fwd, real_struct)
+            LLVM.replace_uses!(fwd, real_struct)
         end
     end
 end
@@ -387,20 +387,20 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
-            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
-            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
 
-            ta = LLVM.getorcreatetypearray!(dib, LLVM.Metadata[i64, i64])
+            ta = LLVM.get_or_create_type_array!(dib, LLVM.Metadata[i64, i64])
             @test ta isa LLVM.Metadata
-            arr = LLVM.getorcreatearray!(dib, LLVM.Metadata[i64])
+            arr = LLVM.get_or_create_array!(dib, LLVM.Metadata[i64])
             @test arr isa LLVM.Metadata
 
             # ObjC (not widely used from Julia but round-tripped)
-            prop = LLVM.objcproperty!(dib, "count", file, 1,
+            prop = LLVM.objc_property!(dib, "count", file, 1,
                                       "getCount", "setCount:", 0, i64)
             @test prop isa LLVM.DIDerivedType
-            ivar = LLVM.objcivar!(dib, "_count", file, 1, 64, 64, 0, i64, prop)
+            ivar = LLVM.objc_ivar!(dib, "_count", file, 1, 64, 64, 0, i64, prop)
             @test ivar isa LLVM.DIDerivedType
         end
 

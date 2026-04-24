@@ -2,6 +2,27 @@
 
 DEBUG_METADATA_VERSION()
 
+@testset "DIBuilder lifecycle" begin
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        dib = DIBuilder(mod)
+        LLVM.finalize!(dib)
+        dispose(dib)
+    end
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        dib = DIBuilder(mod; allow_unresolved=false)
+        LLVM.finalize!(dib)
+        dispose(dib)
+    end
+
+    # do-block form
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            LLVM.finalize!(dib)
+        end
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

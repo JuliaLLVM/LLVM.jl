@@ -37,6 +37,16 @@ push!(::NamedMDNode, ::MDNode)
 DINode
 ```
 
+### Builder
+
+```@docs
+DIBuilder
+DIBuilder(::LLVM.Module)
+dispose(::DIBuilder)
+LLVM.finalize!(::DIBuilder)
+LLVM.finalize_subprogram!
+```
+
 ### Location information
 
 ```@docs

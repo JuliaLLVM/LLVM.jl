@@ -630,22 +630,24 @@ end
 
 """
     static_member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
-                      file::DIFile, line::Integer, type::DIType;
+                      file::DIFile, line::Integer, type::DIType,
+                      constant_val::Constant;
                       flags=API.LLVMDIFlagZero,
-                      constant_val=nothing,
                       align_in_bits::Integer=0) -> DIDerivedType
 
-Create a new static member of a composite type.
+Create a new static member of a composite type. `constant_val` is required:
+the underlying C entry point unconditionally `cast<Constant>`s it and
+crashes on null.
 """
 function static_member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
-                           file::DIFile, line::Integer, type::DIType;
+                           file::DIFile, line::Integer, type::DIType,
+                           constant_val::Constant;
                            flags=API.LLVMDIFlagZero,
-                           constant_val=nothing,
                            align_in_bits::Integer=0)
     DIDerivedType(API.LLVMDIBuilderCreateStaticMemberType(
         builder, scope, name, Csize_t(length(name)),
         file, Cuint(line), type, flags,
-        something(constant_val, C_NULL), UInt32(align_in_bits)))
+        constant_val, UInt32(align_in_bits)))
 end
 
 """

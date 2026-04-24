@@ -7,13 +7,14 @@ export DIBuilder
 
 A builder for constructing debug information metadata.
 
-This object needs to be disposed of using [`dispose`](@ref), which also resolves
-any pending temporary metadata. Call [`finalize!`](@ref) explicitly only if you
-need to use the finalized debug info (e.g. emit code) *before* disposing of the
-builder.
+This object needs to be disposed of using [`dispose`](@ref), which also
+finalizes the debug info. Call [`finalize!`](@ref) explicitly only if you
+need to use the finalized debug info (e.g. emit code) *before* disposing of
+the builder.
 """
 @checked struct DIBuilder
     ref::API.LLVMDIBuilderRef
+    has_compile_unit::Base.RefValue{Bool}
 end
 
 Base.unsafe_convert(::Type{API.LLVMDIBuilderRef}, builder::DIBuilder) =
@@ -31,17 +32,21 @@ metadata nodes attached to the module so that cycles can be resolved during
 function DIBuilder(mod::Module; allow_unresolved::Bool=true)
     ref = allow_unresolved ? API.LLVMCreateDIBuilder(mod) :
                              API.LLVMCreateDIBuilderDisallowUnresolved(mod)
-    mark_alloc(DIBuilder(ref))
+    mark_alloc(DIBuilder(ref, Ref(false)))
 end
 
 """
     dispose(builder::DIBuilder)
 
-Finalize the debug info (resolving any pending temporary metadata) and dispose
-of the builder.
+Finalize the debug info and dispose of the builder. Finalization populates
+the compile unit's enum/retained-type/global/imported-entity/macro arrays,
+seals each subprogram's retained-nodes list, and resolves remaining cycles.
+If no compile unit was registered with the builder, finalization is skipped.
 """
 function dispose(builder::DIBuilder)
-    API.LLVMDIBuilderFinalize(builder)
+    if builder.has_compile_unit[]
+        API.LLVMDIBuilderFinalize(builder)
+    end
     mark_dispose(API.LLVMDisposeDIBuilder, builder)
 end
 
@@ -62,9 +67,12 @@ Base.show(io::IO, builder::DIBuilder) = @printf(io, "DIBuilder(%p)", builder.ref
 Resolve any unresolved metadata nodes and mark all compile units finalized.
 Called automatically by [`dispose`](@ref); call explicitly only if the
 DI-enriched module must be consumed (e.g. for code emission) before the
-builder is disposed of.
+builder is disposed of. Skipped if no compile unit has been registered.
 """
-finalize!(builder::DIBuilder) = API.LLVMDIBuilderFinalize(builder)
+function finalize!(builder::DIBuilder)
+    builder.has_compile_unit[] && API.LLVMDIBuilderFinalize(builder)
+    return
+end
 
 
 ## location information
@@ -1141,7 +1149,7 @@ function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::Abstrac
                       sdk::AbstractString="")
     split_name_ptr = split_name === nothing ? C_NULL : split_name
     split_name_len = split_name === nothing ? Csize_t(0) : Csize_t(length(split_name))
-    DICompileUnit(API.LLVMDIBuilderCreateCompileUnit(
+    cu = DICompileUnit(API.LLVMDIBuilderCreateCompileUnit(
         builder, lang, file,
         producer, Csize_t(length(producer)),
         optimized,
@@ -1154,6 +1162,8 @@ function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::Abstrac
         debug_info_for_profiling,
         sysroot, Csize_t(length(sysroot)),
         sdk, Csize_t(length(sdk))))
+    builder.has_compile_unit[] = true
+    return cu
 end
 
 

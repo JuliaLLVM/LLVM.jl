@@ -53,6 +53,35 @@ end
     end
 end
 
+@testset "DIBuilder: lexical blocks" begin
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+
+            lb = LLVM.lexicalblock!(dib, cu, file, 3, 5)
+            @test lb isa DILexicalBlock
+
+            lbf = LLVM.lexicalblockfile!(dib, lb, file, 0)
+            @test lbf isa DILexicalBlockFile
+
+            # DILocation with lexical block scope
+            loc = DILocation(10, 20, lb)
+            @test LLVM.line(loc) == 10
+            @test LLVM.column(loc) == 20
+            @test LLVM.scope(loc) == lb
+
+            # inlined_at chain
+            outer = DILocation(5, 1, cu)
+            inner = DILocation(10, 20, lb, outer)
+            @test LLVM.inlined_at(inner) == outer
+
+            LLVM.finalize!(dib)
+        end
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

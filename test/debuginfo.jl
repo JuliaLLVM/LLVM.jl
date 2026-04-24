@@ -169,8 +169,10 @@ end
             @test LLVM.inheritance!(dib, ct, base, 0) isa LLVM.DIDerivedType
 
             # subroutine
-            sroute = LLVM.subroutine_type!(dib, file, LLVM.Metadata[i64, i64])
+            sroute = LLVM.subroutine_type!(dib, file, i64, LLVM.Metadata[i64])
             @test sroute isa LLVM.DISubroutineType
+            # void return
+            @test LLVM.subroutine_type!(dib, file, nothing) isa LLVM.DISubroutineType
 
             # forward decl / replaceable composite
             @test LLVM.forward_decl!(dib, DW_TAG_structure_type, "Fwd", cu, file, 1) isa LLVM.DICompositeType
@@ -189,7 +191,7 @@ end
                                    file, "LLVM.jl Tests")
 
             i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
-            stype = LLVM.subroutine_type!(dib, file, LLVM.Metadata[i64, i64, i64])
+            stype = LLVM.subroutine_type!(dib, file, i64, LLVM.Metadata[i64, i64])
 
             # subprogram
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
@@ -241,7 +243,7 @@ end
             cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
             i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
-            stype = LLVM.subroutine_type!(dib, file, LLVM.Metadata[i64, i64, i64])
+            stype = LLVM.subroutine_type!(dib, file, i64, LLVM.Metadata[i64, i64])
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
 
             ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])

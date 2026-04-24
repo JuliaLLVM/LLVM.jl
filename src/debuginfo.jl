@@ -866,16 +866,25 @@ end
 
 """
     subroutine_type!(builder::DIBuilder, file::DIFile,
-                    parameter_types::Vector{<:Metadata};
+                    return_type::Union{DIType,Nothing},
+                    parameter_types::Vector{<:Metadata}=Metadata[];
                     flags=API.LLVMDIFlagZero) -> DISubroutineType
 
-Create a new subroutine type. The first entry of `parameter_types` is the
-return type; the rest are the parameter types.
+Create a new subroutine type with the given return and parameter types. Pass
+`nothing` for `return_type` to describe a `void`-returning subroutine.
 """
 function subroutine_type!(builder::DIBuilder, file::DIFile,
-                         parameter_types::Vector{<:Metadata};
+                         return_type::Union{DIType,Nothing},
+                         parameter_types::Vector{<:Metadata}=Metadata[];
                          flags=API.LLVMDIFlagZero)
-    params = convert(Vector{Metadata}, parameter_types)
+    # LLVM packs the return type as the 0th element of the parameter-types array,
+    # with a null entry standing for `void`.
+    params = API.LLVMMetadataRef[
+        return_type === nothing ? C_NULL :
+            Base.unsafe_convert(API.LLVMMetadataRef, return_type)]
+    for p in parameter_types
+        push!(params, Base.unsafe_convert(API.LLVMMetadataRef, p))
+    end
     DISubroutineType(API.LLVMDIBuilderCreateSubroutineType(
         builder, file, params, Cuint(length(params)), flags))
 end

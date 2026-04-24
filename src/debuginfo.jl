@@ -297,7 +297,14 @@ end
 
 ## type
 
-export DIType, name, offset, line, flags
+export DIType, DIEnumerator, DISubrange, name, offset, line, flags
+@public align,
+        basictype!, unspecifiedtype!, pointertype!, referencetype!, nullptrtype!,
+        typedeftype!, qualifiedtype!, artificialtype!, objectpointertype!,
+        inheritance!, membertype!, bitfieldmembertype!, staticmembertype!,
+        memberpointertype!, structtype!, uniontype!, classtype!, arraytype!,
+        vectortype!, enumerationtype!, enumerator!, forwarddecl!,
+        replaceablecompositetype!, subroutinetype!, getorcreatesubrange!
 
 """
     DIType
@@ -316,6 +323,26 @@ for typ in (:Basic, :Derived, :Composite, :Subroutine)
         register($typ_name, API.$typ_kind)
     end
 end
+
+"""
+    DIEnumerator
+
+A single enumerator value in an enumeration type.
+"""
+@checked struct DIEnumerator <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIEnumerator, API.LLVMDIEnumeratorMetadataKind)
+
+"""
+    DISubrange
+
+A subrange describing one dimension of an array or vector type.
+"""
+@checked struct DISubrange <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DISubrange, API.LLVMDISubrangeMetadataKind)
 
 """
     name(typ::DIType)
@@ -356,6 +383,540 @@ line(typ::DIType) = Int(API.LLVMDITypeGetLine(typ))
 Get the flags of the given type.
 """
 flags(typ::DIType) = API.LLVMDITypeGetFlags(typ)
+
+"""
+    align(typ::DIType)
+
+Get the alignment in bits of the given type.
+"""
+align(typ::DIType) = Int(API.LLVMDITypeGetAlignInBits(typ))
+
+"""
+    tag(node::DINode)
+
+Get the DWARF tag of the given node, or `0` if none.
+"""
+tag(node::DINode) = Int(API.LLVMGetDINodeTag(node))
+
+
+# basic types
+
+"""
+    basictype!(builder::DIBuilder, name::AbstractString, size_in_bits::Integer,
+               encoding::Integer; flags=API.LLVMDIFlagZero) -> DIBasicType
+
+Create a new [`DIBasicType`](@ref), such as an integer or floating-point type.
+`encoding` is a `DW_ATE_*` value (see the DWARF standard).
+"""
+function basictype!(builder::DIBuilder, name::AbstractString, size_in_bits::Integer,
+                    encoding::Integer; flags=API.LLVMDIFlagZero)
+    DIBasicType(API.LLVMDIBuilderCreateBasicType(
+        builder, name, Csize_t(length(name)),
+        UInt64(size_in_bits), Cuint(encoding), flags))
+end
+
+"""
+    unspecifiedtype!(builder::DIBuilder, name::AbstractString) -> DIBasicType
+
+Create a new unspecified type (`DW_TAG_unspecified_type`), e.g. a C++ `decltype(nullptr)`.
+"""
+function unspecifiedtype!(builder::DIBuilder, name::AbstractString)
+    DIBasicType(API.LLVMDIBuilderCreateUnspecifiedType(
+        builder, name, Csize_t(length(name))))
+end
+
+
+# derived types
+
+"""
+    pointertype!(builder::DIBuilder, pointee_type::DIType, size_in_bits::Integer;
+                 align_in_bits::Integer=0, address_space::Integer=0,
+                 name::AbstractString="") -> DIDerivedType
+
+Create a new pointer type.
+"""
+function pointertype!(builder::DIBuilder, pointee_type::DIType, size_in_bits::Integer;
+                      align_in_bits::Integer=0, address_space::Integer=0,
+                      name::AbstractString="")
+    DIDerivedType(API.LLVMDIBuilderCreatePointerType(
+        builder, pointee_type,
+        UInt64(size_in_bits), UInt32(align_in_bits), Cuint(address_space),
+        name, Csize_t(length(name))))
+end
+
+"""
+    referencetype!(builder::DIBuilder, tag::Integer, type::DIType) -> DIDerivedType
+
+Create a new reference type (C++ `T&` / `T&&`), with the given DWARF `tag`
+(e.g. `DW_TAG_reference_type` or `DW_TAG_rvalue_reference_type`).
+"""
+function referencetype!(builder::DIBuilder, tag::Integer, type::DIType)
+    DIDerivedType(API.LLVMDIBuilderCreateReferenceType(builder, Cuint(tag), type))
+end
+
+"""
+    nullptrtype!(builder::DIBuilder) -> DIBasicType
+
+Create a new type representing a null pointer.
+"""
+nullptrtype!(builder::DIBuilder) =
+    DIBasicType(API.LLVMDIBuilderCreateNullPtrType(builder))
+
+"""
+    typedeftype!(builder::DIBuilder, type::DIType, name::AbstractString,
+                 file::DIFile, line::Integer, scope::DIScope;
+                 align_in_bits::Integer=0) -> DIDerivedType
+
+Create a new typedef type.
+"""
+function typedeftype!(builder::DIBuilder, type::DIType, name::AbstractString,
+                      file::DIFile, line::Integer, scope::DIScope;
+                      align_in_bits::Integer=0)
+    DIDerivedType(API.LLVMDIBuilderCreateTypedef(
+        builder, type, name, Csize_t(length(name)),
+        file, Cuint(line), scope, UInt32(align_in_bits)))
+end
+
+"""
+    qualifiedtype!(builder::DIBuilder, tag::Integer, type::DIType) -> DIDerivedType
+
+Create a new qualified type, such as `const T` (`DW_TAG_const_type`) or
+`volatile T` (`DW_TAG_volatile_type`).
+"""
+function qualifiedtype!(builder::DIBuilder, tag::Integer, type::DIType)
+    DIDerivedType(API.LLVMDIBuilderCreateQualifiedType(builder, Cuint(tag), type))
+end
+
+"""
+    artificialtype!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a new artificial type (`DI_FLAG_ARTIFICIAL`), e.g. an implicit `this`.
+"""
+artificialtype!(builder::DIBuilder, type::DIType) =
+    DIDerivedType(API.LLVMDIBuilderCreateArtificialType(builder, type))
+
+"""
+    objectpointertype!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
+"""
+objectpointertype!(builder::DIBuilder, type::DIType) =
+    DIDerivedType(API.LLVMDIBuilderCreateObjectPointerType(builder, type))
+
+"""
+    inheritance!(builder::DIBuilder, derived::DIType, base::DIType,
+                 base_offset::Integer, vbptr_offset::Integer=0;
+                 flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new inheritance relationship from `derived` to `base`.
+"""
+function inheritance!(builder::DIBuilder, derived::DIType, base::DIType,
+                      base_offset::Integer, vbptr_offset::Integer=0;
+                      flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateInheritance(
+        builder, derived, base, UInt64(base_offset), UInt32(vbptr_offset), flags))
+end
+
+"""
+    membertype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                file::DIFile, line::Integer, size_in_bits::Integer,
+                align_in_bits::Integer, offset_in_bits::Integer,
+                type::DIType; flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new member (field) of a composite type.
+"""
+function membertype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     file::DIFile, line::Integer, size_in_bits::Integer,
+                     align_in_bits::Integer, offset_in_bits::Integer,
+                     type::DIType; flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateMemberType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
+        flags, type))
+end
+
+"""
+    bitfieldmembertype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                        file::DIFile, line::Integer, size_in_bits::Integer,
+                        offset_in_bits::Integer, storage_offset_in_bits::Integer,
+                        type::DIType; flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new bit-field member of a composite type.
+"""
+function bitfieldmembertype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                             file::DIFile, line::Integer, size_in_bits::Integer,
+                             offset_in_bits::Integer, storage_offset_in_bits::Integer,
+                             type::DIType; flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateBitFieldMemberType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt64(offset_in_bits), UInt64(storage_offset_in_bits),
+        flags, type))
+end
+
+"""
+    staticmembertype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                      file::DIFile, line::Integer, type::DIType;
+                      flags=API.LLVMDIFlagZero,
+                      constant_val=nothing,
+                      align_in_bits::Integer=0) -> DIDerivedType
+
+Create a new static member of a composite type.
+"""
+function staticmembertype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                           file::DIFile, line::Integer, type::DIType;
+                           flags=API.LLVMDIFlagZero,
+                           constant_val=nothing,
+                           align_in_bits::Integer=0)
+    DIDerivedType(API.LLVMDIBuilderCreateStaticMemberType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line), type, flags,
+        something(constant_val, C_NULL), UInt32(align_in_bits)))
+end
+
+"""
+    memberpointertype!(builder::DIBuilder, pointee_type::DIType, class_type::DIType,
+                       size_in_bits::Integer;
+                       align_in_bits::Integer=0,
+                       flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new pointer-to-member type for C++.
+"""
+function memberpointertype!(builder::DIBuilder, pointee_type::DIType, class_type::DIType,
+                            size_in_bits::Integer;
+                            align_in_bits::Integer=0,
+                            flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateMemberPointerType(
+        builder, pointee_type, class_type,
+        UInt64(size_in_bits), UInt32(align_in_bits), flags))
+end
+
+
+# composite types
+
+"""
+    structtype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                file::DIFile, line::Integer, size_in_bits::Integer,
+                align_in_bits::Integer, elements::Vector{<:Metadata};
+                flags=API.LLVMDIFlagZero, derived_from=nothing,
+                runtime_lang::Integer=0, vtable_holder=nothing,
+                unique_id::AbstractString="") -> DICompositeType
+
+Create a new struct type.
+"""
+function structtype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     file::DIFile, line::Integer, size_in_bits::Integer,
+                     align_in_bits::Integer, elements::Vector{<:Metadata};
+                     flags=API.LLVMDIFlagZero, derived_from=nothing,
+                     runtime_lang::Integer=0, vtable_holder=nothing,
+                     unique_id::AbstractString="")
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateStructType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), flags,
+        something(derived_from, C_NULL),
+        elts, Cuint(length(elts)),
+        Cuint(runtime_lang),
+        something(vtable_holder, C_NULL),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    uniontype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+               file::DIFile, line::Integer, size_in_bits::Integer,
+               align_in_bits::Integer, elements::Vector{<:Metadata};
+               flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
+               unique_id::AbstractString="") -> DICompositeType
+
+Create a new union type.
+"""
+function uniontype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                    file::DIFile, line::Integer, size_in_bits::Integer,
+                    align_in_bits::Integer, elements::Vector{<:Metadata};
+                    flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
+                    unique_id::AbstractString="")
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateUnionType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), flags,
+        elts, Cuint(length(elts)),
+        Cuint(runtime_lang),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    classtype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+               file::DIFile, line::Integer, size_in_bits::Integer,
+               align_in_bits::Integer, offset_in_bits::Integer,
+               elements::Vector{<:Metadata};
+               flags=API.LLVMDIFlagZero, derived_from=nothing,
+               vtable_holder=nothing, template_params=nothing,
+               unique_id::AbstractString="") -> DICompositeType
+
+Create a new C++ class type.
+"""
+function classtype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                    file::DIFile, line::Integer, size_in_bits::Integer,
+                    align_in_bits::Integer, offset_in_bits::Integer,
+                    elements::Vector{<:Metadata};
+                    flags=API.LLVMDIFlagZero, derived_from=nothing,
+                    vtable_holder=nothing, template_params=nothing,
+                    unique_id::AbstractString="")
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateClassType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
+        flags,
+        something(derived_from, C_NULL),
+        elts, Cuint(length(elts)),
+        something(vtable_holder, C_NULL),
+        something(template_params, C_NULL),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    arraytype!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+               element_type::DIType, subscripts::Vector{<:Metadata}) -> DICompositeType
+
+Create a new array type. Subscripts are typically built with
+[`getorcreatesubrange!`](@ref).
+"""
+function arraytype!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+                    element_type::DIType, subscripts::Vector{<:Metadata})
+    subs = convert(Vector{Metadata}, subscripts)
+    DICompositeType(API.LLVMDIBuilderCreateArrayType(
+        builder, UInt64(size), UInt32(align_in_bits),
+        element_type, subs, Cuint(length(subs))))
+end
+
+"""
+    vectortype!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+                element_type::DIType, subscripts::Vector{<:Metadata}) -> DICompositeType
+
+Create a new vector type. Subscripts are typically built with
+[`getorcreatesubrange!`](@ref).
+"""
+function vectortype!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+                     element_type::DIType, subscripts::Vector{<:Metadata})
+    subs = convert(Vector{Metadata}, subscripts)
+    DICompositeType(API.LLVMDIBuilderCreateVectorType(
+        builder, UInt64(size), UInt32(align_in_bits),
+        element_type, subs, Cuint(length(subs))))
+end
+
+"""
+    enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
+                unsigned::Bool=false) -> DIEnumerator
+
+Create a new enumerator for use inside an enumeration type.
+"""
+function enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
+                     unsigned::Bool=false)
+    DIEnumerator(API.LLVMDIBuilderCreateEnumerator(
+        builder, name, Csize_t(length(name)), Int64(value), unsigned))
+end
+
+"""
+    enumerationtype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     file::DIFile, line::Integer, size_in_bits::Integer,
+                     align_in_bits::Integer, elements::Vector{<:Metadata};
+                     class_ty=nothing) -> DICompositeType
+
+Create a new enumeration type. `elements` should be a vector of
+[`DIEnumerator`](@ref) metadata nodes.
+"""
+function enumerationtype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                          file::DIFile, line::Integer, size_in_bits::Integer,
+                          align_in_bits::Integer, elements::Vector{<:Metadata};
+                          class_ty=nothing)
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateEnumerationType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits),
+        elts, Cuint(length(elts)),
+        something(class_ty, C_NULL)))
+end
+
+"""
+    forwarddecl!(builder::DIBuilder, tag::Integer, name::AbstractString,
+                 scope::DIScope, file::DIFile, line::Integer;
+                 runtime_lang::Integer=0, size_in_bits::Integer=0,
+                 align_in_bits::Integer=0,
+                 unique_id::AbstractString="") -> DICompositeType
+
+Create a new forward declaration to a composite type.
+"""
+function forwarddecl!(builder::DIBuilder, tag::Integer, name::AbstractString,
+                      scope::DIScope, file::DIFile, line::Integer;
+                      runtime_lang::Integer=0, size_in_bits::Integer=0,
+                      align_in_bits::Integer=0,
+                      unique_id::AbstractString="")
+    DICompositeType(API.LLVMDIBuilderCreateForwardDecl(
+        builder, Cuint(tag), name, Csize_t(length(name)),
+        scope, file, Cuint(line), Cuint(runtime_lang),
+        UInt64(size_in_bits), UInt32(align_in_bits),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    replaceablecompositetype!(builder::DIBuilder, tag::Integer,
+                              name::AbstractString, scope::DIScope,
+                              file::DIFile, line::Integer;
+                              runtime_lang::Integer=0, size_in_bits::Integer=0,
+                              align_in_bits::Integer=0,
+                              flags=API.LLVMDIFlagZero,
+                              unique_id::AbstractString="") -> DICompositeType
+
+Create a new replaceable composite type forward declaration.
+"""
+function replaceablecompositetype!(builder::DIBuilder, tag::Integer,
+                                   name::AbstractString, scope::DIScope,
+                                   file::DIFile, line::Integer;
+                                   runtime_lang::Integer=0, size_in_bits::Integer=0,
+                                   align_in_bits::Integer=0,
+                                   flags=API.LLVMDIFlagZero,
+                                   unique_id::AbstractString="")
+    DICompositeType(API.LLVMDIBuilderCreateReplaceableCompositeType(
+        builder, Cuint(tag), name, Csize_t(length(name)),
+        scope, file, Cuint(line), Cuint(runtime_lang),
+        UInt64(size_in_bits), UInt32(align_in_bits), flags,
+        unique_id, Csize_t(length(unique_id))))
+end
+
+
+# subroutine types
+
+"""
+    subroutinetype!(builder::DIBuilder, file::DIFile,
+                    parameter_types::Vector{<:Metadata};
+                    flags=API.LLVMDIFlagZero) -> DISubroutineType
+
+Create a new subroutine type. The first entry of `parameter_types` is the
+return type; the rest are the parameter types.
+"""
+function subroutinetype!(builder::DIBuilder, file::DIFile,
+                         parameter_types::Vector{<:Metadata};
+                         flags=API.LLVMDIFlagZero)
+    params = convert(Vector{Metadata}, parameter_types)
+    DISubroutineType(API.LLVMDIBuilderCreateSubroutineType(
+        builder, file, params, Cuint(length(params)), flags))
+end
+
+
+# subrange helpers
+
+"""
+    getorcreatesubrange!(builder::DIBuilder, lower_bound::Integer, count::Integer)
+
+Get or create a subrange metadata node, describing one dimension of an array
+or vector type.
+"""
+getorcreatesubrange!(builder::DIBuilder, lower_bound::Integer, count::Integer) =
+    DISubrange(API.LLVMDIBuilderGetOrCreateSubrange(
+        builder, Int64(lower_bound), Int64(count)))
+
+
+# LLVM 21+ additions
+
+@static if version() >= v"21"
+
+@public settype!, subrangetype!, dynamicarraytype!, enumeratorarb!
+
+"""
+    settype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+             file::DIFile, line::Integer, size_in_bits::Integer,
+             align_in_bits::Integer, base_type::DIType) -> DIDerivedType
+
+Create a new set type (`DW_TAG_set_type`). Requires LLVM 21+.
+"""
+function settype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                  file::DIFile, line::Integer, size_in_bits::Integer,
+                  align_in_bits::Integer, base_type::DIType)
+    DIDerivedType(API.LLVMDIBuilderCreateSetType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), base_type))
+end
+
+"""
+    subrangetype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                  line::Integer, file::DIFile, size_in_bits::Integer,
+                  align_in_bits::Integer, base_type::DIType;
+                  flags=API.LLVMDIFlagZero,
+                  lower_bound=nothing, upper_bound=nothing,
+                  stride=nothing, bias=nothing)
+
+Create a new subrange type. Requires LLVM 21+.
+"""
+function subrangetype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                       line::Integer, file::DIFile, size_in_bits::Integer,
+                       align_in_bits::Integer, base_type::DIType;
+                       flags=API.LLVMDIFlagZero,
+                       lower_bound=nothing, upper_bound=nothing,
+                       stride=nothing, bias=nothing)
+    Metadata(API.LLVMDIBuilderCreateSubrangeType(
+        builder, scope, name, Csize_t(length(name)),
+        Cuint(line), file,
+        UInt64(size_in_bits), UInt32(align_in_bits), flags, base_type,
+        something(lower_bound, C_NULL),
+        something(upper_bound, C_NULL),
+        something(stride, C_NULL),
+        something(bias, C_NULL)))
+end
+
+"""
+    dynamicarraytype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                      line::Integer, file::DIFile, size::Integer,
+                      align_in_bits::Integer, element_type::DIType,
+                      subscripts::Vector{<:Metadata};
+                      data_location=nothing, associated=nothing,
+                      allocated=nothing, rank=nothing,
+                      bit_stride=nothing) -> DICompositeType
+
+Create a new dynamic array type (Fortran assumed-shape/deferred-shape arrays).
+Requires LLVM 21+.
+"""
+function dynamicarraytype!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                           line::Integer, file::DIFile, size::Integer,
+                           align_in_bits::Integer, element_type::DIType,
+                           subscripts::Vector{<:Metadata};
+                           data_location=nothing, associated=nothing,
+                           allocated=nothing, rank=nothing,
+                           bit_stride=nothing)
+    subs = convert(Vector{Metadata}, subscripts)
+    DICompositeType(API.LLVMDIBuilderCreateDynamicArrayType(
+        builder, scope, name, Csize_t(length(name)),
+        Cuint(line), file,
+        UInt64(size), UInt32(align_in_bits), element_type,
+        subs, Cuint(length(subs)),
+        something(data_location, C_NULL),
+        something(associated, C_NULL),
+        something(allocated, C_NULL),
+        something(rank, C_NULL),
+        something(bit_stride, C_NULL)))
+end
+
+"""
+    enumeratorarb!(builder::DIBuilder, name::AbstractString,
+                   size_in_bits::Integer, words::Vector{UInt64};
+                   unsigned::Bool=false) -> DIEnumerator
+
+Create a new arbitrary-precision enumerator. Requires LLVM 21+.
+"""
+function enumeratorarb!(builder::DIBuilder, name::AbstractString,
+                        size_in_bits::Integer, words::Vector{UInt64};
+                        unsigned::Bool=false)
+    DIEnumerator(API.LLVMDIBuilderCreateEnumeratorOfArbitraryPrecision(
+        builder, name, Csize_t(length(name)),
+        UInt64(size_in_bits), words, unsigned))
+end
+
+end # @static if version() >= v"21"
 
 
 ## subprogram

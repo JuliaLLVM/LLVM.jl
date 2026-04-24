@@ -1,6 +1,6 @@
 name = "LLVM"
 uuid = "929cbde3-209d-540e-8aea-75f648917ca0"
-version = "9.6.0"
+version = "9.7.0"
 
 [workspace]
 projects = ["test", "docs", "examples", "deps", "res"]
@@ -23,7 +23,7 @@ BFloat16sExt = "BFloat16s"
 [compat]
 BFloat16s = "0.4, 0.5, 0.6"
 CEnum = "0.2, 0.3, 0.4, 0.5"
-LLVMExtra_jll = "=0.0.41"
+LLVMExtra_jll = "=0.0.42"
 Libdl = "1.8"
 PrecompileTools = "1"
 Preferences = "1.4"

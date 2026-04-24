@@ -113,6 +113,10 @@ LLVM.namespace!
 
 ```@docs
 DIType
+LLVM.DIBasicType
+LLVM.DIDerivedType
+LLVM.DICompositeType
+LLVM.DISubroutineType
 name(::DIType)
 Base.sizeof(::DIType)
 offset(::DIType)
@@ -182,6 +186,7 @@ LLVM.get_or_create_type_array!
 Objective-C:
 
 ```@docs
+DIObjCProperty
 LLVM.objc_ivar!
 LLVM.objc_property!
 ```

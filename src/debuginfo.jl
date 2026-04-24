@@ -344,6 +344,41 @@ for typ in (:Basic, :Derived, :Composite, :Subroutine)
 end
 
 """
+    DIBasicType <: DIType
+
+A primitive type (integer, floating-point, boolean, ...), built with
+[`basic_type!`](@ref).
+"""
+DIBasicType
+
+"""
+    DIDerivedType <: DIType
+
+A type derived from another type by adding qualifiers, reference/pointer
+indirection, a typedef name, or by describing a member/field. Built with
+[`pointer_type!`](@ref), [`typedef_type!`](@ref), [`member_type!`](@ref), and
+the other qualifier/member factories.
+"""
+DIDerivedType
+
+"""
+    DICompositeType <: DIType
+
+An aggregate type (struct, union, class, array, vector, enumeration, ...).
+Built with [`struct_type!`](@ref), [`union_type!`](@ref),
+[`array_type!`](@ref), etc.
+"""
+DICompositeType
+
+"""
+    DISubroutineType <: DIType
+
+A function/subroutine type, listing the return and parameter types. Built
+with [`subroutine_type!`](@ref).
+"""
+DISubroutineType
+
+"""
     DIEnumerator
 
 A single enumerator value in an enumeration type.
@@ -564,24 +599,21 @@ The concrete subtype matches the input (e.g. a `DIBasicType` stays a
 artificial_type!(builder::DIBuilder, type::DIType) =
     Metadata(API.LLVMDIBuilderCreateArtificialType(builder, type))::DIType
 
-@static if version() >= v"20"
 """
     object_pointer_type!(builder::DIBuilder, type::DIType;
                         implicit::Bool=true) -> DIType
 
 Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
-When `implicit` is `true` (the default, matching LLVM ≤ 19 behavior), also
-sets `DI_FLAG_ARTIFICIAL`. The concrete subtype matches the input.
+The concrete subtype matches the input. On LLVM 20+ an `implicit::Bool` keyword
+is accepted: when `true` (the default, matching LLVM ≤ 19 behavior) the clone
+also sets `DI_FLAG_ARTIFICIAL`.
 """
+object_pointer_type!
+
+@static if version() >= v"20"
 object_pointer_type!(builder::DIBuilder, type::DIType; implicit::Bool=true) =
     Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type, implicit))::DIType
 else
-"""
-    object_pointer_type!(builder::DIBuilder, type::DIType) -> DIType
-
-Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
-The concrete subtype matches the input.
-"""
 object_pointer_type!(builder::DIBuilder, type::DIType) =
     Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type))::DIType
 end # @static
@@ -1496,6 +1528,49 @@ end
 
 @public declare_before!, declare_at_end!, value_before!, value_at_end!
 
+"""
+    declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    instr::Instruction)
+
+Insert a new dbg-declare describing `storage` as the runtime location of `var`,
+immediately before `instr`. Returns a `DbgRecord` on LLVM ≥ 19, or the
+legacy `llvm.dbg.declare` call [`Instruction`](@ref) on LLVM < 19.
+"""
+declare_before!
+
+"""
+    declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    block::BasicBlock)
+
+Insert a new dbg-declare at the end of `block`. Returns a `DbgRecord`
+on LLVM ≥ 19, or the legacy `llvm.dbg.declare` call [`Instruction`](@ref) on
+LLVM < 19.
+"""
+declare_at_end!
+
+"""
+    value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  instr::Instruction)
+
+Insert a new dbg-value describing `val` as the value of `var`, immediately
+before `instr`. Returns a `DbgRecord` on LLVM ≥ 19, or the legacy
+`llvm.dbg.value` call [`Instruction`](@ref) on LLVM < 19.
+"""
+value_before!
+
+"""
+    value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  block::BasicBlock)
+
+Insert a new dbg-value at the end of `block`. Returns a `DbgRecord` on
+LLVM ≥ 19, or the legacy `llvm.dbg.value` call [`Instruction`](@ref) on LLVM < 19.
+"""
+value_at_end!
+
 @static if version() >= v"19"
 
 export DbgRecord
@@ -1520,51 +1595,21 @@ function Base.show(io::IO, record::DbgRecord)
     API.LLVMDisposeMessage(str_ptr)
 end
 
-"""
-    declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                    expr::DIExpression, debugloc::DILocation,
-                    instr::Instruction) -> DbgRecord
-
-Insert a new `#dbg_declare` record describing `storage` as the runtime
-location of `var`, immediately before `instr`.
-"""
 declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     DbgRecord(API.LLVMDIBuilderInsertDeclareRecordBefore(
         builder, storage, var, expr, debugloc, instr))
 
-"""
-    declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                    expr::DIExpression, debugloc::DILocation,
-                    block::BasicBlock) -> DbgRecord
-
-Insert a new `#dbg_declare` record at the end of `block`.
-"""
 declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     DbgRecord(API.LLVMDIBuilderInsertDeclareRecordAtEnd(
         builder, storage, var, expr, debugloc, block))
 
-"""
-    value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
-                  expr::DIExpression, debugloc::DILocation,
-                  instr::Instruction) -> DbgRecord
-
-Insert a new `#dbg_value` record describing `val` as the value of `var`,
-immediately before `instr`.
-"""
 value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordBefore(
         builder, val, var, expr, debugloc, instr))
 
-"""
-    value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
-                  expr::DIExpression, debugloc::DILocation,
-                  block::BasicBlock) -> DbgRecord
-
-Insert a new `#dbg_value` record at the end of `block`.
-"""
 value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordAtEnd(
@@ -1572,49 +1617,21 @@ value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
 
 else # LLVM < 19: legacy intrinsic-based insertion
 
-"""
-    declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                    expr::DIExpression, debugloc::DILocation,
-                    instr::Instruction) -> Instruction
-
-Insert a new `llvm.dbg.declare` intrinsic call immediately before `instr`.
-"""
 declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     Instruction(API.LLVMDIBuilderInsertDeclareBefore(
         builder, storage, var, expr, debugloc, instr))
 
-"""
-    declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                    expr::DIExpression, debugloc::DILocation,
-                    block::BasicBlock) -> Instruction
-
-Insert a new `llvm.dbg.declare` intrinsic call at the end of `block`.
-"""
 declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     Instruction(API.LLVMDIBuilderInsertDeclareAtEnd(
         builder, storage, var, expr, debugloc, block))
 
-"""
-    value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
-                  expr::DIExpression, debugloc::DILocation,
-                  instr::Instruction) -> Instruction
-
-Insert a new `llvm.dbg.value` intrinsic call immediately before `instr`.
-"""
 value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     Instruction(API.LLVMDIBuilderInsertDbgValueBefore(
         builder, val, var, expr, debugloc, instr))
 
-"""
-    value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
-                  expr::DIExpression, debugloc::DILocation,
-                  block::BasicBlock) -> Instruction
-
-Insert a new `llvm.dbg.value` intrinsic call at the end of `block`.
-"""
 value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
               expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
     Instruction(API.LLVMDIBuilderInsertDbgValueAtEnd(

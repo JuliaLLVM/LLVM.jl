@@ -942,6 +942,30 @@ Get the line number of the given subprogram.
 line(subprogram::DISubProgram) = Int(API.LLVMDISubprogramGetLine(subprogram))
 
 """
+    subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                linkage_name::AbstractString, file::DIFile, line::Integer,
+                type::DISubroutineType, scope_line::Integer;
+                is_local_to_unit::Bool=false, is_definition::Bool=true,
+                flags=API.LLVMDIFlagZero,
+                is_optimized::Bool=false) -> DISubProgram
+
+Create a new [`DISubProgram`](@ref) describing a function.
+"""
+function subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     linkage_name::AbstractString, file::DIFile, line::Integer,
+                     type::DISubroutineType, scope_line::Integer;
+                     is_local_to_unit::Bool=false, is_definition::Bool=true,
+                     flags=API.LLVMDIFlagZero,
+                     is_optimized::Bool=false)
+    DISubProgram(API.LLVMDIBuilderCreateFunction(
+        builder, scope, name, Csize_t(length(name)),
+        linkage_name, Csize_t(length(linkage_name)),
+        file, Cuint(line), type,
+        is_local_to_unit, is_definition, Cuint(scope_line),
+        flags, is_optimized))
+end
+
+"""
     finalize_subprogram!(builder::DIBuilder, sp::DISubProgram)
 
 Finalize the given subprogram, allowing later changes to be disallowed. Must be
@@ -1041,6 +1065,168 @@ function dimodule!(builder::DIBuilder, parent_scope::DIScope, name::AbstractStri
         config_macros, Csize_t(length(config_macros)),
         include_path, Csize_t(length(include_path)),
         api_notes_file, Csize_t(length(api_notes_file))))
+end
+
+
+## variable factories
+
+@public autovariable!, parametervariable!
+
+"""
+    autovariable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                  file::DIFile, line::Integer, type::DIType;
+                  always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
+                  align_in_bits::Integer=0) -> DILocalVariable
+
+Create a new local variable descriptor (for a compiler-introduced automatic
+variable).
+"""
+function autovariable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                       file::DIFile, line::Integer, type::DIType;
+                       always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
+                       align_in_bits::Integer=0)
+    DILocalVariable(API.LLVMDIBuilderCreateAutoVariable(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line), type,
+        always_preserve, flags, UInt32(align_in_bits)))
+end
+
+"""
+    parametervariable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                       arg_no::Integer, file::DIFile, line::Integer, type::DIType;
+                       always_preserve::Bool=false,
+                       flags=API.LLVMDIFlagZero) -> DILocalVariable
+
+Create a new descriptor for a function parameter variable. `arg_no` is
+the 1-based parameter index.
+"""
+function parametervariable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                            arg_no::Integer, file::DIFile, line::Integer, type::DIType;
+                            always_preserve::Bool=false,
+                            flags=API.LLVMDIFlagZero)
+    DILocalVariable(API.LLVMDIBuilderCreateParameterVariable(
+        builder, scope, name, Csize_t(length(name)), Cuint(arg_no),
+        file, Cuint(line), type,
+        always_preserve, flags))
+end
+
+
+## expression
+
+export DIExpression, DIGlobalVariableExpression, variable, expression
+@public expression!, constantvalueexpression!
+
+"""
+    DIExpression
+
+A DWARF expression that modifies how a variable's value is expressed at runtime.
+"""
+@checked struct DIExpression <: MDNode
+    ref::API.LLVMMetadataRef
+end
+register(DIExpression, API.LLVMDIExpressionMetadataKind)
+
+"""
+    DIGlobalVariableExpression
+
+A pairing of a [`DIGlobalVariable`](@ref) and its associated [`DIExpression`](@ref).
+"""
+@checked struct DIGlobalVariableExpression <: MDNode
+    ref::API.LLVMMetadataRef
+end
+register(DIGlobalVariableExpression, API.LLVMDIGlobalVariableExpressionMetadataKind)
+
+"""
+    expression!(builder::DIBuilder,
+                addr::Vector{UInt64}=UInt64[]) -> DIExpression
+
+Create a new [`DIExpression`](@ref) from the given array of opcodes (encoding
+a DWARF expression such as `DW_OP_plus_uconst`).
+"""
+function expression!(builder::DIBuilder, addr::Vector{UInt64}=UInt64[])
+    DIExpression(API.LLVMDIBuilderCreateExpression(
+        builder, addr, Csize_t(length(addr))))
+end
+
+"""
+    constantvalueexpression!(builder::DIBuilder, value::Integer) -> DIExpression
+
+Create a new [`DIExpression`](@ref) representing a single constant value.
+"""
+function constantvalueexpression!(builder::DIBuilder, value::Integer)
+    DIExpression(API.LLVMDIBuilderCreateConstantValueExpression(
+        builder, UInt64(value)))
+end
+
+"""
+    variable(gve::DIGlobalVariableExpression)
+
+Get the debug info global variable associated with the given expression.
+"""
+function variable(gve::DIGlobalVariableExpression)
+    ref = API.LLVMDIGlobalVariableExpressionGetVariable(gve)
+    ref == C_NULL ? nothing : Metadata(ref)::DIGlobalVariable
+end
+
+"""
+    expression(gve::DIGlobalVariableExpression)
+
+Get the debug info expression associated with the given global-variable pair.
+"""
+function expression(gve::DIGlobalVariableExpression)
+    ref = API.LLVMDIGlobalVariableExpressionGetExpression(gve)
+    ref == C_NULL ? nothing : Metadata(ref)::DIExpression
+end
+
+
+## global variable
+
+@public globalvariableexpression!, tempglobalvariablefwddecl!
+
+"""
+    globalvariableexpression!(builder::DIBuilder, scope::DIScope,
+                              name::AbstractString, linkage::AbstractString,
+                              file::DIFile, line::Integer, type::DIType,
+                              local_to_unit::Bool, expression::DIExpression;
+                              declaration=nothing,
+                              align_in_bits::Integer=0) -> DIGlobalVariableExpression
+
+Create a new global variable descriptor paired with a DWARF expression.
+"""
+function globalvariableexpression!(builder::DIBuilder, scope::DIScope,
+                                   name::AbstractString, linkage::AbstractString,
+                                   file::DIFile, line::Integer, type::DIType,
+                                   local_to_unit::Bool, expression::DIExpression;
+                                   declaration=nothing,
+                                   align_in_bits::Integer=0)
+    DIGlobalVariableExpression(API.LLVMDIBuilderCreateGlobalVariableExpression(
+        builder, scope, name, Csize_t(length(name)),
+        linkage, Csize_t(length(linkage)),
+        file, Cuint(line), type, local_to_unit, expression,
+        something(declaration, C_NULL), UInt32(align_in_bits)))
+end
+
+"""
+    tempglobalvariablefwddecl!(builder::DIBuilder, scope::DIScope,
+                               name::AbstractString, linkage::AbstractString,
+                               file::DIFile, line::Integer, type::DIType,
+                               local_to_unit::Bool;
+                               declaration=nothing,
+                               align_in_bits::Integer=0) -> DIGlobalVariable
+
+Create a new temporary forward declaration for a global variable.
+"""
+function tempglobalvariablefwddecl!(builder::DIBuilder, scope::DIScope,
+                                    name::AbstractString, linkage::AbstractString,
+                                    file::DIFile, line::Integer, type::DIType,
+                                    local_to_unit::Bool;
+                                    declaration=nothing,
+                                    align_in_bits::Integer=0)
+    DIGlobalVariable(API.LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
+        builder, scope, name, Csize_t(length(name)),
+        linkage, Csize_t(length(linkage)),
+        file, Cuint(line), type, local_to_unit,
+        something(declaration, C_NULL), UInt32(align_in_bits)))
 end
 
 

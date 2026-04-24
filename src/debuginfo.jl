@@ -483,6 +483,57 @@ function dimodule!(builder::DIBuilder, parent_scope::DIScope, name::AbstractStri
 end
 
 
+## lexical block
+
+export DILexicalBlock, DILexicalBlockFile
+@public lexicalblock!, lexicalblockfile!
+
+"""
+    DILexicalBlock
+
+A lexical block (a nested scope, typically a compound statement) in the source code.
+"""
+@checked struct DILexicalBlock <: DILocalScope
+    ref::API.LLVMMetadataRef
+end
+register(DILexicalBlock, API.LLVMDILexicalBlockMetadataKind)
+
+"""
+    DILexicalBlockFile
+
+A lexical block that changes the current source file, e.g. due to an `#include`.
+"""
+@checked struct DILexicalBlockFile <: DILocalScope
+    ref::API.LLVMMetadataRef
+end
+register(DILexicalBlockFile, API.LLVMDILexicalBlockFileMetadataKind)
+
+"""
+    lexicalblock!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                  line::Integer, column::Integer) -> DILexicalBlock
+
+Create a new [`DILexicalBlock`](@ref) describing a nested source scope.
+"""
+function lexicalblock!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                       line::Integer, column::Integer)
+    DILexicalBlock(API.LLVMDIBuilderCreateLexicalBlock(
+        builder, scope, file, Cuint(line), Cuint(column)))
+end
+
+"""
+    lexicalblockfile!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                      discriminator::Integer=0) -> DILexicalBlockFile
+
+Create a new [`DILexicalBlockFile`](@ref) for tracking source-file changes
+within a lexical scope.
+"""
+function lexicalblockfile!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                           discriminator::Integer=0)
+    DILexicalBlockFile(API.LLVMDIBuilderCreateLexicalBlockFile(
+        builder, scope, file, Cuint(discriminator)))
+end
+
+
 ## namespace
 
 export DINamespace

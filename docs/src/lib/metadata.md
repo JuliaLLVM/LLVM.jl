@@ -86,6 +86,15 @@ source
 LLVM.file!
 ```
 
+### Lexical Block
+
+```@docs
+LLVM.DILexicalBlock
+LLVM.DILexicalBlockFile
+LLVM.lexicalblock!
+LLVM.lexicalblockfile!
+```
+
 ### Module
 
 ```@docs

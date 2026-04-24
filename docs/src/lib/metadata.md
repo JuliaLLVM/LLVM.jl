@@ -83,6 +83,21 @@ DIFile
 directory
 filename
 source
+LLVM.file!
+```
+
+### Module
+
+```@docs
+LLVM.DIModule
+LLVM.dimodule!
+```
+
+### Namespace
+
+```@docs
+LLVM.DINamespace
+LLVM.namespace!
 ```
 
 ### Type
@@ -107,6 +122,7 @@ line(::DISubProgram)
 
 ```@docs
 DICompileUnit
+LLVM.compileunit!
 ```
 
 ### Other

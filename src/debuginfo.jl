@@ -235,6 +235,7 @@ abstract type DILocalScope <: DIScope end
 ## file
 
 export DIFile, directory, filename, source
+@public file!
 
 """
     DIFile
@@ -245,6 +246,17 @@ A file in the source code.
     ref::API.LLVMMetadataRef
 end
 register(DIFile, API.LLVMDIFileMetadataKind)
+
+"""
+    file!(builder::DIBuilder, filename::AbstractString, directory::AbstractString) -> DIFile
+
+Create a new [`DIFile`](@ref) describing the given source file.
+"""
+function file!(builder::DIBuilder, filename::AbstractString, directory::AbstractString)
+    DIFile(API.LLVMDIBuilderCreateFile(builder,
+                                       filename, Csize_t(length(filename)),
+                                       directory, Csize_t(length(directory))))
+end
 
 """
     directory(file::DIFile)
@@ -381,6 +393,7 @@ finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
 ## compile unit
 
 export DICompileUnit
+@public compileunit!
 
 """
     DICompileUnit
@@ -391,6 +404,113 @@ A compilation unit in the source code.
     ref::API.LLVMMetadataRef
 end
 register(DICompileUnit, API.LLVMDICompileUnitMetadataKind)
+
+"""
+    compileunit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;
+                 optimized::Bool=true, flags::AbstractString="",
+                 runtime_version::Integer=0,
+                 split_name::Union{AbstractString,Nothing}=nothing,
+                 emission_kind=API.LLVMDWARFEmissionFull,
+                 dwo_id::Integer=0,
+                 split_debug_inlining::Bool=true,
+                 debug_info_for_profiling::Bool=false,
+                 sysroot::AbstractString="", sdk::AbstractString="") -> DICompileUnit
+
+Create a new [`DICompileUnit`](@ref). `lang` is a `LLVMDWARFSourceLanguage`
+value (e.g. `LLVM.API.LLVMDWARFSourceLanguageJulia`).
+"""
+function compileunit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;
+                      optimized::Bool=true,
+                      flags::AbstractString="",
+                      runtime_version::Integer=0,
+                      split_name::Union{AbstractString,Nothing}=nothing,
+                      emission_kind=API.LLVMDWARFEmissionFull,
+                      dwo_id::Integer=0,
+                      split_debug_inlining::Bool=true,
+                      debug_info_for_profiling::Bool=false,
+                      sysroot::AbstractString="",
+                      sdk::AbstractString="")
+    split_name_ptr = split_name === nothing ? C_NULL : split_name
+    split_name_len = split_name === nothing ? Csize_t(0) : Csize_t(length(split_name))
+    DICompileUnit(API.LLVMDIBuilderCreateCompileUnit(
+        builder, lang, file,
+        producer, Csize_t(length(producer)),
+        optimized,
+        flags, Csize_t(length(flags)),
+        Cuint(runtime_version),
+        split_name_ptr, split_name_len,
+        emission_kind,
+        Cuint(dwo_id),
+        split_debug_inlining,
+        debug_info_for_profiling,
+        sysroot, Csize_t(length(sysroot)),
+        sdk, Csize_t(length(sdk))))
+end
+
+
+## module
+
+export DIModule
+@public dimodule!
+
+"""
+    DIModule
+
+A module in the source code (Clang modules / Fortran modules / Swift modules).
+"""
+@checked struct DIModule <: DIScope
+    ref::API.LLVMMetadataRef
+end
+register(DIModule, API.LLVMDIModuleMetadataKind)
+
+"""
+    dimodule!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+              config_macros::AbstractString="", include_path::AbstractString="",
+              api_notes_file::AbstractString="") -> DIModule
+
+Create a new [`DIModule`](@ref) describing a module in the source code.
+"""
+function dimodule!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+                   config_macros::AbstractString="",
+                   include_path::AbstractString="",
+                   api_notes_file::AbstractString="")
+    DIModule(API.LLVMDIBuilderCreateModule(
+        builder, parent_scope,
+        name, Csize_t(length(name)),
+        config_macros, Csize_t(length(config_macros)),
+        include_path, Csize_t(length(include_path)),
+        api_notes_file, Csize_t(length(api_notes_file))))
+end
+
+
+## namespace
+
+export DINamespace
+@public namespace!
+
+"""
+    DINamespace
+
+A namespace in the source code.
+"""
+@checked struct DINamespace <: DIScope
+    ref::API.LLVMMetadataRef
+end
+register(DINamespace, API.LLVMDINamespaceMetadataKind)
+
+"""
+    namespace!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+               export_symbols::Bool=false) -> DINamespace
+
+Create a new [`DINamespace`](@ref) describing a namespace in the source code.
+"""
+function namespace!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+                    export_symbols::Bool=false)
+    DINamespace(API.LLVMDIBuilderCreateNameSpace(
+        builder, parent_scope,
+        name, Csize_t(length(name)),
+        export_symbols))
+end
 
 
 ## other

@@ -487,11 +487,57 @@ end
     qualifiedtype!(builder::DIBuilder, tag::Integer, type::DIType) -> DIDerivedType
 
 Create a new qualified type, such as `const T` (`DW_TAG_const_type`) or
-`volatile T` (`DW_TAG_volatile_type`).
+`volatile T` (`DW_TAG_volatile_type`). See also the named convenience
+wrappers [`consttype!`](@ref) and [`volatiletype!`](@ref).
 """
 function qualifiedtype!(builder::DIBuilder, tag::Integer, type::DIType)
     DIDerivedType(API.LLVMDIBuilderCreateQualifiedType(builder, Cuint(tag), type))
 end
+
+@public consttype!, volatiletype!, lvaluereferencetype!, rvaluereferencetype!
+
+# DWARF tag values used by the convenience wrappers below. Not exported; part
+# of a wider DWARF-constants cleanup.
+const _DW_TAG_reference_type        = 0x10
+const _DW_TAG_const_type            = 0x26
+const _DW_TAG_volatile_type         = 0x35
+const _DW_TAG_rvalue_reference_type = 0x42
+
+"""
+    consttype!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a `const`-qualified type. Shorthand for
+`qualifiedtype!(builder, DW_TAG_const_type, type)`.
+"""
+consttype!(builder::DIBuilder, type::DIType) =
+    qualifiedtype!(builder, _DW_TAG_const_type, type)
+
+"""
+    volatiletype!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a `volatile`-qualified type. Shorthand for
+`qualifiedtype!(builder, DW_TAG_volatile_type, type)`.
+"""
+volatiletype!(builder::DIBuilder, type::DIType) =
+    qualifiedtype!(builder, _DW_TAG_volatile_type, type)
+
+"""
+    lvaluereferencetype!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a C++ `T&` reference type. Shorthand for
+`referencetype!(builder, DW_TAG_reference_type, type)`.
+"""
+lvaluereferencetype!(builder::DIBuilder, type::DIType) =
+    referencetype!(builder, _DW_TAG_reference_type, type)
+
+"""
+    rvaluereferencetype!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a C++ `T&&` rvalue-reference type. Shorthand for
+`referencetype!(builder, DW_TAG_rvalue_reference_type, type)`.
+"""
+rvaluereferencetype!(builder::DIBuilder, type::DIType) =
+    referencetype!(builder, _DW_TAG_rvalue_reference_type, type)
 
 """
     artificialtype!(builder::DIBuilder, type::DIType) -> DIDerivedType

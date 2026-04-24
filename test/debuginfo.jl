@@ -125,6 +125,12 @@ end
             ref = LLVM.referencetype!(dib, DW_TAG_reference_type, i64)
             @test ref isa LLVM.DIDerivedType
 
+            # named convenience wrappers
+            @test LLVM.consttype!(dib, i64) isa LLVM.DIDerivedType
+            @test LLVM.volatiletype!(dib, i64) isa LLVM.DIDerivedType
+            @test LLVM.lvaluereferencetype!(dib, i64) isa LLVM.DIDerivedType
+            @test LLVM.rvaluereferencetype!(dib, i64) isa LLVM.DIDerivedType
+
             # composite types
             mem = LLVM.membertype!(dib, cu, "x", file, 2, 64, 64, 0, i64)
             @test mem isa LLVM.DIDerivedType

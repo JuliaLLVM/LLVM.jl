@@ -129,10 +129,10 @@ end
             @test cq isa LLVM.DIDerivedType
 
             at2 = LLVM.artificial_type!(dib, i64)
-            @test at2 isa LLVM.DIDerivedType
+            @test at2 isa LLVM.DIBasicType
 
             op = LLVM.object_pointer_type!(dib, i64)
-            @test op isa LLVM.DIDerivedType
+            @test op isa LLVM.DIBasicType
 
             ref = LLVM.reference_type!(dib, DW_TAG_reference_type, i64)
             @test ref isa LLVM.DIDerivedType

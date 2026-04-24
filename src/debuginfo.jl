@@ -555,32 +555,35 @@ rvalue_reference_type!(builder::DIBuilder, type::DIType) =
     reference_type!(builder, _DW_TAG_rvalue_reference_type, type)
 
 """
-    artificial_type!(builder::DIBuilder, type::DIType) -> DIDerivedType
+    artificial_type!(builder::DIBuilder, type::DIType) -> DIType
 
 Create a new artificial type (`DI_FLAG_ARTIFICIAL`), e.g. an implicit `this`.
+The concrete subtype matches the input (e.g. a `DIBasicType` stays a
+`DIBasicType`).
 """
 artificial_type!(builder::DIBuilder, type::DIType) =
-    DIDerivedType(API.LLVMDIBuilderCreateArtificialType(builder, type))
+    Metadata(API.LLVMDIBuilderCreateArtificialType(builder, type))::DIType
 
 @static if version() >= v"20"
 """
     object_pointer_type!(builder::DIBuilder, type::DIType;
-                        implicit::Bool=true) -> DIDerivedType
+                        implicit::Bool=true) -> DIType
 
 Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
 When `implicit` is `true` (the default, matching LLVM ≤ 19 behavior), also
-sets `DI_FLAG_ARTIFICIAL`.
+sets `DI_FLAG_ARTIFICIAL`. The concrete subtype matches the input.
 """
 object_pointer_type!(builder::DIBuilder, type::DIType; implicit::Bool=true) =
-    DIDerivedType(API.LLVMDIBuilderCreateObjectPointerType(builder, type, implicit))
+    Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type, implicit))::DIType
 else
 """
-    object_pointer_type!(builder::DIBuilder, type::DIType) -> DIDerivedType
+    object_pointer_type!(builder::DIBuilder, type::DIType) -> DIType
 
 Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
+The concrete subtype matches the input.
 """
 object_pointer_type!(builder::DIBuilder, type::DIType) =
-    DIDerivedType(API.LLVMDIBuilderCreateObjectPointerType(builder, type))
+    Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type))::DIType
 end # @static
 
 """

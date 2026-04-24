@@ -1039,9 +1039,13 @@ end
 """
     finalize_subprogram!(builder::DIBuilder, sp::DISubProgram)
 
-Finalize a single subprogram before the rest of the builder. Advanced helper
-for streaming-style DI construction; most callers should simply rely on
-[`dispose`](@ref) to finalize everything.
+Finalize a single subprogram early, sealing its retained-nodes list. After
+this, no more local variables can be added to `sp`.
+
+Calling this is never required for correctness — [`dispose`](@ref) /
+[`finalize!`](@ref) finalize every tracked subprogram automatically. Use it
+only when streaming many subprograms through the builder and wanting to
+release their bookkeeping early.
 """
 finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
     API.LLVMDIBuilderFinalizeSubprogram(builder, sp)

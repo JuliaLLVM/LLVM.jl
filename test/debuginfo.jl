@@ -335,6 +335,54 @@ end
     end
 end
 
+@testset "DIBuilder: mutation helpers" begin
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            # temporary_mdnode + dispose_temporary on an unused temp
+            temp = LLVM.temporary_mdnode()
+            @test temp isa LLVM.Metadata
+            LLVM.dispose_temporary(temp)
+
+            # replace_all_uses_with! on a used temp
+            DW_ATE_signed = 0x05
+            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+
+            temp2 = LLVM.temporary_mdnode(LLVM.Metadata[i64])
+            real_node = MDNode([i64])
+            LLVM.replace_all_uses_with!(temp2, real_node)
+            # temp2 is disposed as a side effect of RAUW
+
+            LLVM.finalize!(dib)
+        end
+    end
+
+    # cycle-breaking: forward decl + RAUW (works on all LLVM versions)
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+
+            DW_TAG_structure_type = 0x13
+            DW_ATE_signed = 0x05
+
+            fwd = LLVM.replaceablecompositetype!(dib, DW_TAG_structure_type, "Node",
+                                                 cu, file, 1; size_in_bits=64)
+            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+            ptr_to_fwd = LLVM.pointertype!(dib, fwd, 64)
+
+            mem_val = LLVM.membertype!(dib, cu, "value", file, 1, 64, 64, 0, i64)
+            mem_next = LLVM.membertype!(dib, cu, "next", file, 2, 64, 64, 64, ptr_to_fwd)
+
+            real_struct = LLVM.structtype!(dib, cu, "Node", file, 1, 128, 64,
+                                           LLVM.Metadata[mem_val, mem_next])
+            LLVM.replace_all_uses_with!(fwd, real_struct)
+
+            LLVM.finalize!(dib)
+        end
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

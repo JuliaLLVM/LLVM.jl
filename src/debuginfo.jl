@@ -555,6 +555,18 @@ Create a new artificial type (`DI_FLAG_ARTIFICIAL`), e.g. an implicit `this`.
 artificial_type!(builder::DIBuilder, type::DIType) =
     DIDerivedType(API.LLVMDIBuilderCreateArtificialType(builder, type))
 
+@static if version() >= v"20"
+"""
+    object_pointer_type!(builder::DIBuilder, type::DIType;
+                        implicit::Bool=true) -> DIDerivedType
+
+Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
+When `implicit` is `true` (the default, matching LLVM ≤ 19 behavior), also
+sets `DI_FLAG_ARTIFICIAL`.
+"""
+object_pointer_type!(builder::DIBuilder, type::DIType; implicit::Bool=true) =
+    DIDerivedType(API.LLVMDIBuilderCreateObjectPointerType(builder, type, implicit))
+else
 """
     object_pointer_type!(builder::DIBuilder, type::DIType) -> DIDerivedType
 
@@ -562,6 +574,7 @@ Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
 """
 object_pointer_type!(builder::DIBuilder, type::DIType) =
     DIDerivedType(API.LLVMDIBuilderCreateObjectPointerType(builder, type))
+end # @static
 
 """
     inheritance!(builder::DIBuilder, derived::DIType, base::DIType,

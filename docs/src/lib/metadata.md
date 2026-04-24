@@ -173,6 +173,29 @@ LLVM.subroutinetype!
 ```@docs
 DISubProgram
 line(::DISubProgram)
+LLVM.subprogram!(::DIBuilder, ::DIScope, ::AbstractString, ::AbstractString, ::DIFile, ::Integer, ::LLVM.DISubroutineType, ::Integer)
+```
+
+### Variables
+
+Factories for local variables and parameters:
+
+```@docs
+LLVM.autovariable!
+LLVM.parametervariable!
+```
+
+### Expressions
+
+```@docs
+LLVM.DIExpression
+LLVM.DIGlobalVariableExpression
+LLVM.expression!
+LLVM.constantvalueexpression!
+LLVM.variable
+LLVM.expression
+LLVM.globalvariableexpression!
+LLVM.tempglobalvariablefwddecl!
 ```
 
 ### Compile Unit

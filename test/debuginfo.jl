@@ -173,6 +173,60 @@ end
     end
 end
 
+@testset "DIBuilder: subprograms, variables, expressions" begin
+    DW_ATE_signed = 0x05
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+
+            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+            stype = LLVM.subroutinetype!(dib, file, LLVM.Metadata[i64, i64, i64])
+
+            # subprogram
+            sp = LLVM.subprogram!(dib, file, "add", "add", file, 1, stype, 1)
+            @test sp isa DISubProgram
+            @test LLVM.line(sp) == 1
+
+            # variables
+            v = LLVM.autovariable!(dib, sp, "x", file, 2, i64)
+            @test v isa LLVM.DILocalVariable
+            @test LLVM.line(v) == 2
+            @test LLVM.file(v) == file
+            @test LLVM.scope(v) == sp
+
+            p = LLVM.parametervariable!(dib, sp, "a", 1, file, 1, i64)
+            @test p isa LLVM.DILocalVariable
+
+            # expressions
+            e = LLVM.expression!(dib)
+            @test e isa LLVM.DIExpression
+
+            ce = LLVM.constantvalueexpression!(dib, 42)
+            @test ce isa LLVM.DIExpression
+
+            # global variable expression + accessors
+            gve = LLVM.globalvariableexpression!(dib, cu, "g", "g",
+                                                  file, 1, i64, false, e)
+            @test gve isa LLVM.DIGlobalVariableExpression
+            gv = LLVM.variable(gve)
+            @test gv isa LLVM.DIGlobalVariable
+            @test LLVM.line(gv) == 1
+            @test LLVM.expression(gve) isa LLVM.DIExpression
+
+            # temp global forward decl
+            tgv = LLVM.tempglobalvariablefwddecl!(dib, cu, "tg", "tg",
+                                                   file, 2, i64, false)
+            @test tgv isa LLVM.DIGlobalVariable
+
+            LLVM.finalize_subprogram!(dib, sp)
+            LLVM.finalize!(dib)
+        end
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

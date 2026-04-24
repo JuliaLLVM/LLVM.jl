@@ -410,12 +410,14 @@ Get the alignment in bits of the given type.
 """
 align(typ::DIType) = Int(API.LLVMDITypeGetAlignInBits(typ))
 
+@static if version() >= v"17"
 """
     tag(node::DINode)
 
-Get the DWARF tag of the given node, or `0` if none.
+Get the DWARF tag of the given node, or `0` if none. Requires LLVM 17+.
 """
 tag(node::DINode) = Int(API.LLVMGetDINodeTag(node))
+end
 
 
 # basic types

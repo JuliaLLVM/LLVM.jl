@@ -123,7 +123,12 @@ function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType)
         throw(LLVMException(error))
     end
 
-    return convert(Vector{UInt8}, MemoryBuffer(out_membuf[]))
+    membuf = mark_alloc(MemoryBuffer(out_membuf[]))
+    try
+        convert(Vector{UInt8}, membuf)
+    finally
+        dispose(membuf)
+    end
 end
 
 """

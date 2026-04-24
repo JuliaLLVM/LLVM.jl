@@ -168,6 +168,20 @@ Subroutine types:
 LLVM.subroutinetype!
 ```
 
+Array-node helpers:
+
+```@docs
+LLVM.getorcreatearray!
+LLVM.getorcreatetypearray!
+```
+
+Objective-C:
+
+```@docs
+LLVM.objcivar!
+LLVM.objcproperty!
+```
+
 ### Subprogram
 
 ```@docs
@@ -251,6 +265,7 @@ LLVM.replace_all_uses_with!
 
 ```@docs
 DEBUG_METADATA_VERSION
+LLVM.debug_metadata_version
 strip_debuginfo!
 subprogram(::LLVM.Function)
 subprogram!

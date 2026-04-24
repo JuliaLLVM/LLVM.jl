@@ -808,7 +808,9 @@ function subroutinetype!(builder::DIBuilder, file::DIFile,
 end
 
 
-# subrange helpers
+# subrange / array helpers
+
+@public getorcreatearray!, getorcreatetypearray!
 
 """
     getorcreatesubrange!(builder::DIBuilder, lower_bound::Integer, count::Integer)
@@ -819,6 +821,70 @@ or vector type.
 getorcreatesubrange!(builder::DIBuilder, lower_bound::Integer, count::Integer) =
     DISubrange(API.LLVMDIBuilderGetOrCreateSubrange(
         builder, Int64(lower_bound), Int64(count)))
+
+"""
+    getorcreatearray!(builder::DIBuilder, elements::Vector{<:Metadata})
+
+Get or create a generic metadata array node, used for lists such as
+`elements` fields of composite types.
+"""
+function getorcreatearray!(builder::DIBuilder, elements::Vector{<:Metadata})
+    elts = convert(Vector{Metadata}, elements)
+    Metadata(API.LLVMDIBuilderGetOrCreateArray(builder, elts, Csize_t(length(elts))))
+end
+
+"""
+    getorcreatetypearray!(builder::DIBuilder, types::Vector{<:Metadata})
+
+Get or create a metadata node for a type array, used for e.g. template
+parameter lists.
+"""
+function getorcreatetypearray!(builder::DIBuilder, types::Vector{<:Metadata})
+    tys = convert(Vector{Metadata}, types)
+    Metadata(API.LLVMDIBuilderGetOrCreateTypeArray(builder, tys, Csize_t(length(tys))))
+end
+
+
+# ObjC
+
+@public objcivar!, objcproperty!
+
+"""
+    objcivar!(builder::DIBuilder, name::AbstractString, file::DIFile,
+              line::Integer, size_in_bits::Integer, align_in_bits::Integer,
+              offset_in_bits::Integer, type::DIType, property_node::Metadata;
+              flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new Objective-C instance variable.
+"""
+function objcivar!(builder::DIBuilder, name::AbstractString, file::DIFile,
+                   line::Integer, size_in_bits::Integer, align_in_bits::Integer,
+                   offset_in_bits::Integer, type::DIType, property_node::Metadata;
+                   flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateObjCIVar(
+        builder, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
+        flags, type, property_node))
+end
+
+"""
+    objcproperty!(builder::DIBuilder, name::AbstractString, file::DIFile,
+                  line::Integer, getter::AbstractString, setter::AbstractString,
+                  attributes::Integer, type::DIType) -> DIDerivedType
+
+Create a new Objective-C `@property` descriptor.
+"""
+function objcproperty!(builder::DIBuilder, name::AbstractString, file::DIFile,
+                       line::Integer, getter::AbstractString, setter::AbstractString,
+                       attributes::Integer, type::DIType)
+    DIDerivedType(API.LLVMDIBuilderCreateObjCProperty(
+        builder, name, Csize_t(length(name)),
+        file, Cuint(line),
+        getter, Csize_t(length(getter)),
+        setter, Csize_t(length(setter)),
+        Cuint(attributes), type))
+end
 
 
 # LLVM 21+ additions
@@ -1729,6 +1795,15 @@ export DEBUG_METADATA_VERSION, strip_debuginfo!, subprogram, subprogram!
 The current debug info version number, as supported by LLVM.
 """
 DEBUG_METADATA_VERSION() = API.LLVMDebugMetadataVersion()
+
+"""
+    debug_metadata_version(mod::Module)
+
+Get the debug info version number emitted in the given module, or `0` if none
+is attached.
+"""
+debug_metadata_version(mod::Module) = Int(API.LLVMGetModuleDebugMetadataVersion(mod))
+@public debug_metadata_version
 
 """
     strip_debuginfo!(mod::Module)

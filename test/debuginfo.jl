@@ -383,6 +383,36 @@ end
     end
 end
 
+@testset "DIBuilder: array / type-array / ObjC / module version" begin
+    DW_ATE_signed = 0x05
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+            i64 = LLVM.basictype!(dib, "Int64", 64, DW_ATE_signed)
+
+            ta = LLVM.getorcreatetypearray!(dib, LLVM.Metadata[i64, i64])
+            @test ta isa LLVM.Metadata
+            arr = LLVM.getorcreatearray!(dib, LLVM.Metadata[i64])
+            @test arr isa LLVM.Metadata
+
+            # ObjC (not widely used from Julia but round-tripped)
+            prop = LLVM.objcproperty!(dib, "count", file, 1,
+                                      "getCount", "setCount:", 0, i64)
+            @test prop isa LLVM.DIDerivedType
+            ivar = LLVM.objcivar!(dib, "_count", file, 1, 64, 64, 0, i64, prop)
+            @test ivar isa LLVM.DIDerivedType
+
+            LLVM.finalize!(dib)
+        end
+
+        # module-level debug version accessor (returns 0 when no flag set)
+        @test LLVM.debug_metadata_version(mod) isa Int
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

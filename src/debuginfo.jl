@@ -1,3 +1,66 @@
+## debug info builder
+
+export DIBuilder
+
+"""
+    DIBuilder
+
+A builder for constructing debug information metadata.
+
+This object needs to be disposed of using [`dispose`](@ref), after first having
+called [`finalize!`](@ref).
+"""
+@checked struct DIBuilder
+    ref::API.LLVMDIBuilderRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMDIBuilderRef}, builder::DIBuilder) =
+    mark_use(builder).ref
+
+"""
+    DIBuilder(mod::Module; allow_unresolved::Bool=true)
+
+Create a new debug info builder that emits metadata into `mod`.
+
+When `allow_unresolved` is `true` (the default), the builder collects unresolved
+metadata nodes attached to the module so that cycles can be resolved during a
+call to [`finalize!`](@ref). When `false`, the builder errors on unresolved
+nodes instead.
+"""
+function DIBuilder(mod::Module; allow_unresolved::Bool=true)
+    ref = allow_unresolved ? API.LLVMCreateDIBuilder(mod) :
+                             API.LLVMCreateDIBuilderDisallowUnresolved(mod)
+    mark_alloc(DIBuilder(ref))
+end
+
+"""
+    dispose(builder::DIBuilder)
+
+Dispose of a debug info builder. [`finalize!`](@ref) must be called first.
+"""
+dispose(builder::DIBuilder) = mark_dispose(API.LLVMDisposeDIBuilder, builder)
+
+function DIBuilder(f::Core.Function, args...; kwargs...)
+    builder = DIBuilder(args...; kwargs...)
+    try
+        f(builder)
+    finally
+        dispose(builder)
+    end
+end
+
+Base.show(io::IO, builder::DIBuilder) = @printf(io, "DIBuilder(%p)", builder.ref)
+
+"""
+    finalize!(builder::DIBuilder)
+
+Resolve any unresolved metadata nodes and mark all compile units finalized.
+Must be called before [`dispose`](@ref) and before using the emitted debug
+information.
+"""
+finalize!(builder::DIBuilder) = API.LLVMDIBuilderFinalize(builder)
+
+
 ## location information
 
 export DILocation, line, column, scope, inlined_at
@@ -286,6 +349,7 @@ flags(typ::DIType) = API.LLVMDITypeGetFlags(typ)
 ## subprogram
 
 export DISubProgram, line
+@public finalize_subprogram!
 
 """
     DISubProgram
@@ -303,6 +367,15 @@ register(DISubProgram, API.LLVMDISubprogramMetadataKind)
 Get the line number of the given subprogram.
 """
 line(subprogram::DISubProgram) = Int(API.LLVMDISubprogramGetLine(subprogram))
+
+"""
+    finalize_subprogram!(builder::DIBuilder, sp::DISubProgram)
+
+Finalize the given subprogram, allowing later changes to be disallowed. Must be
+called before [`finalize!`](@ref).
+"""
+finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
+    API.LLVMDIBuilderFinalizeSubprogram(builder, sp)
 
 
 ## compile unit

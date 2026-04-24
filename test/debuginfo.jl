@@ -23,6 +23,36 @@ DEBUG_METADATA_VERSION()
     end
 end
 
+@testset "DIBuilder: file/compile-unit/module/namespace" begin
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            @test file isa DIFile
+            @test LLVM.filename(file) == "test.jl"
+            @test LLVM.directory(file) == "/tmp"
+
+            cu = LLVM.compileunit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+            @test cu isa DICompileUnit
+
+            ns = LLVM.namespace!(dib, cu, "MyNamespace")
+            @test ns isa DINamespace
+            @test LLVM.name(ns) == "MyNamespace"
+
+            dm = LLVM.dimodule!(dib, cu, "MyModule")
+            @test dm isa DIModule
+            @test LLVM.name(dm) == "MyModule"
+
+            LLVM.finalize!(dib)
+        end
+
+        # emitted DWARF should round-trip as text IR (compile unit is retained)
+        ir = string(mod)
+        @test occursin("DICompileUnit", ir)
+        @test occursin("DIFile", ir)
+    end
+end
+
 @dispose ctx=Context() begin
       mod = parse(LLVM.Module,  """
           define void @foo() !dbg !15 {

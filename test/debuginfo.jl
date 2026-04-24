@@ -162,7 +162,8 @@ end
 
             # bitfield + static + member-pointer + inheritance
             @test LLVM.bitfield_member_type!(dib, cu, "b", file, 1, 3, 0, 0, i64) isa LLVM.DIDerivedType
-            @test LLVM.static_member_type!(dib, cu, "s", file, 1, i64) isa LLVM.DIDerivedType
+            @test LLVM.static_member_type!(dib, cu, "s", file, 1, i64,
+                                          ConstantInt(LLVM.Int64Type(), 42)) isa LLVM.DIDerivedType
             @test LLVM.member_pointer_type!(dib, i64, st, 64) isa LLVM.DIDerivedType
 
             base = LLVM.class_type!(dib, cu, "Base", file, 1, 64, 64, 0, LLVM.Metadata[])

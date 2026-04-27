@@ -142,6 +142,25 @@ d1(a) = @asmcall("bswap \$0", "=r,r", Int32, Tuple{Int32}, a)
 e1() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1;", "=r,=r", Tuple{Int16,Int32})
 @test e1() == (Int16(1), Int32(2))
 
+# homogeneous-bitwidth tuples (Julia lowers these to [N x T] arrays — the asm
+# call still returns a struct, so the bridge must reshape it).
+
+e2() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1;", "=r,=r", Tuple{Int32,Int32})
+@test e2() == (Int32(1), Int32(2))
+
+e3() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1;", "=r,=r", Tuple{UInt32,UInt32})
+@test e3() == (UInt32(1), UInt32(2))
+
+e4() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1; mov \$\$3, \$2; mov \$\$4, \$3;",
+                "=r,=r,=r,=r", NTuple{4,Int32})
+@test e4() == (Int32(1), Int32(2), Int32(3), Int32(4))
+
+# multi-output with input operands (regression for issue #531).
+
+e5(x) = @asmcall("mov \$2, \$0; mov \$2, \$1;", "=r,=r,r", true,
+                 Tuple{Int32,Int32}, Tuple{Int32}, x)
+@test e5(Int32(7)) == (Int32(7), Int32(7))
+
 # TODO: alternative test snippets for other platforms
 
 end

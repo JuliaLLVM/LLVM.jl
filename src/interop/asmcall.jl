@@ -23,11 +23,9 @@ end
         llvm_argtyp = LLVMType[convert.(LLVMType, [argtyp.parameters...])...]
         llvm_f, llvm_ft = create_function(llvm_rettyp, llvm_argtyp)
 
-        # Multi-output inline asm must return a struct in LLVM IR. Julia's
-        # homogeneous-bitwidth tuples lower to [N x T] arrays instead, so build
-        # the asm's FunctionType with an explicit struct return and bridge to
-        # llvm_rettyp via extractvalue/insertvalue. For 0/1 outputs the asm's
-        # return type matches llvm_rettyp directly and no bridge is needed.
+        # Multi-output inline asm returns a struct in LLVM, but Julia lowers
+        # homogeneous-bitwidth tuples to [N x T] arrays. Bridge the mismatch
+        # with extractvalue/insertvalue.
         n_outputs = _count_direct_outputs(String(constraints))
         asm_ft = if n_outputs >= 2
             if !(rettyp <: Tuple) || length(rettyp.parameters) != n_outputs

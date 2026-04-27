@@ -628,14 +628,13 @@ end
         output = String(take!(err))
         @test occursin("IR Dump After NoOpFunctionPass on SomeFunction", output)
 
-        # JULIA_LLVM_ARGS="--print-changed=diff-quiet --filter-passes=globaldce  --filter-print-funcs=dead_func"`
+        # JULIA_LLVM_ARGS="--print-changed=quiet --filter-passes=globaldce --filter-print-funcs=dead_func"
         cmd_changed = addenv(cmd, "JULIA_LLVM_ARGS" =>
-            "--print-changed=diff-quiet --filter-passes=globaldce --filter-print-funcs=dead_func")
+            "--print-changed=quiet --filter-passes=globaldce --filter-print-funcs=dead_func")
         out = IOBuffer(); err = IOBuffer()
         @test success(pipeline(cmd_changed, stdout=out, stderr=err))
         output = String(take!(err))
-        @test occursin("IR Dump After GlobalDCEPass on [module]", output)
-        @test occursin("-  ret void", output)
+        @test occursin("IR Deleted After GlobalDCEPass", output)
     end
 
     # Custom Julia function passes are registered under a user-chosen name and

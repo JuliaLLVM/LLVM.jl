@@ -577,14 +577,6 @@ end
     # Verify that JULIA_LLVM_ARGS flags are propagated to the NewPM pipeline.
     # We run a script in a subprocess so that clopts() doesn't mutate
     # global LLVM state for the rest of the test suite.
-    # Use a function-level pass so that --filter-print-funcs applies.
-    # Module-level passes dump the whole module regardless of the filter;
-    # function-level passes respect isFunctionInPrintList().
-    # Dead internal function so GlobalDCEPass has an actual IR change to produce.
-    # --print-changed tracks per-function changes, not global-variable removals,
-    # so a dead *function* is required to produce a diff.
-    # --filter-print-funcs=dead_func avoids log spam: Julia's JIT modules don't
-    # contain "dead_func", so only our pipeline triggers the diff.
     script = """
         using LLVM
         @dispose ctx=Context() begin
@@ -628,9 +620,7 @@ end
         @test success(pipeline(cmd, stdout=out, stderr=err))
         @test !occursin("IR Dump", String(take!(err)))
 
-        # --print-after-all with --filter-print-funcs: only dumps IR for
-        # SomeFunction; function-level passes respect isFunctionInPrintList()
-        # whereas module-level passes dump unconditionally
+        # `JULIA_LLVM_ARGS="--print-after-all --filter-print-funcs=SomeFunction"`
         cmd_print = addenv(cmd, "JULIA_LLVM_ARGS" =>
             "--print-after-all --filter-print-funcs=SomeFunction")
         out = IOBuffer(); err = IOBuffer()
@@ -638,9 +628,7 @@ end
         output = String(take!(err))
         @test occursin("IR Dump After NoOpFunctionPass on SomeFunction", output)
 
-        # --print-changed=diff-quiet --filter-passes=globaldce
-        #   --filter-print-funcs=dead_func: GlobalDCEPass removes dead_func and
-        # emits a diff; the function filter keeps Julia's JIT output out
+        # JULIA_LLVM_ARGS="--print-changed=diff-quiet --filter-passes=globaldce  --filter-print-funcs=dead_func"`
         cmd_changed = addenv(cmd, "JULIA_LLVM_ARGS" =>
             "--print-changed=diff-quiet --filter-passes=globaldce --filter-print-funcs=dead_func")
         out = IOBuffer(); err = IOBuffer()
@@ -687,8 +675,7 @@ end
 
         cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) $path`
 
-        # --print-after-all --filter-print-funcs=SomeFunction shows IR after
-        # the custom pass runs on SomeFunction
+        # `JULIA_LLVM_ARGS="--print-after-all --filter-print-funcs=SomeFunction`
         cmd_custom = addenv(cmd, "JULIA_LLVM_ARGS" =>
             "--print-after-all --filter-print-funcs=SomeFunction")
         out = IOBuffer(); err = IOBuffer()

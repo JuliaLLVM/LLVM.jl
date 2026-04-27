@@ -24,8 +24,8 @@ end
         llvm_f, llvm_ft = create_function(llvm_rettyp, llvm_argtyp)
 
         # Multi-output inline asm returns a struct in LLVM, but Julia lowers
-        # homogeneous-bitwidth tuples to [N x T] arrays. Bridge the mismatch
-        # with extractvalue/insertvalue.
+        # homogeneous tuples to [N x T] arrays. Bridge the mismatch with
+        # extractvalue/insertvalue.
         n_outputs = _count_direct_outputs(String(constraints))
         asm_ft = if n_outputs >= 2
             if !(rettyp <: Tuple) || length(rettyp.parameters) != n_outputs

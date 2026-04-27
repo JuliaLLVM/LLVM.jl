@@ -155,11 +155,24 @@ e4() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1; mov \$\$3, \$2; mov \$\$4, \$3;
                 "=r,=r,=r,=r", NTuple{4,Int32})
 @test e4() == (Int32(1), Int32(2), Int32(3), Int32(4))
 
-# multi-output with input operands (regression for issue #531).
+# multi-output with input operands
 
 e5(x) = @asmcall("mov \$2, \$0; mov \$2, \$1;", "=r,=r,r", true,
                  Tuple{Int32,Int32}, Tuple{Int32}, x)
 @test e5(Int32(7)) == (Int32(7), Int32(7))
+
+# multi-output with input + per-output computation.
+
+e6(x) = @asmcall("mov \$2, \$0; lea 10(\$2), \$1;", "=r,=r,r", true,
+                 Tuple{Int32,Int32}, Tuple{Int32}, x)
+@test e6(Int32(12)) == (Int32(12), Int32(22))
+
+e7(x) = @asmcall("mov \$2, \$0; mov \$2, \$1;", "=r,=r,r", true,
+                 Tuple{Int32,Int32}, Tuple{Int32}, x)
+let ir = sprint(io -> code_llvm(io, e7, Tuple{Int32}))
+    @test occursin(r"call \{ i32, i32 \} asm", ir)
+    @test !occursin(r"call \[2 x i32\] asm", ir)
+end
 
 # TODO: alternative test snippets for other platforms
 

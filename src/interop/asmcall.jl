@@ -58,6 +58,21 @@ end
 Call some inline assembly `asm`, optionally constrained by `constraints` and denoting other
 side effects in `side_effects`, specifying the return type in `rettyp` and types of
 arguments as a tuple-type in `argtyp`.
+
+For inline asm with multiple direct outputs (e.g. constraints `"=r,=r"`), pass `rettyp` as a
+`Tuple` whose element count matches the number of `=` outputs in `constraints`; the result
+is returned as a Julia tuple. Use a scalar `rettyp` for a single output, and `Nothing` when
+the asm has no direct outputs (indirect `=*` outputs that write through pointer arguments
+do not contribute to the return).
+
+```julia
+# single output
+@asmcall("bswap \$0", "=r,r", UInt32, Tuple{UInt32}, x)
+
+# two outputs (heterogeneous and homogeneous both work)
+@asmcall("...", "=r,=r", Tuple{Int16,Int32})
+@asmcall("...", "=r,=r", Tuple{UInt32,UInt32})
+```
 """
 :(@asmcall)
 

@@ -573,6 +573,117 @@ end
     end
 end
 
+@testset "PassInstrumentation" begin
+    # Verify that JULIA_LLVM_ARGS flags are propagated to the NewPM pipeline.
+    # We run a script in a subprocess so that clopts() doesn't mutate
+    # global LLVM state for the rest of the test suite.
+    script = """
+        using LLVM
+        @dispose ctx=Context() begin
+            mod = LLVM.Module("test")
+            ft = LLVM.FunctionType(LLVM.VoidType())
+            fn = LLVM.Function(mod, "SomeFunction", ft)
+
+            @dispose builder=IRBuilder() begin
+                entry = BasicBlock(fn, "entry")
+                position!(builder, entry)
+                ret!(builder)
+            end
+
+            dead_fn = LLVM.Function(mod, "dead_func", ft)
+            linkage!(dead_fn, LLVM.API.LLVMInternalLinkage)
+            @dispose builder=IRBuilder() begin
+                entry = BasicBlock(dead_fn, "entry")
+                position!(builder, entry)
+                ret!(builder)
+            end
+
+            @dispose pb=NewPMPassBuilder() begin
+                add!(pb, NewPMModulePassManager()) do mpm
+                    add!(mpm, GlobalDCEPass())
+                    add!(mpm, NewPMFunctionPassManager()) do fpm
+                        add!(fpm, NoOpFunctionPass())
+                    end
+                end
+                run!(pb, mod)
+            end
+        end
+    """
+    mktemp() do path, io
+        write(io, script)
+        flush(io)
+
+        cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) $path`
+
+        # Without flags: no IR dump output
+        out = IOBuffer(); err = IOBuffer()
+        @test success(pipeline(cmd, stdout=out, stderr=err))
+        @test !occursin("IR Dump", String(take!(err)))
+
+        # `JULIA_LLVM_ARGS="--print-after-all --filter-print-funcs=SomeFunction"`
+        cmd_print = addenv(cmd, "JULIA_LLVM_ARGS" =>
+            "--print-after-all --filter-print-funcs=SomeFunction")
+        out = IOBuffer(); err = IOBuffer()
+        @test success(pipeline(cmd_print, stdout=out, stderr=err))
+        output = String(take!(err))
+        @test occursin("IR Dump After NoOpFunctionPass on SomeFunction", output)
+
+        # JULIA_LLVM_ARGS="--print-changed=quiet --filter-passes=globaldce --filter-print-funcs=dead_func"
+        cmd_changed = addenv(cmd, "JULIA_LLVM_ARGS" =>
+            "--print-changed=quiet --filter-passes=globaldce --filter-print-funcs=dead_func")
+        out = IOBuffer(); err = IOBuffer()
+        @test success(pipeline(cmd_changed, stdout=out, stderr=err))
+        output = String(take!(err))
+        @test occursin("IR Deleted After GlobalDCEPass", output)
+    end
+
+    # Custom Julia function passes are registered under a user-chosen name and
+    # are visible to pass instrumentation just like built-in passes.
+    custom_script = """
+        using LLVM
+        @dispose ctx=Context() begin
+            mod = LLVM.Module("test")
+            ft = LLVM.FunctionType(LLVM.VoidType())
+            fn = LLVM.Function(mod, "SomeFunction", ft)
+
+            @dispose builder=IRBuilder() begin
+                entry = BasicBlock(fn, "entry")
+                position!(builder, entry)
+                ret!(builder)
+            end
+
+            function my_pass!(f::LLVM.Function)
+                return false  # no changes
+            end
+            MyPass() = NewPMFunctionPass("my-pass", my_pass!)
+
+            @dispose pb=NewPMPassBuilder() begin
+                register!(pb, MyPass())
+                add!(pb, NewPMModulePassManager()) do mpm
+                    add!(mpm, NewPMFunctionPassManager()) do fpm
+                        add!(fpm, MyPass())
+                    end
+                end
+                run!(pb, mod)
+            end
+        end
+    """
+    mktemp() do path, io
+        write(io, custom_script)
+        flush(io)
+
+        cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) $path`
+
+        # `JULIA_LLVM_ARGS="--print-after-all --filter-print-funcs=SomeFunction`
+        cmd_custom = addenv(cmd, "JULIA_LLVM_ARGS" =>
+            "--print-after-all --filter-print-funcs=SomeFunction")
+        out = IOBuffer(); err = IOBuffer()
+        @test success(pipeline(cmd_custom, stdout=out, stderr=err))
+        output = String(take!(err))
+        @test occursin("IR Dump After JuliaCustomFunctionPass on SomeFunction", output)
+    end
+end
+
 @testset "alias analyses" begin
     # default pipeline
     @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(debug_logging=true) begin

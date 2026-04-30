@@ -1,6 +1,6 @@
 name = "LLVM"
 uuid = "929cbde3-209d-540e-8aea-75f648917ca0"
-version = "9.7.0"
+version = "9.7.1"
 
 [workspace]
 projects = ["test", "docs", "examples", "deps", "res"]

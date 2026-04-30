@@ -4,23 +4,46 @@ export @asmcall
                              ::Val{rettyp}, ::Val{argtyp}, args...) where
                             {asm, constraints, side_effects, rettyp, argtyp}
     @dispose ctx=Context() begin
-        # create a function
         llvm_rettyp = convert(LLVMType, rettyp)
         llvm_argtyp = LLVMType[convert.(LLVMType, [argtyp.parameters...])...]
         llvm_f, llvm_ft = create_function(llvm_rettyp, llvm_argtyp)
 
-        inline_asm = InlineAsm(llvm_ft, String(asm), String(constraints), side_effects)
+        # LLVM dictates the inline asm's return shape from the number of direct
+        # outputs in the constraint string: 0 -> void, 1 -> T, N>=2 -> a struct
+        # { T0, ..., T_{N-1} }. Julia, however, lowers homogeneous Tuples (incl.
+        # NTuple) to [N x T]. Drive the asm callee's return type from `rettyp`
+        # (Tuple ⇒ struct, scalar ⇒ T) so we always match LLVM's rule, then
+        # bridge to llvm_rettyp via insertvalue when Julia's lowering disagrees.
+        asm_rettyp = if rettyp <: Tuple && length(rettyp.parameters) > 0
+            elem_types = LLVMType[convert(LLVMType, T) for T in rettyp.parameters]
+            length(elem_types) == 1 ? elem_types[1] : LLVM.StructType(elem_types)
+        else
+            llvm_rettyp
+        end
+        asm_ft = LLVM.FunctionType(asm_rettyp, llvm_argtyp)
+        inline_asm = InlineAsm(asm_ft, String(asm), String(constraints), side_effects)
 
-        # generate IR
         @dispose builder=IRBuilder() begin
             entry = BasicBlock(llvm_f, "entry")
             position!(builder, entry)
 
-            val = call!(builder, llvm_ft, inline_asm, collect(parameters(llvm_f)))
-            if rettyp == Nothing
+            val = call!(builder, asm_ft, inline_asm, collect(parameters(llvm_f)))
+            if rettyp === Nothing
                 ret!(builder)
-            else
+            elseif asm_rettyp == llvm_rettyp
                 ret!(builder, val)
+            else
+                # asm returned T or { T0, ... }; outer fn must return llvm_rettyp
+                # (typically [N x T] for homogeneous tuples). Reshape via
+                # insertvalue; optimization folds it away or reduces to a small
+                # struct→array shuffle.
+                ret_val = LLVM.UndefValue(llvm_rettyp)
+                n = length(rettyp.parameters)
+                for i in 0:n-1
+                    elem = n == 1 ? val : extract_value!(builder, val, i)
+                    ret_val = insert_value!(builder, ret_val, elem, i)
+                end
+                ret!(builder, ret_val)
             end
         end
 
@@ -35,6 +58,21 @@ end
 Call some inline assembly `asm`, optionally constrained by `constraints` and denoting other
 side effects in `side_effects`, specifying the return type in `rettyp` and types of
 arguments as a tuple-type in `argtyp`.
+
+For inline asm with multiple direct outputs (e.g. constraints `"=r,=r"`), pass `rettyp` as a
+`Tuple` whose element count matches the number of `=` outputs in `constraints`; the result
+is returned as a Julia tuple. Use a scalar `rettyp` for a single output, and `Nothing` when
+the asm has no direct outputs (indirect `=*` outputs that write through pointer arguments
+do not contribute to the return).
+
+```julia
+# single output
+@asmcall("bswap \$0", "=r,r", UInt32, Tuple{UInt32}, x)
+
+# two outputs (heterogeneous and homogeneous both work)
+@asmcall("...", "=r,=r", Tuple{Int16,Int32})
+@asmcall("...", "=r,=r", Tuple{UInt32,UInt32})
+```
 """
 :(@asmcall)
 

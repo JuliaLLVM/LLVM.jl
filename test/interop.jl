@@ -137,10 +137,48 @@ if Sys.ARCH == :x86 || Sys.ARCH == :x86_64
 d1(a) = @asmcall("bswap \$0", "=r,r", Int32, Tuple{Int32}, a)
 @test d1(Int32(1)) == Int32(16777216)
 
+# single output as a 1-element Tuple (Julia lowers this to [1 x T], so the
+# scalar asm result needs to be reshaped into the array)
+
+d2(a) = @asmcall("bswap \$0", "=r,r", Tuple{Int32}, Tuple{Int32}, a)
+@test d2(Int32(1)) === (Int32(16777216),)
+
 # multiple output registers
 
 e1() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1;", "=r,=r", Tuple{Int16,Int32})
 @test e1() == (Int16(1), Int32(2))
+
+# homogeneous-bitwidth tuples (Julia lowers these to [N x T] arrays — the asm
+# call still returns a struct, so the bridge must reshape it).
+
+e2() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1;", "=r,=r", Tuple{Int32,Int32})
+@test e2() == (Int32(1), Int32(2))
+
+e3() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1;", "=r,=r", Tuple{UInt32,UInt32})
+@test e3() == (UInt32(1), UInt32(2))
+
+e4() = @asmcall("mov \$\$1, \$0; mov \$\$2, \$1; mov \$\$3, \$2; mov \$\$4, \$3;",
+                "=r,=r,=r,=r", NTuple{4,Int32})
+@test e4() == (Int32(1), Int32(2), Int32(3), Int32(4))
+
+# multi-output with input operands
+
+e5(x) = @asmcall("mov \$2, \$0; mov \$2, \$1;", "=r,=r,r", true,
+                 Tuple{Int32,Int32}, Tuple{Int32}, x)
+@test e5(Int32(7)) == (Int32(7), Int32(7))
+
+# multi-output with input + per-output computation.
+
+e6(x) = @asmcall("mov \$2, \$0; lea 10(\$2), \$1;", "=r,=r,r", true,
+                 Tuple{Int32,Int32}, Tuple{Int32}, x)
+@test e6(Int32(12)) == (Int32(12), Int32(22))
+
+e7(x) = @asmcall("mov \$2, \$0; mov \$2, \$1;", "=r,=r,r", true,
+                 Tuple{Int32,Int32}, Tuple{Int32}, x)
+let ir = sprint(io -> code_llvm(io, e7, Tuple{Int32}))
+    @test occursin(r"call \{ i32, i32 \} asm", ir)
+    @test !occursin(r"call \[2 x i32\] asm", ir)
+end
 
 # TODO: alternative test snippets for other platforms
 

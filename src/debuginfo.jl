@@ -1,3 +1,80 @@
+## debug info builder
+
+export DIBuilder
+
+"""
+    DIBuilder
+
+A builder for constructing debug information metadata.
+
+This object needs to be disposed of using [`dispose`](@ref), which also
+finalizes the debug info. Call [`finalize!`](@ref) explicitly only if you
+need to use the finalized debug info (e.g. emit code) *before* disposing of
+the builder.
+"""
+@checked struct DIBuilder
+    ref::API.LLVMDIBuilderRef
+    has_compile_unit::Base.RefValue{Bool}
+end
+
+Base.unsafe_convert(::Type{API.LLVMDIBuilderRef}, builder::DIBuilder) =
+    mark_use(builder).ref
+
+"""
+    DIBuilder(mod::Module; allow_unresolved::Bool=true)
+
+Create a new debug info builder that emits metadata into `mod`.
+
+When `allow_unresolved` is `true` (the default), the builder collects unresolved
+metadata nodes attached to the module so that cycles can be resolved during
+[`dispose`](@ref). When `false`, the builder errors on unresolved nodes instead.
+"""
+function DIBuilder(mod::Module; allow_unresolved::Bool=true)
+    ref = allow_unresolved ? API.LLVMCreateDIBuilder(mod) :
+                             API.LLVMCreateDIBuilderDisallowUnresolved(mod)
+    mark_alloc(DIBuilder(ref, Ref(false)))
+end
+
+"""
+    dispose(builder::DIBuilder)
+
+Finalize the debug info and dispose of the builder. Finalization populates
+the compile unit's enum/retained-type/global/imported-entity/macro arrays,
+seals each subprogram's retained-nodes list, and resolves remaining cycles.
+If no compile unit was registered with the builder, finalization is skipped.
+"""
+function dispose(builder::DIBuilder)
+    if builder.has_compile_unit[]
+        API.LLVMDIBuilderFinalize(builder)
+    end
+    mark_dispose(API.LLVMDisposeDIBuilder, builder)
+end
+
+function DIBuilder(f::Core.Function, args...; kwargs...)
+    builder = DIBuilder(args...; kwargs...)
+    try
+        f(builder)
+    finally
+        dispose(builder)
+    end
+end
+
+Base.show(io::IO, builder::DIBuilder) = @printf(io, "DIBuilder(%p)", builder.ref)
+
+"""
+    finalize!(builder::DIBuilder)
+
+Resolve any unresolved metadata nodes and mark all compile units finalized.
+Called automatically by [`dispose`](@ref); call explicitly only if the
+DI-enriched module must be consumed (e.g. for code emission) before the
+builder is disposed of. Skipped if no compile unit has been registered.
+"""
+function finalize!(builder::DIBuilder)
+    builder.has_compile_unit[] && API.LLVMDIBuilderFinalize(builder)
+    return
+end
+
+
 ## location information
 
 export DILocation, line, column, scope, inlined_at
@@ -13,17 +90,22 @@ end
 register(DILocation, API.LLVMDILocationMetadataKind)
 
 """
-    DILocation([line::Int], [col::Int], [scope::Metadata], [inlined_at::Metadata])
+    DILocation(line::Integer, col::Integer, scope::DIScope,
+               [inlined_at::DILocation]) -> DILocation
 
-Creates a new DebugLocation that describes a source location.
+Creates a new DebugLocation that describes a source location. A scope is
+required: LLVM segfaults on a null scope.
 """
-function DILocation(line=0, col=0, scope=nothing, inlined_at=nothing)
-    # XXX: are null scopes valid? they crash LLVM:
-    #      DILocation(Context(), 1, 2).scope
-    DILocation(API.LLVMDIBuilderCreateDebugLocation(context(), line, col,
-                                                    something(scope, C_NULL),
+function DILocation(line::Integer, col::Integer, scope::Metadata,
+                    inlined_at::Union{DILocation,Nothing}=nothing)
+    # `scope` is typed as `Metadata` rather than `DIScope` because `DIScope`
+    # isn't defined yet at this point in the file.
+    DILocation(API.LLVMDIBuilderCreateDebugLocation(context(), line, col, scope,
                                                     something(inlined_at, C_NULL)))
 end
+
+DILocation(line::Integer, col::Integer, scope::Nothing, inlined_at=nothing) =
+    throw(UndefRefError())
 
 """
     line(location::DILocation)
@@ -172,6 +254,7 @@ abstract type DILocalScope <: DIScope end
 ## file
 
 export DIFile, directory, filename, source
+@public file!
 
 """
     DIFile
@@ -182,6 +265,17 @@ A file in the source code.
     ref::API.LLVMMetadataRef
 end
 register(DIFile, API.LLVMDIFileMetadataKind)
+
+"""
+    file!(builder::DIBuilder, filename::AbstractString, directory::AbstractString) -> DIFile
+
+Create a new [`DIFile`](@ref) describing the given source file.
+"""
+function file!(builder::DIBuilder, filename::AbstractString, directory::AbstractString)
+    DIFile(API.LLVMDIBuilderCreateFile(builder,
+                                       filename, Csize_t(length(filename)),
+                                       directory, Csize_t(length(directory))))
+end
 
 """
     directory(file::DIFile)
@@ -222,7 +316,14 @@ end
 
 ## type
 
-export DIType, name, offset, line, flags
+export DIType, DIEnumerator, DISubrange, name, offset, line, flags
+@public align,
+        basic_type!, unspecified_type!, pointer_type!, reference_type!, nullptr_type!,
+        typedef_type!, qualified_type!, artificial_type!, object_pointer_type!,
+        inheritance!, member_type!, bitfield_member_type!, static_member_type!,
+        member_pointer_type!, struct_type!, union_type!, class_type!, array_type!,
+        vector_type!, enumeration_type!, enumerator!, forward_decl!,
+        replaceable_composite_type!, subroutine_type!, get_or_create_subrange!
 
 """
     DIType
@@ -241,6 +342,61 @@ for typ in (:Basic, :Derived, :Composite, :Subroutine)
         register($typ_name, API.$typ_kind)
     end
 end
+
+"""
+    DIBasicType <: DIType
+
+A primitive type (integer, floating-point, boolean, ...), built with
+[`basic_type!`](@ref).
+"""
+DIBasicType
+
+"""
+    DIDerivedType <: DIType
+
+A type derived from another type by adding qualifiers, reference/pointer
+indirection, a typedef name, or by describing a member/field. Built with
+[`pointer_type!`](@ref), [`typedef_type!`](@ref), [`member_type!`](@ref), and
+the other qualifier/member factories.
+"""
+DIDerivedType
+
+"""
+    DICompositeType <: DIType
+
+An aggregate type (struct, union, class, array, vector, enumeration, ...).
+Built with [`struct_type!`](@ref), [`union_type!`](@ref),
+[`array_type!`](@ref), etc.
+"""
+DICompositeType
+
+"""
+    DISubroutineType <: DIType
+
+A function/subroutine type, listing the return and parameter types. Built
+with [`subroutine_type!`](@ref).
+"""
+DISubroutineType
+
+"""
+    DIEnumerator
+
+A single enumerator value in an enumeration type.
+"""
+@checked struct DIEnumerator <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIEnumerator, API.LLVMDIEnumeratorMetadataKind)
+
+"""
+    DISubrange
+
+A subrange describing one dimension of an array or vector type.
+"""
+@checked struct DISubrange <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DISubrange, API.LLVMDISubrangeMetadataKind)
 
 """
     name(typ::DIType)
@@ -282,6 +438,689 @@ Get the flags of the given type.
 """
 flags(typ::DIType) = API.LLVMDITypeGetFlags(typ)
 
+"""
+    align(typ::DIType)
+
+Get the alignment in bits of the given type.
+"""
+align(typ::DIType) = Int(API.LLVMDITypeGetAlignInBits(typ))
+
+@static if version() >= v"17"
+"""
+    tag(node::DINode)
+
+Get the DWARF tag of the given node, or `0` if none. Requires LLVM 17+.
+"""
+tag(node::DINode) = Int(API.LLVMGetDINodeTag(node))
+end
+
+
+# basic types
+
+"""
+    basic_type!(builder::DIBuilder, name::AbstractString, size_in_bits::Integer,
+               encoding::Integer; flags=API.LLVMDIFlagZero) -> DIBasicType
+
+Create a new [`DIBasicType`](@ref), such as an integer or floating-point type.
+`encoding` is a `DW_ATE_*` value (see the DWARF standard).
+"""
+function basic_type!(builder::DIBuilder, name::AbstractString, size_in_bits::Integer,
+                    encoding::Integer; flags=API.LLVMDIFlagZero)
+    DIBasicType(API.LLVMDIBuilderCreateBasicType(
+        builder, name, Csize_t(length(name)),
+        UInt64(size_in_bits), Cuint(encoding), flags))
+end
+
+"""
+    unspecified_type!(builder::DIBuilder, name::AbstractString) -> DIBasicType
+
+Create a new unspecified type (`DW_TAG_unspecified_type`), e.g. a C++ `decltype(nullptr)`.
+"""
+function unspecified_type!(builder::DIBuilder, name::AbstractString)
+    DIBasicType(API.LLVMDIBuilderCreateUnspecifiedType(
+        builder, name, Csize_t(length(name))))
+end
+
+
+# derived types
+
+"""
+    pointer_type!(builder::DIBuilder, pointee_type::DIType, size_in_bits::Integer;
+                 align_in_bits::Integer=0, address_space::Integer=0,
+                 name::AbstractString="") -> DIDerivedType
+
+Create a new pointer type.
+"""
+function pointer_type!(builder::DIBuilder, pointee_type::DIType, size_in_bits::Integer;
+                      align_in_bits::Integer=0, address_space::Integer=0,
+                      name::AbstractString="")
+    DIDerivedType(API.LLVMDIBuilderCreatePointerType(
+        builder, pointee_type,
+        UInt64(size_in_bits), UInt32(align_in_bits), Cuint(address_space),
+        name, Csize_t(length(name))))
+end
+
+"""
+    reference_type!(builder::DIBuilder, tag::Integer, type::DIType) -> DIDerivedType
+
+Create a new reference type (C++ `T&` / `T&&`), with the given DWARF `tag`
+(e.g. `DW_TAG_reference_type` or `DW_TAG_rvalue_reference_type`).
+"""
+function reference_type!(builder::DIBuilder, tag::Integer, type::DIType)
+    DIDerivedType(API.LLVMDIBuilderCreateReferenceType(builder, Cuint(tag), type))
+end
+
+"""
+    nullptr_type!(builder::DIBuilder) -> DIBasicType
+
+Create a new type representing a null pointer.
+"""
+nullptr_type!(builder::DIBuilder) =
+    DIBasicType(API.LLVMDIBuilderCreateNullPtrType(builder))
+
+"""
+    typedef_type!(builder::DIBuilder, type::DIType, name::AbstractString,
+                 file::DIFile, line::Integer, scope::DIScope;
+                 align_in_bits::Integer=0) -> DIDerivedType
+
+Create a new typedef type.
+"""
+function typedef_type!(builder::DIBuilder, type::DIType, name::AbstractString,
+                      file::DIFile, line::Integer, scope::DIScope;
+                      align_in_bits::Integer=0)
+    DIDerivedType(API.LLVMDIBuilderCreateTypedef(
+        builder, type, name, Csize_t(length(name)),
+        file, Cuint(line), scope, UInt32(align_in_bits)))
+end
+
+"""
+    qualified_type!(builder::DIBuilder, tag::Integer, type::DIType) -> DIDerivedType
+
+Create a new qualified type, such as `const T` (`DW_TAG_const_type`) or
+`volatile T` (`DW_TAG_volatile_type`). See also the named convenience
+wrappers [`const_type!`](@ref) and [`volatile_type!`](@ref).
+"""
+function qualified_type!(builder::DIBuilder, tag::Integer, type::DIType)
+    DIDerivedType(API.LLVMDIBuilderCreateQualifiedType(builder, Cuint(tag), type))
+end
+
+@public const_type!, volatile_type!, lvalue_reference_type!, rvalue_reference_type!
+
+# DWARF tag values used by the convenience wrappers below. Not exported; part
+# of a wider DWARF-constants cleanup.
+const _DW_TAG_reference_type        = 0x10
+const _DW_TAG_const_type            = 0x26
+const _DW_TAG_volatile_type         = 0x35
+const _DW_TAG_rvalue_reference_type = 0x42
+
+"""
+    const_type!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a `const`-qualified type. Shorthand for
+`qualified_type!(builder, DW_TAG_const_type, type)`.
+"""
+const_type!(builder::DIBuilder, type::DIType) =
+    qualified_type!(builder, _DW_TAG_const_type, type)
+
+"""
+    volatile_type!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a `volatile`-qualified type. Shorthand for
+`qualified_type!(builder, DW_TAG_volatile_type, type)`.
+"""
+volatile_type!(builder::DIBuilder, type::DIType) =
+    qualified_type!(builder, _DW_TAG_volatile_type, type)
+
+"""
+    lvalue_reference_type!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a C++ `T&` reference type. Shorthand for
+`reference_type!(builder, DW_TAG_reference_type, type)`.
+"""
+lvalue_reference_type!(builder::DIBuilder, type::DIType) =
+    reference_type!(builder, _DW_TAG_reference_type, type)
+
+"""
+    rvalue_reference_type!(builder::DIBuilder, type::DIType) -> DIDerivedType
+
+Create a C++ `T&&` rvalue-reference type. Shorthand for
+`reference_type!(builder, DW_TAG_rvalue_reference_type, type)`.
+"""
+rvalue_reference_type!(builder::DIBuilder, type::DIType) =
+    reference_type!(builder, _DW_TAG_rvalue_reference_type, type)
+
+"""
+    artificial_type!(builder::DIBuilder, type::DIType) -> DIType
+
+Create a new artificial type (`DI_FLAG_ARTIFICIAL`), e.g. an implicit `this`.
+The concrete subtype matches the input (e.g. a `DIBasicType` stays a
+`DIBasicType`).
+"""
+artificial_type!(builder::DIBuilder, type::DIType) =
+    Metadata(API.LLVMDIBuilderCreateArtificialType(builder, type))::DIType
+
+"""
+    object_pointer_type!(builder::DIBuilder, type::DIType;
+                        implicit::Bool=true) -> DIType
+
+Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
+The concrete subtype matches the input. On LLVM 20+ an `implicit::Bool` keyword
+is accepted: when `true` (the default, matching LLVM ≤ 19 behavior) the clone
+also sets `DI_FLAG_ARTIFICIAL`.
+"""
+object_pointer_type!
+
+@static if version() >= v"20"
+object_pointer_type!(builder::DIBuilder, type::DIType; implicit::Bool=true) =
+    Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type, implicit))::DIType
+else
+object_pointer_type!(builder::DIBuilder, type::DIType) =
+    Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type))::DIType
+end # @static
+
+"""
+    inheritance!(builder::DIBuilder, derived::DIType, base::DIType,
+                 base_offset::Integer, vbptr_offset::Integer=0;
+                 flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new inheritance relationship from `derived` to `base`.
+"""
+function inheritance!(builder::DIBuilder, derived::DIType, base::DIType,
+                      base_offset::Integer, vbptr_offset::Integer=0;
+                      flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateInheritance(
+        builder, derived, base, UInt64(base_offset), UInt32(vbptr_offset), flags))
+end
+
+"""
+    member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                file::DIFile, line::Integer, size_in_bits::Integer,
+                align_in_bits::Integer, offset_in_bits::Integer,
+                type::DIType; flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new member (field) of a composite type.
+"""
+function member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     file::DIFile, line::Integer, size_in_bits::Integer,
+                     align_in_bits::Integer, offset_in_bits::Integer,
+                     type::DIType; flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateMemberType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
+        flags, type))
+end
+
+"""
+    bitfield_member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                        file::DIFile, line::Integer, size_in_bits::Integer,
+                        offset_in_bits::Integer, storage_offset_in_bits::Integer,
+                        type::DIType; flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new bit-field member of a composite type.
+"""
+function bitfield_member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                             file::DIFile, line::Integer, size_in_bits::Integer,
+                             offset_in_bits::Integer, storage_offset_in_bits::Integer,
+                             type::DIType; flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateBitFieldMemberType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt64(offset_in_bits), UInt64(storage_offset_in_bits),
+        flags, type))
+end
+
+"""
+    static_member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                      file::DIFile, line::Integer, type::DIType,
+                      constant_val::Constant;
+                      flags=API.LLVMDIFlagZero,
+                      align_in_bits::Integer=0) -> DIDerivedType
+
+Create a new static member of a composite type. `constant_val` is required:
+the underlying C entry point unconditionally `cast<Constant>`s it and
+crashes on null.
+"""
+function static_member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                           file::DIFile, line::Integer, type::DIType,
+                           constant_val::Constant;
+                           flags=API.LLVMDIFlagZero,
+                           align_in_bits::Integer=0)
+    DIDerivedType(API.LLVMDIBuilderCreateStaticMemberType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line), type, flags,
+        constant_val, UInt32(align_in_bits)))
+end
+
+"""
+    member_pointer_type!(builder::DIBuilder, pointee_type::DIType, class_type::DIType,
+                       size_in_bits::Integer;
+                       align_in_bits::Integer=0,
+                       flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new pointer-to-member type for C++.
+"""
+function member_pointer_type!(builder::DIBuilder, pointee_type::DIType, class_type::DIType,
+                            size_in_bits::Integer;
+                            align_in_bits::Integer=0,
+                            flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateMemberPointerType(
+        builder, pointee_type, class_type,
+        UInt64(size_in_bits), UInt32(align_in_bits), flags))
+end
+
+
+# composite types
+
+"""
+    struct_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                file::DIFile, line::Integer, size_in_bits::Integer,
+                align_in_bits::Integer, elements::Vector{<:Metadata};
+                flags=API.LLVMDIFlagZero, derived_from=nothing,
+                runtime_lang::Integer=0, vtable_holder=nothing,
+                unique_id::AbstractString="") -> DICompositeType
+
+Create a new struct type.
+"""
+function struct_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     file::DIFile, line::Integer, size_in_bits::Integer,
+                     align_in_bits::Integer, elements::Vector{<:Metadata};
+                     flags=API.LLVMDIFlagZero, derived_from=nothing,
+                     runtime_lang::Integer=0, vtable_holder=nothing,
+                     unique_id::AbstractString="")
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateStructType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), flags,
+        something(derived_from, C_NULL),
+        elts, Cuint(length(elts)),
+        Cuint(runtime_lang),
+        something(vtable_holder, C_NULL),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    union_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+               file::DIFile, line::Integer, size_in_bits::Integer,
+               align_in_bits::Integer, elements::Vector{<:Metadata};
+               flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
+               unique_id::AbstractString="") -> DICompositeType
+
+Create a new union type.
+"""
+function union_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                    file::DIFile, line::Integer, size_in_bits::Integer,
+                    align_in_bits::Integer, elements::Vector{<:Metadata};
+                    flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
+                    unique_id::AbstractString="")
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateUnionType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), flags,
+        elts, Cuint(length(elts)),
+        Cuint(runtime_lang),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    class_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+               file::DIFile, line::Integer, size_in_bits::Integer,
+               align_in_bits::Integer, offset_in_bits::Integer,
+               elements::Vector{<:Metadata};
+               flags=API.LLVMDIFlagZero, derived_from=nothing,
+               vtable_holder=nothing, template_params=nothing,
+               unique_id::AbstractString="") -> DICompositeType
+
+Create a new C++ class type.
+"""
+function class_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                    file::DIFile, line::Integer, size_in_bits::Integer,
+                    align_in_bits::Integer, offset_in_bits::Integer,
+                    elements::Vector{<:Metadata};
+                    flags=API.LLVMDIFlagZero, derived_from=nothing,
+                    vtable_holder=nothing, template_params=nothing,
+                    unique_id::AbstractString="")
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateClassType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
+        flags,
+        something(derived_from, C_NULL),
+        elts, Cuint(length(elts)),
+        something(vtable_holder, C_NULL),
+        something(template_params, C_NULL),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    array_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+               element_type::DIType, subscripts::Vector{<:Metadata}) -> DICompositeType
+
+Create a new array type. Subscripts are typically built with
+[`get_or_create_subrange!`](@ref).
+"""
+function array_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+                    element_type::DIType, subscripts::Vector{<:Metadata})
+    subs = convert(Vector{Metadata}, subscripts)
+    DICompositeType(API.LLVMDIBuilderCreateArrayType(
+        builder, UInt64(size), UInt32(align_in_bits),
+        element_type, subs, Cuint(length(subs))))
+end
+
+"""
+    vector_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+                element_type::DIType, subscripts::Vector{<:Metadata}) -> DICompositeType
+
+Create a new vector type. Subscripts are typically built with
+[`get_or_create_subrange!`](@ref).
+"""
+function vector_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+                     element_type::DIType, subscripts::Vector{<:Metadata})
+    subs = convert(Vector{Metadata}, subscripts)
+    DICompositeType(API.LLVMDIBuilderCreateVectorType(
+        builder, UInt64(size), UInt32(align_in_bits),
+        element_type, subs, Cuint(length(subs))))
+end
+
+"""
+    enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
+                unsigned::Bool=false) -> DIEnumerator
+
+Create a new enumerator for use inside an enumeration type.
+"""
+function enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
+                     unsigned::Bool=false)
+    DIEnumerator(API.LLVMDIBuilderCreateEnumerator(
+        builder, name, Csize_t(length(name)), Int64(value), unsigned))
+end
+
+"""
+    enumeration_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     file::DIFile, line::Integer, size_in_bits::Integer,
+                     align_in_bits::Integer, elements::Vector{<:Metadata};
+                     class_ty=nothing) -> DICompositeType
+
+Create a new enumeration type. `elements` should be a vector of
+[`DIEnumerator`](@ref) metadata nodes.
+"""
+function enumeration_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                          file::DIFile, line::Integer, size_in_bits::Integer,
+                          align_in_bits::Integer, elements::Vector{<:Metadata};
+                          class_ty=nothing)
+    elts = convert(Vector{Metadata}, elements)
+    DICompositeType(API.LLVMDIBuilderCreateEnumerationType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits),
+        elts, Cuint(length(elts)),
+        something(class_ty, C_NULL)))
+end
+
+"""
+    forward_decl!(builder::DIBuilder, tag::Integer, name::AbstractString,
+                 scope::DIScope, file::DIFile, line::Integer;
+                 runtime_lang::Integer=0, size_in_bits::Integer=0,
+                 align_in_bits::Integer=0,
+                 unique_id::AbstractString="") -> DICompositeType
+
+Create a new forward declaration to a composite type.
+"""
+function forward_decl!(builder::DIBuilder, tag::Integer, name::AbstractString,
+                      scope::DIScope, file::DIFile, line::Integer;
+                      runtime_lang::Integer=0, size_in_bits::Integer=0,
+                      align_in_bits::Integer=0,
+                      unique_id::AbstractString="")
+    DICompositeType(API.LLVMDIBuilderCreateForwardDecl(
+        builder, Cuint(tag), name, Csize_t(length(name)),
+        scope, file, Cuint(line), Cuint(runtime_lang),
+        UInt64(size_in_bits), UInt32(align_in_bits),
+        unique_id, Csize_t(length(unique_id))))
+end
+
+"""
+    replaceable_composite_type!(builder::DIBuilder, tag::Integer,
+                              name::AbstractString, scope::DIScope,
+                              file::DIFile, line::Integer;
+                              runtime_lang::Integer=0, size_in_bits::Integer=0,
+                              align_in_bits::Integer=0,
+                              flags=API.LLVMDIFlagZero,
+                              unique_id::AbstractString="") -> DICompositeType
+
+Create a new replaceable composite type forward declaration.
+"""
+function replaceable_composite_type!(builder::DIBuilder, tag::Integer,
+                                   name::AbstractString, scope::DIScope,
+                                   file::DIFile, line::Integer;
+                                   runtime_lang::Integer=0, size_in_bits::Integer=0,
+                                   align_in_bits::Integer=0,
+                                   flags=API.LLVMDIFlagZero,
+                                   unique_id::AbstractString="")
+    DICompositeType(API.LLVMDIBuilderCreateReplaceableCompositeType(
+        builder, Cuint(tag), name, Csize_t(length(name)),
+        scope, file, Cuint(line), Cuint(runtime_lang),
+        UInt64(size_in_bits), UInt32(align_in_bits), flags,
+        unique_id, Csize_t(length(unique_id))))
+end
+
+
+# subroutine types
+
+"""
+    subroutine_type!(builder::DIBuilder, file::DIFile,
+                    return_type::Union{DIType,Nothing},
+                    parameter_types::Vector{<:Metadata}=Metadata[];
+                    flags=API.LLVMDIFlagZero) -> DISubroutineType
+
+Create a new subroutine type with the given return and parameter types. Pass
+`nothing` for `return_type` to describe a `void`-returning subroutine.
+"""
+function subroutine_type!(builder::DIBuilder, file::DIFile,
+                         return_type::Union{DIType,Nothing},
+                         parameter_types::Vector{<:Metadata}=Metadata[];
+                         flags=API.LLVMDIFlagZero)
+    # LLVM packs the return type as the 0th element of the parameter-types array,
+    # with a null entry standing for `void`.
+    params = API.LLVMMetadataRef[
+        return_type === nothing ? C_NULL :
+            Base.unsafe_convert(API.LLVMMetadataRef, return_type)]
+    for p in parameter_types
+        push!(params, Base.unsafe_convert(API.LLVMMetadataRef, p))
+    end
+    DISubroutineType(API.LLVMDIBuilderCreateSubroutineType(
+        builder, file, params, Cuint(length(params)), flags))
+end
+
+
+# subrange / array helpers
+
+@public get_or_create_array!, get_or_create_type_array!
+
+"""
+    get_or_create_subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer)
+
+Get or create a subrange metadata node, describing one dimension of an array
+or vector type.
+"""
+get_or_create_subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer) =
+    DISubrange(API.LLVMDIBuilderGetOrCreateSubrange(
+        builder, Int64(lower_bound), Int64(count)))
+
+"""
+    get_or_create_array!(builder::DIBuilder, elements::Vector{<:Metadata})
+
+Get or create a generic metadata array node, used for lists such as
+`elements` fields of composite types.
+"""
+function get_or_create_array!(builder::DIBuilder, elements::Vector{<:Metadata})
+    elts = convert(Vector{Metadata}, elements)
+    Metadata(API.LLVMDIBuilderGetOrCreateArray(builder, elts, Csize_t(length(elts))))
+end
+
+"""
+    get_or_create_type_array!(builder::DIBuilder, types::Vector{<:Metadata})
+
+Get or create a metadata node for a type array, used for e.g. template
+parameter lists.
+"""
+function get_or_create_type_array!(builder::DIBuilder, types::Vector{<:Metadata})
+    tys = convert(Vector{Metadata}, types)
+    Metadata(API.LLVMDIBuilderGetOrCreateTypeArray(builder, tys, Csize_t(length(tys))))
+end
+
+
+# ObjC
+
+export DIObjCProperty
+@public objc_ivar!, objc_property!
+
+"""
+    DIObjCProperty
+
+An Objective-C `@property` descriptor.
+"""
+@checked struct DIObjCProperty <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIObjCProperty, API.LLVMDIObjCPropertyMetadataKind)
+
+"""
+    objc_ivar!(builder::DIBuilder, name::AbstractString, file::DIFile,
+              line::Integer, size_in_bits::Integer, align_in_bits::Integer,
+              offset_in_bits::Integer, type::DIType, property_node::Metadata;
+              flags=API.LLVMDIFlagZero) -> DIDerivedType
+
+Create a new Objective-C instance variable.
+"""
+function objc_ivar!(builder::DIBuilder, name::AbstractString, file::DIFile,
+                   line::Integer, size_in_bits::Integer, align_in_bits::Integer,
+                   offset_in_bits::Integer, type::DIType, property_node::Metadata;
+                   flags=API.LLVMDIFlagZero)
+    DIDerivedType(API.LLVMDIBuilderCreateObjCIVar(
+        builder, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
+        flags, type, property_node))
+end
+
+"""
+    objc_property!(builder::DIBuilder, name::AbstractString, file::DIFile,
+                  line::Integer, getter::AbstractString, setter::AbstractString,
+                  attributes::Integer, type::DIType) -> DIObjCProperty
+
+Create a new Objective-C `@property` descriptor.
+"""
+function objc_property!(builder::DIBuilder, name::AbstractString, file::DIFile,
+                       line::Integer, getter::AbstractString, setter::AbstractString,
+                       attributes::Integer, type::DIType)
+    DIObjCProperty(API.LLVMDIBuilderCreateObjCProperty(
+        builder, name, Csize_t(length(name)),
+        file, Cuint(line),
+        getter, Csize_t(length(getter)),
+        setter, Csize_t(length(setter)),
+        Cuint(attributes), type))
+end
+
+
+# LLVM 21+ additions
+
+@static if version() >= v"21"
+
+@public set_type!, subrange_type!, dynamic_array_type!, enumerator_arbitrary!
+
+"""
+    set_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+             file::DIFile, line::Integer, size_in_bits::Integer,
+             align_in_bits::Integer, base_type::DIType) -> DIDerivedType
+
+Create a new set type (`DW_TAG_set_type`). Requires LLVM 21+.
+"""
+function set_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                  file::DIFile, line::Integer, size_in_bits::Integer,
+                  align_in_bits::Integer, base_type::DIType)
+    DIDerivedType(API.LLVMDIBuilderCreateSetType(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line),
+        UInt64(size_in_bits), UInt32(align_in_bits), base_type))
+end
+
+"""
+    subrange_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                  line::Integer, file::DIFile, size_in_bits::Integer,
+                  align_in_bits::Integer, base_type::DIType;
+                  flags=API.LLVMDIFlagZero,
+                  lower_bound=nothing, upper_bound=nothing,
+                  stride=nothing, bias=nothing)
+
+Create a new subrange type. Requires LLVM 21+.
+"""
+function subrange_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                       line::Integer, file::DIFile, size_in_bits::Integer,
+                       align_in_bits::Integer, base_type::DIType;
+                       flags=API.LLVMDIFlagZero,
+                       lower_bound=nothing, upper_bound=nothing,
+                       stride=nothing, bias=nothing)
+    Metadata(API.LLVMDIBuilderCreateSubrangeType(
+        builder, scope, name, Csize_t(length(name)),
+        Cuint(line), file,
+        UInt64(size_in_bits), UInt32(align_in_bits), flags, base_type,
+        something(lower_bound, C_NULL),
+        something(upper_bound, C_NULL),
+        something(stride, C_NULL),
+        something(bias, C_NULL)))
+end
+
+"""
+    dynamic_array_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                      line::Integer, file::DIFile, size::Integer,
+                      align_in_bits::Integer, element_type::DIType,
+                      subscripts::Vector{<:Metadata};
+                      data_location=nothing, associated=nothing,
+                      allocated=nothing, rank=nothing,
+                      bit_stride=nothing) -> DICompositeType
+
+Create a new dynamic array type (Fortran assumed-shape/deferred-shape arrays).
+Requires LLVM 21+.
+"""
+function dynamic_array_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                           line::Integer, file::DIFile, size::Integer,
+                           align_in_bits::Integer, element_type::DIType,
+                           subscripts::Vector{<:Metadata};
+                           data_location=nothing, associated=nothing,
+                           allocated=nothing, rank=nothing,
+                           bit_stride=nothing)
+    subs = convert(Vector{Metadata}, subscripts)
+    DICompositeType(API.LLVMDIBuilderCreateDynamicArrayType(
+        builder, scope, name, Csize_t(length(name)),
+        Cuint(line), file,
+        UInt64(size), UInt32(align_in_bits), element_type,
+        subs, Cuint(length(subs)),
+        something(data_location, C_NULL),
+        something(associated, C_NULL),
+        something(allocated, C_NULL),
+        something(rank, C_NULL),
+        something(bit_stride, C_NULL)))
+end
+
+"""
+    enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
+                   size_in_bits::Integer, words::Vector{UInt64};
+                   unsigned::Bool=false) -> DIEnumerator
+
+Create a new arbitrary-precision enumerator. Requires LLVM 21+.
+"""
+function enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
+                        size_in_bits::Integer, words::Vector{UInt64};
+                        unsigned::Bool=false)
+    DIEnumerator(API.LLVMDIBuilderCreateEnumeratorOfArbitraryPrecision(
+        builder, name, Csize_t(length(name)),
+        UInt64(size_in_bits), words, unsigned))
+end
+
+end # @static if version() >= v"21"
+
 
 ## subprogram
 
@@ -304,10 +1143,52 @@ Get the line number of the given subprogram.
 """
 line(subprogram::DISubProgram) = Int(API.LLVMDISubprogramGetLine(subprogram))
 
+"""
+    subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                file::DIFile, line::Integer, type::DISubroutineType;
+                linkage_name::AbstractString="", scope_line::Integer=line,
+                is_local_to_unit::Bool=false, is_definition::Bool=true,
+                flags=API.LLVMDIFlagZero,
+                is_optimized::Bool=false) -> DISubProgram
+
+Create a new [`DISubProgram`](@ref) describing a function. When
+`linkage_name` is empty, LLVM falls back to `name`. `scope_line`
+defaults to the function's `line`, which is the usual case.
+"""
+function subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                     file::DIFile, line::Integer, type::DISubroutineType;
+                     linkage_name::AbstractString="", scope_line::Integer=line,
+                     is_local_to_unit::Bool=false, is_definition::Bool=true,
+                     flags=API.LLVMDIFlagZero,
+                     is_optimized::Bool=false)
+    DISubProgram(API.LLVMDIBuilderCreateFunction(
+        builder, scope, name, Csize_t(length(name)),
+        linkage_name, Csize_t(length(linkage_name)),
+        file, Cuint(line), type,
+        is_local_to_unit, is_definition, Cuint(scope_line),
+        flags, is_optimized))
+end
+
+"""
+    finalize_subprogram!(builder::DIBuilder, sp::DISubProgram)
+
+Finalize a single subprogram early, sealing its retained-nodes list. After
+this, no more local variables can be added to `sp`. A no-op if `sp` was not
+tracked by `builder` (e.g. created elsewhere or already finalized).
+
+Calling this is never required for correctness — [`dispose`](@ref) /
+[`finalize!`](@ref) finalize every tracked subprogram automatically. Use it
+only when streaming many subprograms through the builder and wanting to
+release their bookkeeping early.
+"""
+finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
+    API.LLVMDIBuilderFinalizeSubprogram(builder, sp)
+
 
 ## compile unit
 
 export DICompileUnit
+@public compile_unit!
 
 """
     DICompileUnit
@@ -318,6 +1199,723 @@ A compilation unit in the source code.
     ref::API.LLVMMetadataRef
 end
 register(DICompileUnit, API.LLVMDICompileUnitMetadataKind)
+
+"""
+    compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;
+                 optimized::Bool=true, cmdline::AbstractString="",
+                 runtime_version::Integer=0,
+                 split_name::Union{AbstractString,Nothing}=nothing,
+                 emission_kind=API.LLVMDWARFEmissionFull,
+                 dwo_id::Integer=0,
+                 split_debug_inlining::Bool=true,
+                 debug_info_for_profiling::Bool=false,
+                 sysroot::AbstractString="", sdk::AbstractString="") -> DICompileUnit
+
+Create a new [`DICompileUnit`](@ref). `lang` is a `LLVMDWARFSourceLanguage`
+value (e.g. `LLVM.API.LLVMDWARFSourceLanguageJulia`). `cmdline` is a
+command-line string embedded verbatim in the emitted debug info.
+"""
+function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;
+                      optimized::Bool=true,
+                      cmdline::AbstractString="",
+                      runtime_version::Integer=0,
+                      split_name::Union{AbstractString,Nothing}=nothing,
+                      emission_kind=API.LLVMDWARFEmissionFull,
+                      dwo_id::Integer=0,
+                      split_debug_inlining::Bool=true,
+                      debug_info_for_profiling::Bool=false,
+                      sysroot::AbstractString="",
+                      sdk::AbstractString="")
+    split_name_ptr = split_name === nothing ? C_NULL : split_name
+    split_name_len = split_name === nothing ? Csize_t(0) : Csize_t(length(split_name))
+    cu = DICompileUnit(API.LLVMDIBuilderCreateCompileUnit(
+        builder, lang, file,
+        producer, Csize_t(length(producer)),
+        optimized,
+        cmdline, Csize_t(length(cmdline)),
+        Cuint(runtime_version),
+        split_name_ptr, split_name_len,
+        emission_kind,
+        Cuint(dwo_id),
+        split_debug_inlining,
+        debug_info_for_profiling,
+        sysroot, Csize_t(length(sysroot)),
+        sdk, Csize_t(length(sdk))))
+    builder.has_compile_unit[] = true
+    return cu
+end
+
+
+## module
+
+export DIModule
+@public dimodule!
+
+"""
+    DIModule
+
+A module in the source code (Clang modules / Fortran modules / Swift modules).
+"""
+@checked struct DIModule <: DIScope
+    ref::API.LLVMMetadataRef
+end
+register(DIModule, API.LLVMDIModuleMetadataKind)
+
+"""
+    dimodule!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+              config_macros::AbstractString="", include_path::AbstractString="",
+              api_notes_file::AbstractString="") -> DIModule
+
+Create a new [`DIModule`](@ref) describing a module in the source code.
+"""
+function dimodule!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+                   config_macros::AbstractString="",
+                   include_path::AbstractString="",
+                   api_notes_file::AbstractString="")
+    DIModule(API.LLVMDIBuilderCreateModule(
+        builder, parent_scope,
+        name, Csize_t(length(name)),
+        config_macros, Csize_t(length(config_macros)),
+        include_path, Csize_t(length(include_path)),
+        api_notes_file, Csize_t(length(api_notes_file))))
+end
+
+
+## variable factories
+
+@public auto_variable!, parameter_variable!
+
+"""
+    auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                  file::DIFile, line::Integer, type::DIType;
+                  always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
+                  align_in_bits::Integer=0) -> DILocalVariable
+
+Create a new local variable descriptor (for a compiler-introduced automatic
+variable).
+"""
+function auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                       file::DIFile, line::Integer, type::DIType;
+                       always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
+                       align_in_bits::Integer=0)
+    DILocalVariable(API.LLVMDIBuilderCreateAutoVariable(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line), type,
+        always_preserve, flags, UInt32(align_in_bits)))
+end
+
+"""
+    parameter_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                       arg_no::Integer, file::DIFile, line::Integer, type::DIType;
+                       always_preserve::Bool=false,
+                       flags=API.LLVMDIFlagZero) -> DILocalVariable
+
+Create a new descriptor for a function parameter variable. `arg_no` is
+the 1-based parameter index.
+"""
+function parameter_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                            arg_no::Integer, file::DIFile, line::Integer, type::DIType;
+                            always_preserve::Bool=false,
+                            flags=API.LLVMDIFlagZero)
+    DILocalVariable(API.LLVMDIBuilderCreateParameterVariable(
+        builder, scope, name, Csize_t(length(name)), Cuint(arg_no),
+        file, Cuint(line), type,
+        always_preserve, flags))
+end
+
+
+## expression
+
+export DIExpression, DIGlobalVariableExpression, variable, expression
+@public expression!, constant_value_expression!
+
+"""
+    DIExpression
+
+A DWARF expression that modifies how a variable's value is expressed at runtime.
+"""
+@checked struct DIExpression <: MDNode
+    ref::API.LLVMMetadataRef
+end
+register(DIExpression, API.LLVMDIExpressionMetadataKind)
+
+"""
+    DIGlobalVariableExpression
+
+A pairing of a [`DIGlobalVariable`](@ref) and its associated [`DIExpression`](@ref).
+"""
+@checked struct DIGlobalVariableExpression <: MDNode
+    ref::API.LLVMMetadataRef
+end
+register(DIGlobalVariableExpression, API.LLVMDIGlobalVariableExpressionMetadataKind)
+
+"""
+    expression!(builder::DIBuilder,
+                addr::Vector{UInt64}=UInt64[]) -> DIExpression
+
+Create a new [`DIExpression`](@ref) from the given array of opcodes (encoding
+a DWARF expression such as `DW_OP_plus_uconst`).
+"""
+function expression!(builder::DIBuilder, addr::Vector{UInt64}=UInt64[])
+    DIExpression(API.LLVMDIBuilderCreateExpression(
+        builder, addr, Csize_t(length(addr))))
+end
+
+"""
+    constant_value_expression!(builder::DIBuilder, value::Integer) -> DIExpression
+
+Create a new [`DIExpression`](@ref) representing a single constant value.
+"""
+function constant_value_expression!(builder::DIBuilder, value::Integer)
+    DIExpression(API.LLVMDIBuilderCreateConstantValueExpression(
+        builder, UInt64(value)))
+end
+
+"""
+    variable(gve::DIGlobalVariableExpression)
+
+Get the debug info global variable associated with the given expression.
+"""
+function variable(gve::DIGlobalVariableExpression)
+    ref = API.LLVMDIGlobalVariableExpressionGetVariable(gve)
+    ref == C_NULL ? nothing : Metadata(ref)::DIGlobalVariable
+end
+
+"""
+    expression(gve::DIGlobalVariableExpression)
+
+Get the debug info expression associated with the given global-variable pair.
+"""
+function expression(gve::DIGlobalVariableExpression)
+    ref = API.LLVMDIGlobalVariableExpressionGetExpression(gve)
+    ref == C_NULL ? nothing : Metadata(ref)::DIExpression
+end
+
+
+## global variable
+
+@public global_variable_expression!, temp_global_variable_fwd_decl!
+
+"""
+    global_variable_expression!(builder::DIBuilder, scope::DIScope,
+                              name::AbstractString, linkage::AbstractString,
+                              file::DIFile, line::Integer, type::DIType,
+                              local_to_unit::Bool, expression::DIExpression;
+                              declaration=nothing,
+                              align_in_bits::Integer=0) -> DIGlobalVariableExpression
+
+Create a new global variable descriptor paired with a DWARF expression.
+"""
+function global_variable_expression!(builder::DIBuilder, scope::DIScope,
+                                   name::AbstractString, linkage::AbstractString,
+                                   file::DIFile, line::Integer, type::DIType,
+                                   local_to_unit::Bool, expression::DIExpression;
+                                   declaration=nothing,
+                                   align_in_bits::Integer=0)
+    DIGlobalVariableExpression(API.LLVMDIBuilderCreateGlobalVariableExpression(
+        builder, scope, name, Csize_t(length(name)),
+        linkage, Csize_t(length(linkage)),
+        file, Cuint(line), type, local_to_unit, expression,
+        something(declaration, C_NULL), UInt32(align_in_bits)))
+end
+
+"""
+    temp_global_variable_fwd_decl!(builder::DIBuilder, scope::DIScope,
+                               name::AbstractString, linkage::AbstractString,
+                               file::DIFile, line::Integer, type::DIType,
+                               local_to_unit::Bool;
+                               declaration=nothing,
+                               align_in_bits::Integer=0) -> DIGlobalVariable
+
+Create a new temporary forward declaration for a global variable.
+"""
+function temp_global_variable_fwd_decl!(builder::DIBuilder, scope::DIScope,
+                                    name::AbstractString, linkage::AbstractString,
+                                    file::DIFile, line::Integer, type::DIType,
+                                    local_to_unit::Bool;
+                                    declaration=nothing,
+                                    align_in_bits::Integer=0)
+    DIGlobalVariable(API.LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
+        builder, scope, name, Csize_t(length(name)),
+        linkage, Csize_t(length(linkage)),
+        file, Cuint(line), type, local_to_unit,
+        something(declaration, C_NULL), UInt32(align_in_bits)))
+end
+
+
+## lexical block
+
+export DILexicalBlock, DILexicalBlockFile
+@public lexical_block!, lexical_block_file!
+
+"""
+    DILexicalBlock
+
+A lexical block (a nested scope, typically a compound statement) in the source code.
+"""
+@checked struct DILexicalBlock <: DILocalScope
+    ref::API.LLVMMetadataRef
+end
+register(DILexicalBlock, API.LLVMDILexicalBlockMetadataKind)
+
+"""
+    DILexicalBlockFile
+
+A lexical block that changes the current source file, e.g. due to an `#include`.
+"""
+@checked struct DILexicalBlockFile <: DILocalScope
+    ref::API.LLVMMetadataRef
+end
+register(DILexicalBlockFile, API.LLVMDILexicalBlockFileMetadataKind)
+
+"""
+    lexical_block!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                  line::Integer, column::Integer) -> DILexicalBlock
+
+Create a new [`DILexicalBlock`](@ref) describing a nested source scope.
+"""
+function lexical_block!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                       line::Integer, column::Integer)
+    DILexicalBlock(API.LLVMDIBuilderCreateLexicalBlock(
+        builder, scope, file, Cuint(line), Cuint(column)))
+end
+
+"""
+    lexical_block_file!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                      discriminator::Integer=0) -> DILexicalBlockFile
+
+Create a new [`DILexicalBlockFile`](@ref) for tracking source-file changes
+within a lexical scope.
+"""
+function lexical_block_file!(builder::DIBuilder, scope::DIScope, file::DIFile,
+                           discriminator::Integer=0)
+    DILexicalBlockFile(API.LLVMDIBuilderCreateLexicalBlockFile(
+        builder, scope, file, Cuint(discriminator)))
+end
+
+
+## namespace
+
+export DINamespace
+@public namespace!
+
+"""
+    DINamespace
+
+A namespace in the source code.
+"""
+@checked struct DINamespace <: DIScope
+    ref::API.LLVMMetadataRef
+end
+register(DINamespace, API.LLVMDINamespaceMetadataKind)
+
+"""
+    namespace!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+               export_symbols::Bool=false) -> DINamespace
+
+Create a new [`DINamespace`](@ref) describing a namespace in the source code.
+"""
+function namespace!(builder::DIBuilder, parent_scope::DIScope, name::AbstractString;
+                    export_symbols::Bool=false)
+    DINamespace(API.LLVMDIBuilderCreateNameSpace(
+        builder, parent_scope,
+        name, Csize_t(length(name)),
+        export_symbols))
+end
+
+
+## instruction insertion
+
+@public declare_before!, declare_at_end!, value_before!, value_at_end!
+
+"""
+    declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    instr::Instruction)
+
+Insert a new dbg-declare describing `storage` as the runtime location of `var`,
+immediately before `instr`. Returns a `DbgRecord` on LLVM ≥ 19, or the
+legacy `llvm.dbg.declare` call [`Instruction`](@ref) on LLVM < 19.
+"""
+declare_before!
+
+"""
+    declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    block::BasicBlock)
+
+Insert a new dbg-declare at the end of `block`. Returns a `DbgRecord`
+on LLVM ≥ 19, or the legacy `llvm.dbg.declare` call [`Instruction`](@ref) on
+LLVM < 19.
+"""
+declare_at_end!
+
+"""
+    value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  instr::Instruction)
+
+Insert a new dbg-value describing `val` as the value of `var`, immediately
+before `instr`. Returns a `DbgRecord` on LLVM ≥ 19, or the legacy
+`llvm.dbg.value` call [`Instruction`](@ref) on LLVM < 19.
+"""
+value_before!
+
+"""
+    value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                  expr::DIExpression, debugloc::DILocation,
+                  block::BasicBlock)
+
+Insert a new dbg-value at the end of `block`. Returns a `DbgRecord` on
+LLVM ≥ 19, or the legacy `llvm.dbg.value` call [`Instruction`](@ref) on LLVM < 19.
+"""
+value_at_end!
+
+@static if version() >= v"19"
+
+export DbgRecord
+
+"""
+    DbgRecord
+
+A non-instruction debug record attached to a basic block, replacing the
+legacy `llvm.dbg.*` intrinsics in LLVM ≥ 19.
+"""
+@checked struct DbgRecord
+    ref::API.LLVMDbgRecordRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMDbgRecordRef}, record::DbgRecord) = record.ref
+
+function Base.show(io::IO, record::DbgRecord)
+    str_ptr = API.LLVMPrintDbgRecordToString(record)
+    str = unsafe_string(str_ptr)
+    print(io, rstrip(str))
+    # LLVMPrintDbgRecordToString-returned memory is freed by LLVMDisposeMessage
+    API.LLVMDisposeMessage(str_ptr)
+end
+
+declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    DbgRecord(API.LLVMDIBuilderInsertDeclareRecordBefore(
+        builder, storage, var, expr, debugloc, instr))
+
+declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    DbgRecord(API.LLVMDIBuilderInsertDeclareRecordAtEnd(
+        builder, storage, var, expr, debugloc, block))
+
+value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
+              expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordBefore(
+        builder, val, var, expr, debugloc, instr))
+
+value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
+              expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordAtEnd(
+        builder, val, var, expr, debugloc, block))
+
+else # LLVM < 19: legacy intrinsic-based insertion
+
+declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    Instruction(API.LLVMDIBuilderInsertDeclareBefore(
+        builder, storage, var, expr, debugloc, instr))
+
+declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    Instruction(API.LLVMDIBuilderInsertDeclareAtEnd(
+        builder, storage, var, expr, debugloc, block))
+
+value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
+              expr::DIExpression, debugloc::DILocation, instr::Instruction) =
+    Instruction(API.LLVMDIBuilderInsertDbgValueBefore(
+        builder, val, var, expr, debugloc, instr))
+
+value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
+              expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
+    Instruction(API.LLVMDIBuilderInsertDbgValueAtEnd(
+        builder, val, var, expr, debugloc, block))
+
+end # @static version check
+
+
+## label (LLVM 20+)
+
+@static if version() >= v"20"
+
+export DILabel
+@public label!, label_before!, label_at_end!
+
+"""
+    DILabel
+
+A debug-info label, describing a source-level code location by name.
+Requires LLVM 20+.
+"""
+@checked struct DILabel <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DILabel, API.LLVMDILabelMetadataKind)
+
+"""
+    label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+           file::DIFile, line::Integer;
+           always_preserve::Bool=false) -> DILabel
+
+Create a new [`DILabel`](@ref). Requires LLVM 20+.
+"""
+function label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+                file::DIFile, line::Integer;
+                always_preserve::Bool=false)
+    DILabel(API.LLVMDIBuilderCreateLabel(
+        builder, scope, name, Csize_t(length(name)),
+        file, Cuint(line), always_preserve))
+end
+
+"""
+    label_before!(builder::DIBuilder, label::DILabel,
+                  location::DILocation, instr::Instruction) -> DbgRecord
+
+Insert a new label record immediately before `instr`. Requires LLVM 20+.
+"""
+label_before!(builder::DIBuilder, label::DILabel,
+              location::DILocation, instr::Instruction) =
+    DbgRecord(API.LLVMDIBuilderInsertLabelBefore(builder, label, location, instr))
+
+"""
+    label_at_end!(builder::DIBuilder, label::DILabel,
+                  location::DILocation, block::BasicBlock) -> DbgRecord
+
+Insert a new label record at the end of `block`. Requires LLVM 20+.
+"""
+label_at_end!(builder::DIBuilder, label::DILabel,
+              location::DILocation, block::BasicBlock) =
+    DbgRecord(API.LLVMDIBuilderInsertLabelAtEnd(builder, label, location, block))
+
+end # @static version check
+
+
+## imported entity
+
+export DIImportedEntity
+@public imported_module_from_namespace!, imported_module_from_alias!,
+        imported_module_from_module!, imported_declaration!
+
+"""
+    DIImportedEntity
+
+An imported entity, such as a C++ `using` declaration or module import.
+"""
+@checked struct DIImportedEntity <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIImportedEntity, API.LLVMDIImportedEntityMetadataKind)
+
+"""
+    imported_module_from_namespace!(builder::DIBuilder, scope::DIScope,
+                                 ns::DINamespace, file::DIFile,
+                                 line::Integer) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from a namespace.
+"""
+imported_module_from_namespace!(builder::DIBuilder, scope::DIScope, ns::DINamespace,
+                             file::DIFile, line::Integer) =
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromNamespace(
+        builder, scope, ns, file, Cuint(line)))
+
+"""
+    imported_module_from_alias!(builder::DIBuilder, scope::DIScope,
+                             imported::DIImportedEntity, file::DIFile,
+                             line::Integer,
+                             elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from an alias.
+"""
+function imported_module_from_alias!(builder::DIBuilder, scope::DIScope,
+                                  imported::DIImportedEntity, file::DIFile,
+                                  line::Integer,
+                                  elements::Vector{<:Metadata}=Metadata[])
+    elts = convert(Vector{Metadata}, elements)
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromAlias(
+        builder, scope, imported, file, Cuint(line),
+        elts, Cuint(length(elts))))
+end
+
+"""
+    imported_module_from_module!(builder::DIBuilder, scope::DIScope,
+                              mod::DIModule, file::DIFile, line::Integer,
+                              elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from a module.
+"""
+function imported_module_from_module!(builder::DIBuilder, scope::DIScope,
+                                   mod::DIModule, file::DIFile, line::Integer,
+                                   elements::Vector{<:Metadata}=Metadata[])
+    elts = convert(Vector{Metadata}, elements)
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromModule(
+        builder, scope, mod, file, Cuint(line),
+        elts, Cuint(length(elts))))
+end
+
+"""
+    imported_declaration!(builder::DIBuilder, scope::DIScope, decl::Metadata,
+                        file::DIFile, line::Integer, name::AbstractString,
+                        elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+
+Create a new `DIImportedEntity` from a declaration.
+"""
+function imported_declaration!(builder::DIBuilder, scope::DIScope, decl::Metadata,
+                              file::DIFile, line::Integer, name::AbstractString,
+                              elements::Vector{<:Metadata}=Metadata[])
+    elts = convert(Vector{Metadata}, elements)
+    DIImportedEntity(API.LLVMDIBuilderCreateImportedDeclaration(
+        builder, scope, decl, file, Cuint(line),
+        name, Csize_t(length(name)),
+        elts, Cuint(length(elts))))
+end
+
+
+## macro
+
+export DIMacro, DIMacroFile
+@public macro!, temp_macro_file!
+
+"""
+    DIMacro
+
+A single preprocessor macro definition or undefinition.
+"""
+@checked struct DIMacro <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIMacro, API.LLVMDIMacroMetadataKind)
+
+"""
+    DIMacroFile
+
+A collection of macro records corresponding to a single source file.
+"""
+@checked struct DIMacroFile <: DINode
+    ref::API.LLVMMetadataRef
+end
+register(DIMacroFile, API.LLVMDIMacroFileMetadataKind)
+
+"""
+    macro!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
+           line::Integer, record_type, name::AbstractString,
+           value::AbstractString) -> DIMacro
+
+Create a new [`DIMacro`](@ref). `record_type` is a
+`LLVMDWARFMacinfoRecordType` value (e.g. `LLVM.API.LLVMDWARFMacinfoRecordTypeDefine`).
+"""
+function macro!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
+                line::Integer, record_type, name::AbstractString,
+                value::AbstractString)
+    DIMacro(API.LLVMDIBuilderCreateMacro(
+        builder, something(parent_macrofile, C_NULL), Cuint(line), record_type,
+        name, Csize_t(length(name)),
+        value, Csize_t(length(value))))
+end
+
+"""
+    temp_macro_file!(builder::DIBuilder,
+                   parent_macrofile::Union{DIMacroFile,Nothing},
+                   line::Integer, file::DIFile) -> DIMacroFile
+
+Create a new (temporary) [`DIMacroFile`](@ref).
+"""
+temp_macro_file!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
+               line::Integer, file::DIFile) =
+    DIMacroFile(API.LLVMDIBuilderCreateTempMacroFile(
+        builder, something(parent_macrofile, C_NULL), Cuint(line), file))
+
+
+## instruction debug location
+
+# re-uses the existing `debuglocation` / `debuglocation!` exports on IRBuilder.
+
+"""
+    debuglocation(inst::Instruction) -> Union{DILocation,Nothing}
+
+Get the debug location attached to the given instruction, or `nothing`.
+"""
+function debuglocation(inst::Instruction)
+    ref = API.LLVMInstructionGetDebugLoc(inst)
+    ref == C_NULL ? nothing : Metadata(ref)::DILocation
+end
+
+"""
+    debuglocation!(inst::Instruction, loc::DILocation)
+
+Set the debug location of the given instruction.
+"""
+debuglocation!(inst::Instruction, loc::DILocation) =
+    API.LLVMInstructionSetDebugLoc(inst, loc)
+
+
+## mutation / advanced helpers
+
+@public temporary_mdnode, dispose_temporary
+
+"""
+    temporary_mdnode(operands::Vector{<:Metadata}=Metadata[]) -> MDNode
+
+Create a temporary metadata node in the task-local [`context`](@ref) with the
+given operands. Temporary nodes are useful for constructing cycles and must be
+either replaced via [`replace_uses!`](@ref) or disposed of via
+[`dispose_temporary`](@ref).
+"""
+function temporary_mdnode(operands::Vector{<:Metadata}=Metadata[])
+    ops = convert(Vector{Metadata}, operands)
+    ref = API.LLVMTemporaryMDNode(context(), ops, Csize_t(length(ops)))
+    Metadata(ref)
+end
+
+"""
+    dispose_temporary(md::Metadata)
+
+Dispose of a temporary metadata node returned by [`temporary_mdnode`](@ref).
+"""
+dispose_temporary(md::Metadata) = API.LLVMDisposeTemporaryMDNode(md)
+
+"""
+    replace_uses!(temp::Metadata, replacement::Metadata)
+
+Replace all uses of temporary metadata `temp` with `replacement`, and dispose
+of `temp`. Method on the existing [`replace_uses!`](@ref) for [`Value`](@ref).
+"""
+replace_uses!(temp::Metadata, replacement::Metadata) =
+    API.LLVMMetadataReplaceAllUsesWith(temp, replacement)
+
+
+@static if version() >= v"21"
+
+@public replace_arrays!, replace_type!
+
+"""
+    replace_arrays!(builder::DIBuilder, T::DICompositeType,
+                   elements::Vector{<:Metadata})
+
+Replace the elements array of the given composite type `T`. Requires LLVM 21+.
+"""
+function replace_arrays!(builder::DIBuilder, T::DICompositeType,
+                        elements::Vector{<:Metadata})
+    elts = convert(Vector{Metadata}, elements)
+    tref = Ref(T.ref)
+    API.LLVMReplaceArrays(builder, tref, elts, Cuint(length(elts)))
+    return Metadata(tref[])::DICompositeType
+end
+
+"""
+    replace_type!(sp::DISubProgram, ty::DISubroutineType)
+
+Replace the type of the given subprogram. Requires LLVM 21+.
+"""
+replace_type!(sp::DISubProgram, ty::DISubroutineType) =
+    API.LLVMDISubprogramReplaceType(sp, ty)
+
+end # @static version check
 
 
 ## other
@@ -330,6 +1928,15 @@ export DEBUG_METADATA_VERSION, strip_debuginfo!, subprogram, subprogram!
 The current debug info version number, as supported by LLVM.
 """
 DEBUG_METADATA_VERSION() = API.LLVMDebugMetadataVersion()
+
+"""
+    debug_metadata_version(mod::Module)
+
+Get the debug info version number emitted in the given module, or `0` if none
+is attached.
+"""
+debug_metadata_version(mod::Module) = Int(API.LLVMGetModuleDebugMetadataVersion(mod))
+@public debug_metadata_version
 
 """
     strip_debuginfo!(mod::Module)

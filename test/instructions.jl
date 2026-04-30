@@ -15,11 +15,18 @@
     @test position(builder) == entrybb
 
     @test debuglocation(builder) === nothing
-    loc = DILocation(1, 1)
-    debuglocation!(builder, loc)
-    @test debuglocation(builder) == loc
-    debuglocation!(builder)
-    @test debuglocation(builder) === nothing
+    LLVM.DIBuilder(mod) do dib
+        difile = LLVM.file!(dib, "test.jl", "/tmp")
+        LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                          difile, "LLVM.jl Tests")
+        sp = LLVM.subprogram!(dib, difile, "SomeFunction", difile, 1,
+                             LLVM.subroutine_type!(dib, difile, nothing))
+        loc = DILocation(1, 1, sp)
+        debuglocation!(builder, loc)
+        @test debuglocation(builder) == loc
+        debuglocation!(builder)
+        @test debuglocation(builder) === nothing
+    end
 
     retinst1 = ret!(builder)
     @check_ir retinst1 "ret void"

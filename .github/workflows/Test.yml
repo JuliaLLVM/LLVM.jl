@@ -58,7 +58,7 @@ jobs:
           fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
 
       # install Julia
-      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}

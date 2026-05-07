@@ -84,6 +84,14 @@ void LLVMDestroyConstant(LLVMValueRef Const);
 LLVMTypeRef LLVMGetFunctionType(LLVMValueRef Fn);
 LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 
+// Attribute type detection (ConstantRange/ConstantRangeList kinds not exposed in C API)
+#if LLVM_VERSION_MAJOR >= 17
+LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A);
+#endif
+#if LLVM_VERSION_MAJOR >= 20
+LLVMBool LLVMIsConstantRangeListAttribute(LLVMAttributeRef A);
+#endif
+
 // Bug fixes
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#105521
 void LLVMSetInitializer2(LLVMValueRef GlobalVar, LLVMValueRef ConstantVal);

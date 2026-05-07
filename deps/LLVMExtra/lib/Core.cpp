@@ -296,6 +296,27 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef GV) {
 
 
 //
+// Attribute type detection
+//
+
+#if LLVM_VERSION_MAJOR >= 17
+
+LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A) {
+  return unwrap(A).isConstantRangeAttribute();
+}
+
+#endif
+
+#if LLVM_VERSION_MAJOR >= 20
+
+LLVMBool LLVMIsConstantRangeListAttribute(LLVMAttributeRef A) {
+  return unwrap(A).isConstantRangeListAttribute();
+}
+
+#endif
+
+
+//
 // Bug fixes
 //
 

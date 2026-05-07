@@ -3,6 +3,7 @@
 
 export Attribute,
        EnumAttribute, StringAttribute, TypeAttribute,
+       ConstantRangeAttribute, ConstantRangeListAttribute,
        kind, value
 
 abstract type Attribute end
@@ -21,6 +22,16 @@ end
     ref::API.LLVMAttributeRef
 end
 
+# ConstantRange attribute kind (e.g. `range`, introduced in LLVM 17).
+@checked struct ConstantRangeAttribute <: Attribute
+    ref::API.LLVMAttributeRef
+end
+
+# ConstantRangeList attribute kind (e.g. `initializes`, introduced in LLVM 20).
+@checked struct ConstantRangeListAttribute <: Attribute
+    ref::API.LLVMAttributeRef
+end
+
 # TODO: make the identify mechanism flexible enough to cover cases like this one,
 #       and not only Value and Type
 
@@ -33,6 +44,12 @@ function Attribute(ref::API.LLVMAttributeRef)
     elseif Bool(API.LLVMIsTypeAttribute(ref))
         return TypeAttribute(ref)
     else
+        @static if version() >= v"20"
+            Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
+            Bool(API.LLVMIsConstantRangeListAttribute(ref)) && return ConstantRangeListAttribute(ref)
+        elseif version() >= v"17"
+            Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
+        end
         error("unknown attribute kind")
     end
 end
@@ -87,3 +104,21 @@ kind(attr::TypeAttribute) = API.LLVMGetEnumAttributeKind(attr)
 function value(attr::TypeAttribute)
     return LLVMType(API.LLVMGetTypeAttributeValue(attr))
 end
+
+## constant range attribute
+
+if version() >= v"19"
+    function ConstantRangeAttribute(kind::String, nbits::Integer,
+                                    lower::Vector{UInt64}, upper::Vector{UInt64})
+        enum_kind = API.LLVMGetEnumAttributeKindForName(kind, Csize_t(length(kind)))
+        return ConstantRangeAttribute(
+            API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
+                                                 lower, upper))
+    end
+end
+
+kind(attr::ConstantRangeAttribute) = API.LLVMGetEnumAttributeKind(attr)
+
+## constant range list attribute
+
+kind(attr::ConstantRangeListAttribute) = API.LLVMGetEnumAttributeKind(attr)

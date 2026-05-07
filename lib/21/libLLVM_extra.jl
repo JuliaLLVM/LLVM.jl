@@ -110,6 +110,14 @@ function LLVMGetGlobalValueType(Fn)
     ccall((:LLVMGetGlobalValueType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
+function LLVMIsConstantRangeAttribute(A)
+    ccall((:LLVMIsConstantRangeAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
+end
+
+function LLVMIsConstantRangeListAttribute(A)
+    ccall((:LLVMIsConstantRangeListAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
+end
+
 function LLVMGetMDString2(MD, Length)
     ccall((:LLVMGetMDString2, libLLVMExtra), Cstring, (LLVMMetadataRef, Ptr{Cuint}), MD, Length)
 end

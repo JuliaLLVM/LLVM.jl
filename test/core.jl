@@ -1412,6 +1412,7 @@ end
                 push!(return_attributes(fn), attr)
                 collected = collect(return_attributes(fn))
                 @test any(a -> a isa ConstantRangeAttribute, collected)
+                delete!(return_attributes(fn), attr)
             end
         end
     end

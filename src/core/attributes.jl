@@ -47,7 +47,7 @@ function Attribute(ref::API.LLVMAttributeRef)
         @static if version() >= v"20"
             Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
             Bool(API.LLVMIsConstantRangeListAttribute(ref)) && return ConstantRangeListAttribute(ref)
-        elseif version() >= v"17"
+        elseif version() >= v"19"
             Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
         end
         error("unknown attribute kind")

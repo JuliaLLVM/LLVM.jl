@@ -299,7 +299,7 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef GV) {
 // Attribute type detection
 //
 
-#if LLVM_VERSION_MAJOR >= 17
+#if LLVM_VERSION_MAJOR >= 19
 
 LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A) {
   return unwrap(A).isConstantRangeAttribute();

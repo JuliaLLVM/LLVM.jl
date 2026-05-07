@@ -85,7 +85,7 @@ LLVMTypeRef LLVMGetFunctionType(LLVMValueRef Fn);
 LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 
 // Attribute type detection (ConstantRange/ConstantRangeList kinds not exposed in C API)
-#if LLVM_VERSION_MAJOR >= 17
+#if LLVM_VERSION_MAJOR >= 19
 LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A);
 #endif
 #if LLVM_VERSION_MAJOR >= 20

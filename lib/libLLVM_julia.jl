@@ -91,8 +91,14 @@ function JLJITGetLLVMOrcExecutionSession(JIT)
     ccall(:JLJITGetLLVMOrcExecutionSession, LLVMOrcExecutionSessionRef, (JuliaOJITRef,), JIT)
 end
 
-function JLJITGetExternalJITDylib(JIT)
-    ccall(:JLJITGetExternalJITDylib, LLVMOrcJITDylibRef, (JuliaOJITRef,), JIT)
+@static if VERSION >= v"1.13.0-DEV.0"
+    function JLJITCreateJITDylib(JIT, Name)
+        ccall(:JLJITCreateJITDylib, LLVMOrcJITDylibRef, (JuliaOJITRef, Cstring), JIT, Name)
+    end
+else
+    function JLJITGetExternalJITDylib(JIT)
+        ccall(:JLJITGetExternalJITDylib, LLVMOrcJITDylibRef, (JuliaOJITRef,), JIT)
+    end
 end
 
 function JLJITAddObjectFile(JIT, JD, ObjBuffer)
@@ -103,8 +109,14 @@ function JLJITAddLLVMIRModule(JIT, JD, TSM)
     ccall(:JLJITAddLLVMIRModule, LLVMErrorRef, (JuliaOJITRef, LLVMOrcJITDylibRef,  LLVMOrcThreadSafeModuleRef), JIT, JD, TSM)
 end
 
-function JLJITLookup(JIT, Result, Name, ExternalJDOnly)
-    ccall(:JLJITLookup, LLVMErrorRef, (JuliaOJITRef, Ptr{LLVMOrcExecutorAddress}, Cstring, Cint), JIT, Result, Name, ExternalJDOnly)
+@static if VERSION >= v"1.13.0-DEV.0"
+    function JLJITJDLookup(JIT, JD, Result, Name, ExternalJDOnly)
+        ccall(:JLJITJDLookup, LLVMErrorRef, (JuliaOJITRef, LLVMOrcJITDylibRef, Ptr{LLVMOrcExecutorAddress}, Cstring, Cint), JIT, JD, Result, Name, ExternalJDOnly)
+    end
+else
+    function JLJITLookup(JIT, Result, Name, ExternalJDOnly)
+        ccall(:JLJITLookup, LLVMErrorRef, (JuliaOJITRef, Ptr{LLVMOrcExecutorAddress}, Cstring, Cint), JIT, Result, Name, ExternalJDOnly)
+    end
 end
 
 function JLJITMangleAndIntern(JIT, UnmangledName)

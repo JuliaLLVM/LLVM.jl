@@ -38,24 +38,25 @@ end
 
         @test LLVM.lookup_dylib(es, "my.so") === jd
 
-        jd_main = JITDylib(jljit)
+        jd_main = JITDylib(jljit, "main")
 
         prefix = LLVM.get_prefix(jljit)
         dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(prefix)
         add!(jd_main, dg)
 
-        addr = lookup(jljit, "jl_apply_generic")
+        addr = lookup(jljit, jd_main, "jl_apply_generic")
         @test pointer(addr) != C_NULL
     end
 end
 
 @testset "Undefined Symbol" begin
     @dispose jljit=JuliaOJIT() begin
-        @test_throws LLVMException lookup(jljit, string(gensym()))
+        jd = JITDylib(jljit, "test")
+        @test_throws LLVMException lookup(jljit, jd, string(gensym()))
     end
 
     @dispose ts_ctx=ThreadSafeContext() jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit)
+        jd = JITDylib(jljit, "test")
 
         ts_mod = ThreadSafeModule("jit")
 
@@ -100,7 +101,7 @@ end
 
 @testset "Loading ObjectFile" begin
     @dispose jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit)
+        jd = JITDylib(jljit, "objfile1")
 
         sym = "SomeFunction"
         obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
@@ -120,16 +121,14 @@ end
         end
         add!(jljit, jd, MemoryBuffer(obj))
 
-        addr = lookup(jljit, sym)
-
+        addr = lookup(jljit, jd, sym)
         @test pointer(addr) != C_NULL
-
         empty!(jd)
-        @test_throws LLVMException lookup(jljit, sym)
+        @test_throws LLVMException lookup(jljit, jd, sym)
     end
 
     @dispose jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit)
+        jd = JITDylib(jljit, "objfile2")
 
         sym = "SomeFunction"
         obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
@@ -167,22 +166,21 @@ end
 
             add!(jljit, jd, MemoryBuffer(obj))
 
-            addr = lookup(jljit, sym)
+            addr = lookup(jljit, jd, sym)
             @test pointer(addr) != C_NULL
-
             @test ccall(pointer(addr), Int32, ()) == 42
             data[] = -1
             @test ccall(pointer(addr), Int32, ()) == -1
+            empty!(jd)
+            @test_throws LLVMException lookup(jljit, jd, sym)
         end
-        empty!(jd)
-        @test_throws LLVMException lookup(jljit, sym)
     end
 end
 
 
 @testset "Lazy" begin
     @dispose ts_ctx=ThreadSafeContext() jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit)
+        jd = JITDylib(jljit, "lazy")
         es = ExecutionSession(jljit)
 
         lctm = LLVM.LocalLazyCallThroughManager(triple(jljit), es)
@@ -202,7 +200,7 @@ end
             LLVM.define(jd, mu)
 
             # 2. Lookup address of entry symbol
-            addr = lookup(jljit, entry_sym)
+            addr = lookup(jljit, jd, entry_sym)
             @test pointer(addr) != C_NULL
 
             # 3. add MU that will call back into the compiler

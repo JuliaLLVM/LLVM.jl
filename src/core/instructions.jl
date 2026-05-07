@@ -400,6 +400,12 @@ Base.delete!(iter::CallSiteAttrSet, attr::LLVM.EnumAttribute) =
 Base.delete!(iter::CallSiteAttrSet, attr::LLVM.TypeAttribute) =
     LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
 
+Base.delete!(iter::CallSiteAttrSet, attr::LLVM.ConstantRangeAttribute) =
+    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
+
+Base.delete!(iter::CallSiteAttrSet, attr::LLVM.ConstantRangeListAttribute) =
+    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
+
 function Base.delete!(iter::CallSiteAttrSet, attr::LLVM.StringAttribute)
     k = kind(attr)
     return LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))

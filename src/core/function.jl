@@ -166,6 +166,12 @@ Base.delete!(iter::FunctionAttrSet, attr::EnumAttribute) =
 Base.delete!(iter::FunctionAttrSet, attr::TypeAttribute) =
     API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
 
+Base.delete!(iter::FunctionAttrSet, attr::ConstantRangeAttribute) =
+    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
+
+Base.delete!(iter::FunctionAttrSet, attr::ConstantRangeListAttribute) =
+    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
+
 function Base.delete!(iter::FunctionAttrSet, attr::StringAttribute)
     k = kind(attr)
     API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, k, length(k))

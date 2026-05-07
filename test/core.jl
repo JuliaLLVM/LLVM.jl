@@ -1404,6 +1404,17 @@ end
             delete!(instr_attrs, instr_attr)
             @test length(instr_attrs) == 0
         end
+
+        if LLVM.version() >= v"19"
+            let attr = ConstantRangeAttribute("range", 32, UInt64[0], UInt64[100])
+                @test attr isa ConstantRangeAttribute
+                @test kind(attr) != 0
+                push!(return_attributes(fn), attr)
+                collected = collect(return_attributes(fn))
+                @test any(a -> a isa ConstantRangeAttribute, collected)
+                delete!(return_attributes(fn), attr)
+            end
+        end
     end
 
     for i in 1:length(parameters(fn))

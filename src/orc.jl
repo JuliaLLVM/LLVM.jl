@@ -391,13 +391,23 @@ function mangle(jljit::JuliaOJIT, name)
 end
 
 """
-    JITDylib(jljit::JuliaOJIT)
+    JITDylib(jljit::JuliaOJIT[, name])
 
-Get the external JITDylib from the Julia JIT
+Get or create a JITDylib from the Julia JIT.
+On Julia >= 1.13 (JuliaLang/julia#60988), creates a new JITDylib with the given
+name prefix, linked to GlobalJD and SessionJD. On older Julia, returns the shared
+external JITDylib (name parameter is ignored).
 """
-function JITDylib(jljit::JuliaOJIT)
-    ref = API.JLJITGetExternalJITDylib(jljit)
-    JITDylib(ref)
+@static if VERSION >= v"1.13.0-DEV.0"
+    function JITDylib(jljit::JuliaOJIT, name::String="")
+        ref = API.JLJITCreateJITDylib(jljit, name)
+        JITDylib(ref)
+    end
+else
+    function JITDylib(jljit::JuliaOJIT, name::String="")
+        ref = API.JLJITGetExternalJITDylib(jljit)
+        JITDylib(ref)
+    end
 end
 
 function add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
@@ -436,9 +446,13 @@ function add!(jljit::JuliaOJIT, jd::JITDylib, tsm::ThreadSafeModule)
     return
 end
 
-function lookup(jljit::JuliaOJIT, name, external_jd=true)
+function lookup(jljit::JuliaOJIT, jd::JITDylib, name, external_jd_only=false)
     result = Ref{API.LLVMOrcJITTargetAddress}()
-    @check API.JLJITLookup(jljit, result, name, external_jd)
+    @static if VERSION >= v"1.13.0-DEV.0"
+        @check API.JLJITJDLookup(jljit, jd, result, name, external_jd_only)
+    else
+        @check API.JLJITLookup(jljit, result, name, external_jd_only)
+    end
     OrcTargetAddress(result[])
 end
 

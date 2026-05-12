@@ -50,7 +50,7 @@ jobs:
       - name: Download Julia build
         uses: actions/download-artifact@v8
         with:
-          name: julia-${{ matrix.version }}-${{ matrix.build }}
+          name: julia-${{ matrix.version }}-x86_64-linux-gnuassert
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
 
@@ -97,7 +97,7 @@ jobs:
               details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               output: {
                 title: 'Assert build test ${{ job.status }}',
-                summary: 'Tested against `${{ matrix.build }}` build of Julia ${{ matrix.version }}.'
+                summary: 'Tested against `x86_64-linux-gnuassert` build of Julia ${{ matrix.version }}.'
               }
             });
 

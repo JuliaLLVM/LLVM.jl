@@ -130,7 +130,7 @@ end
 
 @testset "passes" begin
     function test_passes(typ, passes, skips=String[])
-        @dispose ctx=Context() mod=test_module() begin
+        @dispose ctx=Context() begin
             for pass in passes
                 if startswith(pass, "print") || startswith(pass, "dot") ||
                    startswith(pass, "view") || pass in skips
@@ -139,14 +139,16 @@ end
 
                 # the first pass determines the pass manager's type, so add the pass and
                 # then a no-op one that would trigger an error in case of type mismatches.
-                @dispose pb=NewPMPassBuilder() begin
+                # use a fresh module per run so instrumentation passes (tsan/asan/hwasan)
+                # don't trip their redundant-instrumentation check on the second invocation.
+                @dispose pb=NewPMPassBuilder() mod=test_module() begin
                     add!(pb, pass)
                     add!(pb, "no-op-$typ")
                     @test run!(pb, mod) === nothing
                 end
 
                 # same, but to catch type mismatches in the other direction
-                @dispose pb=NewPMPassBuilder() begin
+                @dispose pb=NewPMPassBuilder() mod=test_module() begin
                     add!(pb, "no-op-$typ")
                     add!(pb, pass)
                     @test run!(pb, mod) === nothing

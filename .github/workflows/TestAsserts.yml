@@ -27,22 +27,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        version: ['1.11', '1.12', '1.13', 'master']
+        llvm_args: ['']
         include:
-          - version: 'master'
-            build: 'x86_64-linux-gnuassert'
-            llvm_args: ''
+          # on Julia 1.11, also test non-default opaque pointers
           - version: '1.11'
-            build: 'x86_64-linux-gnuassert'
             llvm_args: '--opaque-pointers'
-          - version: '1.11'
-            build: 'x86_64-linux-gnuassert'
-            llvm_args: ''
-          - version: '1.12'
-            build: 'x86_64-linux-gnuassert'
-            llvm_args: ''
-          - version: '1.13'
-            build: 'x86_64-linux-gnuassert'
-            llvm_args: ''
     steps:
       - name: Report in-progress
         uses: actions/github-script@v8
@@ -126,6 +116,7 @@ jobs:
               {version: '1.11', llvm_args: '--opaque-pointers'},
               {version: '1.11', llvm_args: ''},
               {version: '1.12', llvm_args: ''},
+              {version: '1.13', llvm_args: ''},
             ];
             await Promise.all(entries.map(({version, llvm_args}) =>
               github.rest.checks.create({

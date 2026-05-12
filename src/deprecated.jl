@@ -1,5 +1,11 @@
 # deprecated methods
 
+# lookup(jljit, name) without an explicit JD was removed in Julia 1.14.0-DEV.2171
+# (JuliaLang/julia#60988). On older Julia the JD is ignored internally; on newer
+# Julia users must create a JD explicitly.
+@deprecate(lookup(jljit::JuliaOJIT, name, external_jd_only=false),
+           lookup(jljit, JITDylib(jljit), name, external_jd_only), false)
+
 @deprecate called_value(inst::CallBase) called_operand(inst)
 
 @deprecate has_orc_v1() false false

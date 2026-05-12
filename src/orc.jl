@@ -394,11 +394,11 @@ end
     JITDylib(jljit::JuliaOJIT[, name])
 
 Get or create a JITDylib from the Julia JIT.
-On Julia >= 1.13 (JuliaLang/julia#60988), creates a new JITDylib with the given
-name prefix, linked to GlobalJD and SessionJD. On older Julia, returns the shared
-external JITDylib (name parameter is ignored).
+On Julia >= 1.14.0-DEV.2171 (JuliaLang/julia#60988), creates a new JITDylib with
+the given name prefix, linked to GlobalJD and SessionJD. On older Julia, returns
+the shared external JITDylib (name parameter is ignored).
 """
-@static if VERSION >= v"1.13.0-DEV.0"
+@static if VERSION >= v"1.14.0-DEV.2171"
     function JITDylib(jljit::JuliaOJIT, name::String="")
         ref = API.JLJITCreateJITDylib(jljit, name)
         JITDylib(ref)
@@ -448,7 +448,7 @@ end
 
 function lookup(jljit::JuliaOJIT, jd::JITDylib, name, external_jd_only=false)
     result = Ref{API.LLVMOrcJITTargetAddress}()
-    @static if VERSION >= v"1.13.0-DEV.0"
+    @static if VERSION >= v"1.14.0-DEV.2171"
         @check API.JLJITJDLookup(jljit, jd, result, name, external_jd_only)
     else
         @check API.JLJITLookup(jljit, result, name, external_jd_only)

@@ -91,7 +91,7 @@ function JLJITGetLLVMOrcExecutionSession(JIT)
     ccall(:JLJITGetLLVMOrcExecutionSession, LLVMOrcExecutionSessionRef, (JuliaOJITRef,), JIT)
 end
 
-@static if VERSION >= v"1.13.0-DEV.0"
+@static if VERSION >= v"1.14.0-DEV.2171"
     function JLJITCreateJITDylib(JIT, Name)
         ccall(:JLJITCreateJITDylib, LLVMOrcJITDylibRef, (JuliaOJITRef, Cstring), JIT, Name)
     end
@@ -109,7 +109,7 @@ function JLJITAddLLVMIRModule(JIT, JD, TSM)
     ccall(:JLJITAddLLVMIRModule, LLVMErrorRef, (JuliaOJITRef, LLVMOrcJITDylibRef,  LLVMOrcThreadSafeModuleRef), JIT, JD, TSM)
 end
 
-@static if VERSION >= v"1.13.0-DEV.0"
+@static if VERSION >= v"1.14.0-DEV.2171"
     function JLJITJDLookup(JIT, JD, Result, Name, ExternalJDOnly)
         ccall(:JLJITJDLookup, LLVMErrorRef, (JuliaOJITRef, LLVMOrcJITDylibRef, Ptr{LLVMOrcExecutorAddress}, Cstring, Cint), JIT, JD, Result, Name, ExternalJDOnly)
     end

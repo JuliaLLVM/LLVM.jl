@@ -119,6 +119,7 @@ function __init__()
                   Please re-compile Julia and LLVM.jl (but note that USE_SYSTEM_LLVM is not a supported configuration)."""
     end
 
+    register_eh_frame_stubs()
     _install_handlers()
     atexit(report_leaks)
 end

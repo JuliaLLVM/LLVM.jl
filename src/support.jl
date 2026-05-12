@@ -23,3 +23,17 @@ load_library_permanently(path) = API.LLVMLoadLibraryPermanently(path)
 
 # Search the global symbols for `name` and return the pointer to it.
 find_symbol(name) = API.LLVMSearchForAddressOfSymbol(name)
+
+# No-op stubs for DWARF EH frame registration. Windows x86_64 uses SEH for unwinding,
+# so registering DWARF frames is unnecessary. Since LLVM 21, JITLink's EHFrameRegistration
+# plugin treats a missing `__register_frame` as a hard error (previously, the void-typed
+# SPS wrapper silently swallowed it), so we publish no-op symbols to satisfy the lookup.
+noop_register_frame(::Ptr{Cvoid})::Cvoid = nothing
+
+function register_eh_frame_stubs()
+    Sys.iswindows() || return
+    fp = @cfunction(noop_register_frame, Cvoid, (Ptr{Cvoid},))
+    add_symbol("__register_frame", fp)
+    add_symbol("__deregister_frame", fp)
+    return
+end

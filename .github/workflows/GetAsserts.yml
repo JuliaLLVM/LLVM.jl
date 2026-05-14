@@ -6,7 +6,7 @@ name: GetAsserts
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     tags: ["*"]
   pull_request_target:
   workflow_dispatch:

@@ -16,7 +16,7 @@
 [pkgeval-img]: https://juliaci.github.io/NanosoldierReports/pkgeval_badges/L/LLVM.svg
 [pkgeval-url]: https://juliaci.github.io/NanosoldierReports/pkgeval_badges/L/LLVM.html
 
-[codecov-img]: https://codecov.io/gh/JuliaLLVM/LLVM.jl/branch/master/graph/badge.svg
+[codecov-img]: https://codecov.io/gh/JuliaLLVM/LLVM.jl/branch/main/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/JuliaLLVM/LLVM.jl
 
 The LLVM.jl package is a Julia wrapper for the LLVM C API, and can be used to work with the

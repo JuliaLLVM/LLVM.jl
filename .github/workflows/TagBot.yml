@@ -11,7 +11,8 @@ on:
 jobs:
   TagBot:
     if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
-    runs-on: ubuntu-slim
+    # ubuntu-slim doesn't support containers, and thus won't work
+    runs-on: ubuntu-latest
     steps:
       - uses: JuliaRegistries/TagBot@6b7c22e7bc2b8f4d1c56b7199a63421cf2667ed1 # v1.25.7
         with:
@@ -21,3 +22,5 @@ jobs:
           # use a PAT with `workflow` scope instead of GITHUB_TOKEN.
           # See: https://github.com/JuliaRegistries/TagBot#commits-that-modify-workflow-files
           ssh: ${{ secrets.DOCUMENTER_KEY }}
+          # ssh: ${{ secrets.NAME_OF_MY_SSH_PRIVATE_KEY_SECRET }}
+          # changelog_format: github  # 'custom' (default), 'github', or 'conventional'

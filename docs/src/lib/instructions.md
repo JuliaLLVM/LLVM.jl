@@ -73,7 +73,7 @@ called_type
 ```@docs
 OperandBundle
 operand_bundles
-tag
+tag(::LLVM.OperandBundle)
 inputs
 ```
 

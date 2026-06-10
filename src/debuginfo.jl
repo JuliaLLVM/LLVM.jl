@@ -12,9 +12,9 @@ finalizes the debug info. Call [`finalize!`](@ref) explicitly only if you
 need to use the finalized debug info (e.g. emit code) *before* disposing of
 the builder.
 """
-@checked struct DIBuilder
+@checked mutable struct DIBuilder
     ref::API.LLVMDIBuilderRef
-    needs_finalization::Base.RefValue{Bool}
+    needs_finalization::Bool
 end
 
 Base.unsafe_convert(::Type{API.LLVMDIBuilderRef}, builder::DIBuilder) =
@@ -32,7 +32,7 @@ metadata nodes attached to the module so that cycles can be resolved during
 function DIBuilder(mod::Module; allow_unresolved::Bool=true)
     ref = allow_unresolved ? API.LLVMCreateDIBuilder(mod) :
                              API.LLVMCreateDIBuilderDisallowUnresolved(mod)
-    mark_alloc(DIBuilder(ref, Ref(false)))
+    mark_alloc(DIBuilder(ref, false))
 end
 
 """
@@ -72,78 +72,11 @@ builder is disposed of. Skipped if no compile unit has been registered, or
 if the debug info has already been finalized.
 """
 function finalize!(builder::DIBuilder)
-    if builder.needs_finalization[]
+    if builder.needs_finalization
         API.LLVMDIBuilderFinalize(builder)
-        builder.needs_finalization[] = false
+        builder.needs_finalization = false
     end
     return
-end
-
-
-## location information
-
-export DILocation, line, column, scope, inlined_at
-
-"""
-    DILocation
-
-A location in the source code.
-"""
-@checked struct DILocation <: MDNode
-    ref::API.LLVMMetadataRef
-end
-register(DILocation, API.LLVMDILocationMetadataKind)
-
-"""
-    DILocation(line::Integer, col::Integer, scope::DIScope,
-               [inlined_at::DILocation]) -> DILocation
-
-Creates a new DebugLocation that describes a source location. A scope is
-required: LLVM segfaults on a null scope.
-"""
-function DILocation(line::Integer, col::Integer, scope::Metadata,
-                    inlined_at::Union{DILocation,Nothing}=nothing)
-    # `scope` is typed as `Metadata` rather than `DIScope` because `DIScope`
-    # isn't defined yet at this point in the file.
-    DILocation(API.LLVMDIBuilderCreateDebugLocation(context(), line, col, scope,
-                                                    something(inlined_at, C_NULL)))
-end
-
-DILocation(line::Integer, col::Integer, scope::Nothing, inlined_at=nothing) =
-    throw(UndefRefError())
-
-"""
-    line(location::DILocation)
-
-Get the line number of this debug location.
-"""
-line(location::DILocation) = Int(API.LLVMDILocationGetLine(location))
-
-"""
-    column(location::DILocation)
-
-Get the column number of this debug location.
-"""
-column(location::DILocation) = Int(API.LLVMDILocationGetColumn(location))
-
-"""
-    scope(location::DILocation)
-
-Get the local scope associated with this debug location.
-"""
-function scope(location::DILocation)
-    ref = API.LLVMDILocationGetScope(location)
-    ref == C_NULL ? nothing : Metadata(ref)::DIScope
-end
-
-"""
-    inlined_at(location::DILocation)
-
-Get the "inline at" location associated with this debug location.
-"""
-function inlined_at(location::DILocation)
-    ref = API.LLVMDILocationGetInlinedAt(location)
-    ref == C_NULL ? nothing : Metadata(ref)::DILocation
 end
 
 
@@ -206,9 +139,9 @@ function file(var::DIVariable)
 end
 
 """
-    name(var::DIVariable)
+    scope(var::DIVariable)
 
-Get the name of the given variable.
+Get the scope of the given variable.
 """
 function scope(var::DIVariable)
     ref = API.LLVMDIVariableGetScope(var)
@@ -256,6 +189,71 @@ end
 abstract type DILocalScope <: DIScope end
 
 
+## location information
+
+export DILocation, line, column, scope, inlined_at
+
+"""
+    DILocation
+
+A location in the source code.
+"""
+@checked struct DILocation <: MDNode
+    ref::API.LLVMMetadataRef
+end
+register(DILocation, API.LLVMDILocationMetadataKind)
+
+"""
+    DILocation(line::Integer, col::Integer, scope::DIScope,
+               [inlined_at::DILocation]) -> DILocation
+
+Creates a new DebugLocation that describes a source location. A scope is
+required: LLVM segfaults on a null scope.
+"""
+function DILocation(line::Integer, col::Integer, scope::DIScope,
+                    inlined_at::Union{DILocation,Nothing}=nothing)
+    DILocation(API.LLVMDIBuilderCreateDebugLocation(context(), line, col, scope,
+                                                    something(inlined_at, C_NULL)))
+end
+
+DILocation(line::Integer, col::Integer, scope::Nothing, inlined_at=nothing) =
+    throw(ArgumentError("DILocation requires a scope; LLVM crashes on a null scope"))
+
+"""
+    line(location::DILocation)
+
+Get the line number of this debug location.
+"""
+line(location::DILocation) = Int(API.LLVMDILocationGetLine(location))
+
+"""
+    column(location::DILocation)
+
+Get the column number of this debug location.
+"""
+column(location::DILocation) = Int(API.LLVMDILocationGetColumn(location))
+
+"""
+    scope(location::DILocation)
+
+Get the local scope associated with this debug location.
+"""
+function scope(location::DILocation)
+    ref = API.LLVMDILocationGetScope(location)
+    ref == C_NULL ? nothing : Metadata(ref)::DIScope
+end
+
+"""
+    inlined_at(location::DILocation)
+
+Get the "inline at" location associated with this debug location.
+"""
+function inlined_at(location::DILocation)
+    ref = API.LLVMDILocationGetInlinedAt(location)
+    ref == C_NULL ? nothing : Metadata(ref)::DILocation
+end
+
+
 ## file
 
 export DIFile, directory, filename, source
@@ -278,8 +276,8 @@ Create a new [`DIFile`](@ref) describing the given source file.
 """
 function file!(builder::DIBuilder, filename::AbstractString, directory::AbstractString)
     DIFile(API.LLVMDIBuilderCreateFile(builder,
-                                       filename, Csize_t(length(filename)),
-                                       directory, Csize_t(length(directory))))
+                                       filename, Csize_t(ncodeunits(filename)),
+                                       directory, Csize_t(ncodeunits(directory))))
 end
 
 """
@@ -450,12 +448,14 @@ Get the alignment in bits of the given type.
 """
 align(typ::DIType) = Int(API.LLVMDITypeGetAlignInBits(typ))
 
-@static if version() >= v"17"
 """
     tag(node::DINode)
 
 Get the DWARF tag of the given node, or `0` if none. Requires LLVM 17+.
 """
+tag(node::DINode)
+
+@static if version() >= v"17"
 tag(node::DINode) = Int(API.LLVMGetDINodeTag(node))
 end
 
@@ -472,7 +472,7 @@ Create a new [`DIBasicType`](@ref), such as an integer or floating-point type.
 function basic_type!(builder::DIBuilder, name::AbstractString, size_in_bits::Integer,
                     encoding::Integer; flags=API.LLVMDIFlagZero)
     DIBasicType(API.LLVMDIBuilderCreateBasicType(
-        builder, name, Csize_t(length(name)),
+        builder, name, Csize_t(ncodeunits(name)),
         UInt64(size_in_bits), Cuint(encoding), flags))
 end
 
@@ -483,7 +483,7 @@ Create a new unspecified type (`DW_TAG_unspecified_type`), e.g. a C++ `decltype(
 """
 function unspecified_type!(builder::DIBuilder, name::AbstractString)
     DIBasicType(API.LLVMDIBuilderCreateUnspecifiedType(
-        builder, name, Csize_t(length(name))))
+        builder, name, Csize_t(ncodeunits(name))))
 end
 
 
@@ -502,7 +502,7 @@ function pointer_type!(builder::DIBuilder, pointee_type::DIType, size_in_bits::I
     DIDerivedType(API.LLVMDIBuilderCreatePointerType(
         builder, pointee_type,
         UInt64(size_in_bits), UInt32(align_in_bits), Cuint(address_space),
-        name, Csize_t(length(name))))
+        name, Csize_t(ncodeunits(name))))
 end
 
 """
@@ -534,7 +534,7 @@ function typedef_type!(builder::DIBuilder, type::DIType, name::AbstractString,
                       file::DIFile, line::Integer, scope::DIScope;
                       align_in_bits::Integer=0)
     DIDerivedType(API.LLVMDIBuilderCreateTypedef(
-        builder, type, name, Csize_t(length(name)),
+        builder, type, name, Csize_t(ncodeunits(name)),
         file, Cuint(line), scope, UInt32(align_in_bits)))
 end
 
@@ -650,7 +650,7 @@ function member_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                      align_in_bits::Integer, offset_in_bits::Integer,
                      type::DIType; flags=API.LLVMDIFlagZero)
     DIDerivedType(API.LLVMDIBuilderCreateMemberType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
         flags, type))
@@ -669,7 +669,7 @@ function bitfield_member_type!(builder::DIBuilder, scope::DIScope, name::Abstrac
                              offset_in_bits::Integer, storage_offset_in_bits::Integer,
                              type::DIType; flags=API.LLVMDIFlagZero)
     DIDerivedType(API.LLVMDIBuilderCreateBitFieldMemberType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt64(offset_in_bits), UInt64(storage_offset_in_bits),
         flags, type))
@@ -692,7 +692,7 @@ function static_member_type!(builder::DIBuilder, scope::DIScope, name::AbstractS
                            flags=API.LLVMDIFlagZero,
                            align_in_bits::Integer=0)
     DIDerivedType(API.LLVMDIBuilderCreateStaticMemberType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line), type, flags,
         constant_val, UInt32(align_in_bits)))
 end
@@ -735,14 +735,14 @@ function struct_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                      unique_id::AbstractString="")
     elts = convert(Vector{Metadata}, elements)
     DICompositeType(API.LLVMDIBuilderCreateStructType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits), flags,
         something(derived_from, C_NULL),
         elts, Cuint(length(elts)),
         Cuint(runtime_lang),
         something(vtable_holder, C_NULL),
-        unique_id, Csize_t(length(unique_id))))
+        unique_id, Csize_t(ncodeunits(unique_id))))
 end
 
 """
@@ -761,12 +761,12 @@ function union_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                     unique_id::AbstractString="")
     elts = convert(Vector{Metadata}, elements)
     DICompositeType(API.LLVMDIBuilderCreateUnionType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits), flags,
         elts, Cuint(length(elts)),
         Cuint(runtime_lang),
-        unique_id, Csize_t(length(unique_id))))
+        unique_id, Csize_t(ncodeunits(unique_id))))
 end
 
 """
@@ -789,7 +789,7 @@ function class_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                     unique_id::AbstractString="")
     elts = convert(Vector{Metadata}, elements)
     DICompositeType(API.LLVMDIBuilderCreateClassType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
         flags,
@@ -797,7 +797,7 @@ function class_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
         elts, Cuint(length(elts)),
         something(vtable_holder, C_NULL),
         something(template_params, C_NULL),
-        unique_id, Csize_t(length(unique_id))))
+        unique_id, Csize_t(ncodeunits(unique_id))))
 end
 
 """
@@ -839,7 +839,7 @@ Create a new enumerator for use inside an enumeration type.
 function enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
                      unsigned::Bool=false)
     DIEnumerator(API.LLVMDIBuilderCreateEnumerator(
-        builder, name, Csize_t(length(name)), Int64(value), unsigned))
+        builder, name, Csize_t(ncodeunits(name)), Int64(value), unsigned))
 end
 
 """
@@ -857,7 +857,7 @@ function enumeration_type!(builder::DIBuilder, scope::DIScope, name::AbstractStr
                           class_ty=nothing)
     elts = convert(Vector{Metadata}, elements)
     DICompositeType(API.LLVMDIBuilderCreateEnumerationType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits),
         elts, Cuint(length(elts)),
@@ -879,10 +879,10 @@ function forward_decl!(builder::DIBuilder, tag::Integer, name::AbstractString,
                       align_in_bits::Integer=0,
                       unique_id::AbstractString="")
     DICompositeType(API.LLVMDIBuilderCreateForwardDecl(
-        builder, Cuint(tag), name, Csize_t(length(name)),
+        builder, Cuint(tag), name, Csize_t(ncodeunits(name)),
         scope, file, Cuint(line), Cuint(runtime_lang),
         UInt64(size_in_bits), UInt32(align_in_bits),
-        unique_id, Csize_t(length(unique_id))))
+        unique_id, Csize_t(ncodeunits(unique_id))))
 end
 
 """
@@ -904,10 +904,10 @@ function replaceable_composite_type!(builder::DIBuilder, tag::Integer,
                                    flags=API.LLVMDIFlagZero,
                                    unique_id::AbstractString="")
     DICompositeType(API.LLVMDIBuilderCreateReplaceableCompositeType(
-        builder, Cuint(tag), name, Csize_t(length(name)),
+        builder, Cuint(tag), name, Csize_t(ncodeunits(name)),
         scope, file, Cuint(line), Cuint(runtime_lang),
         UInt64(size_in_bits), UInt32(align_in_bits), flags,
-        unique_id, Csize_t(length(unique_id))))
+        unique_id, Csize_t(ncodeunits(unique_id))))
 end
 
 
@@ -1004,7 +1004,7 @@ function objc_ivar!(builder::DIBuilder, name::AbstractString, file::DIFile,
                    offset_in_bits::Integer, type::DIType, property_node::Metadata;
                    flags=API.LLVMDIFlagZero)
     DIDerivedType(API.LLVMDIBuilderCreateObjCIVar(
-        builder, name, Csize_t(length(name)),
+        builder, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits), UInt64(offset_in_bits),
         flags, type, property_node))
@@ -1021,10 +1021,10 @@ function objc_property!(builder::DIBuilder, name::AbstractString, file::DIFile,
                        line::Integer, getter::AbstractString, setter::AbstractString,
                        attributes::Integer, type::DIType)
     DIObjCProperty(API.LLVMDIBuilderCreateObjCProperty(
-        builder, name, Csize_t(length(name)),
+        builder, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
-        getter, Csize_t(length(getter)),
-        setter, Csize_t(length(setter)),
+        getter, Csize_t(ncodeunits(getter)),
+        setter, Csize_t(ncodeunits(setter)),
         Cuint(attributes), type))
 end
 
@@ -1033,7 +1033,19 @@ end
 
 @static if version() >= v"21"
 
+export DISubrangeType
 @public set_type!, subrange_type!, dynamic_array_type!, enumerator_arbitrary!
+
+"""
+    DISubrangeType <: DIType
+
+A subrange type (an integer range type, as found in Fortran or Ada), built
+with [`subrange_type!`](@ref). Requires LLVM 21+.
+"""
+@checked struct DISubrangeType <: DIType
+    ref::API.LLVMMetadataRef
+end
+register(DISubrangeType, API.LLVMDISubrangeTypeMetadataKind)
 
 """
     set_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
@@ -1046,7 +1058,7 @@ function set_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                   file::DIFile, line::Integer, size_in_bits::Integer,
                   align_in_bits::Integer, base_type::DIType)
     DIDerivedType(API.LLVMDIBuilderCreateSetType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits), base_type))
 end
@@ -1057,7 +1069,7 @@ end
                   align_in_bits::Integer, base_type::DIType;
                   flags=API.LLVMDIFlagZero,
                   lower_bound=nothing, upper_bound=nothing,
-                  stride=nothing, bias=nothing)
+                  stride=nothing, bias=nothing) -> DISubrangeType
 
 Create a new subrange type. Requires LLVM 21+.
 """
@@ -1067,8 +1079,8 @@ function subrange_type!(builder::DIBuilder, scope::DIScope, name::AbstractString
                        flags=API.LLVMDIFlagZero,
                        lower_bound=nothing, upper_bound=nothing,
                        stride=nothing, bias=nothing)
-    Metadata(API.LLVMDIBuilderCreateSubrangeType(
-        builder, scope, name, Csize_t(length(name)),
+    DISubrangeType(API.LLVMDIBuilderCreateSubrangeType(
+        builder, scope, name, Csize_t(ncodeunits(name)),
         Cuint(line), file,
         UInt64(size_in_bits), UInt32(align_in_bits), flags, base_type,
         something(lower_bound, C_NULL),
@@ -1098,7 +1110,7 @@ function dynamic_array_type!(builder::DIBuilder, scope::DIScope, name::AbstractS
                            bit_stride=nothing)
     subs = convert(Vector{Metadata}, subscripts)
     DICompositeType(API.LLVMDIBuilderCreateDynamicArrayType(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         Cuint(line), file,
         UInt64(size), UInt32(align_in_bits), element_type,
         subs, Cuint(length(subs)),
@@ -1119,8 +1131,12 @@ Create a new arbitrary-precision enumerator. Requires LLVM 21+.
 function enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
                         size_in_bits::Integer, words::Vector{UInt64};
                         unsigned::Bool=false)
+    # LLVM reads cld(size_in_bits, 64) words from the array
+    if length(words) < cld(size_in_bits, 64)
+        throw(ArgumentError("words must contain at least cld(size_in_bits, 64) = $(cld(size_in_bits, 64)) elements"))
+    end
     DIEnumerator(API.LLVMDIBuilderCreateEnumeratorOfArbitraryPrecision(
-        builder, name, Csize_t(length(name)),
+        builder, name, Csize_t(ncodeunits(name)),
         UInt64(size_in_bits), words, unsigned))
 end
 
@@ -1130,6 +1146,7 @@ end # @static if version() >= v"21"
 ## subprogram
 
 export DISubProgram, line
+@public finalize_subprogram!
 
 """
     DISubProgram
@@ -1167,8 +1184,8 @@ function subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                      flags=API.LLVMDIFlagZero,
                      is_optimized::Bool=false)
     DISubProgram(API.LLVMDIBuilderCreateFunction(
-        builder, scope, name, Csize_t(length(name)),
-        linkage_name, Csize_t(length(linkage_name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
+        linkage_name, Csize_t(ncodeunits(linkage_name)),
         file, Cuint(line), type,
         is_local_to_unit, is_definition, Cuint(scope_line),
         flags, is_optimized))
@@ -1232,21 +1249,21 @@ function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::Abstrac
                       sysroot::AbstractString="",
                       sdk::AbstractString="")
     split_name_ptr = split_name === nothing ? C_NULL : split_name
-    split_name_len = split_name === nothing ? Csize_t(0) : Csize_t(length(split_name))
+    split_name_len = split_name === nothing ? Csize_t(0) : Csize_t(ncodeunits(split_name))
     cu = DICompileUnit(API.LLVMDIBuilderCreateCompileUnit(
         builder, lang, file,
-        producer, Csize_t(length(producer)),
+        producer, Csize_t(ncodeunits(producer)),
         optimized,
-        cmdline, Csize_t(length(cmdline)),
+        cmdline, Csize_t(ncodeunits(cmdline)),
         Cuint(runtime_version),
         split_name_ptr, split_name_len,
         emission_kind,
         Cuint(dwo_id),
         split_debug_inlining,
         debug_info_for_profiling,
-        sysroot, Csize_t(length(sysroot)),
-        sdk, Csize_t(length(sdk))))
-    builder.needs_finalization[] = true
+        sysroot, Csize_t(ncodeunits(sysroot)),
+        sdk, Csize_t(ncodeunits(sdk))))
+    builder.needs_finalization = true
     return cu
 end
 
@@ -1279,10 +1296,10 @@ function dimodule!(builder::DIBuilder, parent_scope::DIScope, name::AbstractStri
                    api_notes_file::AbstractString="")
     DIModule(API.LLVMDIBuilderCreateModule(
         builder, parent_scope,
-        name, Csize_t(length(name)),
-        config_macros, Csize_t(length(config_macros)),
-        include_path, Csize_t(length(include_path)),
-        api_notes_file, Csize_t(length(api_notes_file))))
+        name, Csize_t(ncodeunits(name)),
+        config_macros, Csize_t(ncodeunits(config_macros)),
+        include_path, Csize_t(ncodeunits(include_path)),
+        api_notes_file, Csize_t(ncodeunits(api_notes_file))))
 end
 
 
@@ -1304,7 +1321,7 @@ function auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString
                        always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
                        align_in_bits::Integer=0)
     DILocalVariable(API.LLVMDIBuilderCreateAutoVariable(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line), type,
         always_preserve, flags, UInt32(align_in_bits)))
 end
@@ -1323,7 +1340,7 @@ function parameter_variable!(builder::DIBuilder, scope::DIScope, name::AbstractS
                             always_preserve::Bool=false,
                             flags=API.LLVMDIFlagZero)
     DILocalVariable(API.LLVMDIBuilderCreateParameterVariable(
-        builder, scope, name, Csize_t(length(name)), Cuint(arg_no),
+        builder, scope, name, Csize_t(ncodeunits(name)), Cuint(arg_no),
         file, Cuint(line), type,
         always_preserve, flags))
 end
@@ -1418,8 +1435,8 @@ function global_variable_expression!(builder::DIBuilder, scope::DIScope,
                                    declaration=nothing,
                                    align_in_bits::Integer=0)
     DIGlobalVariableExpression(API.LLVMDIBuilderCreateGlobalVariableExpression(
-        builder, scope, name, Csize_t(length(name)),
-        linkage, Csize_t(length(linkage)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
+        linkage, Csize_t(ncodeunits(linkage)),
         file, Cuint(line), type, local_to_unit, expression,
         something(declaration, C_NULL), UInt32(align_in_bits)))
 end
@@ -1441,8 +1458,8 @@ function temp_global_variable_fwd_decl!(builder::DIBuilder, scope::DIScope,
                                     declaration=nothing,
                                     align_in_bits::Integer=0)
     DIGlobalVariable(API.LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
-        builder, scope, name, Csize_t(length(name)),
-        linkage, Csize_t(length(linkage)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
+        linkage, Csize_t(ncodeunits(linkage)),
         file, Cuint(line), type, local_to_unit,
         something(declaration, C_NULL), UInt32(align_in_bits)))
 end
@@ -1524,7 +1541,7 @@ function namespace!(builder::DIBuilder, parent_scope::DIScope, name::AbstractStr
                     export_symbols::Bool=false)
     DINamespace(API.LLVMDIBuilderCreateNameSpace(
         builder, parent_scope,
-        name, Csize_t(length(name)),
+        name, Csize_t(ncodeunits(name)),
         export_symbols))
 end
 
@@ -1674,7 +1691,7 @@ function label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                 file::DIFile, line::Integer;
                 always_preserve::Bool=false)
     DILabel(API.LLVMDIBuilderCreateLabel(
-        builder, scope, name, Csize_t(length(name)),
+        builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line), always_preserve))
 end
 
@@ -1776,7 +1793,7 @@ function imported_declaration!(builder::DIBuilder, scope::DIScope, decl::Metadat
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedDeclaration(
         builder, scope, decl, file, Cuint(line),
-        name, Csize_t(length(name)),
+        name, Csize_t(ncodeunits(name)),
         elts, Cuint(length(elts))))
 end
 
@@ -1819,8 +1836,8 @@ function macro!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing}
                 value::AbstractString)
     DIMacro(API.LLVMDIBuilderCreateMacro(
         builder, something(parent_macrofile, C_NULL), Cuint(line), record_type,
-        name, Csize_t(length(name)),
-        value, Csize_t(length(value))))
+        name, Csize_t(ncodeunits(name)),
+        value, Csize_t(ncodeunits(value))))
 end
 
 """
@@ -1857,6 +1874,14 @@ Set the debug location of the given instruction.
 """
 debuglocation!(inst::Instruction, loc::DILocation) =
     API.LLVMInstructionSetDebugLoc(inst, loc)
+
+"""
+    debuglocation!(inst::Instruction)
+
+Clear the debug location of the given instruction.
+"""
+debuglocation!(inst::Instruction) =
+    API.LLVMInstructionSetDebugLoc(inst, C_NULL)
 
 
 ## mutation / advanced helpers

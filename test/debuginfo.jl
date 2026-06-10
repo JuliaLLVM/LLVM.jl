@@ -45,6 +45,11 @@ end
             @test LLVM.filename(file) == "test.jl"
             @test LLVM.directory(file) == "/tmp"
 
+            # non-ASCII strings should pass their full byte length
+            ufile = LLVM.file!(dib, "tëst-∇.jl", "/tmp/∂ir")
+            @test LLVM.filename(ufile) == "tëst-∇.jl"
+            @test LLVM.directory(ufile) == "/tmp/∂ir"
+
             cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
             @test cu isa DICompileUnit
@@ -97,7 +102,7 @@ end
             @test LLVM.inlined_at(inner) == outer
 
             # DILocation requires a scope
-            @test_throws UndefRefError DILocation(1, 2, nothing)
+            @test_throws ArgumentError DILocation(1, 2, nothing)
         end
     end
 end
@@ -118,6 +123,10 @@ end
             i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
             @test i64 isa LLVM.DIBasicType
             @test LLVM.name(i64) == "Int64"
+
+            # non-ASCII type names should round-trip
+            ut = LLVM.basic_type!(dib, "∇f", 64, DW_ATE_signed)
+            @test LLVM.name(ut) == "∇f"
             @test LLVM.align(i64) == 0
             if LLVM.version() >= v"17"
                 @test LLVM.tag(i64) != 0
@@ -300,6 +309,11 @@ end
             @test got !== nothing
             @test LLVM.line(got) == 2
             @test LLVM.column(got) == 1
+
+            # clearing the debug location
+            LLVM.debuglocation!(retinst)
+            @test LLVM.debuglocation(retinst) === nothing
+            LLVM.debuglocation!(retinst, loc)
 
             # value_before!
             val_result = LLVM.value_before!(dib, r, var, expr, loc, retinst)
@@ -530,6 +544,31 @@ end
     end
 
     dispose(mod)
+end
+
+@static if LLVM.version() >= v"21"
+@testset "DIBuilder: LLVM 21 additions" begin
+    DW_ATE_signed = 0x05
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                   file, "LLVM.jl Tests")
+            i32 = LLVM.basic_type!(dib, "Int32", 32, DW_ATE_signed)
+
+            st = LLVM.set_type!(dib, cu, "set_of_int", file, 1, 32, 32, i32)
+            @test st isa LLVM.DIDerivedType
+
+            srt = LLVM.subrange_type!(dib, cu, "range", 1, file, 32, 32, i32)
+            @test srt isa DISubrangeType
+
+            big = LLVM.enumerator_arbitrary!(dib, "big", 128, UInt64[1, 2])
+            @test big isa LLVM.DIEnumerator
+            @test_throws ArgumentError LLVM.enumerator_arbitrary!(dib, "bad", 256,
+                                                                  UInt64[1])
+        end
+    end
+end
 end
 
 end

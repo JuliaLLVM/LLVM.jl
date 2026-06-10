@@ -35,6 +35,7 @@ push!(::NamedMDNode, ::MDNode)
 
 ```@docs
 DINode
+tag(::DINode)
 ```
 
 ### Builder
@@ -253,6 +254,7 @@ LLVM.value_before!
 LLVM.value_at_end!
 LLVM.debuglocation(::Instruction)
 LLVM.debuglocation!(::Instruction, ::DILocation)
+LLVM.debuglocation!(::Instruction)
 ```
 
 ### Compile Unit

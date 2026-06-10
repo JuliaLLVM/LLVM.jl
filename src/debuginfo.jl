@@ -14,7 +14,7 @@ the builder.
 """
 @checked struct DIBuilder
     ref::API.LLVMDIBuilderRef
-    has_compile_unit::Base.RefValue{Bool}
+    needs_finalization::Base.RefValue{Bool}
 end
 
 Base.unsafe_convert(::Type{API.LLVMDIBuilderRef}, builder::DIBuilder) =
@@ -41,12 +41,13 @@ end
 Finalize the debug info and dispose of the builder. Finalization populates
 the compile unit's enum/retained-type/global/imported-entity/macro arrays,
 seals each subprogram's retained-nodes list, and resolves remaining cycles.
-If no compile unit was registered with the builder, finalization is skipped.
+If no compile unit was registered with the builder, or the debug info was
+already finalized through [`finalize!`](@ref), finalization is skipped:
+`DIBuilder::finalize` is not idempotent (e.g., re-finalizing accesses
+already-deleted temporary macro files).
 """
 function dispose(builder::DIBuilder)
-    if builder.has_compile_unit[]
-        API.LLVMDIBuilderFinalize(builder)
-    end
+    finalize!(builder)
     mark_dispose(API.LLVMDisposeDIBuilder, builder)
 end
 
@@ -67,10 +68,14 @@ Base.show(io::IO, builder::DIBuilder) = @printf(io, "DIBuilder(%p)", builder.ref
 Resolve any unresolved metadata nodes and mark all compile units finalized.
 Called automatically by [`dispose`](@ref); call explicitly only if the
 DI-enriched module must be consumed (e.g. for code emission) before the
-builder is disposed of. Skipped if no compile unit has been registered.
+builder is disposed of. Skipped if no compile unit has been registered, or
+if the debug info has already been finalized.
 """
 function finalize!(builder::DIBuilder)
-    builder.has_compile_unit[] && API.LLVMDIBuilderFinalize(builder)
+    if builder.needs_finalization[]
+        API.LLVMDIBuilderFinalize(builder)
+        builder.needs_finalization[] = false
+    end
     return
 end
 
@@ -1241,7 +1246,7 @@ function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::Abstrac
         debug_info_for_profiling,
         sysroot, Csize_t(length(sysroot)),
         sdk, Csize_t(length(sdk))))
-    builder.has_compile_unit[] = true
+    builder.needs_finalization[] = true
     return cu
 end
 

@@ -21,9 +21,17 @@ DEBUG_METADATA_VERSION()
         end
     end
 
-    # explicit finalize! before dispose is still valid (idempotent)
+    # explicit finalize! before dispose is still valid (idempotent), even with
+    # temporary macro files, which the first finalization RAUWs and deletes
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                               file, "LLVM.jl Tests")
+            tmf = LLVM.temp_macro_file!(dib, nothing, 1, file)
+            LLVM.macro!(dib, tmf, 1, LLVM.API.LLVMDWARFMacinfoRecordTypeDefine,
+                        "FOO", "1")
+            LLVM.finalize!(dib)
             LLVM.finalize!(dib)
         end
     end

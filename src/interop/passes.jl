@@ -25,6 +25,9 @@ end
 @static if VERSION >= v"1.11.0-DEV.208"
     @function_pass "FinalLowerGC" FinalLowerGCPass
 end
+@static if VERSION >= v"1.13.0-DEV.321"
+    @function_pass "ExpandAtomicModify" ExpandAtomicModifyPass
+end
 @function_pass "GCInvariantVerifier" GCInvariantVerifierPass
 
 @loop_pass "JuliaLICM" JuliaLICMPass

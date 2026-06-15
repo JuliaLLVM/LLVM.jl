@@ -539,6 +539,9 @@ end
                     if VERSION >= v"1.11.0-DEV.208"
                         add!(fpm, FinalLowerGCPass())
                     end
+                    if VERSION >= v"1.13.0-DEV.321"
+                        add!(fpm, ExpandAtomicModifyPass())
+                    end
                 end
                 if VERSION < v"1.11.0-DEV.208"
                     add!(mpm, FinalLowerGCPass())

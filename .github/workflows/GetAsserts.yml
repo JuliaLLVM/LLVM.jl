@@ -30,7 +30,7 @@ jobs:
         build: ['x86_64-linux-gnuassert']
     steps:
       # Only checks out the base branch (never PR code)
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download Julia
         env:

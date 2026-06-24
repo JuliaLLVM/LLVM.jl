@@ -417,22 +417,64 @@ function add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
 end
 
 function decorate_module(mod)
+    # Add special values used by debuginfo to build the UnwindData table
+    # registration for Win64. This mirrors `jl_decorate_module` in Julia's
+    # src/jitlayers.cpp.
     # TODO: check the triple, not the system
     if Sys.iswindows() && Sys.ARCH == :x86_64 &&
        !contains(inline_asm(mod), "__UnwindData")
-        inline_asm!(mod, """
-            .section .text
-            .type   __UnwindData,@object
-            .p2align        2, 0x90
-            __UnwindData:
-                .zero   12
-                .size   __UnwindData, 12
+        @static if VERSION >= v"1.12.0-DEV.1297"
+            # Julia 1.12 (JuliaLang/julia#54841) rewrote the catchjmp asm to use
+            # normal relocations and emit a PLT trampoline to __julia_personality.
+            # The section used depends on the LLVM version.
+            if LLVM.version() >= v"18"
+                section = ".ltext,\"ax\",@progbits"
+                offset = ".ltext"
+            else
+                section = ".text"
+                offset = ".text"
+            end
+            inline_asm!(mod, """
+                .section $section
+                .globl __julia_personality
 
-                .type   __catchjmp,@object
+                .type __UnwindData,@object
                 .p2align        2, 0x90
-            __catchjmp:
-                .zero   12
-                .size   __catchjmp, 12""")
+                __UnwindData:
+                  .byte 0x09;
+                  .byte 4;
+                  .byte 2;
+                  .byte 0x05;
+                  .byte 4;
+                  .byte 0x03;
+                  .byte 1;
+                  .byte 0x50;
+                  .int __catchjmp - $offset;
+                .size __UnwindData, 12
+
+                .type __catchjmp,@function
+                .p2align        2, 0x90
+                __catchjmp:
+                  movabsq \$__julia_personality, %rax
+                  jmpq *%rax
+                .size __catchjmp, . - __catchjmp
+                """)
+        else
+            # Julia 1.10 and 1.11
+            inline_asm!(mod, """
+                .section .text
+                .type   __UnwindData,@object
+                .p2align        2, 0x90
+                __UnwindData:
+                    .zero   12
+                    .size   __UnwindData, 12
+
+                    .type   __catchjmp,@object
+                    .p2align        2, 0x90
+                __catchjmp:
+                    .zero   12
+                    .size   __catchjmp, 12""")
+        end
     end
 end
 

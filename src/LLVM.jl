@@ -82,6 +82,7 @@ include("utils.jl")
 include("orc.jl")
 include("targetinfo.jl")
 include("newpm.jl")
+include("disasm.jl")
 
 # high-level functionality
 include("state.jl")

@@ -418,8 +418,13 @@ end
 
 function decorate_module(mod)
     # Add special values used by debuginfo to build the UnwindData table
-    # registration for Win64. This mirrors `jl_decorate_module` in Julia's
-    # src/jitlayers.cpp.
+    # registration for Win64.
+    @static if VERSION >= v"1.14.0-DEV.2446"
+        @ccall jl_decorate_llvm_module(mod::LLVM.API.LLVMModuleRef)::Cvoid
+        return nothing
+    end
+
+    # This mirrors `jl_decorate_module` in Julia's src/jitlayers.cpp.
     # TODO: check the triple, not the system
     if Sys.iswindows() && Sys.ARCH == :x86_64 &&
        !contains(inline_asm(mod), "__UnwindData")

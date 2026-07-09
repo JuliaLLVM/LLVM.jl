@@ -363,7 +363,8 @@ end
     ptr = reinterpret(Core.LLVMPtr{Int64, 4}, 0)
     for eltype_dest in (Int64, Int32), AS_dest in (4, 3)
         T_dest = Core.LLVMPtr{eltype_dest, AS_dest}
-        ir = sprint(io->code_llvm(io, LLVM.Interop.addrspacecast, Tuple{Type{T_dest}, typeof(ptr)}))
+        T_arg = isdefined(Core, :TypeEgal) ? Core.TypeEgal{T_dest} : Type{T_dest}
+        ir = sprint(io->code_llvm(io, LLVM.Interop.addrspacecast, Tuple{T_arg, typeof(ptr)}))
         if supports_typed_ptrs
             if AS_dest == 3
                 @test contains(ir, r"addrspacecast i8 addrspace\(4\)\* %.+? to i8 addrspace\(3\)\*")

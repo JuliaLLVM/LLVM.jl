@@ -20,9 +20,11 @@ This object needs to be disposed of using [`dispose(::ThreadSafeContext)`](@ref)
 """
 function ThreadSafeContext(; opaque_pointers=nothing)
     ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext()))
+    ctx = context(ts_ctx)
     if opaque_pointers !== nothing
-        opaque_pointers!(context(ts_ctx), opaque_pointers)
+        opaque_pointers!(ctx, opaque_pointers)
     end
+    _install_handlers(ctx)
     activate(ts_ctx)
     ts_ctx
 end
@@ -55,10 +57,13 @@ end
     dispose(ctx::ThreadSafeContext)
 
 Dispose of the thread-safe context, releasing all resources associated with it.
+
+If an exception is in flight, the context is leaked instead of freed, so that values
+captured by the exception remain valid; see [`dispose(::Context)`](@ref).
 """
 function dispose(ctx::ThreadSafeContext)
     deactivate(ctx)
-    mark_dispose(API.LLVMOrcDisposeThreadSafeContext, ctx)
+    mark_dispose(leak_context() ? Returns(nothing) : API.LLVMOrcDisposeThreadSafeContext, ctx)
 end
 
 """

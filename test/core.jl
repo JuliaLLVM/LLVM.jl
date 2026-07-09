@@ -43,6 +43,18 @@ Context() do ctx end
     end
 end
 
+# disposing a context during exception unwinding should leak it instead of freeing it,
+# so that values captured by the exception (or by test machinery recording it) can still
+# be displayed afterwards
+let
+    val = Ref{Any}()
+    @test_throws ErrorException Context() do ctx
+        val[] = ConstantInt(Int32(42))
+        error("some error")
+    end
+    @test occursin("42", string(val[]))
+end
+
 @test context(; throw_error=false) === nothing
 
 end

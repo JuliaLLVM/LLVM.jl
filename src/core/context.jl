@@ -37,23 +37,30 @@ function Context(; opaque_pointers=nothing)
     ctx
 end
 
-# when set, `dispose(::Context)` only pops the context off the stack without actually
-# freeing it. intended for test setups that need to keep LLVM values alive for display
-# after the enclosing `Context() do`/`@dispose ctx=Context()` block has exited.
-const leak_contexts = Ref(false)
+# whether a context being disposed should be leaked instead of freed. this is the case
+# when an exception is in flight (i.e., when disposing from a `finally` block during
+# unwinding): the exception, or test machinery recording it, may have captured objects
+# from this context and will only display them after the context has been disposed,
+# which would crash the process.
+leak_context() = !isempty(current_exceptions())
 
 """
     dispose(ctx::Context)
 
 Dispose of the context, releasing all resources associated with it. The context should not
 be used after this operation.
+
+If an exception is in flight (e.g., when the context is disposed of by a `finally` block
+during stack unwinding), the context is popped from the context stack but intentionally
+leaked instead of freed. This keeps any values captured by the exception valid, so that
+error reporting does not crash the process.
 """
 function dispose(ctx::Context)
     deactivate(ctx)
     # in the leak path we still record the dispose in memcheck bookkeeping,
     # just without actually freeing, so report_leaks stays quiet and any real
     # missing dispose still stands out.
-    mark_dispose(leak_contexts[] ? Returns(nothing) : API.LLVMContextDispose, ctx)
+    mark_dispose(leak_context() ? Returns(nothing) : API.LLVMContextDispose, ctx)
 end
 
 function Context(f::Core.Function; kwargs...)

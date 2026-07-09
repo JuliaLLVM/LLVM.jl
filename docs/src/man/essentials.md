@@ -154,6 +154,31 @@ julia> @dispose ctx=Context() mod=LLVM.Module("jit") begin
 
 It is recommended to use the [`@dispose`](@ref) macro whenever possible.
 
+### Disposal during exception handling
+
+When a context is disposed of while an exception is being thrown -- for example, when an
+error occurs inside a `Context() do` block, whose implicit `dispose` call then runs during
+stack unwinding -- the context is popped from the context stack but intentionally leaked
+instead of freed. This ensures that LLVM objects captured by the exception, or by test
+machinery recording it, remain valid when they are displayed later, e.g., as part of a test
+summary. Without this, reporting such errors would crash the process:
+
+```jldoctest
+julia> val = Ref{Any}();
+
+julia> try
+         @dispose ctx=Context() begin
+           val[] = LLVM.ConstantInt(Int32(42))
+           error("something went wrong")
+           # the implicit `dispose(ctx)` does not free the context here
+         end
+       catch
+       end
+
+julia> string(val[]) # safe, even though the context was disposed of
+"i32 42"
+```
+
 ### Debugging missing disposals
 
 To ensure that all resources are properly disposed of, LLVM.jl provides functionality to

@@ -57,10 +57,13 @@ end
     dispose(ctx::ThreadSafeContext)
 
 Dispose of the thread-safe context, releasing all resources associated with it.
+
+If an exception is in flight, the context is leaked instead of freed, so that values
+captured by the exception remain valid; see [`dispose(::Context)`](@ref).
 """
 function dispose(ctx::ThreadSafeContext)
     deactivate(ctx)
-    mark_dispose(API.LLVMOrcDisposeThreadSafeContext, ctx)
+    mark_dispose(leak_context() ? Returns(nothing) : API.LLVMOrcDisposeThreadSafeContext, ctx)
 end
 
 """

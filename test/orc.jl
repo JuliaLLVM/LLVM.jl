@@ -14,6 +14,23 @@ end
 ThreadSafeContext() do ctx
 end
 
+@testset "diagnostics" begin
+    # diagnostics emitted in the inner context should be thrown as LLVMExceptions, just
+    # like with a regular Context; without a handler installed, LLVM's default behavior
+    # is to print the error and exit the process.
+    ThreadSafeContext() do ts_ctx
+        ctx = context(ts_ctx)
+        activate(ctx)
+        try
+            invalid_bitcode = unsafe_wrap(Vector{UInt8}, "invalid")
+            @test_throws LLVMException parse(LLVM.Module, invalid_bitcode)
+            @test_throws LLVMException parse(LLVM.Module, invalid_bitcode; lazy=true)
+        finally
+            deactivate(ctx)
+        end
+    end
+end
+
 @testset "ThreadSafeModule" begin
     @dispose ts_ctx=ThreadSafeContext() ts_mod=ThreadSafeModule("jit") begin
         @test_throws LLVMException ts_mod() do mod

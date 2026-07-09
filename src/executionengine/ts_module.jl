@@ -20,9 +20,11 @@ This object needs to be disposed of using [`dispose(::ThreadSafeContext)`](@ref)
 """
 function ThreadSafeContext(; opaque_pointers=nothing)
     ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext()))
+    ctx = context(ts_ctx)
     if opaque_pointers !== nothing
-        opaque_pointers!(context(ts_ctx), opaque_pointers)
+        opaque_pointers!(ctx, opaque_pointers)
     end
+    _install_handlers(ctx)
     activate(ts_ctx)
     ts_ctx
 end

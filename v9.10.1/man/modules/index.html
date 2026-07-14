@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Modules · LLVM.jl</title><meta name="title" content="Modules · LLVM.jl"/><meta property="og:title" content="Modules · LLVM.jl"/><meta property="twitter:title" content="Modules · LLVM.jl"/><meta name="description" content="Documentation for LLVM.jl."/><meta property="og:description" content="Documentation for LLVM.jl."/><meta property="twitter:description" content="Documentation for LLVM.jl."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">LLVM.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Usage</span><ul><li><a class="tocitem" href="../essentials/">Essentials</a></li><li><a class="tocitem" href="../types/">Types</a></li><li><a class="tocitem" href="../values/">Values</a></li><li class="is-active"><a class="tocitem" href>Modules</a><ul class="internal"><li><a class="tocitem" href="#Textual-representation"><span>Textual representation</span></a></li><li><a class="tocitem" href="#Binary-representation-(&quot;bitcode&quot;)"><span>Binary representation (&quot;bitcode&quot;)</span></a></li><li><a class="tocitem" href="#Contents"><span>Contents</span></a></li><li><a class="tocitem" href="#Linking"><span>Linking</span></a></li></ul></li><li><a class="tocitem" href="../functions/">Functions</a></li><li><a class="tocitem" href="../blocks/">Basic blocks</a></li><li><a class="tocitem" href="../instructions/">Instructions</a></li><li><a class="tocitem" href="../metadata/">Metadata</a></li><li><a class="tocitem" href="../analyses/">Analyses</a></li><li><a class="tocitem" href="../transforms/">Transforms</a></li><li><a class="tocitem" href="../codegen/">Code generation</a></li><li><a class="tocitem" href="../execution/">Execution</a></li><li><a class="tocitem" href="../interop/">Julia integration</a></li></ul></li><li><span class="tocitem">API reference</span><ul><li><a class="tocitem" href="../../lib/essentials/">Essentials</a></li><li><a class="tocitem" href="../../lib/types/">Types</a></li><li><a class="tocitem" href="../../lib/values/">Values</a></li><li><a class="tocitem" href="../../lib/modules/">Modules</a></li><li><a class="tocitem" href="../../lib/functions/">Functions</a></li><li><a class="tocitem" href="../../lib/blocks/">Basic blocks</a></li><li><a class="tocitem" href="../../lib/instructions/">Instructions</a></li><li><a class="tocitem" href="../../lib/metadata/">Metadata</a></li><li><a class="tocitem" href="../../lib/analyses/">Analyses</a></li><li><a class="tocitem" href="../../lib/transforms/">Transforms</a></li><li><a class="tocitem" href="../../lib/codegen/">Code generation</a></li><li><a class="tocitem" href="../../lib/execution/">Execution</a></li><li><a class="tocitem" href="../../lib/interop/">Julia integration</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Usage</a></li><li class="is-active"><a href>Modules</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Modules</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaLLVM/LLVM.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaLLVM/LLVM.jl/blob/main/docs/src/man/modules.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Modules"><a class="docs-heading-anchor" href="#Modules">Modules</a><a id="Modules-1"></a><a class="docs-heading-anchor-permalink" href="#Modules" title="Permalink"></a></h1><p>LLVM modules are the main container of LLVM IR code. They are created using the <code>Module</code> constructor (not exported because of the name conflict with <code>Base.Module</code>):</p><pre><code class="language-julia-repl hljs">julia&gt; mod = LLVM.Module(&quot;SomeModule&quot;)
+; ModuleID = &#39;SomeModule&#39;
+source_filename = &quot;SomeModule&quot;</code></pre><p>The only argument to the constructor is the module&#39;s name. Along with some other properties, this can be read and modified using dedicated functions:</p><ul><li><code>name</code>/<code>name!</code>: module name</li><li><code>triple</code>/<code>triple!</code>: target triple string</li><li><code>datalayout</code>/<code>datalayout!</code>: a data layout string or <code>DataLayout</code> object</li><li><code>inline_asm</code>/<code>inline_asm!</code>: module-level inline assembly</li><li><code>sdk_version</code>/<code>sdk_version!</code>: Apple SDK version</li><li><code>set_used!</code> and <code>set_compiler_used!</code>: to set <code>@llvm.used</code> and <code>@llvm.compiler.used</code></li></ul><h2 id="Textual-representation"><a class="docs-heading-anchor" href="#Textual-representation">Textual representation</a><a id="Textual-representation-1"></a><a class="docs-heading-anchor-permalink" href="#Textual-representation" title="Permalink"></a></h2><p>In the REPL, LLVM modules are displayed verbosely, i.e., they print their IR code. Simply printing the module object will instead output a compact object representation, so if you want to debug your application by printing IR you need to invoke the <code>display</code> function or explicitly <code>string</code>ify the object:</p><pre><code class="language-julia-repl hljs">julia&gt; print(mod)
+LLVM.Module(&quot;SomeModule&quot;)
+
+julia&gt; show(stdout, &quot;text/plain&quot;, mod)  # equivalent of `display`
+; ModuleID = &#39;SomeModule&#39;
+source_filename = &quot;SomeModule&quot;
+
+julia&gt; @info &quot;My module:\n&quot; * string(mod)
+┌ Info: My module:
+│ ; ModuleID = &#39;SomeModule&#39;
+└ source_filename = &quot;SomeModule&quot;</code></pre><p>To parse an LLVM module from a textual string, simply use the <code>parse</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; ir = &quot;&quot;&quot;
+         define i64 @&quot;add&quot;(i64 %0, i64 %1) {
+         top:
+           %2 = add i64 %1, %0
+           ret i64 %2
+         }&quot;&quot;&quot;;
+
+julia&gt; parse(LLVM.Module, ir)
+define i64 @add(i64 %0, i64 %1) {
+top:
+  %2 = add i64 %1, %0
+  ret i64 %2
+}</code></pre><h2 id="Binary-representation-(&quot;bitcode&quot;)"><a class="docs-heading-anchor" href="#Binary-representation-(&quot;bitcode&quot;)">Binary representation (&quot;bitcode&quot;)</a><a id="Binary-representation-(&quot;bitcode&quot;)-1"></a><a class="docs-heading-anchor-permalink" href="#Binary-representation-(&quot;bitcode&quot;)" title="Permalink"></a></h2><p>If you need the binary bitcode, you can convert the module to a vector of bytes, or write it to an I/O stream:</p><pre><code class="language-julia-repl hljs">julia&gt; # only showing the first two bytes, for brevity
+       convert(Vector{UInt8}, mod)[1:2]
+2-element Vector{UInt8}:
+ 0x42
+ 0x43
+
+julia&gt; sprint(write, mod)[1:2]
+&quot;BC&quot;</code></pre><p>Parsing bitcode is again done with the <code>parse</code> function, dispatching on the fact that the bitcode is represented as a vector of bytes:</p><pre><code class="language-julia-repl hljs">julia&gt; bc = UInt8[0x42, 0x43, ...]
+
+julia&gt; parse(LLVM.Module, bc)
+source_filename = &quot;SomeModule&quot;</code></pre><h2 id="Contents"><a class="docs-heading-anchor" href="#Contents">Contents</a><a id="Contents-1"></a><a class="docs-heading-anchor-permalink" href="#Contents" title="Permalink"></a></h2><p>To iterate the contents of a module, several iterators are provided (with different levels of functionality, based on what the LLVM C API provides).</p><h3 id="Global-objects"><a class="docs-heading-anchor" href="#Global-objects">Global objects</a><a id="Global-objects-1"></a><a class="docs-heading-anchor-permalink" href="#Global-objects" title="Permalink"></a></h3><p>Globals, such as global variables, can be iterated with the <code>globals</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; mod = LLVM.Module(&quot;SomeModule&quot;);
+
+julia&gt; gv = GlobalVariable(mod, LLVM.Int32Type(), &quot;SomeGlobal&quot;);
+
+julia&gt; collect(globals(mod))
+1-element Vector{GlobalVariable}:
+ @SomeGlobal = external global i32</code></pre><p>In addition to the iteration interface, it is possible to move from one global to the previous or next one using respectively the <code>prevglobal</code> and <code>nextglobal</code> functions.</p><h3 id="Functions"><a class="docs-heading-anchor" href="#Functions">Functions</a><a id="Functions-1"></a><a class="docs-heading-anchor-permalink" href="#Functions" title="Permalink"></a></h3><p>Functions can be iterated with the <code>functions</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; fun = LLVM.Function(mod, &quot;SomeFunction&quot;, LLVM.FunctionType(LLVM.VoidType()));
+
+julia&gt; collect(functions(mod))
+1-element Vector{LLVM.Function}:
+ declare void @SomeFunction()</code></pre><p>Again, it is possible to move from one function to the previous or next one using respectively the <code>prevfun</code> and <code>nextfun</code> functions.</p><h3 id="Flags"><a class="docs-heading-anchor" href="#Flags">Flags</a><a id="Flags-1"></a><a class="docs-heading-anchor-permalink" href="#Flags" title="Permalink"></a></h3><p>Modules can also have flags associated with them, which can be set and retrieved using the associative iterator returned by the <code>flags</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; mod = LLVM.Module(&quot;SomeModule&quot;);
+
+julia&gt; flags(mod)[&quot;SomeFlag&quot;, LLVM.API.LLVMModuleFlagBehaviorError] = Metadata(ConstantInt(42))
+i64 42
+
+julia&gt; mod
+; ModuleID = &#39;SomeModule&#39;
+source_filename = &quot;SomeModule&quot;
+
+!llvm.module.flags = !{!0}
+
+!0 = !{i32 1, !&quot;SomeFlag&quot;, i64 42}</code></pre><p>Note the additional argument to <code>setindex!</code>, which indicates the flag behavior.</p><h2 id="Linking"><a class="docs-heading-anchor" href="#Linking">Linking</a><a id="Linking-1"></a><a class="docs-heading-anchor-permalink" href="#Linking" title="Permalink"></a></h2><p>Modules can be linked together using the <code>link!</code> function. This function takes two modules, destroying the source module in the process:</p><pre><code class="language-julia-repl hljs">julia&gt; src = parse(LLVM.Module, &quot;define void @foo() { ret void }&quot;);
+
+julia&gt; dst = parse(LLVM.Module, &quot;define void @bar() { ret void }&quot;);
+
+julia&gt; link!(dst, src)
+
+julia&gt; dst
+define void @bar() {
+  ret void
+}
+
+define void @foo() {
+  ret void
+}</code></pre><p>Pass <code>only_needed=true</code> to only link symbols from the source module that are referenced (but not defined) in the destination module, leaving unreferenced definitions behind:</p><pre><code class="language-julia-repl hljs">julia&gt; src = parse(LLVM.Module, &quot;&quot;&quot;
+           define void @needed() { ret void }
+           define void @extra() { ret void }&quot;&quot;&quot;);
+
+julia&gt; dst = parse(LLVM.Module, &quot;&quot;&quot;
+           declare void @needed()
+           define void @caller() {
+             call void @needed()
+             ret void
+           }&quot;&quot;&quot;);
+
+julia&gt; link!(dst, src; only_needed=true)
+
+julia&gt; dst
+define void @caller() {
+  call void @needed()
+  ret void
+}
+
+define void @needed() {
+  ret void
+}</code></pre><p>Pass <code>override_from_src=true</code> to have definitions in the source module shadow any conflicting definitions in the destination module.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../values/">« Values</a><a class="docs-footer-nextpage" href="../functions/">Functions »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 14 July 2026 14:10">Tuesday 14 July 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

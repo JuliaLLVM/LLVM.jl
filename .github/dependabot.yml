@@ -9,4 +9,5 @@ updates:
     schedule:
       interval: "weekly"
     ignore:
+      - dependency-name: "LLVM"
       - dependency-name: "LLVMExtra_jll"

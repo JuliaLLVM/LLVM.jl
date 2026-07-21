@@ -4,3 +4,4 @@ LLVM = "929cbde3-209d-540e-8aea-75f648917ca0"
 
 [compat]
 Documenter = "1.7"
+LLVM = "9.10.1"

@@ -110,6 +110,10 @@ function LLVMGetGlobalValueType(Fn)
     ccall((:LLVMGetGlobalValueType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
+function LLVMConvertUsersOfConstantsToInstructions(Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
+    ccall((:LLVMConvertUsersOfConstantsToInstructions, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Csize_t, LLVMValueRef, LLVMBool, LLVMBool), Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
+end
+
 function LLVMIsConstantRangeAttribute(A)
     ccall((:LLVMIsConstantRangeAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
 end

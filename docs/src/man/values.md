@@ -172,6 +172,36 @@ ptr inttoptr (i64 42 to ptr)
 
 For the exact list of supported constant expressions, refer to the LLVM documentation.
 
+Constant expressions (and constant aggregates) that wrap a given set of constants can be
+rewritten into equivalent instructions at each point of use, using
+`convert_users_to_instructions!`. This is useful when a constant needs to be replaced with a
+function-local value, which is not a valid operand of a constant expression. For example,
+given a global variable that is used through a `getelementptr` constant expression:
+
+```llvm
+define i32 @getelem() {
+entry:
+  %0 = load i32, ptr getelementptr inbounds ([4 x i32], ptr @myglobal, i32 0, i32 2), align 4
+  ret i32 %0
+}
+```
+
+calling `convert_users_to_instructions!([myglobal])` materializes the constant expression as
+a regular instruction:
+
+```llvm
+define i32 @getelem() {
+entry:
+  %0 = getelementptr inbounds [4 x i32], ptr @myglobal, i32 0, i32 2
+  %1 = load i32, ptr %0, align 4
+  ret i32 %1
+}
+```
+
+Operands of `phi` nodes are materialized in their respective incoming blocks. The function
+returns whether anything was changed, and by default removes the constants that became dead
+as a result of the rewrite.
+
 ### Inline assembly
 
 Inline assembly is a way to include raw assembly code in a program. It is often used to

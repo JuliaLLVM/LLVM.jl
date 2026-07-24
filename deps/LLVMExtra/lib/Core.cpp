@@ -20,6 +20,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/ReplaceConstant.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Transforms/IPO.h>
@@ -293,6 +294,32 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef GV) {
   auto Ftype = unwrap<GlobalValue>(GV)->getValueType();
   return wrap(Ftype);
 }
+
+#if LLVM_VERSION_MAJOR >= 17
+LLVMBool LLVMConvertUsersOfConstantsToInstructions(LLVMValueRef *Consts,
+                                                   size_t Count,
+                                                   LLVMValueRef RestrictToFunc,
+                                                   LLVMBool RemoveDeadConstants,
+                                                   LLVMBool IncludeSelf) {
+  SmallVector<Constant *> Cs;
+  for (auto *C : ArrayRef(Consts, Count))
+    Cs.push_back(cast<Constant>(unwrap(C)));
+#if LLVM_VERSION_MAJOR >= 19
+  return convertUsersOfConstantsToInstructions(
+      Cs, RestrictToFunc ? unwrap<Function>(RestrictToFunc) : nullptr,
+      RemoveDeadConstants, IncludeSelf);
+#else
+  // LLVM 17/18 only expose the single-argument overload, whose behavior is
+  // fixed at RestrictToFunc=nullptr, RemoveDeadConstants=true,
+  // IncludeSelf=false. The Julia wrapper rejects non-default values for these
+  // on LLVM < 19, so it is safe to ignore them here.
+  (void)RestrictToFunc;
+  (void)RemoveDeadConstants;
+  (void)IncludeSelf;
+  return convertUsersOfConstantsToInstructions(Cs);
+#endif
+}
+#endif
 
 
 //

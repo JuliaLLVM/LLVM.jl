@@ -45,6 +45,7 @@ ConstantArray(::AbstractArray)
 collect(::ConstantArray)
 InlineAsm
 LLVM.ConstantExpr
+convert_users_to_instructions!
 ```
 
 ## Global values

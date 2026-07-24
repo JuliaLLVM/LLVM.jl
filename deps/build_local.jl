@@ -31,7 +31,7 @@ mkpath(build_dir)
 # download LLVM
 Pkg.activate(; temp=true)
 llvm_assertions = try
-    cglobal((:_ZN4llvm24DisableABIBreakingChecksE, Base.libllvm_path()), Cvoid)
+    dlsym(dlopen(Base.libllvm_path()), :_ZN4llvm24DisableABIBreakingChecksE)
     false
 catch
     true

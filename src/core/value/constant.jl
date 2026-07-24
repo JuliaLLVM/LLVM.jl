@@ -15,6 +15,41 @@ unsafe_destroy!(constant::Constant) = API.LLVMDestroyConstant(constant)
 end
 abstract type Instruction <: User end
 
+export convert_users_to_instructions!
+
+"""
+    convert_users_to_instructions!(consts::Vector{<:Constant};
+                                   func::Union{Nothing,LLVM.Function}=nothing,
+                                   remove_dead_constants::Bool=true,
+                                   include_self::Bool=false) -> Bool
+
+Rewrite every constant expression or constant aggregate that (transitively) uses one of
+`consts` into equivalent instructions at each point of use; phi operands are materialized in
+their incoming block. Returns whether anything changed.
+
+Optionally restrict the rewrite to `func`, keep dead constants around
+(`remove_dead_constants=false`), or also convert the passed constants themselves
+(`include_self=true`). These three options require LLVM 19 or later; the function itself
+requires LLVM 17 or later.
+"""
+function convert_users_to_instructions!(consts::Vector{<:Constant};
+                                        func=nothing,
+                                        remove_dead_constants::Bool=true,
+                                        include_self::Bool=false)
+    if version() < v"17"
+        throw(ArgumentError("convert_users_to_instructions! requires LLVM 17 or later"))
+    end
+    if version() < v"19" && (func !== nothing || !remove_dead_constants || include_self)
+        throw(ArgumentError("the `func`, `remove_dead_constants` and `include_self` " *
+                            "options require LLVM 19 or later"))
+    end
+    func === nothing || func isa Function ||
+        throw(ArgumentError("`func` must be an LLVM.Function or `nothing`"))
+    API.LLVMConvertUsersOfConstantsToInstructions(
+        consts, length(consts), something(func, C_NULL),
+        remove_dead_constants, include_self) |> Bool
+end
+
 
 ## convenience constructors
 

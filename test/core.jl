@@ -746,6 +746,156 @@ end
     end
 end
 
+# convert_users_to_instructions!
+if LLVM.version() >= v"17"
+@testset "convert users to instructions" begin
+
+# a global used through a constant-expression GEP inside a function
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T_i32 = LLVM.Int32Type()
+    T_arr = LLVM.ArrayType(T_i32, 4)
+    gv = GlobalVariable(mod, T_arr, "gv")
+
+    fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
+    position!(builder, BasicBlock(fn, "entry"))
+    ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
+    loadinst = load!(builder, T_i32, ce)
+    ret!(builder, loadinst)
+
+    # before: the load's pointer operand is a constant expression
+    @test operands(loadinst)[1] isa LLVM.ConstantExpr
+
+    @test convert_users_to_instructions!(LLVM.Constant[gv])
+
+    # after: the operand is an instruction, and the dead constexpr is gone
+    @test operands(loadinst)[1] isa LLVM.Instruction
+    @check_ir operands(loadinst)[1] "getelementptr"
+    @test all(u -> user(u) isa LLVM.Instruction, uses(gv))
+
+    # calling again is a no-op
+    @test !convert_users_to_instructions!(LLVM.Constant[gv])
+end
+
+# a global used directly (no constant expression): a no-op
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T_i32 = LLVM.Int32Type()
+    gv = GlobalVariable(mod, T_i32, "gv")
+
+    fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
+    position!(builder, BasicBlock(fn, "entry"))
+    ret!(builder, load!(builder, T_i32, gv))
+
+    @test !convert_users_to_instructions!(LLVM.Constant[gv])
+end
+
+# a phi whose incoming value is a constant expression: the materialized
+# instruction lands in the incoming block, not in the phi's block
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T_i32 = LLVM.Int32Type()
+    T_ptr = LLVM.PointerType(T_i32)
+    T_arr = LLVM.ArrayType(T_i32, 4)
+    gv = GlobalVariable(mod, T_arr, "gv")
+
+    fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, [LLVM.Int1Type()]))
+    entry = BasicBlock(fn, "entry")
+    left = BasicBlock(fn, "left")
+    merge = BasicBlock(fn, "merge")
+
+    position!(builder, entry)
+    br!(builder, parameters(fn)[1], left, merge)
+    position!(builder, left)
+    br!(builder, merge)
+    position!(builder, merge)
+    ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
+    phi = phi!(builder, T_ptr)
+    append!(incoming(phi), [(ce, left), (null(T_ptr), entry)])
+    ret!(builder, load!(builder, T_i32, phi))
+
+    @test convert_users_to_instructions!(LLVM.Constant[gv])
+
+    hasgep(bb) = any(inst -> occursin("getelementptr", string(inst)), instructions(bb))
+    @test hasgep(left)    # materialized in the incoming block
+    @test !hasgep(merge)  # not in the phi's own block
+end
+
+# options that require LLVM 19+
+if LLVM.version() >= v"19"
+
+# `func` restricts the rewrite to a single function
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T_i32 = LLVM.Int32Type()
+    T_arr = LLVM.ArrayType(T_i32, 4)
+    gv = GlobalVariable(mod, T_arr, "gv")
+    ft = LLVM.FunctionType(T_i32, LLVM.LLVMType[])
+    idxs = LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))]
+
+    f1 = LLVM.Function(mod, "f1", ft)
+    position!(builder, BasicBlock(f1, "entry"))
+    l1 = load!(builder, T_i32, const_gep(T_arr, gv, idxs))
+    ret!(builder, l1)
+
+    f2 = LLVM.Function(mod, "f2", ft)
+    position!(builder, BasicBlock(f2, "entry"))
+    l2 = load!(builder, T_i32, const_gep(T_arr, gv, idxs))
+    ret!(builder, l2)
+
+    # (both loads share the same uniqued constant expression)
+    @test convert_users_to_instructions!(LLVM.Constant[gv]; func=f1)
+    @test operands(l1)[1] isa LLVM.Instruction   # rewritten in f1
+    @test operands(l2)[1] isa LLVM.ConstantExpr   # untouched in f2
+end
+
+# `include_self` also converts the passed constants themselves
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T_i32 = LLVM.Int32Type()
+    T_arr = LLVM.ArrayType(T_i32, 4)
+    gv = GlobalVariable(mod, T_arr, "gv")
+
+    fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
+    position!(builder, BasicBlock(fn, "entry"))
+    ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(1))])
+    loadinst = load!(builder, T_i32, ce)
+    ret!(builder, loadinst)
+
+    # without include_self, only (constant) users of `ce` are considered: none
+    @test !convert_users_to_instructions!(LLVM.Constant[ce]; include_self=false)
+    @test operands(loadinst)[1] isa LLVM.ConstantExpr
+
+    # with include_self, the constant expression itself is materialized
+    @test convert_users_to_instructions!(LLVM.Constant[ce]; include_self=true)
+    @test operands(loadinst)[1] isa LLVM.Instruction
+end
+
+# `remove_dead_constants=false` keeps the now-dead constant expression around
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T_i32 = LLVM.Int32Type()
+    T_arr = LLVM.ArrayType(T_i32, 4)
+    gv = GlobalVariable(mod, T_arr, "gv")
+
+    fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
+    position!(builder, BasicBlock(fn, "entry"))
+    ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
+    ret!(builder, load!(builder, T_i32, ce))
+
+    @test convert_users_to_instructions!(LLVM.Constant[gv]; remove_dead_constants=false)
+    # the dead constant expression is retained as a user of `gv`
+    @test any(u -> user(u) isa LLVM.ConstantExpr, uses(gv))
+end
+
+else
+
+# the extra options are rejected before LLVM 19
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    @test_throws ArgumentError convert_users_to_instructions!(LLVM.Constant[gv]; include_self=true)
+    @test_throws ArgumentError convert_users_to_instructions!(LLVM.Constant[gv]; func=nothing, remove_dead_constants=false)
+end
+
+end
+
+end
+end
+
 # global values
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     st = LLVM.StructType("SomeType")

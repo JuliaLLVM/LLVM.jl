@@ -84,6 +84,24 @@ void LLVMDestroyConstant(LLVMValueRef Const);
 LLVMTypeRef LLVMGetFunctionType(LLVMValueRef Fn);
 LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 
+// Replace constant-expression/aggregate users of the given constants with
+// equivalent instructions at each point of use; phi operands are materialized
+// in their incoming block. Mirrors llvm::convertUsersOfConstantsToInstructions
+// (llvm/IR/ReplaceConstant.h). Returns true if anything changed.
+//
+// The full four-parameter semantics are only available on LLVM 19+. On LLVM
+// 17/18 only the single-argument overload exists, so RestrictToFunc,
+// RemoveDeadConstants and IncludeSelf are fixed at nullptr/true/false
+// respectively (the Julia wrapper rejects other values there). LLVM < 17 does
+// not export the utility at all, so the function is unavailable.
+#if LLVM_VERSION_MAJOR >= 17
+LLVMBool LLVMConvertUsersOfConstantsToInstructions(LLVMValueRef *Consts,
+                                                   size_t Count,
+                                                   LLVMValueRef RestrictToFunc,
+                                                   LLVMBool RemoveDeadConstants,
+                                                   LLVMBool IncludeSelf);
+#endif
+
 // Attribute type detection (ConstantRange/ConstantRangeList kinds not exposed in C API)
 #if LLVM_VERSION_MAJOR >= 19
 LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A);

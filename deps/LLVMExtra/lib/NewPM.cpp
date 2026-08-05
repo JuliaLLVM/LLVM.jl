@@ -129,6 +129,16 @@ public:
   }
 #endif
 
+#if LLVM_VERSION_MAJOR >= 22
+  InstructionUniformity getInstructionUniformity(const Value *V) const override {
+    if (Opts.IsSourceOfDivergence &&
+        Opts.IsSourceOfDivergence(wrap(V), Opts.IsSourceOfDivergenceUD) != 0)
+      return InstructionUniformity::NeverUniform;
+    if (Opts.IsAlwaysUniform && Opts.IsAlwaysUniform(wrap(V), Opts.IsAlwaysUniformUD) != 0)
+      return InstructionUniformity::AlwaysUniform;
+    return BaseT::getInstructionUniformity(V);
+  }
+#else
   bool isSourceOfDivergence(const Value *V) const TTI_OVERRIDE {
     if (Opts.IsSourceOfDivergence)
       return Opts.IsSourceOfDivergence(wrap(V),
@@ -141,6 +151,7 @@ public:
       return Opts.IsAlwaysUniform(wrap(V), Opts.IsAlwaysUniformUD) != 0;
     return BaseT::isAlwaysUniform(V);
   }
+#endif
 
   unsigned getAssumedAddrSpace(const Value *V) const TTI_OVERRIDE {
     if (Opts.GetAssumedAddressSpace)

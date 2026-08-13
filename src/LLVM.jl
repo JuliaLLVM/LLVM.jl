@@ -89,7 +89,12 @@ include("interop.jl")
 
 include("deprecated.jl")
 
-include("precompile.jl")
+# the precompilation workload requires the LLVM extensions library; skip it when
+# unavailable (e.g., when using a custom LLVM without a matching LLVMExtra_jll)
+# so that the package can still be loaded (reporting an error from `__init__`).
+if isdefined(API, :libLLVMExtra)
+    include("precompile.jl")
+end
 
 
 ## initialization

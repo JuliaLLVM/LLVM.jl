@@ -18,33 +18,33 @@ concurrency:
 
 jobs:
   report-start:
-    name: Report Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) start
+    name: Report assertion tests started
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     permissions:
       checks: write
-    strategy:
-      fail-fast: false
-      matrix:
-        version: ['1.11', '1.12', '1.13', 'master']
-        llvm_args: ['']
-        include:
-          # on Julia 1.11, also test non-default opaque pointers
-          - version: '1.11'
-            llvm_args: '--opaque-pointers'
     steps:
       - name: Report in-progress
         uses: actions/github-script@v9
         with:
           script: |
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head_sha: '${{ github.event.workflow_run.head_sha }}',
-              name: 'Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux',
-              status: 'in_progress',
-              details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-            });
+            const entries = [
+              {version: 'master', llvm_args: ''},
+              {version: '1.11', llvm_args: '--opaque-pointers'},
+              {version: '1.11', llvm_args: ''},
+              {version: '1.12', llvm_args: ''},
+              {version: '1.13', llvm_args: ''},
+            ];
+            await Promise.all(entries.map(({version, llvm_args}) =>
+              github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head_sha: '${{ github.event.workflow_run.head_sha }}',
+                name: `Julia ${version} ${llvm_args} (assert) - Linux`,
+                status: 'in_progress',
+                details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              })
+            ));
 
   test:
     name: Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux
@@ -64,7 +64,6 @@ jobs:
           - version: '1.11'
             llvm_args: '--opaque-pointers'
     steps:
-
       - name: Download Julia build
         uses: actions/download-artifact@v8
         with:
@@ -104,29 +103,25 @@ jobs:
           JULIA_LLVM_ARGS: ${{ matrix.llvm_args }}
 
   report-result:
-    name: Report Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) result
+    name: Report assertion test results
     needs: test
     if: always() && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       actions: read
       checks: write
-    strategy:
-      fail-fast: false
-      matrix:
-        version: ['1.11', '1.12', '1.13', 'master']
-        llvm_args: ['']
-        include:
-          # on Julia 1.11, also test non-default opaque pointers
-          - version: '1.11'
-            llvm_args: '--opaque-pointers'
     steps:
       - name: Report check run
         uses: actions/github-script@v9
-        env:
-          TEST_JOB: Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux
         with:
           script: |
+            const entries = [
+              {version: 'master', llvm_args: ''},
+              {version: '1.11', llvm_args: '--opaque-pointers'},
+              {version: '1.11', llvm_args: ''},
+              {version: '1.12', llvm_args: ''},
+              {version: '1.13', llvm_args: ''},
+            ];
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -134,21 +129,24 @@ jobs:
               attempt_number: Number(process.env.GITHUB_RUN_ATTEMPT),
               per_page: 100,
             });
-            const job = jobs.find(({name}) => name === process.env.TEST_JOB);
-            const conclusion = job?.conclusion || 'failure';
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head_sha: '${{ github.event.workflow_run.head_sha }}',
-              name: 'Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux',
-              status: 'completed',
-              conclusion,
-              details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              output: {
-                title: `Assert build test ${conclusion}`,
-                summary: 'Tested against `x86_64-linux-gnuassert` build of Julia ${{ matrix.version }}.'
-              }
-            });
+            await Promise.all(entries.map(({version, llvm_args}) => {
+              const name = `Julia ${version} ${llvm_args} (assert) - Linux`;
+              const job = jobs.find(job => job.name === name);
+              const conclusion = job?.conclusion || 'failure';
+              return github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head_sha: '${{ github.event.workflow_run.head_sha }}',
+                name,
+                status: 'completed',
+                conclusion,
+                details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                output: {
+                  title: `Assert build test ${conclusion}`,
+                  summary: `Tested against \`x86_64-linux-gnuassert\` build of Julia ${version}.`
+                }
+              });
+            }));
 
   report-failure:
     name: Report download failure

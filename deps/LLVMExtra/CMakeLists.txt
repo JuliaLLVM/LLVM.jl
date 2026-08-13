@@ -24,7 +24,8 @@ include(HandleLLVMOptions)
 
 message(STATUS "Found LLVM: ${LLVM_VERSION}")
 
-add_definitions(${LLVM_DEFINITIONS})
+separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
+add_definitions(${LLVM_DEFINITIONS_LIST})
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories("include")
 add_subdirectory(lib)

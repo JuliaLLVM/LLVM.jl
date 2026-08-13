@@ -11,19 +11,18 @@ on:
 
 permissions:
   contents: read
-  # needed to report check runs since workflow_run can't report back to PRs natively
-  checks: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux
+  report-start:
+    name: Report Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) start
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      checks: write
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +46,25 @@ jobs:
               details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
             });
 
+  test:
+    name: Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux
+    needs: report-start
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.11', '1.12', '1.13', 'master']
+        llvm_args: ['']
+        include:
+          # on Julia 1.11, also test non-default opaque pointers
+          - version: '1.11'
+            llvm_args: '--opaque-pointers'
+    steps:
+
       - name: Download Julia build
         uses: actions/download-artifact@v8
         with:
@@ -64,9 +82,12 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          # GetAsserts only runs trusted base-branch code. This job intentionally tests the
+          # resulting artifact against the triggering revision without exposing credentials.
+          allow-unsafe-pr-checkout: true
+          persist-credentials: false
 
       # set-up packages
-      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Build libLLVMExtra
@@ -82,21 +103,49 @@ jobs:
         env:
           JULIA_LLVM_ARGS: ${{ matrix.llvm_args }}
 
+  report-result:
+    name: Report Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) result
+    needs: test
+    if: always() && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.11', '1.12', '1.13', 'master']
+        llvm_args: ['']
+        include:
+          # on Julia 1.11, also test non-default opaque pointers
+          - version: '1.11'
+            llvm_args: '--opaque-pointers'
+    steps:
       - name: Report check run
-        if: always()
         uses: actions/github-script@v9
+        env:
+          TEST_JOB: Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux
         with:
           script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              attempt_number: Number(process.env.GITHUB_RUN_ATTEMPT),
+              per_page: 100,
+            });
+            const job = jobs.find(({name}) => name === process.env.TEST_JOB);
+            const conclusion = job?.conclusion || 'failure';
             await github.rest.checks.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               head_sha: '${{ github.event.workflow_run.head_sha }}',
               name: 'Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux',
               status: 'completed',
-              conclusion: '${{ job.status }}',
+              conclusion,
               details_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               output: {
-                title: 'Assert build test ${{ job.status }}',
+                title: `Assert build test ${conclusion}`,
                 summary: 'Tested against `x86_64-linux-gnuassert` build of Julia ${{ matrix.version }}.'
               }
             });
@@ -105,6 +154,8 @@ jobs:
     name: Report download failure
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'failure'
+    permissions:
+      checks: write
     steps:
       - name: Report check runs
         uses: actions/github-script@v9

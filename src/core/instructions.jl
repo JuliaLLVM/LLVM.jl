@@ -91,6 +91,10 @@ const opcodes = [:Ret, :Br, :Switch, :IndirectBr, :Invoke, :Unreachable, :CallBr
                  :Fence, :AtomicCmpXchg, :AtomicRMW, :Resume, :LandingPad, :CleanupRet,
                  :CatchRet, :CatchPad, :CleanupPad, :CatchSwitch]
 
+if version() >= v"22"
+    push!(opcodes, :PtrToAddr)
+end
+
 for op in opcodes
     typename = Symbol(op, :Inst)
     enum = Symbol(:LLVM, op)
@@ -550,6 +554,30 @@ condition!(br::BrInst, cond::Value) = API.LLVMSetCondition(br, cond)
 Get the default destination of the given switch instruction.
 """
 default_dest(switch::SwitchInst) = BasicBlock(API.LLVMGetSwitchDefaultDest(switch))
+
+@static if version() >= v"22"
+    export case_value, case_value!
+
+    """
+        case_value(switch::SwitchInst, i::Integer)
+
+    Get the value of the `i`th case of a switch instruction. Requires LLVM 22+.
+    """
+    function case_value(switch::SwitchInst, i::Integer)
+        @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
+        Value(API.LLVMGetSwitchCaseValue(switch, i))
+    end
+
+    """
+        case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
+
+    Set the value of the `i`th case of a switch instruction. Requires LLVM 22+.
+    """
+    function case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
+        @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
+        API.LLVMSetSwitchCaseValue(switch, i, value)
+    end
+end
 
 # successor iteration
 

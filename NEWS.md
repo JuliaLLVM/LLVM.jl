@@ -1,6 +1,15 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v9.12
+
+New features:
+
+- Support for LLVM 22, including the new `PtrToAddrInst` instruction.
+- `case_value` and `case_value!` provide access to switch case values on LLVM 22, where
+  case values are no longer exposed as operands of `SwitchInst`.
+
+
 ## LLVM.jl v9.1
 
 The most important feature of this release is the addition of documentation, both in the

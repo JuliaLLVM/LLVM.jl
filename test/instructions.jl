@@ -447,6 +447,49 @@ end
 end
 
 
+@testset "LLVM 22 instructions" begin
+    LLVM.version() >= v"22" || return
+
+    @dispose ctx=Context() begin
+        mod = parse(LLVM.Module, """
+            define i64 @ptrtoaddr_test(ptr %p) {
+            entry:
+                %result = ptrtoaddr ptr %p to i64
+                ret i64 %result
+            }
+
+            define void @switch_test(i32 %value) {
+            entry:
+                switch i32 %value, label %default [
+                    i32 1, label %one
+                    i32 2, label %two
+                ]
+            one:
+                ret void
+            two:
+                ret void
+            default:
+                ret void
+            }
+            """)
+
+        ptrtoaddr = first(instructions(first(blocks(functions(mod)["ptrtoaddr_test"]))))
+        @test ptrtoaddr isa LLVM.PtrToAddrInst
+
+        switch = terminator(first(blocks(functions(mod)["switch_test"])))
+        @test convert(Int, case_value(switch, 1)) == 1
+        @test convert(Int, case_value(switch, 2)) == 2
+        @test_throws BoundsError case_value(switch, 3)
+
+        case_value!(switch, 2, ConstantInt(Int32(3)))
+        @test convert(Int, case_value(switch, 2)) == 3
+        @test_throws BoundsError case_value!(switch, 0, ConstantInt(Int32(0)))
+
+        dispose(mod)
+    end
+end
+
+
 @testset "operand bundles" begin
     typed_ir = """
         declare void @x()

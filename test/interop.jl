@@ -134,13 +134,13 @@ if Sys.ARCH == :x86 || Sys.ARCH == :x86_64
 
 # arguments
 
-d1(a) = @asmcall("bswap \$0", "=r,r", Int32, Tuple{Int32}, a)
+d1(a) = @asmcall("bswap \$0", "=r,0", Int32, Tuple{Int32}, a)
 @test d1(Int32(1)) == Int32(16777216)
 
 # single output as a 1-element Tuple (Julia lowers this to [1 x T], so the
 # scalar asm result needs to be reshaped into the array)
 
-d2(a) = @asmcall("bswap \$0", "=r,r", Tuple{Int32}, Tuple{Int32}, a)
+d2(a) = @asmcall("bswap \$0", "=r,0", Tuple{Int32}, Tuple{Int32}, a)
 @test d2(Int32(1)) === (Int32(16777216),)
 
 # multiple output registers

@@ -539,7 +539,9 @@ end
 @module_pass "mergefunc" MergeFunctionsPass
 @module_pass "name-anon-globals" NameAnonGlobalPass
 @module_pass "no-op-module" NoOpModulePass
-@module_pass "objc-arc-apelim" ObjCARCAPElimPass
+@static if version() < v"22"
+    @module_pass "objc-arc-apelim" ObjCARCAPElimPass
+end
 @module_pass "partial-inliner" PartialInlinerPass
 @module_pass "pgo-icall-prom" PGOIndirectCallPromotion
 @module_pass "pgo-instr-gen" PGOInstrumentationGen

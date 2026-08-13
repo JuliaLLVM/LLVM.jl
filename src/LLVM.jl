@@ -40,9 +40,9 @@ let
     if version().major < 15
         error("LLVM.jl only supports LLVM 15 and later.")
     end
-    dir = if version().major > 21
-        @warn "LLVM.jl has not been tested with LLVM versions newer than 21."
-        joinpath(@__DIR__, "..", "lib", "21")
+    dir = if version().major > 22
+        @warn "LLVM.jl has not been tested with LLVM versions newer than 22."
+        joinpath(@__DIR__, "..", "lib", "22")
     else
         joinpath(@__DIR__, "..", "lib", string(version().major))
     end
@@ -89,7 +89,12 @@ include("interop.jl")
 
 include("deprecated.jl")
 
-include("precompile.jl")
+# the precompilation workload requires the LLVM extensions library; skip it when
+# unavailable (e.g., when using a custom LLVM without a matching LLVMExtra_jll)
+# so that the package can still be loaded (reporting an error from `__init__`).
+if isdefined(API, :libLLVMExtra)
+    include("precompile.jl")
+end
 
 
 ## initialization

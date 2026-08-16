@@ -368,6 +368,21 @@ function Base.getindex(iter::ModuleGlobalSet, name::String)
     return GlobalVariable(objref)
 end
 
+"""
+    sort!(globals::ModuleGlobalSet; by=name, kwargs...)
+
+Reorder all global variables in a module according to `by`, which defaults to the symbol
+name. Additional keyword arguments are forwarded to [`sort!`](@ref).
+"""
+function Base.sort!(iter::ModuleGlobalSet; by=name, kwargs...)
+    elements = collect(iter)
+    sort!(elements; by, kwargs...)
+    for i in 2:length(elements)
+        move_after(elements[i], elements[i-1])
+    end
+    iter
+end
+
 
 ## function iteration
 
@@ -438,6 +453,21 @@ function Base.getindex(iter::ModuleFunctionSet, name::String)
     objref = API.LLVMGetNamedFunction(iter.mod, name)
     objref == C_NULL && throw(KeyError(name))
     return Function(objref)
+end
+
+"""
+    sort!(functions::ModuleFunctionSet; by=name, kwargs...)
+
+Reorder all functions in a module according to `by`, which defaults to the symbol name.
+Additional keyword arguments are forwarded to [`sort!`](@ref).
+"""
+function Base.sort!(iter::ModuleFunctionSet; by=name, kwargs...)
+    elements = collect(iter)
+    sort!(elements; by, kwargs...)
+    for i in 2:length(elements)
+        move_after(elements[i], elements[i-1])
+    end
+    iter
 end
 
 

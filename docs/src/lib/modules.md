@@ -46,9 +46,11 @@ write(io::IO, mod::LLVM.Module)
 
 ```@docs
 globals
+sort!(::LLVM.ModuleGlobalSet)
 prevglobal
 nextglobal
 functions(::LLVM.Module)
+sort!(::LLVM.ModuleFunctionSet)
 prevfun
 nextfun
 flags(::LLVM.Module)

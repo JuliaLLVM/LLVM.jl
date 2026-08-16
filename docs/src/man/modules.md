@@ -118,6 +118,9 @@ julia> collect(globals(mod))
 
 In addition to the iteration interface, it is possible to move from one global to the
 previous or next one using respectively the `prevglobal` and `nextglobal` functions.
+Global variables can be reordered with `move_before` and `move_after`, or sorted in place
+with `sort!(globals(mod))`. The latter defaults to sorting by name, which is useful for
+producing deterministic module layouts.
 
 ### Functions
 
@@ -132,7 +135,9 @@ julia> collect(functions(mod))
 ```
 
 Again, it is possible to move from one function to the previous or next one using
-respectively the `prevfun` and `nextfun` functions.
+respectively the `prevfun` and `nextfun` functions. Functions can be reordered with
+`move_before` and `move_after`, or sorted by name with `sort!(functions(mod))` to produce a
+deterministic module layout.
 
 ### Flags
 

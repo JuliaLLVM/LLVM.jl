@@ -76,6 +76,8 @@ Global variables are a specific kind of global values, and have additional APIs:
 ```@docs
 GlobalVariable
 erase!(::GlobalVariable)
+move_before(::GlobalVariable, ::GlobalVariable)
+move_after(::GlobalVariable, ::GlobalVariable)
 initializer
 initializer!
 isthreadlocal

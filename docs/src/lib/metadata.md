@@ -29,6 +29,7 @@ metadata(::LLVM.Module)
 name(::NamedMDNode)
 operands(::NamedMDNode)
 push!(::NamedMDNode, ::MDNode)
+empty!(::NamedMDNode)
 ```
 
 ## Debug information

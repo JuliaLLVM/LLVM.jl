@@ -969,6 +969,22 @@ Remove the global variable from its parent module and delete it.
 erase!(gv::GlobalVariable) = API.LLVMDeleteGlobal(gv)
 
 """
+    move_before(gv::GlobalVariable, pos::GlobalVariable)
+
+Move the global variable `gv` before the global variable `pos` in the global list of the
+containing module. Both global variables must reside in the same module.
+"""
+move_before(gv::GlobalVariable, pos::GlobalVariable) = API.LLVMMoveGlobalBefore(gv, pos)
+
+"""
+    move_after(gv::GlobalVariable, pos::GlobalVariable)
+
+Move the global variable `gv` after the global variable `pos` in the global list of the
+containing module. Both global variables must reside in the same module.
+"""
+move_after(gv::GlobalVariable, pos::GlobalVariable) = API.LLVMMoveGlobalAfter(gv, pos)
+
+"""
     initializer(gv::GlobalVariable)
 
 Get the initializer of the global variable.

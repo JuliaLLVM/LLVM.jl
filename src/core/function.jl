@@ -49,6 +49,22 @@ Remove the given function from its parent module and free the object.
 erase!(f::Function) = API.LLVMDeleteFunction(f)
 
 """
+    move_before(f::Function, pos::Function)
+
+Move the function `f` before the function `pos` in the function list of the containing
+module. Both functions must reside in the same module.
+"""
+move_before(f::Function, pos::Function) = API.LLVMMoveFunctionBefore(f, pos)
+
+"""
+    move_after(f::Function, pos::Function)
+
+Move the function `f` after the function `pos` in the function list of the containing
+module. Both functions must reside in the same module.
+"""
+move_after(f::Function, pos::Function) = API.LLVMMoveFunctionAfter(f, pos)
+
+"""
     personality(f::Function)
 
 Get the personality function of the given function, or `nothing` if it has none.

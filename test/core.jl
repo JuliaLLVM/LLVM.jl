@@ -1257,6 +1257,14 @@ end
 
         push!(mds["SomeMDNode"], node)
         @test node in operands(mds["SomeMDNode"])
+
+        push!(mds["SomeMDNode"], MDNode([MDString("SomeOtherMDString")]))
+        @test length(operands(mds["SomeMDNode"])) == 2
+        @test empty!(mds["SomeMDNode"]) === mds["SomeMDNode"]
+        @test isempty(operands(mds["SomeMDNode"]))
+
+        push!(mds["SomeMDNode"], node)
+        @test operands(mds["SomeMDNode"]) == [node]
     end
 end
 
@@ -1282,6 +1290,30 @@ end
         @test !haskey(gvs, "SomeOtherGlobal")
         @test_throws KeyError gvs["SomeOtherGlobal"]
     end
+end
+
+# global variable ordering
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    c = GlobalVariable(mod, LLVM.Int32Type(), "c")
+    a = GlobalVariable(mod, LLVM.Int32Type(), "a")
+    b = GlobalVariable(mod, LLVM.Int32Type(), "b")
+    gvs = globals(mod)
+
+    @test name.(collect(gvs)) == ["c", "a", "b"]
+    move_before(b, c)
+    @test name.(collect(gvs)) == ["b", "c", "a"]
+    move_after(b, a)
+    @test name.(collect(gvs)) == ["c", "a", "b"]
+    move_before(a, a)
+    @test name.(collect(gvs)) == ["c", "a", "b"]
+    @test length(collect(gvs)) == 3
+
+    @test sort!(gvs) === gvs
+    @test name.(collect(gvs)) == ["a", "b", "c"]
+    @test sort!(gvs; rev=true) === gvs
+    @test name.(collect(gvs)) == ["c", "b", "a"]
+    @test all(haskey(gvs, name) for name in ("a", "b", "c"))
+    @test occursin(r"(?s)@c.*@b.*@a", string(mod))
 end
 
 # function iteration
@@ -1321,6 +1353,31 @@ end
     @test nextfun(dummyfn) == anotherfn
     @test prevfun(anotherfn) == dummyfn
     @test nextfun(anotherfn) === nothing
+end
+
+# function ordering
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    c = LLVM.Function(mod, "c", ft)
+    a = LLVM.Function(mod, "a", ft)
+    b = LLVM.Function(mod, "b", ft)
+    fns = functions(mod)
+
+    @test name.(collect(fns)) == ["c", "a", "b"]
+    move_before(b, c)
+    @test name.(collect(fns)) == ["b", "c", "a"]
+    move_after(b, a)
+    @test name.(collect(fns)) == ["c", "a", "b"]
+    move_after(a, a)
+    @test name.(collect(fns)) == ["c", "a", "b"]
+    @test length(collect(fns)) == 3
+
+    @test sort!(fns) === fns
+    @test name.(collect(fns)) == ["a", "b", "c"]
+    @test sort!(fns; rev=true) === fns
+    @test name.(collect(fns)) == ["c", "b", "a"]
+    @test all(haskey(fns, name) for name in ("a", "b", "c"))
+    @test occursin(r"(?s)@c.*@b.*@a", string(mod))
 end
 
 # textual IR

@@ -110,6 +110,22 @@ function LLVMGetGlobalValueType(Fn)
     ccall((:LLVMGetGlobalValueType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
+function LLVMMoveFunctionBefore(Fn, MovePos)
+    ccall((:LLVMMoveFunctionBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, MovePos)
+end
+
+function LLVMMoveFunctionAfter(Fn, MovePos)
+    ccall((:LLVMMoveFunctionAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, MovePos)
+end
+
+function LLVMMoveGlobalBefore(GlobalVar, MovePos)
+    ccall((:LLVMMoveGlobalBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, MovePos)
+end
+
+function LLVMMoveGlobalAfter(GlobalVar, MovePos)
+    ccall((:LLVMMoveGlobalAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, MovePos)
+end
+
 function LLVMConvertUsersOfConstantsToInstructions(Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
     ccall((:LLVMConvertUsersOfConstantsToInstructions, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Csize_t, LLVMValueRef, LLVMBool, LLVMBool), Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
 end
@@ -144,6 +160,10 @@ end
 
 function LLVMAddNamedMetadataOperand2(NMD, Val)
     ccall((:LLVMAddNamedMetadataOperand2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, LLVMMetadataRef), NMD, Val)
+end
+
+function LLVMClearNamedMetadataOperands(NMD)
+    ccall((:LLVMClearNamedMetadataOperands, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef,), NMD)
 end
 
 function LLVMReplaceMDNodeOperandWith2(MD, I, New)
@@ -361,4 +381,3 @@ end
 function LLVMOrcThreadSafeContextGetContext(TSCtx)
     ccall((:LLVMOrcThreadSafeContextGetContext, libLLVMExtra), LLVMContextRef, (LLVMOrcThreadSafeContextRef,), TSCtx)
 end
-

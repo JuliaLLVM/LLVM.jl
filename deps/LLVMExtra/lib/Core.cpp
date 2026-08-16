@@ -1,5 +1,7 @@
 #include "LLVMExtra.h"
 
+#include <iterator>
+
 #if LLVM_VERSION_MAJOR >= 17
 #include <llvm/TargetParser/Triple.h>
 #else
@@ -295,6 +297,56 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef GV) {
   return wrap(Ftype);
 }
 
+void LLVMMoveFunctionBefore(LLVMValueRef Fn, LLVMValueRef MovePos) {
+  Function *F = unwrap<Function>(Fn);
+  Function *Pos = unwrap<Function>(MovePos);
+  if (F == Pos)
+    return;
+  Module *M = Pos->getParent();
+  M->getFunctionList().splice(Pos->getIterator(), F->getParent()->getFunctionList(),
+                              F->getIterator());
+}
+
+void LLVMMoveFunctionAfter(LLVMValueRef Fn, LLVMValueRef MovePos) {
+  Function *F = unwrap<Function>(Fn);
+  Function *Pos = unwrap<Function>(MovePos);
+  if (F == Pos)
+    return;
+  Module *M = Pos->getParent();
+  M->getFunctionList().splice(std::next(Pos->getIterator()),
+                              F->getParent()->getFunctionList(), F->getIterator());
+}
+
+void LLVMMoveGlobalBefore(LLVMValueRef GlobalVar, LLVMValueRef MovePos) {
+  GlobalVariable *GV = unwrap<GlobalVariable>(GlobalVar);
+  GlobalVariable *Pos = unwrap<GlobalVariable>(MovePos);
+  if (GV == Pos)
+    return;
+  Module *M = Pos->getParent();
+#if LLVM_VERSION_MAJOR >= 17
+  GV->removeFromParent();
+  M->insertGlobalVariable(Pos->getIterator(), GV);
+#else
+  M->getGlobalList().splice(Pos->getIterator(), GV->getParent()->getGlobalList(),
+                            GV->getIterator());
+#endif
+}
+
+void LLVMMoveGlobalAfter(LLVMValueRef GlobalVar, LLVMValueRef MovePos) {
+  GlobalVariable *GV = unwrap<GlobalVariable>(GlobalVar);
+  GlobalVariable *Pos = unwrap<GlobalVariable>(MovePos);
+  if (GV == Pos)
+    return;
+  Module *M = Pos->getParent();
+#if LLVM_VERSION_MAJOR >= 17
+  GV->removeFromParent();
+  M->insertGlobalVariable(std::next(Pos->getIterator()), GV);
+#else
+  M->getGlobalList().splice(std::next(Pos->getIterator()),
+                            GV->getParent()->getGlobalList(), GV->getIterator());
+#endif
+}
+
 #if LLVM_VERSION_MAJOR >= 17
 LLVMBool LLVMConvertUsersOfConstantsToInstructions(LLVMValueRef *Consts,
                                                    size_t Count,
@@ -396,6 +448,10 @@ void LLVMGetNamedMetadataOperands2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef *Dest
 
 void LLVMAddNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef Val) {
   unwrap<NamedMDNode>(NMD)->addOperand(unwrap<MDNode>(Val));
+}
+
+void LLVMClearNamedMetadataOperands(LLVMNamedMDNodeRef NMD) {
+  unwrap<NamedMDNode>(NMD)->clearOperands();
 }
 
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New) {

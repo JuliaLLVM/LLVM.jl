@@ -15,8 +15,8 @@ erase!(::BasicBlock)
 LLVM.parent(::BasicBlock)
 terminator(::BasicBlock)
 name(::BasicBlock)
-move_before
-move_after
+move_before(::BasicBlock, ::BasicBlock)
+move_after(::BasicBlock, ::BasicBlock)
 ```
 
 ## Control flow

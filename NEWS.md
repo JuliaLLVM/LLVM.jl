@@ -1,6 +1,15 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v9.13
+
+New features:
+
+- Functions and global variables can be reordered with `move_before` and `move_after`, or
+  sorted by name with `sort!`, enabling deterministic module layouts.
+- Named metadata operands can be removed with `empty!`.
+
+
 ## LLVM.jl v9.12
 
 New features:

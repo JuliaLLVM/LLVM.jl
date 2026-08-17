@@ -403,6 +403,16 @@ Add a metadata node to the given named metadata node.
 Base.push!(node::NamedMDNode, val::MDNode) =
     API.LLVMAddNamedMetadataOperand2(node, val)
 
+"""
+    empty!(node::NamedMDNode)
+
+Remove all operands from the given named metadata node.
+"""
+function Base.empty!(node::NamedMDNode)
+    API.LLVMClearNamedMetadataOperands(node)
+    node
+end
+
 
 ## module named metadata
 

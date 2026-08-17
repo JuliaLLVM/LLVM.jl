@@ -113,8 +113,8 @@ julia> inst
 
 Metadata can also be attached to a module, in which case it needs to be grouped in a named
 metadata node (which can only contain other metadata nodes, and not e.g. strings directly).
-With LLVM's C API, module-level named metadata is append-only, which is done using the
-`push!` function:
+Operands can be appended to module-level named metadata with `push!` and removed with
+`empty!`:
 
 ```jldoctest
 julia> md = metadata(mod);

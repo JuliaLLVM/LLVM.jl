@@ -142,6 +142,22 @@ function LLVMGetGlobalValueType(Fn)
     ccall((:LLVMGetGlobalValueType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
+function LLVMMoveFunctionBefore(Fn, MovePos)
+    ccall((:LLVMMoveFunctionBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, MovePos)
+end
+
+function LLVMMoveFunctionAfter(Fn, MovePos)
+    ccall((:LLVMMoveFunctionAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, MovePos)
+end
+
+function LLVMMoveGlobalBefore(GlobalVar, MovePos)
+    ccall((:LLVMMoveGlobalBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, MovePos)
+end
+
+function LLVMMoveGlobalAfter(GlobalVar, MovePos)
+    ccall((:LLVMMoveGlobalAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, MovePos)
+end
+
 function LLVMSetInitializer2(GlobalVar, ConstantVal)
     ccall((:LLVMSetInitializer2, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, ConstantVal)
 end
@@ -172,6 +188,10 @@ end
 
 function LLVMAddNamedMetadataOperand2(NMD, Val)
     ccall((:LLVMAddNamedMetadataOperand2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, LLVMMetadataRef), NMD, Val)
+end
+
+function LLVMClearNamedMetadataOperands(NMD)
+    ccall((:LLVMClearNamedMetadataOperands, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef,), NMD)
 end
 
 function LLVMReplaceMDNodeOperandWith2(MD, I, New)
@@ -503,4 +523,3 @@ end
 function LLVMLinkModules3(Dest, Src, Flags)
     ccall((:LLVMLinkModules3, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMModuleRef, Cuint), Dest, Src, Flags)
 end
-

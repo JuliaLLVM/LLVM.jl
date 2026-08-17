@@ -84,6 +84,17 @@ void LLVMDestroyConstant(LLVMValueRef Const);
 LLVMTypeRef LLVMGetFunctionType(LLVMValueRef Fn);
 LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 
+// Reordering of module contents
+//
+// Move a function/global variable to the position before/after another one in
+// its module's list, for example to give the module a deterministic layout.
+// Both values must belong to the same module. Moving a value relative to
+// itself is a no-op.
+void LLVMMoveFunctionBefore(LLVMValueRef Fn, LLVMValueRef MovePos);
+void LLVMMoveFunctionAfter(LLVMValueRef Fn, LLVMValueRef MovePos);
+void LLVMMoveGlobalBefore(LLVMValueRef GlobalVar, LLVMValueRef MovePos);
+void LLVMMoveGlobalAfter(LLVMValueRef GlobalVar, LLVMValueRef MovePos);
+
 // Replace constant-expression/aggregate users of the given constants with
 // equivalent instructions at each point of use; phi operands are materialized
 // in their incoming block. Mirrors llvm::convertUsersOfConstantsToInstructions
@@ -123,6 +134,7 @@ void LLVMGetMDNodeOperands2(LLVMMetadataRef MD, LLVMMetadataRef *Dest);
 unsigned LLVMGetNamedMetadataNumOperands2(LLVMNamedMDNodeRef NMD);
 void LLVMGetNamedMetadataOperands2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef *Dest);
 void LLVMAddNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef Val);
+void LLVMClearNamedMetadataOperands(LLVMNamedMDNodeRef NMD);
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New);
 
 // ORC API extensions

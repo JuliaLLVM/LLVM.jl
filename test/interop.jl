@@ -359,6 +359,46 @@ end
     @test_throws "power of 2" unsafe_store!(ptr, Int64(0), 1, Val(6))
 end
 
+@testset "unsigned index extension" begin
+    # `getelementptr` treats its index as signed, so an unsigned index narrower than the
+    # pointer must be zero-extended. Sign-extending it sends indices above
+    # typemax(signed(I)) to an address 2^(bits(I)-1) elements below the buffer.
+    ptr = Core.LLVMPtr{Int8,0}
+
+    for I in (UInt8, UInt16, UInt32)
+        ir = sprint(io->code_llvm(io, unsafe_load, Tuple{ptr, I}))
+        @test contains(ir, r"\bzext i\d+ .+ to i64")
+        @test !contains(ir, r"\bsext i\d+ .+ to i64")
+    end
+
+    # signed indices are unaffected: sign extension is the correct widening
+    for I in (Int8, Int16, Int32)
+        ir = sprint(io->code_llvm(io, unsafe_load, Tuple{ptr, I}))
+        @test contains(ir, r"\bsext i\d+ .+ to i64")
+    end
+
+    # 64-bit indices need no extension at all
+    for I in (UInt64, Int64)
+        ir = sprint(io->code_llvm(io, unsafe_load, Tuple{ptr, I}))
+        @test !contains(ir, r"\b[sz]ext i\d+ .+ to i64")
+    end
+
+    # an index whose high bit is set after the -1 must still address forwards.
+    # the pointer sits at the midpoint so a sign-extended offset stays in bounds.
+    for I in (UInt8, UInt16)
+        half = 1 << (8*sizeof(I) - 1)
+        buf = zeros(Int8, 2half + 2)
+        buf[1], buf[2half + 1] = 9, 3
+        GC.@preserve buf begin
+            p = reinterpret(Core.LLVMPtr{Int8,0}, pointer(buf) + half)
+            @test unsafe_load(p, I(half + 1)) == 3
+            unsafe_store!(p, Int8(5), I(half + 1))
+            @test buf[2half + 1] == 5
+            @test buf[1] == 9
+        end
+    end
+end
+
 @testset "reinterpret with addrspacecast" begin
     ptr = reinterpret(Core.LLVMPtr{Int64, 4}, 0)
     for eltype_dest in (Int64, Int32), AS_dest in (4, 3)

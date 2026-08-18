@@ -12,7 +12,9 @@ using Core: LLVMPtr
     @dispose ctx=Context() begin
         eltyp = convert(LLVMType, T)
 
-        T_idx = convert(LLVMType, I)
+        # The index is converted to `Int64`, which must be at least as wide as the
+        # index width of every address space this is compiled for. 
+        T_idx = convert(LLVMType, Int)
         T_ptr = convert(LLVMType, ptr)
 
         T_typed_ptr = LLVM.PointerType(eltyp, A)
@@ -40,7 +42,7 @@ using Core: LLVMPtr
             ret!(builder, ld)
         end
 
-        call_function(llvm_f, T, Tuple{LLVMPtr{T,A}, I}, :ptr, :(i-one(I)))
+        call_function(llvm_f, T, Tuple{LLVMPtr{T,A}, Int}, :ptr, :(i % Int - 1))
     end
 end
 
@@ -50,7 +52,9 @@ end
     @dispose ctx=Context() begin
         eltyp = convert(LLVMType, T)
 
-        T_idx = convert(LLVMType, I)
+        # The index is converted to `Int64`, which must be at least as wide as the
+        # index width of every address space this is compiled for. 
+        T_idx = convert(LLVMType, Int)
         T_ptr = convert(LLVMType, ptr)
 
         T_typed_ptr = LLVM.PointerType(eltyp, A)
@@ -79,8 +83,8 @@ end
             ret!(builder)
         end
 
-        call_function(llvm_f, Cvoid, Tuple{LLVMPtr{T,A}, T, I},
-                      :ptr, :(convert(T,x)), :(i-one(I)))
+        call_function(llvm_f, Cvoid, Tuple{LLVMPtr{T,A}, T, Int},
+		      :ptr, :(convert(T,x)), :(i % Int  - 1))
     end
 end
 
@@ -89,7 +93,6 @@ end
 
 @inline Base.unsafe_store!(ptr::Core.LLVMPtr{T}, x, i::Integer=1, align::Val=Val(1)) where {T} =
     pointerset(ptr, convert(T, x), i, align)
-
 
 # pointer operations
 

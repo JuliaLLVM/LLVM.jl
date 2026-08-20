@@ -143,7 +143,7 @@ end
 
         @test_throws LLVMException lookup(lljit, "throws")
         try
-            check_callback_error(mu)
+            LLVM.check_callback_error(mu)
             @test false
         catch err
             @test err isa CallbackException
@@ -151,7 +151,7 @@ end
             @test occursin("materialization callback error", string(err.ex))
             @test !isempty(err.processed_bt)
         end
-        @test check_callback_error(mu) === nothing
+        @test LLVM.check_callback_error(mu) === nothing
     end
 end
 
@@ -239,46 +239,42 @@ end
 @testset "ObjectLinkingLayer" begin
     called_oll = Ref{Int}(0)
 
-    ollc = LLVM.ObjectLinkingLayerCreator() do es, triple
+    builder = LLJITBuilder()
+    linkinglayercreator!(builder) do es, triple
         oll = ObjectLinkingLayer(es)
         register!(oll, GDBRegistrationListener())
         called_oll[] += 1
         return oll
     end
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
+        jd = JITDylib(lljit)
 
-    GC.@preserve ollc begin
-        builder = LLJITBuilder()
-        linkinglayercreator!(builder, ollc)
-        @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
-            jd = JITDylib(lljit)
+        ts_mod = ThreadSafeModule("jit")
+        sym = "SomeFunctionOLL"
 
-            ts_mod = ThreadSafeModule("jit")
-            sym = "SomeFunctionOLL"
+        # build the module
+        ts_mod() do mod
+            ft = LLVM.FunctionType(LLVM.VoidType())
+            fn = LLVM.Function(mod, sym, ft)
 
-            # build the module
-            ts_mod() do mod
-                ft = LLVM.FunctionType(LLVM.VoidType())
-                fn = LLVM.Function(mod, sym, ft)
-
-                @dispose builder=IRBuilder() begin
-                    entry = BasicBlock(fn, "entry")
-                    position!(builder, entry)
-                    ret!(builder)
-                end
-                verify(mod)
+            @dispose builder=IRBuilder() begin
+                entry = BasicBlock(fn, "entry")
+                position!(builder, entry)
+                ret!(builder)
             end
-
-            add!(lljit, jd, ts_mod)
-            addr = lookup(lljit, sym)
-            @test pointer(addr) != C_NULL
+            verify(mod)
         end
+
+        add!(lljit, jd, ts_mod)
+        addr = lookup(lljit, sym)
+        @test pointer(addr) != C_NULL
     end
     @test called_oll[] >= 1
 
     builder = LLJITBuilder()
-    linkinglayercreator!(builder, LLVM.ObjectLinkingLayerCreator() do es, triple
+    linkinglayercreator!(builder) do es, triple
         throw(ArgumentError("object layer creator error"))
-    end)
+    end
     GC.gc()
     try
         LLJIT(builder)
@@ -370,7 +366,6 @@ end
             dispose(ism)
         end
     end
-
 
 end
 

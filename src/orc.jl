@@ -70,7 +70,7 @@ function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, trip
         layer = ollc.cb(ExecutionSession(es), Base.unsafe_string(triple))::ObjectLinkingLayer
         return layer.ref
     catch err
-        ollc.exception = (err, Base.catch_backtrace())
+        _capture_callback_exception!(ollc, err)
         # The C callback has no error return. Give LLJIT a valid default layer
         # so construction can finish normally and the Julia wrapper can throw.
         return API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
@@ -78,20 +78,28 @@ function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, trip
 end
 
 """
-    linkinglayercreator!(builder::LLJITBuilder, creator::ObjectLinkingLayerCreator)
+    linkinglayercreator!(builder::LLJITBuilder, creator)
 
-The builder keeps `creator` rooted until it is consumed by [`LLJIT`](@ref). If
-the creator throws, the exception is rethrown as a [`CallbackException`](@ref)
-after LLJIT construction has returned through LLVM.
+Install a Julia object-layer creator, called with the execution session and
+target triple. The builder keeps it rooted until it is consumed by
+[`LLJIT`](@ref). If it throws, the exception is rethrown as a
+[`CallbackException`](@ref) after LLJIT construction returns through LLVM.
 """
-function linkinglayercreator!(builder::LLJITBuilder, creator::ObjectLinkingLayerCreator)
-    creator.exception = nothing
-    push!(builder.roots, creator)
+function linkinglayercreator!(builder::LLJITBuilder, creator)
+    linkinglayercreator!(builder, ObjectLinkingLayerCreator(creator))
+end
+
+function linkinglayercreator!(builder::LLJITBuilder, state::ObjectLinkingLayerCreator)
+    state.exception = nothing
+    push!(builder.roots, state)
     cb = @cfunction(ollc_callback,
                     API.LLVMOrcObjectLayerRef,
                     (Ptr{Cvoid}, API.LLVMOrcExecutionSessionRef, Ptr{Cchar}))
-    linkinglayercreator!(builder, cb, Base.pointer_from_objref(creator))
+    linkinglayercreator!(builder, cb, Base.pointer_from_objref(state))
 end
+
+linkinglayercreator!(creator::Core.Function, builder::LLJITBuilder) =
+    linkinglayercreator!(builder, creator)
 
 include("executionengine/ts_module.jl")
 
@@ -298,25 +306,6 @@ Base.cconvert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::CustomMaterializati
 
 const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
 
-export check_callback_error
-
-"""
-    CustomMaterializationUnit(name, symbols, materialize, discard, [init])
-
-Create an ORC materialization unit backed by Julia callbacks. The `materialize`
-and `discard` callbacks may run asynchronously. If either throws, the exception
-is stored on the materialization unit; materialization is also reported as
-failed to ORC. Call [`check_callback_error`](@ref) at a Julia-owned safe point
-to surface the original exception.
-"""
-CustomMaterializationUnit
-
-"""
-    check_callback_error(mu::CustomMaterializationUnit)
-
-Rethrow the first exception captured by an asynchronous materialization-unit
-callback, clearing it from `mu`. Returns `nothing` when no callback has failed.
-"""
 function check_callback_error(mu::CustomMaterializationUnit)
     mu.exception === nothing && return nothing
     err, bt = mu.exception
@@ -324,18 +313,12 @@ function check_callback_error(mu::CustomMaterializationUnit)
     throw(CallbackException("ORC materialization unit", err, bt))
 end
 
-function capture_callback_exception!(mu::CustomMaterializationUnit, err)
-    if mu.exception === nothing
-        mu.exception = (err, Base.catch_backtrace())
-    end
-end
-
 function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibilityRef)
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
     try
         mu.materialize(MaterializationResponsibility(mr))
     catch err
-        capture_callback_exception!(mu, err)
+        _capture_callback_exception!(mu, err)
         API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
     end
     nothing
@@ -348,7 +331,7 @@ function __discard(ctx::Ptr{Cvoid}, jd::API.LLVMOrcJITDylibRef, symbol::API.LLVM
     catch err
         # ORC's discard callback has no failure return. Preserve the exception
         # on the owned materialization unit for a later Julia-side check.
-        capture_callback_exception!(mu, err)
+        _capture_callback_exception!(mu, err)
     end
     nothing
 end

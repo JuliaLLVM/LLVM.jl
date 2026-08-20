@@ -62,6 +62,4 @@ JITDylib
 lookup(::LLJIT, ::Any)
 CallbackException
 linkinglayercreator!
-LLVM.CustomMaterializationUnit
-check_callback_error
 ```

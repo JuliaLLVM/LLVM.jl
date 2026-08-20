@@ -31,7 +31,7 @@ Install a raw LLVM object-layer-creator callback and context pointer.
 
     The callback must not throw a Julia exception. This low-level overload has
     no exception barrier, and LLVM's callback cannot report an error. Use the
-    `ObjectLinkingLayerCreator` overload for a Julia callable.
+    two-argument overload for a Julia callable.
 """
 function linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
     API.LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, callback, ctx)

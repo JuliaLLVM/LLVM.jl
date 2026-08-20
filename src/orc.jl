@@ -60,25 +60,33 @@ end
 
 mutable struct ObjectLinkingLayerCreator
     cb
+    exception::Union{Nothing,Tuple{Any,Vector}}
+    ObjectLinkingLayerCreator(cb) = new(cb, nothing)
 end
 
 function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, triple::Ptr{Cchar})
-    es = ExecutionSession(es)
-    triple = Base.unsafe_string(triple)
-
     ollc = Base.unsafe_pointer_to_objref(ctx)::ObjectLinkingLayerCreator
-    oll = ollc.cb(es, triple)::ObjectLinkingLayer
-    return oll.ref
+    try
+        layer = ollc.cb(ExecutionSession(es), Base.unsafe_string(triple))::ObjectLinkingLayer
+        return layer.ref
+    catch err
+        ollc.exception = (err, Base.catch_backtrace())
+        # The C callback has no error return. Give LLJIT a valid default layer
+        # so construction can finish normally and the Julia wrapper can throw.
+        return API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
+    end
 end
 
 """
     linkinglayercreator!(builder::LLJITBuilder, creator::ObjectLinkingLayerCreator)
 
-!!! warning
-    The creator object needs to be rooted by the caller for the lifetime of the
-    builder argument.
+The builder keeps `creator` rooted until it is consumed by [`LLJIT`](@ref). If
+the creator throws, the exception is rethrown as a [`CallbackException`](@ref)
+after LLJIT construction has returned through LLVM.
 """
 function linkinglayercreator!(builder::LLJITBuilder, creator::ObjectLinkingLayerCreator)
+    creator.exception = nothing
+    push!(builder.roots, creator)
     cb = @cfunction(ollc_callback,
                     API.LLVMOrcObjectLayerRef,
                     (Ptr{Cvoid}, API.LLVMOrcExecutionSessionRef, Ptr{Cchar}))

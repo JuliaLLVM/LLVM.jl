@@ -246,6 +246,21 @@ end
         end
     end
     @test called_oll[] >= 1
+
+    builder = LLJITBuilder()
+    linkinglayercreator!(builder, LLVM.ObjectLinkingLayerCreator() do es, triple
+        throw(ArgumentError("object layer creator error"))
+    end)
+    GC.gc()
+    try
+        LLJIT(builder)
+        @test false
+    catch err
+        @test err isa CallbackException
+        @test err.ex isa ArgumentError
+        @test occursin("object layer creator error", string(err.ex))
+        @test !isempty(err.processed_bt)
+    end
 end
 
 @testset "Lazy" begin
@@ -327,6 +342,8 @@ end
             dispose(ism)
         end
     end
+
+
 end
 
 end

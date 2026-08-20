@@ -6,6 +6,31 @@ function unsafe_message(ptr, args...)
     str
 end
 
+export CallbackException
+
+"""
+    CallbackException
+
+Exception captured inside a Julia callback and rethrown after the surrounding
+foreign operation has returned normally. The original exception is available
+in the `ex` field.
+"""
+struct CallbackException <: Exception
+    context::String
+    ex::Any
+    processed_bt::Vector{Base.StackTraces.StackFrame}
+
+    function CallbackException(context, ex, bt)
+        processed_bt = stacktrace(bt)
+        new(context, ex, processed_bt[1:min(100, end)])
+    end
+end
+
+function Base.showerror(io::IO, err::CallbackException)
+    print(io, "exception in ", err.context, " callback\n\n    nested exception: ")
+    showerror(io, err.ex, err.processed_bt, backtrace=true)
+end
+
 # `@public foo, bar` → `public foo, bar` on Julia ≥ 1.11, nothing on older.
 # `public` is only parseable at module top-level on all Julia versions, so a
 # bare `@static if ...; public foo; end` would fail at parse time. Taking the

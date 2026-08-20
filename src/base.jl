@@ -31,6 +31,11 @@ function Base.showerror(io::IO, err::CallbackException)
     showerror(io, err.ex, err.processed_bt, backtrace=true)
 end
 
+function _capture_callback_exception!(state, err)
+    state.exception === nothing && (state.exception = (err, Base.catch_backtrace()))
+    return nothing
+end
+
 # `@public foo, bar` → `public foo, bar` on Julia ≥ 1.11, nothing on older.
 # `public` is only parseable at module top-level on all Julia versions, so a
 # bare `@static if ...; public foo; end` would fail at parse time. Taking the

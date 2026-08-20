@@ -20,7 +20,7 @@ function legacy_pass_callback(state::LegacyPassState, value)
     try
         return state.callback(value)::Bool
     catch err
-        state.exception = (err, Base.catch_backtrace())
+        _capture_callback_exception!(state, err)
         # The callback may have changed IR before throwing. Returning true is
         # conservative: it invalidates analyses before the deferred rethrow.
         return true

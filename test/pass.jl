@@ -79,7 +79,6 @@
         end
     end
 
-
     function throwing_function_pass(cur_fn::LLVM.Function)
         @test cur_fn == fn
         error("legacy function pass error")

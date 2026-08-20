@@ -148,7 +148,7 @@ function module_callback(ref::API.LLVMModuleRef, thunk::Ptr{Cvoid})
         mod = LLVM.Module(ref)
         return state.callback(mod)::Bool
     catch err
-        state.exception = (err, Base.catch_backtrace())
+        _capture_callback_exception!(state, err)
         # The callback may have changed IR before throwing. Invalidate all
         # analyses before surfacing the exception after LLVM returns.
         return true
@@ -161,7 +161,7 @@ function function_callback(ref::API.LLVMValueRef, thunk::Ptr{Cvoid})
         fun = LLVM.Function(ref)
         return state.callback(fun)::Bool
     catch err
-        state.exception = (err, Base.catch_backtrace())
+        _capture_callback_exception!(state, err)
         # The callback may have changed IR before throwing. Invalidate all
         # analyses before surfacing the exception after LLVM returns.
         return true

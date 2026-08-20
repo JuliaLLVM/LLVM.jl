@@ -4,14 +4,36 @@
 
 export clone_into!, clone
 
-type_mapper_callback(typ, type_mapper) =
-    Base.unsafe_convert(API.LLVMTypeRef, type_mapper[](LLVMType(typ)))
-function materializer_callback(val, materializer)
-    new_val = materializer[](Value(val))
-    if new_val === nothing
+mutable struct CloneCallbackState
+    type_mapper
+    materializer
+    exception::Union{Nothing,Tuple{Any,Vector}}
+
+    CloneCallbackState(type_mapper, materializer) = new(type_mapper, materializer, nothing)
+end
+
+function type_mapper_callback(typ, state::CloneCallbackState)
+    state.exception === nothing || return typ
+    try
+        return Base.unsafe_convert(API.LLVMTypeRef, state.type_mapper(LLVMType(typ)))
+    catch err
+        _capture_callback_exception!(state, err)
+        return typ
+    end
+end
+
+function materializer_callback(val, state::CloneCallbackState)
+    state.exception === nothing || return Base.unsafe_convert(API.LLVMValueRef, C_NULL)
+    try
+        new_val = state.materializer(Value(val))
+        if new_val === nothing
+            return Base.unsafe_convert(API.LLVMValueRef, C_NULL)
+        else
+            return Base.unsafe_convert(API.LLVMValueRef, new_val)
+        end
+    catch err
+        _capture_callback_exception!(state, err)
         return Base.unsafe_convert(API.LLVMValueRef, C_NULL)
-    else
-        return Base.unsafe_convert(API.LLVMValueRef, new_val)
     end
 end
 
@@ -27,14 +49,11 @@ can be used to remap values from the old function to the new function, while `su
 appends a suffix to all values cloned. The `type_mapper` and `materializer` functions can be
 used to respectively map types and materialize values on demand.
 
+Exceptions thrown by either callback are captured and rethrown as a
+[`CallbackException`](@ref) after LLVM returns to Julia.
+
 The `changes` argument determines how this function behaves; refer to the LLVM documentation
 of `CloneFunctionInto` for more details.
-
-!!! warning
-
-    The `type_mapper` and `materializer` callbacks must not throw. LLVM's cloning callbacks
-    have no abort or error result, and an exception escaping through them would bypass C++
-    cleanup and may leave `new` partially modified.
 """
 function clone_into!(new::Function, old::Function;
                      value_map::Dict{<:Value,<:Value}=Dict{Value,Value}(),
@@ -45,23 +64,31 @@ function clone_into!(new::Function, old::Function;
         push!(value_map_array, src)
         push!(value_map_array, dest)
     end
+    callback_state = Ref(CloneCallbackState(type_mapper, materializer))
     if type_mapper === nothing
         type_mapper_ptr = C_NULL
         type_mapper_data = C_NULL
     else
         type_mapper_ptr = @cfunction(type_mapper_callback, API.LLVMTypeRef, (API.LLVMTypeRef,Any))
-        type_mapper_data = Ref(type_mapper)
+        type_mapper_data = callback_state
     end
     if materializer === nothing
         materializer_ptr = C_NULL
         materializer_data = C_NULL
     else
         materializer_ptr = @cfunction(materializer_callback, API.LLVMValueRef, (API.LLVMValueRef,Any))
-        materializer_data = Ref(materializer)
+        materializer_data = callback_state
     end
-    API.LLVMCloneFunctionInto(new, old, value_map_array, length(value_map), changes, suffix,
-                              type_mapper_ptr, type_mapper_data,
-                              materializer_ptr, materializer_data)
+    GC.@preserve callback_state begin
+        API.LLVMCloneFunctionInto(new, old, value_map_array, length(value_map), changes, suffix,
+                                  type_mapper_ptr, type_mapper_data,
+                                  materializer_ptr, materializer_data)
+    end
+    if callback_state[].exception !== nothing
+        err, bt = callback_state[].exception
+        throw(CallbackException("function cloning", err, bt))
+    end
+    return nothing
 end
 
 """

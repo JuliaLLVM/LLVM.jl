@@ -144,7 +144,7 @@ end
 Base.isempty(iter::BasicBlockInstructionSet) =
     API.LLVMGetLastInstruction(iter.bb) == C_NULL
 
-Base.IteratorSize(::BasicBlockInstructionSet) = Base.SizeUnknown()
+Base.IteratorSize(::Type{BasicBlockInstructionSet}) = Base.SizeUnknown()
 
 """
     previnst(inst::Instruction)

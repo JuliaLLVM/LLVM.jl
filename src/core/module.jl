@@ -328,7 +328,7 @@ end
 
 Base.isempty(iter::ModuleGlobalSet) = API.LLVMGetLastGlobal(iter.mod) == C_NULL
 
-Base.IteratorSize(::ModuleGlobalSet) = Base.SizeUnknown()
+Base.IteratorSize(::Type{ModuleGlobalSet}) = Base.SizeUnknown()
 
 """
     prevglobal(gv::LLVM.GlobalVariable)
@@ -419,7 +419,7 @@ end
 
 Base.isempty(iter::ModuleFunctionSet) = API.LLVMGetLastFunction(iter.mod) == C_NULL
 
-Base.IteratorSize(::ModuleFunctionSet) = Base.SizeUnknown()
+Base.IteratorSize(::Type{ModuleFunctionSet}) = Base.SizeUnknown()
 
 """
     prevfun(fun::LLVM.Function)

@@ -232,4 +232,4 @@ first_use(val::Value) = API.LLVMGetFirstUse(val)
     first_use(::ConstantData) = C_NULL
 end
 
-Base.IteratorSize(::ValueUseSet) = Base.SizeUnknown()
+Base.IteratorSize(::Type{ValueUseSet}) = Base.SizeUnknown()

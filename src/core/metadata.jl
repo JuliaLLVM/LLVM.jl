@@ -467,7 +467,7 @@ end
 Base.isempty(iter::ModuleMetadataIterator) =
     API.LLVMGetLastNamedMetadata(iter.mod) == C_NULL
 
-Base.IteratorSize(::ModuleMetadataIterator) = Base.SizeUnknown()
+Base.IteratorSize(::Type{ModuleMetadataIterator}) = Base.SizeUnknown()
 
 function Base.haskey(iter::ModuleMetadataIterator, name::String)
     return API.LLVMGetNamedMetadata(iter.mod, name, length(name)) != C_NULL

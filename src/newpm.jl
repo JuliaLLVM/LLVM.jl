@@ -92,6 +92,11 @@ run. The function should take a single argument, the module or function to be pr
 and return a boolean indicating whether the pass made any changes.
 
 Before using a custom pass, it must be registered with a pass builder using `register!`.
+LLVM.jl catches exceptions from these callbacks and rethrows them as [`PassException`](@ref)
+after control has returned from LLVM. Callbacks registered directly through the
+`LLVM.API.LLVMPassBuilderExtensionsRegister*Pass` APIs must provide an equivalent exception
+barrier: Julia exceptions must not escape a callback, because they bypass C++ destructors in
+LLVM's pass runner.
 
 See also: [`register!`](@ref)
 """

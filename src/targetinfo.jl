@@ -37,6 +37,10 @@ Attach an instance with [`target_transform_info!`](@ref); attaching `nothing`
 reverts to LLVM's native TTI. When a `TargetMachine` is also supplied to
 [`run!`](@ref), a custom TTI takes precedence.
 
+Exceptions from overridden queries are captured, LLVM receives a conservative
+answer, and the exception is rethrown as a `PassException` after the pass
+pipeline returns.
+
 Overridable queries:
 
 - Target-level knobs: [`flat_address_space`](@ref),

@@ -301,6 +301,17 @@ const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
 export check_callback_error
 
 """
+    CustomMaterializationUnit(name, symbols, materialize, discard, [init])
+
+Create an ORC materialization unit backed by Julia callbacks. The `materialize`
+and `discard` callbacks may run asynchronously. If either throws, the exception
+is stored on the materialization unit; materialization is also reported as
+failed to ORC. Call [`check_callback_error`](@ref) at a Julia-owned safe point
+to surface the original exception.
+"""
+CustomMaterializationUnit
+
+"""
     check_callback_error(mu::CustomMaterializationUnit)
 
 Rethrow the first exception captured by an asynchronous materialization-unit

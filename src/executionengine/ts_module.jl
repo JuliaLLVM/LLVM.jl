@@ -166,7 +166,7 @@ end
     (mod::ThreadSafeModule)(f)
 
 Apply `f` to the LLVM module contained within `mod`, after locking the module and activating
-its context.
+its context. Exceptions from `f` are reported after LLVM releases the module lock.
 """
 function (mod::ThreadSafeModule)(f)
     cb = ThreadSafeModuleCallback(f)

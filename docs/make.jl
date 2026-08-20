@@ -28,6 +28,7 @@ function main()
                 "man/codegen.md",
                 "man/execution.md",
                 "man/interop.md",
+                "man/callbacks.md",
             ],
             "API reference" => [
                 "lib/essentials.md",

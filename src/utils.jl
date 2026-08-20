@@ -29,6 +29,12 @@ used to respectively map types and materialize values on demand.
 
 The `changes` argument determines how this function behaves; refer to the LLVM documentation
 of `CloneFunctionInto` for more details.
+
+!!! warning
+
+    The `type_mapper` and `materializer` callbacks must not throw. LLVM's cloning callbacks
+    have no abort or error result, and an exception escaping through them would bypass C++
+    cleanup and may leave `new` partially modified.
 """
 function clone_into!(new::Function, old::Function;
                      value_map::Dict{<:Value,<:Value}=Dict{Value,Value}(),

@@ -11,6 +11,29 @@ function add!(pm::PassManager, pass::Pass)
     API.LLVMAddPass(pm, pass)
 end
 
+function prepare_callbacks!(pm::PassManager)
+    for pass in pm.roots
+        pass.root[].exception = nothing
+    end
+end
+
+function check_callback_exceptions(pm::PassManager)
+    for pass in pm.roots
+        exception = pass.root[].exception
+        if exception !== nothing
+            err, bt = exception
+            throw(PassException(err, bt))
+        end
+    end
+end
+
+function run_with_callbacks(f, pm::PassManager, value)
+    prepare_callbacks!(pm)
+    changed = f(pm, value) |> Bool
+    check_callback_exceptions(pm)
+    changed
+end
+
 dispose(pm::PassManager) = mark_dispose(API.LLVMDisposePassManager, pm)
 
 
@@ -36,7 +59,8 @@ function ModulePassManager(f::Core.Function, args...; kwargs...)
     end
 end
 
-run!(mpm::ModulePassManager, mod::Module) = API.LLVMRunPassManager(mpm, mod) |> Bool
+run!(mpm::ModulePassManager, mod::Module) =
+    run_with_callbacks(API.LLVMRunPassManager, mpm, mod)
 
 
 
@@ -67,4 +91,5 @@ end
 initialize!(fpm::FunctionPassManager) = API.LLVMInitializeFunctionPassManager(fpm) |> Bool
 finalize!(fpm::FunctionPassManager) = API.LLVMFinalizeFunctionPassManager(fpm) |> Bool
 
-run!(fpm::FunctionPassManager, f::Function) = API.LLVMRunFunctionPassManager(fpm, f) |> Bool
+run!(fpm::FunctionPassManager, f::Function) =
+    run_with_callbacks(API.LLVMRunFunctionPassManager, fpm, f)

@@ -246,7 +246,10 @@ function custom_tti_is_source_of_divergence_callback(ref::API.LLVMValueRef,
         return is_source_of_divergence(state.tti, Value(ref))::Bool
     catch err
         capture_exception!(state, err)
-        return false
+        # Treat the value as divergent until the pipeline returns and reports
+        # the callback failure. Assuming uniformity could enable an unsound
+        # transformation after the callback has already failed.
+        return true
     end
 end
 

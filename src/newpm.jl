@@ -344,6 +344,8 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
     states = [CustomPassState(pass.callback) for pass in pb.custom_passes]
     tti_state = pb.custom_tti === nothing ? nothing :
                 install_custom_tti!(pb.exts, pb.custom_tti)
+    ctx = context(target)
+    prepare_diagnostic(ctx)
     GC.@preserve states tti_state aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)
@@ -391,6 +393,7 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
             (err, bt) = tti_state.exception
             throw(PassException(err, bt))
         end
+        check_diagnostic(ctx)
     end
 end
 

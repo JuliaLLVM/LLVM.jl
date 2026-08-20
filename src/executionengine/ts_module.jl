@@ -63,7 +63,9 @@ captured by the exception remain valid; see [`dispose(::Context)`](@ref).
 """
 function dispose(ctx::ThreadSafeContext)
     deactivate(ctx)
-    mark_dispose(leak_context() ? Returns(nothing) : API.LLVMOrcDisposeThreadSafeContext, ctx)
+    leak = leak_context()
+    leak || _remove_handlers(context(ctx))
+    mark_dispose(leak ? Returns(nothing) : API.LLVMOrcDisposeThreadSafeContext, ctx)
 end
 
 """

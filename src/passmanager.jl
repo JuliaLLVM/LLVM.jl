@@ -29,8 +29,11 @@ end
 
 function run_with_callbacks(f, pm::PassManager, value)
     prepare_callbacks!(pm)
+    ctx = context(value)
+    prepare_diagnostic(ctx)
     changed = f(pm, value) |> Bool
     check_callback_exceptions(pm)
+    check_diagnostic(ctx)
     changed
 end
 

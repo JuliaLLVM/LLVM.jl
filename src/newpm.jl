@@ -149,7 +149,9 @@ function module_callback(ref::API.LLVMModuleRef, thunk::Ptr{Cvoid})
         return state.callback(mod)::Bool
     catch err
         state.exception = (err, Base.catch_backtrace())
-        return false
+        # The callback may have changed IR before throwing. Invalidate all
+        # analyses before surfacing the exception after LLVM returns.
+        return true
     end
 end
 
@@ -160,7 +162,9 @@ function function_callback(ref::API.LLVMValueRef, thunk::Ptr{Cvoid})
         return state.callback(fun)::Bool
     catch err
         state.exception = (err, Base.catch_backtrace())
-        return false
+        # The callback may have changed IR before throwing. Invalidate all
+        # analyses before surfacing the exception after LLVM returns.
+        return true
     end
 end
 

@@ -611,32 +611,41 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
   PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
 #if LLVM_VERSION_MAJOR >= 16
-  StandardInstrumentations SI(Mod->getContext(), Debug, VerifyEach);
+  auto *SI = new StandardInstrumentations(Mod->getContext(), Debug, VerifyEach);
 #else
-  StandardInstrumentations SI(Debug, VerifyEach);
+  auto *SI = new StandardInstrumentations(Debug, VerifyEach);
 #endif
+  // StandardInstrumentations may register members in process-global state.
+  // Julia exceptions use longjmp and can therefore skip C++ destructors when
+  // they escape a pass callback. Keep SI off the stack so that exceptional
+  // unwinding leaks valid storage instead of leaving dangling global pointers.
 #if LLVM_VERSION_MAJOR >= 17
-  SI.registerCallbacks(PIC, &MAM);
+  SI->registerCallbacks(PIC, &MAM);
 #else
-  SI.registerCallbacks(PIC, &FAM);
+  SI->registerCallbacks(PIC, &FAM);
 #endif
 
   if (Fun) {
     FunctionPassManager FPM;
     if (VerifyEach)
       FPM.addPass(VerifierPass());
-    if (auto Err = PB.parsePassPipeline(FPM, Passes))
+    if (auto Err = PB.parsePassPipeline(FPM, Passes)) {
+      delete SI;
       return wrap(std::move(Err));
+    }
     FPM.run(*Fun, FAM);
   } else {
     ModulePassManager MPM;
     if (VerifyEach)
       MPM.addPass(VerifierPass());
-    if (auto Err = PB.parsePassPipeline(MPM, Passes))
+    if (auto Err = PB.parsePassPipeline(MPM, Passes)) {
+      delete SI;
       return wrap(std::move(Err));
+    }
     MPM.run(*Mod, MAM);
   }
 
+  delete SI;
   return LLVMErrorSuccess;
 }
 

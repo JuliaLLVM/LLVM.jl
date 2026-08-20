@@ -127,6 +127,34 @@ end
     end
 end
 
+@testset "Materialization callback errors" begin
+    @dispose lljit=LLJIT() begin
+        jd = JITDylib(lljit)
+        flags = LLVM.API.LLVMJITSymbolFlags(
+            LLVM.API.LLVMJITSymbolGenericFlagsCallable |
+            LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
+        sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(lljit, "throws"), flags)
+
+        mu = LLVM.CustomMaterializationUnit(
+            "throwingMU", Ref(sym),
+            mr -> throw(ArgumentError("materialization callback error")),
+            (jd, sym) -> nothing)
+        LLVM.define(jd, mu)
+
+        @test_throws LLVMException lookup(lljit, "throws")
+        try
+            check_callback_error(mu)
+            @test false
+        catch err
+            @test err isa CallbackException
+            @test err.ex isa ArgumentError
+            @test occursin("materialization callback error", string(err.ex))
+            @test !isempty(err.processed_bt)
+        end
+        @test check_callback_error(mu) === nothing
+    end
+end
+
 @testset "Loading ObjectFile" begin
     @dispose lljit=LLJIT(;tm=JITTargetMachine()) begin
         jd = JITDylib(lljit)

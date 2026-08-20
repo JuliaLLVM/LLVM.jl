@@ -61,4 +61,5 @@ LLJIT
 JITDylib
 lookup(::LLJIT, ::Any)
 linkinglayercreator!
+check_callback_error
 ```

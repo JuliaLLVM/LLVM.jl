@@ -288,22 +288,43 @@ Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::Materializati
 mutable struct CustomMaterializationUnit <: AbstractMaterializationUnit
     materialize
     discard
+    exception::Union{Nothing,Tuple{Any,Vector}}
     mu::MaterializationUnit
     function CustomMaterializationUnit(materialize, discard)
-        new(materialize, discard)
+        new(materialize, discard, nothing)
     end
 end
 Base.cconvert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::CustomMaterializationUnit) = mu.mu
 
 const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
 
+export check_callback_error
+
+"""
+    check_callback_error(mu::CustomMaterializationUnit)
+
+Rethrow the first exception captured by an asynchronous materialization-unit
+callback, clearing it from `mu`. Returns `nothing` when no callback has failed.
+"""
+function check_callback_error(mu::CustomMaterializationUnit)
+    mu.exception === nothing && return nothing
+    err, bt = mu.exception
+    mu.exception = nothing
+    throw(CallbackException("ORC materialization unit", err, bt))
+end
+
+function capture_callback_exception!(mu::CustomMaterializationUnit, err)
+    if mu.exception === nothing
+        mu.exception = (err, Base.catch_backtrace())
+    end
+end
+
 function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibilityRef)
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
     try
         mu.materialize(MaterializationResponsibility(mr))
     catch err
-        bt = catch_backtrace()
-        showerror(stderr, err, bt)
+        capture_callback_exception!(mu, err)
         API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
     end
     nothing
@@ -314,8 +335,9 @@ function __discard(ctx::Ptr{Cvoid}, jd::API.LLVMOrcJITDylibRef, symbol::API.LLVM
     try
         mu.discard(JITDylib(jd), LLVMSymbol(symbol))
     catch err
-        bt = catch_backtrace()
-        showerror(stderr, err, bt)
+        # ORC's discard callback has no failure return. Preserve the exception
+        # on the owned materialization unit for a later Julia-side check.
+        capture_callback_exception!(mu, err)
     end
     nothing
 end

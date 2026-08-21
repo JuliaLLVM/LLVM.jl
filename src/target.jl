@@ -104,4 +104,4 @@ function Base.iterate(iter::TargetIterator, state=API.LLVMGetFirstTarget())
     state == C_NULL ? nothing : (Target(state), API.LLVMGetNextTarget(state))
 end
 
-Base.IteratorSize(::TargetIterator) = Base.SizeUnknown()
+Base.IteratorSize(::Type{TargetIterator}) = Base.SizeUnknown()

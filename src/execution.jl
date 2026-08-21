@@ -270,7 +270,7 @@ function names, and `getindex` to get the function object.
 """
 functions(engine::ExecutionEngine) = ExecutionEngineFunctionSet(engine)
 
-Base.IteratorSize(::ExecutionEngineFunctionSet) = Base.SizeUnknown()
+Base.IteratorSize(::Type{ExecutionEngineFunctionSet}) = Base.SizeUnknown()
 Base.iterate(::ExecutionEngineFunctionSet) =
     error("Iteration of functions in the execution engine is not supported")
 

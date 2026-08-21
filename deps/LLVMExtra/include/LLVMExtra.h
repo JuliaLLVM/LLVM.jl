@@ -271,6 +271,9 @@ void LLVMPassBuilderExtensionsPushRegistrationCallbacks(LLVMPassBuilderExtension
                                                         void (*RegistrationCallback)(void *));
 typedef LLVMBool (*LLVMJuliaModulePassCallback)(LLVMModuleRef M, void *Thunk);
 typedef LLVMBool (*LLVMJuliaFunctionPassCallback)(LLVMValueRef F, void *Thunk);
+// Callbacks must not allow exceptions implemented with setjmp/longjmp to
+// escape. Doing so bypasses destructors in LLVM's C++ pass runner. Clients
+// should catch exceptions in the callback and propagate failures out-of-band.
 void LLVMPassBuilderExtensionsRegisterModulePass(LLVMPassBuilderExtensionsRef Options,
                                                  const char *PassName,
                                                  LLVMJuliaModulePassCallback Callback,

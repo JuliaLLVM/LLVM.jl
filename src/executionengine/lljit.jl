@@ -1,5 +1,6 @@
 @checked struct LLJITBuilder
     ref::API.LLVMOrcLLJITBuilderRef
+    roots::Vector{Any}
 end
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) = mark_use(builder).ref
 
@@ -10,7 +11,7 @@ Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit)
 
 function LLJITBuilder()
     ref = API.LLVMOrcCreateLLJITBuilder()
-    mark_alloc(LLJITBuilder(ref))
+    mark_alloc(LLJITBuilder(ref, []))
 end
 
 function dispose(builder::LLJITBuilder)
@@ -21,6 +22,17 @@ function targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
     API.LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder, tmb)
 end
 
+"""
+    linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
+
+Install a raw LLVM object-layer-creator callback and context pointer.
+
+!!! warning
+
+    The callback must not throw a Julia exception. This low-level overload has
+    no exception barrier, and LLVM's callback cannot report an error. Use the
+    two-argument overload for a Julia callable.
+"""
 function linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
     API.LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, callback, ctx)
 end
@@ -35,9 +47,20 @@ Creates a LLJIT stack based on the provided builder.
 """
 function LLJIT(builder::LLJITBuilder)
     ref = Ref{API.LLVMOrcLLJITRef}()
-    @check API.LLVMOrcCreateLLJIT(ref, builder)
+    err = API.LLVMOrcCreateLLJIT(ref, builder)
+    # LLVMOrcCreateLLJIT consumes the builder on both success and failure.
     mark_dispose(builder)
-    mark_alloc(LLJIT(ref[]))
+    @check err
+
+    lljit = mark_alloc(LLJIT(ref[]))
+    for root in builder.roots
+        if root isa ObjectLinkingLayerCreator && root.exception !== nothing
+            err, bt = root.exception
+            dispose(lljit)
+            throw(CallbackException("object linking layer creator", err, bt))
+        end
+    end
+    lljit
 end
 
 function dispose(lljit::LLJIT)

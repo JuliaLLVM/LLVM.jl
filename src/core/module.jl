@@ -223,16 +223,17 @@ demand. The module then takes ownership of `membuf`, and the underlying byte sto
 """
 function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     out_ref = Ref{API.LLVMModuleRef}()
+    ctx = context()
+    prepare_diagnostic(ctx)
 
     if lazy
         # `LLVMGetBitcodeModuleInContext2` consumes `membuf` regardless of success
-        status = API.LLVMGetBitcodeModuleInContext2(context(), membuf, out_ref) |> Bool
+        status = API.LLVMGetBitcodeModuleInContext2(ctx, membuf, out_ref) |> Bool
         mark_dispose(membuf)
-        @assert !status # caught by diagnostics handler
     else
-        status = API.LLVMParseBitcodeInContext2(context(), membuf, out_ref) |> Bool
-        @assert !status # caught by diagnostics handler
+        status = API.LLVMParseBitcodeInContext2(ctx, membuf, out_ref) |> Bool
     end
+    check_diagnostic(ctx, status, "failed to parse bitcode")
 
     mark_alloc(Module(out_ref[]))
 end

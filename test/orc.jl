@@ -127,6 +127,34 @@ end
     end
 end
 
+@testset "Materialization callback errors" begin
+    @dispose lljit=LLJIT() begin
+        jd = JITDylib(lljit)
+        flags = LLVM.API.LLVMJITSymbolFlags(
+            LLVM.API.LLVMJITSymbolGenericFlagsCallable |
+            LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
+        sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(lljit, "throws"), flags)
+
+        mu = LLVM.CustomMaterializationUnit(
+            "throwingMU", Ref(sym),
+            mr -> throw(ArgumentError("materialization callback error")),
+            (jd, sym) -> nothing)
+        LLVM.define(jd, mu)
+
+        @test_throws LLVMException lookup(lljit, "throws")
+        try
+            LLVM.check_callback_error(mu)
+            @test false
+        catch err
+            @test err isa CallbackException
+            @test err.ex isa ArgumentError
+            @test occursin("materialization callback error", string(err.ex))
+            @test !isempty(err.processed_bt)
+        end
+        @test LLVM.check_callback_error(mu) === nothing
+    end
+end
+
 @testset "Loading ObjectFile" begin
     @dispose lljit=LLJIT(;tm=JITTargetMachine()) begin
         jd = JITDylib(lljit)
@@ -211,41 +239,52 @@ end
 @testset "ObjectLinkingLayer" begin
     called_oll = Ref{Int}(0)
 
-    ollc = LLVM.ObjectLinkingLayerCreator() do es, triple
+    builder = LLJITBuilder()
+    linkinglayercreator!(builder) do es, triple
         oll = ObjectLinkingLayer(es)
         register!(oll, GDBRegistrationListener())
         called_oll[] += 1
         return oll
     end
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
+        jd = JITDylib(lljit)
 
-    GC.@preserve ollc begin
-        builder = LLJITBuilder()
-        linkinglayercreator!(builder, ollc)
-        @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
-            jd = JITDylib(lljit)
+        ts_mod = ThreadSafeModule("jit")
+        sym = "SomeFunctionOLL"
 
-            ts_mod = ThreadSafeModule("jit")
-            sym = "SomeFunctionOLL"
+        # build the module
+        ts_mod() do mod
+            ft = LLVM.FunctionType(LLVM.VoidType())
+            fn = LLVM.Function(mod, sym, ft)
 
-            # build the module
-            ts_mod() do mod
-                ft = LLVM.FunctionType(LLVM.VoidType())
-                fn = LLVM.Function(mod, sym, ft)
-
-                @dispose builder=IRBuilder() begin
-                    entry = BasicBlock(fn, "entry")
-                    position!(builder, entry)
-                    ret!(builder)
-                end
-                verify(mod)
+            @dispose builder=IRBuilder() begin
+                entry = BasicBlock(fn, "entry")
+                position!(builder, entry)
+                ret!(builder)
             end
-
-            add!(lljit, jd, ts_mod)
-            addr = lookup(lljit, sym)
-            @test pointer(addr) != C_NULL
+            verify(mod)
         end
+
+        add!(lljit, jd, ts_mod)
+        addr = lookup(lljit, sym)
+        @test pointer(addr) != C_NULL
     end
     @test called_oll[] >= 1
+
+    builder = LLJITBuilder()
+    linkinglayercreator!(builder) do es, triple
+        throw(ArgumentError("object layer creator error"))
+    end
+    GC.gc()
+    try
+        LLJIT(builder)
+        @test false
+    catch err
+        @test err isa CallbackException
+        @test err.ex isa ArgumentError
+        @test occursin("object layer creator error", string(err.ex))
+        @test !isempty(err.processed_bt)
+    end
 end
 
 @testset "Lazy" begin
@@ -327,6 +366,7 @@ end
             dispose(ism)
         end
     end
+
 end
 
 end

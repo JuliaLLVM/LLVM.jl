@@ -4,7 +4,7 @@ SET(CMAKE_CXX_FLAGS "-Wall -fPIC -fno-rtti")
 
 project(LLVMExtra
 VERSION
-    1.10
+    1.11
 LANGUAGES
    CXX
    C

@@ -63,7 +63,9 @@ captured by the exception remain valid; see [`dispose(::Context)`](@ref).
 """
 function dispose(ctx::ThreadSafeContext)
     deactivate(ctx)
-    mark_dispose(leak_context() ? Returns(nothing) : API.LLVMOrcDisposeThreadSafeContext, ctx)
+    leak = leak_context()
+    leak || _remove_handlers(context(ctx))
+    mark_dispose(leak ? Returns(nothing) : API.LLVMOrcDisposeThreadSafeContext, ctx)
 end
 
 """
@@ -164,7 +166,7 @@ end
     (mod::ThreadSafeModule)(f)
 
 Apply `f` to the LLVM module contained within `mod`, after locking the module and activating
-its context.
+its context. Exceptions from `f` are reported after LLVM releases the module lock.
 """
 function (mod::ThreadSafeModule)(f)
     cb = ThreadSafeModuleCallback(f)

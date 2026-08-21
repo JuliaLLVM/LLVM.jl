@@ -1,4 +1,9 @@
 
+# Deliberately bypass the exception barrier used by NewPMCustomPass. This
+# models foreign pass integrations whose callbacks throw directly into LLVM.
+raw_throwing_module_pass(::LLVM.API.LLVMModuleRef, ::Ptr{Cvoid})::Bool =
+    error("exception thrown out of a raw pass callback")
+
 @testset "newpm" begin
 
 using LLVM.Interop
@@ -429,6 +434,22 @@ end
             @test_throws LLVM.PassException run!(pb, mod)
             @test success_count == 1
         end
+    end
+
+    # A raw callback can longjmp past LLVM's C++ frames. LLVMExtra must keep
+    # StandardInstrumentations' globally-registered state alive in that case,
+    # so a later pass pipeline does not write through dangling stack storage.
+    @dispose ctx=Context() mod=test_module() begin
+        callback = @cfunction(raw_throwing_module_pass, Bool,
+                              (LLVM.API.LLVMModuleRef, Ptr{Cvoid}))
+        @dispose pb=NewPMPassBuilder() begin
+            LLVM.API.LLVMPassBuilderExtensionsRegisterModulePass(
+                pb.exts, "raw-throwing-pass", callback, C_NULL)
+            add!(pb, "raw-throwing-pass")
+            @test_throws ErrorException run!(pb, mod)
+        end
+
+        @test run!("no-op-module", mod) === nothing
     end
 end
 

@@ -60,5 +60,6 @@ dispose(::ThreadSafeModule)
 LLJIT
 JITDylib
 lookup(::LLJIT, ::Any)
+CallbackException
 linkinglayercreator!
 ```

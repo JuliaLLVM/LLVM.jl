@@ -24,9 +24,11 @@ function link!(dst::Module, src::Module;
         flags |= UInt32(API.LLVMLinkerOverrideFromSrc)
     end
 
+    ctx = context(dst)
+    prepare_diagnostic(ctx)
     status = API.LLVMLinkModules3(dst, src, flags) |> Bool
-    @assert !status # caught by diagnostics handler
     mark_dispose(src)
+    check_diagnostic(ctx, status, "failed to link modules")
 
     return nothing
 end

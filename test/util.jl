@@ -87,6 +87,45 @@
             @test value_type(operands(add)[2]) == LLVM.Int64Type()
             @test value_type(add) == LLVM.Int64Type()
         end
+
+        # exceptions from cloning callbacks are rethrown from clone_into!
+        let new_f = LLVM.Function(mod, "type_mapper_error", fun_type)
+            value_map = Dict{LLVM.Value, LLVM.Value}(
+                old_param => new_param for (old_param, new_param) in
+                                            zip(parameters(f), parameters(new_f)))
+
+            err = try
+                clone_into!(new_f, f; value_map,
+                            type_mapper=_ -> throw(ArgumentError("type mapper error")))
+                nothing
+            catch err
+                err
+            end
+            @test err isa CallbackException
+            @test err.ex isa ArgumentError
+            @test occursin("type mapper error", string(err.ex))
+            @test !isempty(err.processed_bt)
+            verify(mod)
+        end
+
+        let new_f = LLVM.Function(mod, "materializer_error", fun_type)
+            value_map = Dict{LLVM.Value, LLVM.Value}(
+                old_param => new_param for (old_param, new_param) in
+                                            zip(parameters(f), parameters(new_f)))
+
+            err = try
+                clone_into!(new_f, f; value_map,
+                            materializer=_ -> throw(ArgumentError("materializer error")))
+                nothing
+            catch err
+                err
+            end
+            @test err isa CallbackException
+            @test err.ex isa ArgumentError
+            @test occursin("materializer error", string(err.ex))
+            @test !isempty(err.processed_bt)
+            verify(mod)
+        end
     end
 
     # bug in basic clone: mapped parameters were incorrect

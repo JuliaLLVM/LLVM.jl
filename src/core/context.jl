@@ -57,10 +57,12 @@ error reporting does not crash the process.
 """
 function dispose(ctx::Context)
     deactivate(ctx)
+    leak = leak_context()
+    leak || _remove_handlers(ctx)
     # in the leak path we still record the dispose in memcheck bookkeeping,
     # just without actually freeing, so report_leaks stays quiet and any real
     # missing dispose still stands out.
-    mark_dispose(leak_context() ? Returns(nothing) : API.LLVMContextDispose, ctx)
+    mark_dispose(leak ? Returns(nothing) : API.LLVMContextDispose, ctx)
 end
 
 function Context(f::Core.Function; kwargs...)
@@ -138,8 +140,7 @@ export LLVMException
 """
     LLVMException
 
-Exception type for errors in the LLVM API. Possibly thrown by diagnostic handlers, and fatal
-eror handlers.
+Exception type for errors reported by the LLVM API.
 """
 struct LLVMException <: Exception
     info::String
@@ -162,25 +163,53 @@ severity(di::DiagnosticInfo) = API.LLVMGetDiagInfoSeverity(di)
 message(di::DiagnosticInfo) = unsafe_message(API.LLVMGetDiagInfoDescription(di))
 
 function handle_diagnostic(diag_ref::API.LLVMDiagnosticInfoRef, args::Ptr{Cvoid})
-    di = DiagnosticInfo(diag_ref)
-    @assert args == C_NULL
+    state = Base.unsafe_pointer_to_objref(args)::DiagnosticState
+    try
+        di = DiagnosticInfo(diag_ref)
+        sev = severity(di)
+        msg = message(di)
 
-    sev = severity(di)
-    msg = message(di)
-
-    if sev == API.LLVMDSError
-        # NOTE: it might be more true to the API to just report an error here,
-        #       and require callers to verify whether operations succeeded,
-        #       but throwing here fails faster with better backtraces.
-        throw(LLVMException(msg))
-    elseif sev == API.LLVMDSWarning
-        @warn msg
-    elseif sev == API.LLVMDSRemark || sev == API.LLVMDSNote
-        @debug msg
-    else
-        error("unknown diagnostic severity level $sev")
+        if sev == API.LLVMDSError
+            state.error === nothing && (state.error = msg)
+        elseif sev == API.LLVMDSWarning
+            @warn msg
+        elseif sev == API.LLVMDSRemark || sev == API.LLVMDSNote
+            @debug msg
+        else
+            state.error === nothing &&
+                (state.error = "unknown diagnostic severity level $sev")
+        end
+    catch
+        # Diagnostic callbacks have no error return and must never unwind
+        # through their C++ caller, including when logging itself fails.
     end
 
+    return nothing
+end
+
+mutable struct DiagnosticState
+    error::Union{Nothing,String}
+    DiagnosticState() = new(nothing)
+end
+
+const DIAGNOSTIC_STATES = Dict{API.LLVMContextRef,DiagnosticState}()
+
+function prepare_diagnostic(ctx::Context)
+    state = get(DIAGNOSTIC_STATES, ctx.ref, nothing)
+    state === nothing || (state.error = nothing)
+    return nothing
+end
+
+function check_diagnostic(ctx::Context, failed::Bool=false,
+                          fallback::String="LLVM operation failed")
+    state = get(DIAGNOSTIC_STATES, ctx.ref, nothing)
+    if state !== nothing && state.error !== nothing
+        msg = state.error
+        state.error = nothing
+        throw(LLVMException(msg))
+    elseif failed
+        throw(LLVMException(fallback))
+    end
     return nothing
 end
 
@@ -199,25 +228,22 @@ function _install_handlers(ctx::Context)
     #API.LLVMContextSetYieldCallback(ctx, callback, C_NULL)
 
     # set diagnostic callback
+    state = DiagnosticState()
+    DIAGNOSTIC_STATES[ctx.ref] = state
     handler = @cfunction(handle_diagnostic, Cvoid, (API.LLVMDiagnosticInfoRef, Ptr{Cvoid}))
-    API.LLVMContextSetDiagnosticHandler(ctx, handler, C_NULL)
+    API.LLVMContextSetDiagnosticHandler(ctx, handler, Base.pointer_from_objref(state))
 
     return nothing
 end
 
-function handle_error(reason::Cstring)
-    throw(LLVMException(unsafe_string(reason)))
+function _remove_handlers(ctx::Context)
+    API.LLVMContextSetDiagnosticHandler(ctx, C_NULL, C_NULL)
+    delete!(DIAGNOSTIC_STATES, ctx.ref)
+    return nothing
 end
 
 function _install_handlers()
-    precompiling = @static if VERSION >= v"1.11.0-"
-        Base.generating_output()
-    else
-        ccall(:jl_generating_output, Cint, ()) != 0 && Base.JLOptions().incremental == 0
-    end
-    precompiling && return
-
-    handler = @cfunction(handle_error, Cvoid, (Cstring,))
-    API.LLVMInstallFatalErrorHandler(handler)
+    # LLVM fatal handlers are notifications before unconditional exit/abort,
+    # not recovery hooks. Keep LLVM's default reporting and termination path.
+    return nothing
 end
-

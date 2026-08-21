@@ -60,30 +60,46 @@ end
 
 mutable struct ObjectLinkingLayerCreator
     cb
+    exception::Union{Nothing,Tuple{Any,Vector}}
+    ObjectLinkingLayerCreator(cb) = new(cb, nothing)
 end
 
 function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, triple::Ptr{Cchar})
-    es = ExecutionSession(es)
-    triple = Base.unsafe_string(triple)
-
     ollc = Base.unsafe_pointer_to_objref(ctx)::ObjectLinkingLayerCreator
-    oll = ollc.cb(es, triple)::ObjectLinkingLayer
-    return oll.ref
+    try
+        layer = ollc.cb(ExecutionSession(es), Base.unsafe_string(triple))::ObjectLinkingLayer
+        return layer.ref
+    catch err
+        _capture_callback_exception!(ollc, err)
+        # The C callback has no error return. Give LLJIT a valid default layer
+        # so construction can finish normally and the Julia wrapper can throw.
+        return API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
+    end
 end
 
 """
-    linkinglayercreator!(builder::LLJITBuilder, creator::ObjectLinkingLayerCreator)
+    linkinglayercreator!(builder::LLJITBuilder, creator)
 
-!!! warning
-    The creator object needs to be rooted by the caller for the lifetime of the
-    builder argument.
+Install a Julia object-layer creator, called with the execution session and
+target triple. The builder keeps it rooted until it is consumed by
+[`LLJIT`](@ref). If it throws, the exception is rethrown as a
+[`CallbackException`](@ref) after LLJIT construction returns through LLVM.
 """
-function linkinglayercreator!(builder::LLJITBuilder, creator::ObjectLinkingLayerCreator)
+function linkinglayercreator!(builder::LLJITBuilder, creator)
+    linkinglayercreator!(builder, ObjectLinkingLayerCreator(creator))
+end
+
+function linkinglayercreator!(builder::LLJITBuilder, state::ObjectLinkingLayerCreator)
+    state.exception = nothing
+    push!(builder.roots, state)
     cb = @cfunction(ollc_callback,
                     API.LLVMOrcObjectLayerRef,
                     (Ptr{Cvoid}, API.LLVMOrcExecutionSessionRef, Ptr{Cchar}))
-    linkinglayercreator!(builder, cb, Base.pointer_from_objref(creator))
+    linkinglayercreator!(builder, cb, Base.pointer_from_objref(state))
 end
+
+linkinglayercreator!(creator::Core.Function, builder::LLJITBuilder) =
+    linkinglayercreator!(builder, creator)
 
 include("executionengine/ts_module.jl")
 
@@ -280,22 +296,29 @@ Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::Materializati
 mutable struct CustomMaterializationUnit <: AbstractMaterializationUnit
     materialize
     discard
+    exception::Union{Nothing,Tuple{Any,Vector}}
     mu::MaterializationUnit
     function CustomMaterializationUnit(materialize, discard)
-        new(materialize, discard)
+        new(materialize, discard, nothing)
     end
 end
 Base.cconvert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::CustomMaterializationUnit) = mu.mu
 
 const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
 
+function check_callback_error(mu::CustomMaterializationUnit)
+    mu.exception === nothing && return nothing
+    err, bt = mu.exception
+    mu.exception = nothing
+    throw(CallbackException("ORC materialization unit", err, bt))
+end
+
 function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibilityRef)
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
     try
         mu.materialize(MaterializationResponsibility(mr))
     catch err
-        bt = catch_backtrace()
-        showerror(stderr, err, bt)
+        _capture_callback_exception!(mu, err)
         API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
     end
     nothing
@@ -306,8 +329,9 @@ function __discard(ctx::Ptr{Cvoid}, jd::API.LLVMOrcJITDylibRef, symbol::API.LLVM
     try
         mu.discard(JITDylib(jd), LLVMSymbol(symbol))
     catch err
-        bt = catch_backtrace()
-        showerror(stderr, err, bt)
+        # ORC's discard callback has no failure return. Preserve the exception
+        # on the owned materialization unit for a later Julia-side check.
+        _capture_callback_exception!(mu, err)
     end
     nothing
 end

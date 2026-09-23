@@ -101,6 +101,9 @@ end
             inner = DILocation(10, 20, lb, outer)
             @test LLVM.inlined_at(inner) == outer
 
+            # Julia emits -1 for an unknown line
+            @test LLVM.line(DILocation(typemax(UInt32), 0, sp)) == -1
+
             # DILocation requires a scope
             @test_throws ArgumentError DILocation(1, 2, nothing)
         end
@@ -228,6 +231,7 @@ end
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
             @test sp isa DISubProgram
             @test LLVM.line(sp) == 1
+            @test LLVM.line(LLVM.subprogram!(dib, file, "unknown", file, typemax(UInt32), stype)) == -1
 
             # variables
             v = LLVM.auto_variable!(dib, sp, "x", file, 2, i64)

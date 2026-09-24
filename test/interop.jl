@@ -617,4 +617,66 @@ else
     end
 end
 
+# the Julia dialect C API is only present in Julia builds with llvm-dialects
+# (JuliaLang/julia#52945)
+has_julia_dialect = try
+    cglobal(:JLDialectsAttachContext) != C_NULL
+catch
+    false
+end
+
+if has_julia_dialect
+@testset "julia dialect" begin
+    @dispose ctx=Context() begin
+        dc = JuliaDialectContext(ctx)
+        try
+            mod = LLVM.Module("dialect_test")
+            # the size-type query below is defined by the module datalayout
+            datalayout!(mod, "e-p:$(8*sizeof(Int)):$(8*sizeof(Int))")
+            fn = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType()))
+            @dispose builder=IRBuilder() begin
+                entry = BasicBlock(fn, "top")
+                position!(builder, entry)
+
+                pgc = get_pgcstack!(builder)
+                @test pgc isa Instruction
+                two = ConstantInt(Int32(2))
+                frame = new_gc_frame!(builder, two)
+                push_gc_frame!(builder, frame, two)
+                slot = get_gc_frame_slot!(builder, frame, ConstantInt(Int32(0)))
+                @test slot isa Instruction
+                pop_gc_frame!(builder, frame)
+                ret!(builder)
+            end
+
+            verify_dialect(mod)
+            @test gc_alloc_bytes_size_type(mod) == LLVM.IntType(8*sizeof(Int))
+
+            ir = string(mod)
+            @test occursin("call ptr @julia.get_pgcstack()", ir)
+            @test occursin("call ptr @julia.new_gc_frame(i32 2)", ir)
+            @test occursin("declare noalias nonnull ptr @julia.new_gc_frame(i32)", ir)
+
+            # an ill-formed use of a dialect op must be rejected: julia.gc_loaded
+            # takes a Tracked (addrspace 10) base, not a plain pointer
+            bad = LLVM.Function(mod, "julia.gc_loaded",
+                                LLVM.FunctionType(LLVM.PointerType(),
+                                                  [LLVM.PointerType(), LLVM.PointerType()]))
+            caller = LLVM.Function(mod, "g",
+                                   LLVM.FunctionType(LLVM.VoidType(),
+                                                     [LLVM.PointerType(), LLVM.PointerType()]))
+            @dispose builder=IRBuilder() begin
+                entry = BasicBlock(caller, "top")
+                position!(builder, entry)
+                call!(builder, function_type(bad), bad, collect(parameters(caller)))
+                ret!(builder)
+            end
+            @test_throws LLVMException verify_dialect(mod)
+        finally
+            dispose(dc)
+        end
+    end
+end
+end
+
 end

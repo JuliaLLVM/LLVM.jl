@@ -138,3 +138,66 @@ end
 function JLJITGetIRCompileLayer(JIT)
     ccall(:JLJITGetIRCompileLayer, LLVMOrcIRCompileLayerRef, (JuliaOJITRef,), JIT)
 end
+
+
+# Julia dialect (julia/src/JuliaDialect.cpp), Julia 1.14+
+
+mutable struct JLOpaqueJLDialectContext end
+
+const JLDialectContextRef = Ptr{JLOpaqueJLDialectContext}
+
+function JLDialectsAttachContext(C)
+    ccall(:JLDialectsAttachContext, JLDialectContextRef, (LLVMContextRef,), C)
+end
+
+function JLDialectsDisposeContext(DC)
+    ccall(:JLDialectsDisposeContext, Cvoid, (JLDialectContextRef,), DC)
+end
+
+function JLDialectsVerifyModule(M, OutMessage)
+    ccall(:JLDialectsVerifyModule, LLVMBool, (LLVMModuleRef, Ptr{Cstring}), M, OutMessage)
+end
+
+function JLDialectsGCAllocBytesSizeType(M)
+    ccall(:JLDialectsGCAllocBytesSizeType, LLVMTypeRef, (LLVMModuleRef,), M)
+end
+
+function JLBuildGetPGCStack(B)
+    ccall(:JLBuildGetPGCStack, LLVMValueRef, (LLVMBuilderRef,), B)
+end
+
+function JLBuildGetPGCStackOrNew(B)
+    ccall(:JLBuildGetPGCStackOrNew, LLVMValueRef, (LLVMBuilderRef,), B)
+end
+
+function JLBuildGCLoaded(B, Base, Tracked)
+    ccall(:JLBuildGCLoaded, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef), B, Base, Tracked)
+end
+
+function JLBuildNewGCFrame(B, Size)
+    ccall(:JLBuildNewGCFrame, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef), B, Size)
+end
+
+function JLBuildPushGCFrame(B, Frame, Size)
+    ccall(:JLBuildPushGCFrame, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef), B, Frame, Size)
+end
+
+function JLBuildPopGCFrame(B, Frame)
+    ccall(:JLBuildPopGCFrame, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef), B, Frame)
+end
+
+function JLBuildGetGCFrameSlot(B, Frame, Index)
+    ccall(:JLBuildGetGCFrameSlot, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef), B, Frame, Index)
+end
+
+function JLBuildGCAllocBytes(B, Ptls, Size, Type)
+    ccall(:JLBuildGCAllocBytes, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, LLVMValueRef), B, Ptls, Size, Type)
+end
+
+function JLBuildQueueGCRoot(B, Root)
+    ccall(:JLBuildQueueGCRoot, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef), B, Root)
+end
+
+function JLBuildSafepoint(B, SignalPage)
+    ccall(:JLBuildSafepoint, LLVMValueRef, (LLVMBuilderRef, LLVMValueRef), B, SignalPage)
+end

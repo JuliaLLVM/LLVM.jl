@@ -92,6 +92,13 @@ a tagged DWARF-like metadata node.
 abstract type DINode <: MDNode end
 
 
+# LLVM line numbers are unsigned, with 0 meaning "no line". Julia's codegen additionally
+# emits -1 (all ones) for an unknown line, which its DWARF reader reads back as a signed
+# `int`. Return that as -1, like `Base.StackTraces` does, instead of 4294967295 or, on
+# 32-bit platforms, an InexactError.
+line_number(x::Cuint) = x == typemax(Cuint) ? -1 : Int(x)
+
+
 ## variables
 
 export DIVariable, file, scope, line
@@ -153,7 +160,7 @@ end
 
 Get the line number of the given variable.
 """
-line(var::DIVariable) = Int(API.LLVMDIVariableGetLine(var))
+line(var::DIVariable) = line_number(API.LLVMDIVariableGetLine(var))
 
 
 ## scopes
@@ -222,9 +229,9 @@ DILocation(line::Integer, col::Integer, scope::Nothing, inlined_at=nothing) =
 """
     line(location::DILocation)
 
-Get the line number of this debug location.
+Get the line number of this debug location, or -1 if unknown.
 """
-line(location::DILocation) = Int(API.LLVMDILocationGetLine(location))
+line(location::DILocation) = line_number(API.LLVMDILocationGetLine(location))
 
 """
     column(location::DILocation)
@@ -432,7 +439,7 @@ offset(typ::DIType) = Int(API.LLVMDITypeGetOffsetInBits(typ))
 
 Get the line number of the given type.
 """
-line(typ::DIType) = Int(API.LLVMDITypeGetLine(typ))
+line(typ::DIType) = line_number(API.LLVMDITypeGetLine(typ))
 
 """
     flags(typ::DIType)
@@ -1161,9 +1168,9 @@ register(DISubProgram, API.LLVMDISubprogramMetadataKind)
 """
     line(subprogram::DISubProgram)
 
-Get the line number of the given subprogram.
+Get the line number of the given subprogram, or -1 if unknown.
 """
-line(subprogram::DISubProgram) = Int(API.LLVMDISubprogramGetLine(subprogram))
+line(subprogram::DISubProgram) = line_number(API.LLVMDISubprogramGetLine(subprogram))
 
 """
     subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,

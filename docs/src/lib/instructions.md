@@ -48,8 +48,11 @@ SyncScope
 syncscope
 syncscope!
 binop
+LLVM.available
 isweak
 weak!
+isvolatile
+volatile!
 success_ordering
 success_ordering!
 failure_ordering

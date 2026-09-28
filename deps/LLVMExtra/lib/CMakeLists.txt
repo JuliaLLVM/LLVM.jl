@@ -1,5 +1,6 @@
 add_library(LLVMExtra-${LLVM_VERSION_MAJOR}
   SHARED
+  Atomics.cpp
   Core.cpp
   NewPM.cpp
 )

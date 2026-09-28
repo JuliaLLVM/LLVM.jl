@@ -127,7 +127,9 @@ predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
 
 export is_atomic, ordering, ordering!, SyncScope, syncscope, syncscope!, binop,
        isweak, weak!, isvolatile, volatile!,
-       success_ordering, success_ordering!, failure_ordering, failure_ordering!
+       success_ordering, success_ordering!, failure_ordering, failure_ordering!,
+       is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
+       strongest_failure_ordering, mmra!, copy_atomic_metadata!
 
 const AtomicInst = Union{LoadInst, StoreInst, FenceInst, AtomicRMWInst, AtomicCmpXchgInst}
 
@@ -143,21 +145,178 @@ is_atomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
 """
     ordering(atomic_inst::Instruction)
 
-Get the atomic ordering of the given atomic instruction.
+Get the atomic ordering of the given atomic instruction. For `cmpxchg` instructions, use
+[`success_ordering`](@ref) and [`failure_ordering`](@ref), or [`merged_ordering`](@ref).
 """
 function ordering(inst::AtomicInst)
     is_atomic(inst) || throw(ArgumentError("Instruction is not atomic"))
-    API.LLVMGetOrdering(inst)
+    @static if version() < v"18"
+        API.LLVMExtraGetOrdering(inst)
+    else
+        API.LLVMGetOrdering(inst)
+    end
 end
+ordering(::AtomicCmpXchgInst) =
+    throw(ArgumentError("cmpxchg instructions have a success and a failure ordering"))
 
 """
     ordering!(inst::Instruction, ordering::LLVM.AtomicOrdering)
 
-Set the atomic ordering of the given instruction.
+Set the atomic ordering of the given instruction. For `cmpxchg` instructions, use
+[`success_ordering!`](@ref) and [`failure_ordering!`](@ref).
 """
 function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
-    # loads and stores can be made atomic by setting an ordering
-    API.LLVMSetOrdering(inst, ord)
+    # loads and stores can be made atomic by setting an ordering, but LLVM asserts when
+    # setting an invalid ordering on other instructions
+    if inst isa AtomicRMWInst
+        is_stronger(ord, API.LLVMAtomicOrderingUnordered) ||
+            throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $ord"))
+    elseif inst isa FenceInst
+        check_fence_ordering(ord)
+    end
+    @static if version() < v"18"
+        API.LLVMExtraSetOrdering(inst, ord)
+    else
+        API.LLVMSetOrdering(inst, ord)
+    end
+end
+ordering!(::AtomicCmpXchgInst, ::API.LLVMAtomicOrdering) =
+    throw(ArgumentError("cmpxchg instructions have a success and a failure ordering"))
+
+check_fence_ordering(o::API.LLVMAtomicOrdering) =
+    o == API.LLVMAtomicOrderingAcquire || is_release_or_stronger(o) ||
+        throw(ArgumentError("Fences must have acquire, release, acq_rel or seq_cst ordering, got $o"))
+
+# the names LLVM uses in IR, and Julia's names for the orderings that differ
+const ORDERING_NAMES = Dict(
+    "not_atomic" => API.LLVMAtomicOrderingNotAtomic,
+    "unordered" => API.LLVMAtomicOrderingUnordered,
+    "monotonic" => API.LLVMAtomicOrderingMonotonic,
+    "acquire" => API.LLVMAtomicOrderingAcquire,
+    "release" => API.LLVMAtomicOrderingRelease,
+    "acq_rel" => API.LLVMAtomicOrderingAcquireRelease,
+    "acquire_release" => API.LLVMAtomicOrderingAcquireRelease,
+    "seq_cst" => API.LLVMAtomicOrderingSequentiallyConsistent,
+    "sequentially_consistent" => API.LLVMAtomicOrderingSequentiallyConsistent)
+
+"""
+    parse(API.LLVMAtomicOrdering, name::AbstractString)
+
+Get the atomic ordering with the given name, as used in LLVM IR (e.g. `"acq_rel"`), or as
+used by Julia's atomics (e.g. `"acquire_release"`).
+"""
+function Base.parse(::Type{API.LLVMAtomicOrdering}, name::AbstractString)
+    ord = get(ORDERING_NAMES, name, nothing)
+    ord === nothing && throw(ArgumentError("Unknown atomic ordering \"$name\""))
+    return ord
+end
+
+const RMW_BINOP_NAMES = Dict(
+    "xchg" => API.LLVMAtomicRMWBinOpXchg, "add" => API.LLVMAtomicRMWBinOpAdd,
+    "sub" => API.LLVMAtomicRMWBinOpSub, "and" => API.LLVMAtomicRMWBinOpAnd,
+    "nand" => API.LLVMAtomicRMWBinOpNand, "or" => API.LLVMAtomicRMWBinOpOr,
+    "xor" => API.LLVMAtomicRMWBinOpXor, "max" => API.LLVMAtomicRMWBinOpMax,
+    "min" => API.LLVMAtomicRMWBinOpMin, "umax" => API.LLVMAtomicRMWBinOpUMax,
+    "umin" => API.LLVMAtomicRMWBinOpUMin, "fadd" => API.LLVMAtomicRMWBinOpFAdd,
+    "fsub" => API.LLVMAtomicRMWBinOpFSub, "fmax" => API.LLVMAtomicRMWBinOpFMax,
+    "fmin" => API.LLVMAtomicRMWBinOpFMin, "uinc_wrap" => API.LLVMAtomicRMWBinOpUIncWrap,
+    "udec_wrap" => API.LLVMAtomicRMWBinOpUDecWrap,
+    "usub_cond" => API.LLVMAtomicRMWBinOpUSubCond,
+    "usub_sat" => API.LLVMAtomicRMWBinOpUSubSat,
+    "fmaximum" => API.LLVMAtomicRMWBinOpFMaximum,
+    "fminimum" => API.LLVMAtomicRMWBinOpFMinimum)
+
+"""
+    parse(API.LLVMAtomicRMWBinOp, name::AbstractString)
+
+Get the `atomicrmw` operation with the given name, as used in LLVM IR (e.g. `"uinc_wrap"`).
+This works for every operation, whether or not it is [`available`](@ref) with the version
+of LLVM in use.
+"""
+function Base.parse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString)
+    op = get(RMW_BINOP_NAMES, name, nothing)
+    op === nothing && throw(ArgumentError("Unknown atomicrmw operation \"$name\""))
+    return op
+end
+
+is_fp_rmw(op::API.LLVMAtomicRMWBinOp) =
+    op in (API.LLVMAtomicRMWBinOpFAdd, API.LLVMAtomicRMWBinOpFSub,
+           API.LLVMAtomicRMWBinOpFMax, API.LLVMAtomicRMWBinOpFMin,
+           API.LLVMAtomicRMWBinOpFMaximum, API.LLVMAtomicRMWBinOpFMinimum)
+
+# the lattice of orderings, from llvm/Support/AtomicOrdering.h
+const ORDERING_LATTICE = let
+    NA, UN, MO = API.LLVMAtomicOrderingNotAtomic, API.LLVMAtomicOrderingUnordered,
+                 API.LLVMAtomicOrderingMonotonic
+    AC, RE, AR = API.LLVMAtomicOrderingAcquire, API.LLVMAtomicOrderingRelease,
+                 API.LLVMAtomicOrderingAcquireRelease
+    SC = API.LLVMAtomicOrderingSequentiallyConsistent
+    # each ordering, and the ones it is strictly stronger than
+    Dict(NA => (), UN => (NA,), MO => (NA, UN), AC => (NA, UN, MO), RE => (NA, UN, MO),
+         AR => (NA, UN, MO, AC, RE), SC => (NA, UN, MO, AC, RE, AR))
+end
+
+"""
+    is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering)
+
+Check whether ordering `a` is strictly stronger than `b`. Orderings are only partially
+ordered: `acquire` and `release` are incomparable, and both are weaker than `acq_rel`.
+"""
+is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering) = b in ORDERING_LATTICE[a]
+
+"""
+    is_acquire_or_stronger(ordering::API.LLVMAtomicOrdering)
+
+Check whether an ordering has acquire semantics: `acquire`, `acq_rel` or `seq_cst`.
+"""
+is_acquire_or_stronger(o::API.LLVMAtomicOrdering) =
+    o == API.LLVMAtomicOrderingAcquire || is_stronger(o, API.LLVMAtomicOrderingAcquire)
+
+"""
+    is_release_or_stronger(ordering::API.LLVMAtomicOrdering)
+
+Check whether an ordering has release semantics: `release`, `acq_rel` or `seq_cst`.
+"""
+is_release_or_stronger(o::API.LLVMAtomicOrdering) =
+    o == API.LLVMAtomicOrderingRelease || is_stronger(o, API.LLVMAtomicOrderingRelease)
+
+"""
+    merged_ordering(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering)
+    merged_ordering(inst::AtomicCmpXchgInst)
+
+Get the weakest ordering that is at least as strong as both `a` and `b`, e.g., to perform
+an operation that needs the guarantees of both. For a `cmpxchg` instruction, this merges
+its success and failure orderings.
+"""
+function merged_ordering(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering)
+    if (a == API.LLVMAtomicOrderingAcquire && b == API.LLVMAtomicOrderingRelease) ||
+       (a == API.LLVMAtomicOrderingRelease && b == API.LLVMAtomicOrderingAcquire)
+        return API.LLVMAtomicOrderingAcquireRelease
+    end
+    return is_stronger(a, b) ? a : b
+end
+merged_ordering(inst::AtomicCmpXchgInst) =
+    merged_ordering(success_ordering(inst), failure_ordering(inst))
+
+"""
+    strongest_failure_ordering(success::API.LLVMAtomicOrdering)
+
+Get the strongest failure ordering that is valid for a `cmpxchg` with the given success
+ordering, i.e., the success ordering without its release semantics. This is the
+conventional choice of failure ordering (and the default of [`atomic_cmpxchg!`](@ref)),
+but other combinations are valid too, e.g. `release` on success and `acquire` on failure.
+"""
+function strongest_failure_ordering(success::API.LLVMAtomicOrdering)
+    if success == API.LLVMAtomicOrderingRelease || success == API.LLVMAtomicOrderingMonotonic
+        API.LLVMAtomicOrderingMonotonic
+    elseif success == API.LLVMAtomicOrderingAcquireRelease ||
+           success == API.LLVMAtomicOrderingAcquire
+        API.LLVMAtomicOrderingAcquire
+    elseif success == API.LLVMAtomicOrderingSequentiallyConsistent
+        API.LLVMAtomicOrderingSequentiallyConsistent
+    else
+        throw(ArgumentError("cmpxchg requires an ordering of at least monotonic, got $success"))
+    end
 end
 
 """
@@ -305,6 +464,51 @@ isvolatile(inst::MemAccessInst) = API.LLVMGetVolatile(inst) |> Bool
 Set whether the given memory access is volatile.
 """
 volatile!(inst::MemAccessInst, is_volatile::Bool) = API.LLVMSetVolatile(inst, is_volatile)
+
+"""
+    mmra!(inst::Instruction, tags::Pair{<:AbstractString,<:AbstractString}...)
+
+Attach memory model relaxation annotations (`!mmra` metadata) to an instruction, replacing
+any existing ones. Each tag is a `prefix => suffix` pair, e.g. `"amdgpu-as" => "local"`.
+Without tags, the annotations are removed. MMRAs are supported by LLVM 19 and later;
+older versions preserve the metadata but don't interpret it.
+"""
+function mmra!(inst::Instruction, tags::Pair{<:AbstractString,<:AbstractString}...)
+    md = metadata(inst)
+    if isempty(tags)
+        delete!(md, "mmra")
+    else
+        nodes = [MDNode([MDString(String(k)), MDString(String(v))]) for (k, v) in tags]
+        md["mmra"] = length(nodes) == 1 ? only(nodes) : MDNode(nodes)
+    end
+    return inst
+end
+
+# the metadata that AtomicExpand preserves when rewriting an atomic memory operation
+const ATOMIC_METADATA = ["tbaa", "tbaa.struct", "alias.scope", "noalias",
+                         "noalias.addrspace", "llvm.access.group", "mmra",
+                         "amdgpu.no.remote.memory", "amdgpu.no.fine.grained.memory",
+                         "amdgpu.ignore.denormal.mode"]
+
+"""
+    copy_atomic_metadata!(dest::Instruction, src::Instruction)
+
+Copy the metadata of an atomic memory operation `src` that remains valid for `dest`, an
+instruction that implements (part of) the same memory access, e.g., when expanding an
+`atomicrmw` into a `cmpxchg` loop. This includes the debug location, aliasing information,
+memory model relaxation annotations and target-specific atomic metadata, but not
+metadata that describes the value, like `!range`. Metadata of `src` that `dest` already
+has is overwritten.
+"""
+function copy_atomic_metadata!(dest::Instruction, src::Instruction)
+    loc = debuglocation(src)
+    loc === nothing || debuglocation!(dest, loc)
+    src_md, dest_md = metadata(src), metadata(dest)
+    for kind in ATOMIC_METADATA
+        haskey(src_md, kind) && (dest_md[kind] = src_md[kind])
+    end
+    return dest
+end
 
 """
     success_ordering(inst::AtomicCmpXchgInst)

@@ -58,6 +58,40 @@ success_ordering
 success_ordering!
 failure_ordering
 failure_ordering!
+merged_ordering
+strongest_failure_ordering
+is_stronger
+is_acquire_or_stronger
+is_release_or_stronger
+parse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)
+parse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)
+mmra!
+copy_atomic_metadata!
+```
+
+### Building memory accesses and atomics
+
+```@docs
+load!
+store!
+fence!
+atomic_rmw!
+atomic_cmpxchg!
+```
+
+### Expanding atomics
+
+```@docs
+atomic_rmw_value!
+atomic_cmpxchg_value!
+lower_atomic!
+expand_to_cmpxchg!
+cast_atomic_to_integer!
+expand_partword!
+PartwordMask
+partword_mask!
+extract_masked_value!
+insert_masked_value!
 ```
 
 ## Call instructions

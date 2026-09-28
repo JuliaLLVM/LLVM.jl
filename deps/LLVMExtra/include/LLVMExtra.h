@@ -267,11 +267,49 @@ LLVMValueRef LLVMExtraBuildAtomicRMWSyncScope(LLVMBuilderRef B, unsigned op, LLV
 unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef AtomicRMWInst);
 #endif
 
+// orderings of fences and atomicrmw instructions
+#if LLVM_VERSION_MAJOR < 18 // llvm/llvm-project#65228
+LLVMAtomicOrdering LLVMExtraGetOrdering(LLVMValueRef MemAccessInst);
+void LLVMExtraSetOrdering(LLVMValueRef MemAccessInst, LLVMAtomicOrdering Ordering);
+#endif
+
 // more LLVMContextRef APIs
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#99087
 LLVMContextRef LLVMGetValueContext(LLVMValueRef Val);
 LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder);
 #endif
+
+// expansion of atomics, using LLVM's own utilities or copies of AtomicExpandPass code. The
+// operations take the LLVMAtomicRMWBinOp values of the most recent C API, as integers.
+LLVMValueRef LLVMExtraBuildAtomicRMWValue(LLVMBuilderRef B, unsigned Op, LLVMValueRef Loaded,
+                                          LLVMValueRef Val);
+LLVMValueRef LLVMExtraBuildCmpXchgValue(LLVMBuilderRef B, LLVMValueRef PointerVal, LLVMValueRef Cmp,
+                                        LLVMValueRef Val, unsigned Alignment,
+                                        LLVMValueRef *Success);
+LLVMBool LLVMExtraLowerAtomicRMWInst(LLVMValueRef RMWI);
+LLVMBool LLVMExtraLowerAtomicCmpXchgInst(LLVMValueRef CXI);
+LLVMBool LLVMExtraExpandAtomicRMWToCmpXchg(LLVMValueRef RMWI);
+LLVMValueRef LLVMExtraCastAtomicToInteger(LLVMValueRef Inst);
+typedef struct {
+  LLVMTypeRef WordType;
+  LLVMTypeRef ValueType;
+  LLVMTypeRef IntValueType;
+  LLVMValueRef AlignedAddr;
+  unsigned AlignedAddrAlignment;
+  LLVMValueRef ShiftAmt;
+  LLVMValueRef Mask;
+  LLVMValueRef InvMask;
+} LLVMExtraPartwordMaskValues;
+void LLVMExtraCreatePartwordMaskValues(LLVMBuilderRef B, LLVMTypeRef ValueType,
+                                       LLVMValueRef Addr, unsigned AddrAlign,
+                                       unsigned MinWordSize, LLVMExtraPartwordMaskValues *PMV);
+LLVMValueRef LLVMExtraExtractMaskedValue(LLVMBuilderRef B, LLVMValueRef WideWord,
+                                         const LLVMExtraPartwordMaskValues *PMV);
+LLVMValueRef LLVMExtraInsertMaskedValue(LLVMBuilderRef B, LLVMValueRef WideWord,
+                                        LLVMValueRef Updated,
+                                        const LLVMExtraPartwordMaskValues *PMV);
+LLVMBool LLVMExtraExpandPartwordAtomicRMW(LLVMValueRef RMWI, unsigned MinWordSize);
+LLVMBool LLVMExtraExpandPartwordCmpXchg(LLVMValueRef CXI, unsigned MinWordSize);
 
 // the name of a synchronization scope, or NULL if the context does not know it
 const char *LLVMExtraGetSyncScopeName(LLVMContextRef C, unsigned SSID, size_t *Len);

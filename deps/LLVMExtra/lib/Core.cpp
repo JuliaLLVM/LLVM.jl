@@ -894,6 +894,40 @@ unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef Inst) {
 }
 #endif
 
+#if LLVM_VERSION_MAJOR < 18
+static LLVMAtomicOrdering mapToLLVMOrdering(AtomicOrdering Ordering) {
+  switch (Ordering) {
+    case AtomicOrdering::NotAtomic: return LLVMAtomicOrderingNotAtomic;
+    case AtomicOrdering::Unordered: return LLVMAtomicOrderingUnordered;
+    case AtomicOrdering::Monotonic: return LLVMAtomicOrderingMonotonic;
+    case AtomicOrdering::Acquire: return LLVMAtomicOrderingAcquire;
+    case AtomicOrdering::Release: return LLVMAtomicOrderingRelease;
+    case AtomicOrdering::AcquireRelease: return LLVMAtomicOrderingAcquireRelease;
+    case AtomicOrdering::SequentiallyConsistent:
+      return LLVMAtomicOrderingSequentiallyConsistent;
+    default: break;
+  }
+  llvm_unreachable("Invalid AtomicOrdering value!");
+}
+
+// the C API versions don't handle fences, and can't set the ordering of atomicrmw
+LLVMAtomicOrdering LLVMExtraGetOrdering(LLVMValueRef MemAccessInst) {
+  Value *P = unwrap(MemAccessInst);
+  if (FenceInst *FI = dyn_cast<FenceInst>(P))
+    return mapToLLVMOrdering(FI->getOrdering());
+  return LLVMGetOrdering(MemAccessInst);
+}
+
+void LLVMExtraSetOrdering(LLVMValueRef MemAccessInst, LLVMAtomicOrdering Ordering) {
+  Value *P = unwrap(MemAccessInst);
+  if (FenceInst *FI = dyn_cast<FenceInst>(P))
+    return FI->setOrdering(mapFromLLVMOrdering(Ordering));
+  if (AtomicRMWInst *RMWI = dyn_cast<AtomicRMWInst>(P))
+    return RMWI->setOrdering(mapFromLLVMOrdering(Ordering));
+  LLVMSetOrdering(MemAccessInst, Ordering);
+}
+#endif
+
 LLVMValueRef LLVMBuildAtomicCmpXchgSyncScope(LLVMBuilderRef B, LLVMValueRef Ptr,
                                              LLVMValueRef Cmp, LLVMValueRef New,
                                              LLVMAtomicOrdering SuccessOrdering,

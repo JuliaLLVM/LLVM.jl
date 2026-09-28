@@ -330,24 +330,123 @@ memmove!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value, SrcAlign
 free!(builder::IRBuilder, PointerVal::Value) =
     Instruction(API.LLVMBuildFree(builder, PointerVal))
 
-function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::String="")
-    @static if version() >= v"11"
+## memory accesses and atomics
+
+# The keyword arguments of the builders below are validated before creating instructions,
+# throwing an ArgumentError for IR that no supported version of LLVM accepts. Rules that
+# depend on the LLVM version (e.g. vector operands) or the data layout are left to the
+# verifier.
+
+const NotAtomic = API.LLVMAtomicOrderingNotAtomic
+const Unordered = API.LLVMAtomicOrderingUnordered
+const Acquire = API.LLVMAtomicOrderingAcquire
+const Release = API.LLVMAtomicOrderingRelease
+const AcquireRelease = API.LLVMAtomicOrderingAcquireRelease
+
+# `nothing` is the default, system scope
+atomic_scope(::Nothing) = SyncScope(1)
+atomic_scope(scope::SyncScope) = scope
+atomic_scope(name::Union{AbstractString,Symbol}) = SyncScope(String(name))
+
+function check_alignment(align)
+    align === nothing || (align > 0 && ispow2(align)) ||
+        throw(ArgumentError("Alignment must be a positive power of 2, got $align"))
+end
+
+# atomic accesses must be of a byte-sized power-of-two size. only integers are checked, as
+# the size of other types can depend on the data layout.
+function check_atomic_type(@nospecialize(T::LLVMType), what::String)
+    if T isa StructType || T isa ArrayType || T isa VoidType || T isa LabelType
+        throw(ArgumentError("$what does not support values of type $(string(T))"))
+    end
+    if T isa IntegerType && !(width(T) >= 8 && ispow2(width(T)))
+        throw(ArgumentError("$what requires a power-of-two number of bytes, got $(string(T))"))
+    end
+end
+
+function set_access_flags!(inst::Instruction, ordering, scope, align, volatile)
+    align === nothing || alignment!(inst, align)
+    if ordering != NotAtomic
+        ordering!(inst, ordering)
+        scope === nothing || syncscope!(inst, atomic_scope(scope))
+    end
+    volatile && volatile!(inst, true)
+    return inst
+end
+
+"""
+    load!(builder::IRBuilder, T::LLVMType, ptr::Value, name::String="";
+          ordering=API.LLVMAtomicOrderingNotAtomic, scope=nothing, align=nothing,
+          volatile=false)
+
+Load a value of type `T` from `ptr`. The load is atomic if an `ordering` other than
+`not_atomic` is given, in the synchronization `scope` (a [`SyncScope`](@ref), its name, or
+`nothing` for the default system scope). By default, the load is aligned to the ABI
+alignment of `T`.
+"""
+function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::String="";
+               ordering::API.LLVMAtomicOrdering=NotAtomic, scope=nothing, align=nothing,
+               volatile::Bool=false)
+    if ordering != NotAtomic
+        (ordering == Release || ordering == AcquireRelease) &&
+            throw(ArgumentError("Atomic loads cannot have release semantics, got $ordering"))
+        check_atomic_type(Ty, "An atomic load")
+    elseif scope !== nothing && atomic_scope(scope) != SyncScope(1)
+        throw(ArgumentError("Non-atomic loads cannot have a synchronization scope"))
+    end
+    check_alignment(align)
+    inst = @static if version() >= v"11"
         Instruction(API.LLVMBuildLoad2(builder, Ty, PointerVal, Name))
     else
         Instruction(API.LLVMBuildLoad(builder, PointerVal, Name))
     end
+    set_access_flags!(inst, ordering, scope, align, volatile)
 end
 
-store!(builder::IRBuilder, Val::Value, Ptr::Value) =
-    Instruction(API.LLVMBuildStore(builder, Val, Ptr))
+"""
+    store!(builder::IRBuilder, val::Value, ptr::Value;
+           ordering=API.LLVMAtomicOrderingNotAtomic, scope=nothing, align=nothing,
+           volatile=false)
 
-fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, singleThread::Bool=false,
-       Name::String="") =
-    Instruction(API.LLVMBuildFence(builder, ordering, singleThread, Name))
+Store `val` to `ptr`. See [`load!`](@ref) for the meaning of the keyword arguments.
+"""
+function store!(builder::IRBuilder, Val::Value, Ptr::Value;
+                ordering::API.LLVMAtomicOrdering=NotAtomic, scope=nothing, align=nothing,
+                volatile::Bool=false)
+    if ordering != NotAtomic
+        (ordering == Acquire || ordering == AcquireRelease) &&
+            throw(ArgumentError("Atomic stores cannot have acquire semantics, got $ordering"))
+        check_atomic_type(value_type(Val), "An atomic store")
+    elseif scope !== nothing && atomic_scope(scope) != SyncScope(1)
+        throw(ArgumentError("Non-atomic stores cannot have a synchronization scope"))
+    end
+    check_alignment(align)
+    inst = Instruction(API.LLVMBuildStore(builder, Val, Ptr))
+    set_access_flags!(inst, ordering, scope, align, volatile)
+end
 
-fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope::SyncScope,
-       Name::String="") =
+"""
+    fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering; scope=nothing)
+
+Create a fence with the given ordering, which must be `acquire`, `release`, `acq_rel` or
+`seq_cst`, in the given synchronization `scope` (see [`load!`](@ref)).
+"""
+function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering,
+                singleThread::Bool=false, Name::String=""; scope=nothing)
+    check_fence_ordering(ordering)
+    if scope === nothing
+        Instruction(API.LLVMBuildFence(builder, ordering, singleThread, Name))
+    else
+        singleThread && throw(ArgumentError("Cannot specify both singleThread and a scope"))
+        fence!(builder, ordering, atomic_scope(scope), Name)
+    end
+end
+
+function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope::SyncScope,
+                Name::String="")
+    check_fence_ordering(ordering)
     Instruction(API.LLVMBuildFenceSyncScope(builder, ordering, syncscope, Name))
+end
 
 check_available(op::API.LLVMAtomicRMWBinOp) =
     available(op) ||
@@ -375,6 +474,84 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
         end
     end
     Instruction(API.LLVMBuildAtomicRMWSyncScope(builder, op, Ptr, Val, ordering, syncscope))
+end
+
+"""
+    atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, ptr::Value, val::Value,
+                ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing, volatile=false)
+
+Atomically apply the operation `op` to the value at `ptr` and `val`, returning the old
+value. The operation must be [`available`](@ref) with the version of LLVM in use, and the
+ordering at least `monotonic`. See [`load!`](@ref) for the meaning of the other keyword
+arguments; by default, the operation is aligned to the size of the value.
+"""
+function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
+                     ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing,
+                     volatile::Bool=false)
+    check_available(op)
+    is_stronger(ordering, Unordered) ||
+        throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $ordering"))
+    T = value_type(Val)
+    scalar_T = T isa VectorType ? eltype(T) : T
+    if op == API.LLVMAtomicRMWBinOpXchg
+        scalar_T isa Union{IntegerType,FloatingPointType,PointerType} ||
+            throw(ArgumentError("atomicrmw xchg requires an integer, floating-point or pointer value, got $(string(T))"))
+    elseif is_fp_rmw(op)
+        scalar_T isa FloatingPointType ||
+            throw(ArgumentError("atomicrmw operation $op requires a floating-point value, got $(string(T))"))
+    else
+        scalar_T isa IntegerType ||
+            throw(ArgumentError("atomicrmw operation $op requires an integer value, got $(string(T))"))
+    end
+    check_atomic_type(T, "atomicrmw")
+    check_alignment(align)
+    inst = if scope === nothing
+        atomic_rmw!(builder, op, Ptr, Val, ordering, false)
+    else
+        atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(scope))
+    end
+    align === nothing || alignment!(inst, align)
+    volatile && volatile!(inst, true)
+    return inst
+end
+
+"""
+    atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
+                    success::API.LLVMAtomicOrdering,
+                    failure::API.LLVMAtomicOrdering=strongest_failure_ordering(success);
+                    scope=nothing, align=nothing, volatile=false, weak=false)
+
+Atomically compare the value at `ptr` with `cmp`, and if equal, replace it with `new`.
+Returns a `{T, i1}` pair of the old value and whether it was replaced. The values must be
+integers or pointers (compare floating-point values by bitcasting them to integers). Both
+orderings must be at least `monotonic`, and the failure ordering cannot be `release` or
+`acq_rel`. A `weak` cmpxchg may fail spuriously. See [`load!`](@ref) for the meaning of the
+other keyword arguments; by default, the operation is aligned to the size of the value.
+"""
+function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
+                         success::API.LLVMAtomicOrdering,
+                         failure::API.LLVMAtomicOrdering=strongest_failure_ordering(success);
+                         scope=nothing, align=nothing, volatile::Bool=false, weak::Bool=false)
+    (is_stronger(success, Unordered) && is_stronger(failure, Unordered)) ||
+        throw(ArgumentError("cmpxchg requires orderings of at least monotonic, got $success and $failure"))
+    (failure == Release || failure == AcquireRelease) &&
+        throw(ArgumentError("The failure ordering of a cmpxchg cannot be release or acq_rel, got $failure"))
+    T = value_type(Cmp)
+    T == value_type(New) ||
+        throw(ArgumentError("cmpxchg requires values of the same type, got $(string(T)) and $(string(value_type(New)))"))
+    T isa Union{IntegerType,PointerType} ||
+        throw(ArgumentError("cmpxchg requires integer or pointer values, got $(string(T))"))
+    check_atomic_type(T, "cmpxchg")
+    check_alignment(align)
+    inst = if scope === nothing
+        atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure, false)
+    else
+        atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure, atomic_scope(scope))
+    end
+    align === nothing || alignment!(inst, align)
+    volatile && volatile!(inst, true)
+    weak && weak!(inst, true)
+    return inst
 end
 
 atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,

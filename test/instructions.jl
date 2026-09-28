@@ -218,7 +218,7 @@
         @check_ir storeinst "store i32 %0, ptr %4"
     end
 
-    fenceinst = fence!(builder, LLVM.API.LLVMAtomicOrderingNotAtomic)
+    fenceinst = fence!(builder, LLVM.API.LLVMAtomicOrderingSequentiallyConsistent)
     @check_ir fenceinst "fence"
 
     gepinst = gep!(builder, LLVM.Int32Type(), ptr1, [int1])

@@ -185,13 +185,36 @@ end
 
 Base.convert(::Type{Cuint}, scope::SyncScope) = scope.id
 
+# scope IDs are specific to a context, but the first ones are fixed
+function _name(scope::SyncScope)
+    scope.id == 0 && return "singlethread"
+    scope.id == 1 && return "system"
+    len = Ref{Csize_t}()
+    ptr = convert(Ptr{UInt8}, API.LLVMExtraGetSyncScopeName(context(), scope, len))
+    ptr == C_NULL && return nothing
+    return unsafe_string(ptr, len[])
+end
+
+"""
+    name(scope::SyncScope)
+
+Get the name of the given synchronization scope, as known by the current context.
+"""
+function name(scope::SyncScope)
+    str = _name(scope)
+    str === nothing && throw(ArgumentError("Unknown synchronization scope $(scope.id)"))
+    return str
+end
+
 function Base.show(io::IO, scope::SyncScope)
-    if scope.id == 0
-        print(io, "SyncScope(\"singlethread\")")
-    elseif scope.id == 1
-        print(io, "SyncScope(\"system\")")
-    else
+    str = if scope.id <= 1 ||
+             (context(; throw_error=false) !== nothing && isdefined(API, :libLLVMExtra))
+        _name(scope)
+    end
+    if str === nothing
         print(io, "SyncScope(target-specific scope $(scope.id))")
+    else
+        print(io, "SyncScope(", repr(str), ")")
     end
 end
 

@@ -921,6 +921,19 @@ void LLVMSetAtomicSyncScopeID(LLVMValueRef AtomicInst, unsigned SSID) {
 #endif
 
 
+const char *LLVMExtraGetSyncScopeName(LLVMContextRef C, unsigned SSID, size_t *Len) {
+  // the names are indexed by ID, and owned by the context
+  SmallVector<StringRef> Names;
+  unwrap(C)->getSyncScopeNames(Names);
+  if (SSID >= Names.size()) {
+    *Len = 0;
+    return nullptr;
+  }
+  *Len = Names[SSID].size();
+  return Names[SSID].data();
+}
+
+
 //
 // more LLVMContextRef getters
 //

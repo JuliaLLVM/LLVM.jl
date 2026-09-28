@@ -248,6 +248,13 @@
     @test syncscope(atomic_rmw_inst) == SyncScope("system")
     syncscope!(atomic_rmw_inst, SyncScope("agent"))
     @test syncscope(atomic_rmw_inst) == SyncScope("agent")
+    @test name(syncscope(atomic_rmw_inst)) == "agent"
+    @test sprint(show, syncscope(atomic_rmw_inst)) == "SyncScope(\"agent\")"
+    for str in ("singlethread", "system", "agent")
+        @test name(SyncScope(str)) == str
+    end
+    @test_throws ArgumentError name(SyncScope(1000))
+    @test sprint(show, SyncScope(1000)) == "SyncScope(target-specific scope 1000)"
 
     atomic_cmpxchg_inst = atomic_cmpxchg!(builder, ptr1, int1, int2,
         LLVM.API.LLVMAtomicOrderingSequentiallyConsistent, LLVM.API.LLVMAtomicOrderingAcquire, single_thread)

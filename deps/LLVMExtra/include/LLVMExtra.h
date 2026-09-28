@@ -273,6 +273,9 @@ LLVMContextRef LLVMGetValueContext(LLVMValueRef Val);
 LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder);
 #endif
 
+// the name of a synchronization scope, or NULL if the context does not know it
+const char *LLVMExtraGetSyncScopeName(LLVMContextRef C, unsigned SSID, size_t *Len);
+
 // NewPM extensions
 typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
 LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);

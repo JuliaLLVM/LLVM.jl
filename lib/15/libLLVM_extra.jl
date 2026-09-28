@@ -383,6 +383,10 @@ mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
 
+function LLVMExtraGetSyncScopeName(C, SSID, Len)
+    ccall((:LLVMExtraGetSyncScopeName, libLLVMExtra), Cstring, (LLVMContextRef, Cuint, Ptr{Csize_t}), C, SSID, Len)
+end
+
 function LLVMCreatePassBuilderExtensions()
     ccall((:LLVMCreatePassBuilderExtensions, libLLVMExtra), LLVMPassBuilderExtensionsRef, ())
 end

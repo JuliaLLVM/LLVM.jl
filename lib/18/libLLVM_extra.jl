@@ -273,6 +273,14 @@ function LLVMSetAtomicSyncScopeID(AtomicInst, SSID)
     ccall((:LLVMSetAtomicSyncScopeID, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint), AtomicInst, SSID)
 end
 
+function LLVMExtraBuildAtomicRMWSyncScope(B, op, PTR, Val, ordering, SSID)
+    ccall((:LLVMExtraBuildAtomicRMWSyncScope, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, Cuint, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, Cuint), B, op, PTR, Val, ordering, SSID)
+end
+
+function LLVMExtraGetAtomicRMWBinOp(AtomicRMWInst)
+    ccall((:LLVMExtraGetAtomicRMWBinOp, libLLVMExtra), Cuint, (LLVMValueRef,), AtomicRMWInst)
+end
+
 function LLVMGetValueContext(Val)
     ccall((:LLVMGetValueContext, libLLVMExtra), LLVMContextRef, (LLVMValueRef,), Val)
 end

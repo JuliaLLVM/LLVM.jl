@@ -349,13 +349,33 @@ fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope::SyncScop
        Name::String="") =
     Instruction(API.LLVMBuildFenceSyncScope(builder, ordering, syncscope, Name))
 
-atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
-            ordering::API.LLVMAtomicOrdering, singleThread::Bool) =
-    Instruction(API.LLVMBuildAtomicRMW(builder, op, Ptr, Val, ordering, singleThread))
+check_available(op::API.LLVMAtomicRMWBinOp) =
+    available(op) ||
+        throw(ArgumentError("atomicrmw operation $(Integer(op)) is not supported by LLVM $(version())"))
 
-atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
-            ordering::API.LLVMAtomicOrdering, syncscope::SyncScope) =
+function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
+                     ordering::API.LLVMAtomicOrdering, singleThread::Bool)
+    check_available(op)
+    # only LLVMExtra's builder knows about operations that the C API doesn't define yet
+    if version() < v"19" && Integer(op) > Integer(API.LLVMAtomicRMWBinOpFMin)
+        scope = SyncScope(singleThread ? 0 : 1)     # SyncScope::SingleThread or ::System
+        return atomic_rmw!(builder, op, Ptr, Val, ordering, scope)
+    end
+    Instruction(API.LLVMBuildAtomicRMW(builder, op, Ptr, Val, ordering, singleThread))
+end
+
+function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
+                     ordering::API.LLVMAtomicOrdering, syncscope::SyncScope)
+    check_available(op)
+    @static if v"16" <= version() < v"19"
+        # operations that this C API doesn't define have to be passed as integers
+        if Integer(op) > Integer(API.LLVMAtomicRMWBinOpFMin)
+            return Instruction(API.LLVMExtraBuildAtomicRMWSyncScope(builder, Integer(op), Ptr,
+                                                                   Val, ordering, syncscope))
+        end
+    end
     Instruction(API.LLVMBuildAtomicRMWSyncScope(builder, op, Ptr, Val, ordering, syncscope))
+end
 
 atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
                 SuccessOrdering::API.LLVMAtomicOrdering,

@@ -257,6 +257,16 @@ unsigned LLVMGetAtomicSyncScopeID(LLVMValueRef AtomicInst);
 void LLVMSetAtomicSyncScopeID(LLVMValueRef AtomicInst, unsigned SSID);
 #endif
 
+// atomicrmw operations that LLVM supports before the C API does. These functions take and
+// return the LLVMAtomicRMWBinOp values of LLVM 19 as integers, as they are out of range of
+// the enum of the C API they are used with.
+#if LLVM_VERSION_MAJOR >= 16 && LLVM_VERSION_MAJOR < 19
+LLVMValueRef LLVMExtraBuildAtomicRMWSyncScope(LLVMBuilderRef B, unsigned op, LLVMValueRef PTR,
+                                              LLVMValueRef Val, LLVMAtomicOrdering ordering,
+                                              unsigned SSID);
+unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef AtomicRMWInst);
+#endif
+
 // more LLVMContextRef APIs
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#99087
 LLVMContextRef LLVMGetValueContext(LLVMValueRef Val);

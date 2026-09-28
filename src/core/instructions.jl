@@ -126,7 +126,8 @@ predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
 ## atomics
 
 export is_atomic, ordering, ordering!, SyncScope, syncscope, syncscope!, binop,
-       isweak, weak!, success_ordering, success_ordering!, failure_ordering, failure_ordering!
+       isweak, weak!, isvolatile, volatile!,
+       success_ordering, success_ordering!, failure_ordering, failure_ordering!
 
 const AtomicInst = Union{LoadInst, StoreInst, FenceInst, AtomicRMWInst, AtomicCmpXchgInst}
 
@@ -220,7 +221,30 @@ end
 Get the binary operation of the given atomic read-modify-write instruction.
 """
 function binop(inst::AtomicRMWInst)
-    API.LLVMGetAtomicRMWBinOp(inst)
+    @static if v"16" <= version() < v"19"
+        API.LLVMAtomicRMWBinOp(API.LLVMExtraGetAtomicRMWBinOp(inst))
+    else
+        API.LLVMGetAtomicRMWBinOp(inst)
+    end
+end
+
+"""
+    available(op::API.LLVMAtomicRMWBinOp)
+
+Check whether the atomic read-modify-write operation `op` is supported by the version of
+LLVM in use. All operations can be named on every LLVM version, but instructions can only
+be created with the ones that are available.
+"""
+function available(op::API.LLVMAtomicRMWBinOp)
+    if op == API.LLVMAtomicRMWBinOpUIncWrap || op == API.LLVMAtomicRMWBinOpUDecWrap
+        version() >= v"16"
+    elseif op == API.LLVMAtomicRMWBinOpUSubCond || op == API.LLVMAtomicRMWBinOpUSubSat
+        version() >= v"20"
+    elseif op == API.LLVMAtomicRMWBinOpFMaximum || op == API.LLVMAtomicRMWBinOpFMinimum
+        version() >= v"21"
+    else
+        Integer(op) <= Integer(API.LLVMAtomicRMWBinOpFMin)
+    end
 end
 
 """
@@ -240,6 +264,22 @@ Set whether the given atomic compare-and-exchange instruction is weak.
 function weak!(inst::AtomicCmpXchgInst, is_weak::Bool)
     API.LLVMSetWeak(inst, is_weak)
 end
+
+const MemAccessInst = Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst}
+
+"""
+    isvolatile(inst::Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst})
+
+Check whether the given memory access is volatile.
+"""
+isvolatile(inst::MemAccessInst) = API.LLVMGetVolatile(inst) |> Bool
+
+"""
+    volatile!(inst::Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst}, is_volatile::Bool)
+
+Set whether the given memory access is volatile.
+"""
+volatile!(inst::MemAccessInst, is_volatile::Bool) = API.LLVMSetVolatile(inst, is_volatile)
 
 """
     success_ordering(inst::AtomicCmpXchgInst)

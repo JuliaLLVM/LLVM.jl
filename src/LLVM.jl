@@ -55,6 +55,14 @@ let
 end
 include(joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 
+# atomicrmw operations that older C APIs lack, numbered as in newer ones, so that they can be
+# named on every LLVM version (use `LLVM.available` to check whether LLVM supports them)
+for (name, val) in ((:LLVMAtomicRMWBinOpUIncWrap, 15), (:LLVMAtomicRMWBinOpUDecWrap, 16),
+                    (:LLVMAtomicRMWBinOpUSubCond, 17), (:LLVMAtomicRMWBinOpUSubSat, 18),
+                    (:LLVMAtomicRMWBinOpFMaximum, 19), (:LLVMAtomicRMWBinOpFMinimum, 20))
+    isdefined(@__MODULE__, name) || @eval const $name = LLVMAtomicRMWBinOp($val)
+end
+
 end # module API
 
 has_oldpm() = LLVM.version() < v"17"

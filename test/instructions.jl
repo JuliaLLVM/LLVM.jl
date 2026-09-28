@@ -294,6 +294,32 @@
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 syncscope(\"agent\") monotonic"
     end
 
+    @test !isvolatile(atomic_rmw_inst)
+    volatile!(atomic_rmw_inst, true)
+    @test isvolatile(atomic_rmw_inst)
+    @test occursin("atomicrmw volatile add", string(atomic_rmw_inst))
+    @test !isvolatile(atomic_cmpxchg_inst)
+    volatile!(atomic_cmpxchg_inst, true)
+    @test isvolatile(atomic_cmpxchg_inst)
+
+    # operations that are newer than the C API of some LLVM versions
+    for op in (LLVM.API.LLVMAtomicRMWBinOpUIncWrap, LLVM.API.LLVMAtomicRMWBinOpUDecWrap,
+               LLVM.API.LLVMAtomicRMWBinOpUSubCond, LLVM.API.LLVMAtomicRMWBinOpUSubSat)
+        if LLVM.available(op)
+            for scope in (true, SyncScope("agent"))
+                inst = atomic_rmw!(builder, op, ptr1, int1,
+                                   LLVM.API.LLVMAtomicOrderingMonotonic, scope)
+                @test binop(inst) == op
+            end
+        else
+            @test_throws ArgumentError atomic_rmw!(builder, op, ptr1, int1,
+                                                   LLVM.API.LLVMAtomicOrderingMonotonic, false)
+        end
+    end
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpAdd)
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
+
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"
 

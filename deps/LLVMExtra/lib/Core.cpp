@@ -804,7 +804,17 @@ static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
   llvm_unreachable("Invalid LLVMAtomicOrdering value!");
 }
 
-static AtomicRMWInst::BinOp mapFromLLVMRMWBinOp(LLVMAtomicRMWBinOp BinOp) {
+#if LLVM_VERSION_MAJOR >= 16 && LLVM_VERSION_MAJOR < 19
+// operations that the C API only exposes from LLVM 19 on, using the values it assigns them
+enum {
+  LLVMExtraAtomicRMWBinOpUIncWrap = 15,
+  LLVMExtraAtomicRMWBinOpUDecWrap = 16,
+};
+#endif
+
+// takes an integer, because LLVMExtraBuildAtomicRMWSyncScope passes values that are out of
+// range of the LLVMAtomicRMWBinOp enum
+static AtomicRMWInst::BinOp mapFromLLVMRMWBinOp(unsigned BinOp) {
   switch (BinOp) {
     case LLVMAtomicRMWBinOpXchg: return AtomicRMWInst::Xchg;
     case LLVMAtomicRMWBinOpAdd: return AtomicRMWInst::Add;
@@ -824,6 +834,9 @@ static AtomicRMWInst::BinOp mapFromLLVMRMWBinOp(LLVMAtomicRMWBinOp BinOp) {
 #if LLVM_VERSION_MAJOR >= 19
     case LLVMAtomicRMWBinOpUIncWrap: return AtomicRMWInst::UIncWrap;
     case LLVMAtomicRMWBinOpUDecWrap: return AtomicRMWInst::UDecWrap;
+#elif LLVM_VERSION_MAJOR >= 16
+    case LLVMExtraAtomicRMWBinOpUIncWrap: return AtomicRMWInst::UIncWrap;
+    case LLVMExtraAtomicRMWBinOpUDecWrap: return AtomicRMWInst::UDecWrap;
 #endif
   }
 
@@ -862,6 +875,24 @@ LLVMValueRef LLVMBuildAtomicRMWSyncScope(LLVMBuilderRef B, LLVMAtomicRMWBinOp op
   return wrap(unwrap(B)->CreateAtomicRMW(intop, unwrap(PTR), unwrap(Val), MaybeAlign(),
                                          mapFromLLVMOrdering(ordering), SSID));
 }
+
+#if LLVM_VERSION_MAJOR >= 16 && LLVM_VERSION_MAJOR < 19
+LLVMValueRef LLVMExtraBuildAtomicRMWSyncScope(LLVMBuilderRef B, unsigned op, LLVMValueRef PTR,
+                                              LLVMValueRef Val, LLVMAtomicOrdering ordering,
+                                              unsigned SSID) {
+  return wrap(unwrap(B)->CreateAtomicRMW(mapFromLLVMRMWBinOp(op), unwrap(PTR), unwrap(Val),
+                                         MaybeAlign(), mapFromLLVMOrdering(ordering), SSID));
+}
+
+// LLVMGetAtomicRMWBinOp hits an llvm_unreachable on these operations
+unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef Inst) {
+  switch (unwrap<AtomicRMWInst>(Inst)->getOperation()) {
+    case AtomicRMWInst::UIncWrap: return LLVMExtraAtomicRMWBinOpUIncWrap;
+    case AtomicRMWInst::UDecWrap: return LLVMExtraAtomicRMWBinOpUDecWrap;
+    default: return LLVMGetAtomicRMWBinOp(Inst);
+  }
+}
+#endif
 
 LLVMValueRef LLVMBuildAtomicCmpXchgSyncScope(LLVMBuilderRef B, LLVMValueRef Ptr,
                                              LLVMValueRef Cmp, LLVMValueRef New,

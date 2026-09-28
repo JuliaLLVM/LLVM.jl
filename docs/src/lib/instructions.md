@@ -45,6 +45,7 @@ is_atomic
 ordering
 ordering!
 SyncScope
+name(::SyncScope)
 syncscope
 syncscope!
 binop

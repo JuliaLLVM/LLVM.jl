@@ -15,7 +15,7 @@ end
 @llvmgenerated builder function _pointerref(ptr::LLVMPtr{T,A}, i::Int,
                                             ::Val{align})::T where {T,A,align}
     eltyp = convert(LLVMType, T)
-    if supports_typed_pointers(context())
+    if supports_typed_pointers(LLVM.context())
         ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
     end
     ld = load!(builder, eltyp, inbounds_gep!(builder, eltyp, ptr, [i]))
@@ -36,7 +36,7 @@ end
 @llvmgenerated builder function _pointerset(ptr::LLVMPtr{T,A}, x::T, i::Int,
                                             ::Val{align})::Nothing where {T,A,align}
     eltyp = convert(LLVMType, T)
-    if supports_typed_pointers(context())
+    if supports_typed_pointers(LLVM.context())
         ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
     end
     st = store!(builder, x, inbounds_gep!(builder, eltyp, ptr, [i]))

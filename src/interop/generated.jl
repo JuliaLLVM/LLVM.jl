@@ -103,14 +103,25 @@ function _llvmcall_expr(@nospecialize(gen), @nospecialize(rettyp), @nospecialize
             rv = gen(builder, values...)
             emit_return!(builder, f, rv, rettyp, T_ret, what)
 
-            try
-                verify(mod)
+            # verify the IR as `llvmcall` will see it, after parsing, which upgrades
+            # outdated constructs (e.g. `readnone` on a function declaration)
+            ir = string(mod)
+            parsed = try
+                parse(LLVM.Module, ir)
             catch err
                 err isa LLVMException || rethrow()
-                error("$what generated invalid LLVM IR: $(err.info)\n$(string(mod))")
+                error("$what generated invalid LLVM IR: $(err.info)\n$ir")
+            end
+            try
+                verify(parsed)
+            catch err
+                err isa LLVMException || rethrow()
+                error("$what generated invalid LLVM IR: $(err.info)\n$ir")
+            finally
+                dispose(parsed)
             end
 
-            string(mod), LLVM.name(f)
+            ir, LLVM.name(f)
         end
     end
 
@@ -175,7 +186,8 @@ are bound to LLVM values instead of their types:
 
 - arguments that are passed to `llvmcall` are bound to their LLVM parameter, whose type is
   what Julia lowers the argument type to (e.g., `Bool` becomes `i8`; on Julia 1.10, `Ptr`
-  becomes an integer and `Core.LLVMPtr` an `i8` pointer). Arguments that lower to a boxed
+  becomes an integer and `Core.LLVMPtr` an `i8` pointer, so the body should check
+  `supports_typed_pointers(LLVM.context())` before assuming opaque pointers). Arguments that lower to a boxed
   pointer are passed as such, and must be handled with care to respect GC invariants;
 - arguments whose value is known statically are not passed, but bound to that value
   instead: singletons like `Val{x}()` are bound to the instance, and `Type{T}` to `T`;
@@ -189,6 +201,24 @@ after emitting control flow, the returned value is ignored. For a return type of
 
 The return type annotation is required; it is part of the ABI, and does not result in a
 conversion like it would with regular functions.
+
+Julia code that should run before generating IR, like checking or converting arguments,
+belongs in a regular function that calls the `@llvmgenerated` one:
+
+```julia
+@inline function pointerref(ptr::LLVMPtr{T}, i::Int, align::Val) where {T}
+    sizeof(T) == 0 && return T.instance
+    return _pointerref(ptr, i - 1, align)
+end
+
+@llvmgenerated builder function _pointerref(ptr::LLVMPtr{T,A}, i::Int, ::Val{align})::T where {T,A,align}
+    ...
+end
+```
+
+As arguments are bound to their LLVM value, their Julia type is only available through
+static parameters (e.g. `x::T`). When the body needs the Julia types of varargs, write a
+`@generated` function that uses [`llvmcall_expr`](@ref) instead.
 
 The generated function is marked for inlining, and verified before being embedded in the
 Julia IR. Since it is generated once and cached with the compiled code (including in
@@ -242,6 +272,10 @@ macro llvmgenerated(builder, def)
         isva && i != length(call.args) - 1 &&
             throw(ArgumentError("$what: only the last argument can be a vararg"))
         param = isva ? arg.args[1] : arg
+        default = nothing
+        if Meta.isexpr(param, :kw, 2)
+            param, default = param.args
+        end
         if param isa Symbol
             name = param
         elseif Meta.isexpr(param, :(::), 2) && param.args[1] isa Symbol
@@ -261,7 +295,7 @@ macro llvmgenerated(builder, def)
             push!(argtypes, Expr(:..., name))
             vararg = name
         else
-            push!(params, param)
+            push!(params, default === nothing ? param : Expr(:kw, param, default))
             push!(names, name)
             push!(argtypes, name)
             push!(fixed_args, QuoteNode(name))

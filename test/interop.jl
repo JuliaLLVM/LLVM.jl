@@ -179,6 +179,22 @@ ir = sprint(io->code_llvm(io, lg_trap, Tuple{}; debuginfo=:none))
 end
 @test lg_boxed("foo") === "foo"
 
+# default arguments
+@llvmgenerated builder function lg_default(x::Int, ::Val{N}=Val(1))::Int where {N}
+    add!(builder, x, ConstantInt(N))
+end
+@test lg_default(1) === 2
+@test lg_default(1, Val(2)) === 3
+
+# IR is verified as llvmcall sees it, after upgrading outdated constructs
+@llvmgenerated builder function lg_upgraded()::Int32
+    ft = LLVM.FunctionType(LLVM.Int32Type())
+    decl = LLVM.Function(current_module(builder), "lg_readnone_decl", ft)
+    push!(function_attributes(decl), EnumAttribute("readnone", 0))
+    ConstantInt(Int32(42))
+end
+@test lg_upgraded() === Int32(42)
+
 "docstring for lg_documented"
 @llvmgenerated builder function lg_documented(x::Int)::Int
     x

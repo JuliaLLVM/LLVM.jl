@@ -91,9 +91,19 @@ include("deprecated.jl")
 
 # the precompilation workload requires the LLVM extensions library; skip it when
 # unavailable (e.g., when using a custom LLVM without a matching LLVMExtra_jll)
-# so that the package can still be loaded (reporting an error from `__init__`).
+# so that the package can still be loaded. functionality that needs the library
+# will throw an error explaining that it is missing.
 if isdefined(API, :libLLVMExtra)
     include("precompile.jl")
+end
+
+function llvmextra_hint(io::IO, ex::UndefVarError)
+    ex.var === :libLLVMExtra || return
+    platform = Base.BinaryPlatforms.triplet(API.LLVMExtra_jll.host_platform)
+    print(io, """\nThis functionality requires the LLVM extensions library, which is not \
+                 available for your platform ($platform) and LLVM $(version()).
+                 If you are using a custom version of LLVM, you can build the library \
+                 yourself using `deps/build_local.jl`.""")
 end
 
 
@@ -104,12 +114,10 @@ function __init__()
 
     # sanity checks
     if !isdefined(API, :libLLVMExtra)
-        @error """LLVM extensions library unavailable for your platform:
-                    $(Base.BinaryPlatforms.triplet(API.LLVMExtra_jll.host_platform))
-                  LLVM.jl will not be functional.
-
-                  If you are using a custom version of LLVM, try building a
-                  custom version of LLVMExtra_jll using `deps/build_local.jl`"""
+        # parts of LLVM.jl work without the extensions library (on LLVM 20+, e.g., building
+        # IR from generated functions), so only complain when functionality needs it
+        @debug "LLVM extensions library unavailable for your platform"
+        Base.Experimental.register_error_hint(llvmextra_hint, UndefVarError)
     end
     if libllvm_version != Base.libllvm_version
         # this checks that the precompilation image isn't being used

@@ -58,31 +58,14 @@ true
 
 With generated functions, it is possible to manually generate Julia IR when a function is
 visited by the Julia compiler. LLVM.jl extends this with the ability to define functions
-that generate LLVM IR; which is very useful to generate code that is not easily expressible
-in Julia:
+that generate LLVM IR, which is very useful to generate code that is not easily expressible
+in Julia. The `@llvmgenerated` macro defines such a function: its body runs once per
+specialization, with an IR builder positioned in a new function whose LLVM signature is
+derived from the Julia one, and with the function arguments bound to LLVM values:
 
 ```jldoctest
-@generated function add(x::T, y::T) where {T}
-  @dispose ctx=Context() begin
-    # get the element type
-    eltyp = convert(LLVMType, T)
-
-    # create a function
-    paramtyps = [eltyp, eltyp]
-    f, ft = create_function(eltyp, paramtyps)
-
-    # generate IR
-    @dispose builder=IRBuilder() begin
-      entry = BasicBlock(f, "entry")
-      position!(builder, entry)
-
-      val = add!(builder, parameters(f)[1], parameters(f)[2])
-
-      ret!(builder, val)
-    end
-
-    call_function(f, T, Tuple{T, T}, :x, :y)
-  end
+@llvmgenerated builder function add(x::T, y::T)::T where {T}
+    add!(builder, x, y)
 end
 
 @code_llvm debuginfo=:none add(1, 2)
@@ -100,9 +83,31 @@ top:
 3
 ```
 
-The `call_function` is where the magic happens: it generates LLVM IR for the function that's
-being called, and embeds it in the generated Julia IR so that it can be processed by the
-Julia compiler.
+The value returned by the body, which should have the LLVM type that the return type
+lowers to, is returned from the function. The return type annotation is required, as it
+determines the signature of the generated function.
+
+Arguments whose value is known at compile time, like `Val` instances or types, are not
+passed to the generated function but are bound to their value instead. Combined with static
+parameters, this makes it possible to specialize the generated code:
+
+```julia
+@llvmgenerated builder function read_sreg(::Val{name})::Int32 where {name}
+    ft = LLVM.FunctionType(LLVM.Int32Type())
+    f = LLVM.Function(current_module(builder), "llvm.nvvm.read.ptx.sreg.$name", ft)
+    call!(builder, ft, f)
+end
+```
+
+Here, `current_module` returns the module containing the function being generated, which
+is where intrinsics and other functions should be declared. The body can also emit control
+flow, in which case it should emit its own `ret!` terminators.
+
+Refer to the documentation of `@llvmgenerated` for more details. For generators that need
+more control, e.g., because they sometimes return Julia code instead, the `llvmcall_expr`
+function offers the same functionality while returning the `llvmcall` expression, which
+can be returned from a regular `@generated` function or spliced into an `@eval`'d
+definition. The lower-level `create_function` and `call_function` remain available too.
 
 
 ## Inline assembly

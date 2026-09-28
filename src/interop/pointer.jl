@@ -6,82 +6,45 @@ export @typed_ccall
 
 using Core: LLVMPtr
 
-@inline @generated function pointerref(ptr::LLVMPtr{T,A}, i::Int, ::Val{align}) where {T,A,align}
+@inline function pointerref(ptr::LLVMPtr{T}, i::Int, ::Val{align}) where {T,align}
     sizeof(T) == 0 && return T.instance
-    ispow2(align) || return :(error("pointerref: alignment must be a power of 2, got $($align)"))
-    @dispose ctx=Context() begin
-        eltyp = convert(LLVMType, T)
-
-        T_idx = convert(LLVMType, Int)
-        T_ptr = convert(LLVMType, ptr)
-
-        T_typed_ptr = LLVM.PointerType(eltyp, A)
-
-        # create a function
-        param_types = [T_ptr, T_idx]
-        llvm_f, _ = create_function(eltyp, param_types)
-
-        # generate IR
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(llvm_f, "entry")
-            position!(builder, entry)
-            ptr = if supports_typed_pointers(ctx)
-                typed_ptr = bitcast!(builder, parameters(llvm_f)[1], T_typed_ptr)
-                inbounds_gep!(builder, eltyp, typed_ptr, [parameters(llvm_f)[2]])
-            else
-                inbounds_gep!(builder, eltyp, parameters(llvm_f)[1], [parameters(llvm_f)[2]])
-            end
-            ld = load!(builder, eltyp, ptr)
-            if A != 0
-                metadata(ld)[LLVM.MD_tbaa] = tbaa_addrspace(A)
-            end
-            alignment!(ld, align)
-
-            ret!(builder, ld)
-        end
-
-        call_function(llvm_f, T, Tuple{LLVMPtr{T,A}, Int}, :ptr, :(i - 1))
-    end
+    ispow2(align) || error("pointerref: alignment must be a power of 2, got ", align)
+    return _pointerref(ptr, i - 1, Val(align))
 end
 
-@inline @generated function pointerset(ptr::LLVMPtr{T,A}, x::T, i::Int, ::Val{align}) where {T,A,align}
-    sizeof(T) == 0 && return
-    ispow2(align) || return :(error("pointerset: alignment must be a power of 2, got $($align)"))
-    @dispose ctx=Context() begin
-        eltyp = convert(LLVMType, T)
-
-        T_idx = convert(LLVMType, Int)
-        T_ptr = convert(LLVMType, ptr)
-
-        T_typed_ptr = LLVM.PointerType(eltyp, A)
-
-        # create a function
-        param_types = [T_ptr, eltyp, T_idx]
-        llvm_f, _ = create_function(LLVM.VoidType(), param_types)
-
-        # generate IR
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(llvm_f, "entry")
-            position!(builder, entry)
-            ptr = if supports_typed_pointers(ctx)
-                typed_ptr = bitcast!(builder, parameters(llvm_f)[1], T_typed_ptr)
-                inbounds_gep!(builder, eltyp, typed_ptr, [parameters(llvm_f)[3]])
-            else
-                inbounds_gep!(builder, eltyp, parameters(llvm_f)[1], [parameters(llvm_f)[3]])
-            end
-            val = parameters(llvm_f)[2]
-            st = store!(builder, val, ptr)
-            if A != 0
-                metadata(st)[LLVM.MD_tbaa] = tbaa_addrspace(A)
-            end
-            alignment!(st, align)
-
-            ret!(builder)
-        end
-
-        call_function(llvm_f, Cvoid, Tuple{LLVMPtr{T,A}, T, Int},
-                      :ptr, :(convert(T,x)), :(i - 1))
+@llvmgenerated builder function _pointerref(ptr::LLVMPtr{T,A}, i::Int,
+                                            ::Val{align})::T where {T,A,align}
+    eltyp = convert(LLVMType, T)
+    if supports_typed_pointers(context())
+        ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
     end
+    ld = load!(builder, eltyp, inbounds_gep!(builder, eltyp, ptr, [i]))
+    if A != 0
+        metadata(ld)[LLVM.MD_tbaa] = tbaa_addrspace(A)
+    end
+    alignment!(ld, align)
+    ld
+end
+
+@inline function pointerset(ptr::LLVMPtr{T}, x::T, i::Int, ::Val{align}) where {T,align}
+    sizeof(T) == 0 && return
+    ispow2(align) || error("pointerset: alignment must be a power of 2, got ", align)
+    _pointerset(ptr, x, i - 1, Val(align))
+    return
+end
+
+@llvmgenerated builder function _pointerset(ptr::LLVMPtr{T,A}, x::T, i::Int,
+                                            ::Val{align})::Nothing where {T,A,align}
+    eltyp = convert(LLVMType, T)
+    if supports_typed_pointers(context())
+        ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
+    end
+    st = store!(builder, x, inbounds_gep!(builder, eltyp, ptr, [i]))
+    if A != 0
+        metadata(st)[LLVM.MD_tbaa] = tbaa_addrspace(A)
+    end
+    alignment!(st, align)
+    nothing
 end
 
 # Like Base's `unsafe_load`/`unsafe_store!` for `Ptr`, the index is widened to `Int`
@@ -117,36 +80,17 @@ Base.:(==)(x::LLVMPtr, y::LLVMPtr) = false
 
 Base.:(-)(x::LLVMPtr{<:Any,A},  y::LLVMPtr{<:Any,A}) where {A} = UInt(x) - UInt(y)
 
-@generated function add_ptr(x::LLVMPtr{T,A}, y::I) where {T,A,I}
-    Context() do ctx
-        T_uint = convert(LLVMType, I)
-        T_ptr = convert(LLVMType, Core.LLVMPtr{T,A})
-        T_byteptr = convert(LLVMType, Core.LLVMPtr{Int8,A})
-
-        # create a function
-        llvm_f, _ = create_function(T_ptr, [T_ptr, T_uint])
-
-        # generate IR
-        IRBuilder() do builder
-            entry = BasicBlock(llvm_f, "entry")
-            position!(builder, entry)
-
-            if T_ptr == T_byteptr
-                # when LLVMPtr is i8* (the default), or when using opaque pointers
-                ptr = gep!(builder, LLVM.Int8Type(), parameters(llvm_f)[1], [parameters(llvm_f)[2]])
-            else
-                # future proofing, for when LLVMPtr isn't always an i8*
-                byteptr = bitcast!(builder, parameters(llvm_f)[1], T_byteptr)
-                byteptr = gep!(builder, LLVM.Int8Type(), byteptr, [parameters(llvm_f)[2]])
-                ptr = bitcast!(builder, byteptr, T_ptr)
-            end
-
-            ret!(builder, ptr)
-        end
-
-        call_function(llvm_f, Core.LLVMPtr{T,A},
-                      Tuple{Core.LLVMPtr{T,A}, I},
-                      :x, :y)
+@llvmgenerated builder function add_ptr(x::LLVMPtr{T,A}, y::I)::LLVMPtr{T,A} where {T,A,I}
+    T_ptr = value_type(x)
+    T_byteptr = convert(LLVMType, Core.LLVMPtr{Int8,A})
+    if T_ptr == T_byteptr
+        # when LLVMPtr is i8* (the default), or when using opaque pointers
+        gep!(builder, LLVM.Int8Type(), x, [y])
+    else
+        # future proofing, for when LLVMPtr isn't always an i8*
+        byteptr = bitcast!(builder, x, T_byteptr)
+        byteptr = gep!(builder, LLVM.Int8Type(), byteptr, [y])
+        bitcast!(builder, byteptr, T_ptr)
     end
 end
 
@@ -157,29 +101,12 @@ Base.:(+)(x::Integer, y::LLVMPtr) = y + x
 Base.unsigned(x::LLVMPtr) = UInt(x)
 Base.signed(x::LLVMPtr) = Int(x)
 
-@generated function addrspacecast(::Type{LLVMPtr{TDest, ASDest}}, src::LLVMPtr{TSrc, ASSrc}) where {TDest, ASDest, TSrc, ASSrc}
-    @dispose ctx=Context() begin
-        T_dest = convert(LLVMType, LLVMPtr{TDest, ASDest})
-        T_src = convert(LLVMType, LLVMPtr{TSrc, ASSrc})
-
-        llvm_f, _ = create_function(T_dest, [T_src])
-        mod = LLVM.parent(llvm_f)
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(llvm_f, "entry")
-            position!(builder, entry)
-
-            dest_ptr = if ASDest != ASSrc
-                addrspacecast!(builder, parameters(llvm_f)[1], T_dest)
-            else
-                parameters(llvm_f)[1]
-            end
-            ret!(builder, bitcast!(builder, dest_ptr, T_dest))
-        end
-
-        call_function(llvm_f, LLVMPtr{TDest, ASDest},
-                      Tuple{LLVMPtr{TSrc, ASSrc}}, :src)
-    end
+@llvmgenerated builder function addrspacecast(::Type{LLVMPtr{TDest,ASDest}},
+                                              src::LLVMPtr{TSrc,ASSrc}
+                                             )::LLVMPtr{TDest,ASDest} where {TDest,ASDest,TSrc,ASSrc}
+    T_dest = convert(LLVMType, LLVMPtr{TDest,ASDest})
+    dest_ptr = ASDest != ASSrc ? addrspacecast!(builder, src, T_dest) : src
+    bitcast!(builder, dest_ptr, T_dest)
 end
 
 

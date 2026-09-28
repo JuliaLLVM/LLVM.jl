@@ -11,7 +11,9 @@ end
 @generated function _asmcall(::Val{asm}, ::Val{constraints}, ::Val{side_effects},
                              ::Val{rettyp}, ::Val{argtyp}, args...) where
                             {asm, constraints, side_effects, rettyp, argtyp}
-    @dispose ctx=Context() begin
+    # the declared argument types determine the ABI, not the actual ones
+    argexprs = Any[:(args[$i]) for i in 1:length(args)]
+    llvmcall_expr(rettyp, argtyp, argexprs...) do builder, params...
         llvm_rettyp = convert(LLVMType, rettyp)
         llvm_argtyp = LLVMType[convert(LLVMType, T) for T in argtyp.parameters]
 
@@ -30,8 +32,6 @@ end
             check_asm_operand(rettyp, llvm_rettyp, "return value")
         end
 
-        llvm_f, llvm_ft = create_function(llvm_rettyp, llvm_argtyp)
-
         # LLVM dictates the inline asm's return shape from the number of direct
         # outputs in the constraint string: 0 -> void, 1 -> T, N>=2 -> a struct
         # { T0, ..., T_{N-1} }. Julia, however, lowers homogeneous Tuples (incl.
@@ -47,31 +47,24 @@ end
         asm_ft = LLVM.FunctionType(asm_rettyp, llvm_argtyp)
         inline_asm = InlineAsm(asm_ft, String(asm), String(constraints), side_effects)
 
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(llvm_f, "entry")
-            position!(builder, entry)
-
-            val = call!(builder, asm_ft, inline_asm, collect(parameters(llvm_f)))
-            if rettyp === Nothing
-                ret!(builder)
-            elseif asm_rettyp == llvm_rettyp
-                ret!(builder, val)
-            else
-                # asm returned T or { T0, ... }; outer fn must return llvm_rettyp
-                # (typically [N x T] for homogeneous tuples). Reshape via
-                # insertvalue; optimization folds it away or reduces to a small
-                # struct→array shuffle.
-                ret_val = LLVM.UndefValue(llvm_rettyp)
-                n = length(rettyp.parameters)
-                for i in 0:n-1
-                    elem = n == 1 ? val : extract_value!(builder, val, i)
-                    ret_val = insert_value!(builder, ret_val, elem, i)
-                end
-                ret!(builder, ret_val)
+        val = call!(builder, asm_ft, inline_asm, collect(Value, params))
+        if rettyp === Nothing
+            nothing
+        elseif asm_rettyp == llvm_rettyp
+            val
+        else
+            # asm returned T or { T0, ... }; outer fn must return llvm_rettyp
+            # (typically [N x T] for homogeneous tuples). Reshape via
+            # insertvalue; optimization folds it away or reduces to a small
+            # struct→array shuffle.
+            ret_val = LLVM.UndefValue(llvm_rettyp)
+            n = length(rettyp.parameters)
+            for i in 0:n-1
+                elem = n == 1 ? val : extract_value!(builder, val, i)
+                ret_val = insert_value!(builder, ret_val, elem, i)
             end
+            ret_val
         end
-
-        call_function(llvm_f, rettyp, argtyp, (:(args[$i]) for i in 1:length(args))...)
     end
 end
 

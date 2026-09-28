@@ -1,6 +1,20 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v9.14
+
+New features:
+
+- `@llvmgenerated` defines staged functions that generate LLVM IR, deriving the LLVM
+  signature from the Julia one and binding arguments to LLVM values. This replaces the
+  boilerplate of `create_function` and `call_function`, which remain available.
+  `llvmcall_expr` offers the same functionality for use in hand-written generators.
+
+Bug fixes:
+
+- Contexts can be created and disposed of concurrently from multiple threads.
+
+
 ## LLVM.jl v9.13
 
 New features:

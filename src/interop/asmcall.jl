@@ -13,7 +13,7 @@ end
                             {asm, constraints, side_effects, rettyp, argtyp}
     # the declared argument types determine the ABI, not the actual ones
     argexprs = Any[:(args[$i]) for i in 1:length(args)]
-    llvmcall_expr(rettyp, argtyp, argexprs...) do builder, params...
+    generate_llvmcall(rettyp, argtyp, argexprs...) do builder, params...
         llvm_rettyp = convert(LLVMType, rettyp)
         llvm_argtyp = LLVMType[convert(LLVMType, T) for T in argtyp.parameters]
 

@@ -223,17 +223,17 @@ end
 
 # the functional interface, evaluating arguments even when they aren't passed
 counter = Ref(0)
-@eval lg_expr(x) = $(llvmcall_expr(Int, Tuple{Nothing, Int}, :($counter[] += 1; nothing), :x) do builder, n, x
+@eval lg_expr(x) = $(generate_llvmcall(Int, Tuple{Nothing, Int}, :($counter[] += 1; nothing), :x) do builder, n, x
     @test n === nothing
     x
 end)
 @test lg_expr(42) === 42
 @test counter[] == 1
-@eval lg_order(x) = $(llvmcall_expr(Int, Tuple{Int,Int}, :x, :(x = 2)) do builder, x, y
+@eval lg_order(x) = $(generate_llvmcall(Int, Tuple{Int,Int}, :x, :(x = 2)) do builder, x, y
     x
 end)
 @test lg_order(1) === 1
-@eval lg_undef() = $(llvmcall_expr(Nothing, Tuple{Nothing}, :lg_undefined_variable) do builder, x
+@eval lg_undef() = $(generate_llvmcall(Nothing, Tuple{Nothing}, :lg_undefined_variable) do builder, x
     nothing
 end)
 @test_throws UndefVarError lg_undef()

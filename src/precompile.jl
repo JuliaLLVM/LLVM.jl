@@ -41,7 +41,7 @@
             Interop.call_function(cf, Float32, Tuple{Float32, Float32}, :x, :y)
 
             # staged IR generation, as done by `@llvmgenerated`
-            Interop.llvmcall_expr(Int, Tuple{Ptr{Int}, Int, Val{1}}, :x, :y, :z) do builder, x, y, z
+            Interop.generate_llvmcall(Int, Tuple{Ptr{Int}, Int, Val{1}}, :x, :y, :z) do builder, x, y, z
                 T_int = convert(LLVMType, Int)
                 if !(value_type(x) isa LLVM.PointerType)
                     x = inttoptr!(builder, x, LLVM.PointerType(T_int))

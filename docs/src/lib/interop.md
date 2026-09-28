@@ -11,7 +11,7 @@ LLVM.Interop.isghosttype
 
 ```@docs
 LLVM.Interop.@llvmgenerated
-LLVM.Interop.llvmcall_expr
+LLVM.Interop.generate_llvmcall
 LLVM.Interop.current_function
 LLVM.Interop.current_module
 LLVM.Interop.create_function

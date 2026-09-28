@@ -104,10 +104,11 @@ is where intrinsics and other functions should be declared. The body can also em
 flow, in which case it should emit its own `ret!` terminators.
 
 Refer to the documentation of `@llvmgenerated` for more details. For generators that need
-more control, e.g., because they sometimes return Julia code instead, the `llvmcall_expr`
-function offers the same functionality while returning the `llvmcall` expression, which
-can be returned from a regular `@generated` function or spliced into an `@eval`'d
-definition. The lower-level `create_function` and `call_function` remain available too.
+more control, e.g., because they sometimes return Julia code instead, the
+`generate_llvmcall` function offers the same functionality while returning the `llvmcall`
+expression, which can be returned from a regular `@generated` function or spliced into an
+`@eval`'d definition. The lower-level `create_function` and `call_function` remain
+available too.
 
 
 ## Inline assembly

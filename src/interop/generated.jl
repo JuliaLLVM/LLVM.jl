@@ -1,6 +1,6 @@
 # staged functions that generate LLVM IR
 
-export @llvmgenerated, llvmcall_expr, current_function, current_module
+export @llvmgenerated, generate_llvmcall, current_function, current_module
 
 """
     current_function(builder::IRBuilder) -> LLVM.Function
@@ -64,8 +64,8 @@ function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
     return
 end
 
-function _llvmcall_expr(@nospecialize(gen), @nospecialize(rettyp), @nospecialize(argtypes),
-                        argexprs::Vector{Any}, what::String)
+function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
+                            @nospecialize(argtypes), argexprs::Vector{Any}, what::String)
     rettyp isa Type || throw(ArgumentError("$what: return type $rettyp is not a type"))
     (argtypes isa DataType && argtypes <: Tuple && !Base.isvatuple(argtypes)) ||
         throw(ArgumentError("$what: argument types $argtypes are not a tuple type of fixed length"))
@@ -143,7 +143,7 @@ function _llvmcall_expr(@nospecialize(gen), @nospecialize(rettyp), @nospecialize
 end
 
 """
-    llvmcall_expr(rettyp::Type, argtypes::Type{<:Tuple}, argexprs...) do builder, args...
+    generate_llvmcall(rettyp::Type, argtypes::Type{<:Tuple}, argexprs...) do builder, args...
         ...
     end
 
@@ -159,9 +159,9 @@ one value per argument type: the LLVM parameter for arguments that are passed to
 `Type{T}`). Every argument expression is evaluated once, in order, even when the argument
 is not passed to `llvmcall`.
 """
-llvmcall_expr(gen, @nospecialize(rettyp::Type), @nospecialize(argtypes::Type{<:Tuple}),
-              argexprs...) =
-    _llvmcall_expr(gen, rettyp, argtypes, Any[argexprs...], "llvmcall_expr")
+generate_llvmcall(gen, @nospecialize(rettyp::Type), @nospecialize(argtypes::Type{<:Tuple}),
+                  argexprs...) =
+    _generate_llvmcall(gen, rettyp, argtypes, Any[argexprs...], "generate_llvmcall")
 
 """
     @llvmgenerated builder function f(args...)::RT [where {...}]
@@ -218,7 +218,7 @@ end
 
 As arguments are bound to their LLVM value, their Julia type is only available through
 static parameters (e.g. `x::T`). When the body needs the Julia types of varargs, write a
-`@generated` function that uses [`llvmcall_expr`](@ref) instead.
+`@generated` function that uses [`generate_llvmcall`](@ref) instead.
 
 The generated function is marked for inlining, and verified before being embedded in the
 Julia IR. Since it is generated once and cached with the compiled code (including in
@@ -308,8 +308,9 @@ macro llvmgenerated(builder, def)
         argexprs = :($vararg_exprs($argexprs, $(QuoteNode(vararg)), $vararg))
     end
     gen = Expr(:->, Expr(:tuple, builder, names...), body)
-    generator = :($_llvmcall_expr($gen, $rettyp, $(GlobalRef(Core, :Tuple)){$(argtypes...)},
-                                  $argexprs, $what))
+    generator = :($_generate_llvmcall($gen, $rettyp,
+                                      $(GlobalRef(Core, :Tuple)){$(argtypes...)},
+                                      $argexprs, $what))
 
     sig = Expr(:call, fname, params...)
     for w in reverse(wheres)

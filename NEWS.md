@@ -8,7 +8,7 @@ New features:
 - `@llvmgenerated` defines staged functions that generate LLVM IR, deriving the LLVM
   signature from the Julia one and binding arguments to LLVM values. This replaces the
   boilerplate of `create_function` and `call_function`, which remain available.
-  `llvmcall_expr` offers the same functionality for use in hand-written generators.
+  `generate_llvmcall` offers the same functionality for use in hand-written generators.
 
 Bug fixes:
 

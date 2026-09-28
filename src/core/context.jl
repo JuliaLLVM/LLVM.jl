@@ -192,17 +192,23 @@ mutable struct DiagnosticState
     DiagnosticState() = new(nothing)
 end
 
+# contexts are created and disposed concurrently, e.g., by generated functions that build
+# IR while inference runs on multiple threads, so the registry needs to be locked.
 const DIAGNOSTIC_STATES = Dict{API.LLVMContextRef,DiagnosticState}()
+const DIAGNOSTIC_STATES_LOCK = ReentrantLock()
+
+diagnostic_state(ctx::Context) =
+    @lock DIAGNOSTIC_STATES_LOCK get(DIAGNOSTIC_STATES, ctx.ref, nothing)
 
 function prepare_diagnostic(ctx::Context)
-    state = get(DIAGNOSTIC_STATES, ctx.ref, nothing)
+    state = diagnostic_state(ctx)
     state === nothing || (state.error = nothing)
     return nothing
 end
 
 function check_diagnostic(ctx::Context, failed::Bool=false,
                           fallback::String="LLVM operation failed")
-    state = get(DIAGNOSTIC_STATES, ctx.ref, nothing)
+    state = diagnostic_state(ctx)
     if state !== nothing && state.error !== nothing
         msg = state.error
         state.error = nothing
@@ -229,7 +235,7 @@ function _install_handlers(ctx::Context)
 
     # set diagnostic callback
     state = DiagnosticState()
-    DIAGNOSTIC_STATES[ctx.ref] = state
+    @lock DIAGNOSTIC_STATES_LOCK DIAGNOSTIC_STATES[ctx.ref] = state
     handler = @cfunction(handle_diagnostic, Cvoid, (API.LLVMDiagnosticInfoRef, Ptr{Cvoid}))
     API.LLVMContextSetDiagnosticHandler(ctx, handler, Base.pointer_from_objref(state))
 
@@ -238,7 +244,7 @@ end
 
 function _remove_handlers(ctx::Context)
     API.LLVMContextSetDiagnosticHandler(ctx, C_NULL, C_NULL)
-    delete!(DIAGNOSTIC_STATES, ctx.ref)
+    @lock DIAGNOSTIC_STATES_LOCK delete!(DIAGNOSTIC_STATES, ctx.ref)
     return nothing
 end
 

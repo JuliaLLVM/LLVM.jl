@@ -3,8 +3,20 @@ export TargetMachineBuilder, targetmachinebuilder!, linkinglayercreator!
 export mangle, lookup, intern
 export ObjectLinkingLayer, register!
 
+@public define, absolute_symbols, symbol_flags,
+        DynamicLibrarySearchGenerator, CustomDefinitionGenerator,
+        ResourceTracker, IRTransformLayer, set_transform!, check_callback_error
+
 include("executionengine/utils.jl")
 
+"""
+    TargetMachineBuilder()
+    TargetMachineBuilder(tm::TargetMachine)
+
+Create a builder of target machines, as used by an [`LLJITBuilder`](@ref) to create the
+target machines that compile code. The builder either targets the host, or is based on
+`tm`, taking ownership of it.
+"""
 @checked struct TargetMachineBuilder
     ref::API.LLVMOrcJITTargetMachineBuilderRef
 end
@@ -30,6 +42,12 @@ end
 
 include("executionengine/lljit.jl")
 
+"""
+    ExecutionSession(jit)
+
+Get the execution session of a JIT, which manages the JIT's JITDylibs and symbol string
+pool.
+"""
 @checked struct ExecutionSession
     ref::API.LLVMOrcExecutionSessionRef
 end
@@ -40,6 +58,12 @@ function ExecutionSession(lljit::LLJIT)
     ExecutionSession(es)
 end
 
+"""
+    ObjectLinkingLayer
+
+An object linking layer, based on RuntimeDyld, for use with
+[`linkinglayercreator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
+"""
 @checked struct ObjectLinkingLayer
     ref::API.LLVMOrcObjectLayerRef
 end
@@ -472,6 +496,11 @@ function check_callback_error(dg::CustomDefinitionGenerator)
 end
 
 
+"""
+    LLVM.lookup_dylib(es::ExecutionSession, name) -> Union{JITDylib,Nothing}
+
+Get the JITDylib called `name` in `es`, or `nothing` if there is none.
+"""
 function lookup_dylib(es::ExecutionSession, name)
     ref = API.LLVMOrcExecutionSessionGetJITDylibByName(es, name)
     if ref == C_NULL
@@ -480,6 +509,15 @@ function lookup_dylib(es::ExecutionSession, name)
     JITDylib(ref)
 end
 
+"""
+    add!(lljit::LLJIT, jd::JITDylib, obj::MemoryBuffer)
+    add!(lljit::LLJIT, jd::JITDylib, tsm::ThreadSafeModule)
+    add!(lljit::LLJIT, rt::LLVM.ResourceTracker, obj_or_tsm)
+
+Add an object file or IR module to `jd`, or to the JITDylib of the resource tracker `rt`.
+The code is compiled and linked lazily, when one of its symbols is looked up. The object
+or module is consumed, even if adding it fails.
+"""
 function add!(lljit::LLJIT, jd::JITDylib, obj::MemoryBuffer)
     err = API.LLVMOrcLLJITAddObjectFile(lljit, jd, obj)
     mark_dispose(obj)   # consumed, even on failure
@@ -498,6 +536,12 @@ end
 
 # LLVMOrcLLJITAddLLVMIRModuleWithRT(J, JD, TSM)
 
+"""
+    empty!(jd::JITDylib)
+
+Remove all code and data from `jd`, releasing the resources of all of its resource
+trackers.
+"""
 function Base.empty!(jd::JITDylib)
     @check API.LLVMOrcJITDylibClear(jd)
     return jd
@@ -607,6 +651,12 @@ end
 
 ## lookup
 
+"""
+    OrcTargetAddress
+
+An address in the process that executes JIT-compiled code, as returned by
+[`lookup`](@ref lookup(::LLJIT, ::Any)). Use `pointer` to convert it to a pointer.
+"""
 struct OrcTargetAddress
     ptr::API.LLVMOrcJITTargetAddress
 end
@@ -780,11 +830,25 @@ function check_callback_error(il::IRTransformLayer)
 end
 
 
+"""
+    LLVM.MaterializationResponsibility
+
+The responsibility for materializing a set of symbols, as passed to the callback of a
+[`LLVM.CustomMaterializationUnit`](@ref). It is fulfilled by emitting code that defines
+these symbols, e.g., using [`LLVM.emit`](@ref).
+"""
 @checked struct MaterializationResponsibility
     ref::API.LLVMOrcMaterializationResponsibilityRef
 end
 Base.unsafe_convert(::Type{API.LLVMOrcMaterializationResponsibilityRef}, mr::MaterializationResponsibility) = mr.ref
 
+"""
+    LLVM.emit(layer, mr::LLVM.MaterializationResponsibility, tsm::ThreadSafeModule)
+
+Emit the IR module `tsm` through `layer` (an [`LLVM.IRTransformLayer`](@ref) or
+`LLVM.IRCompileLayer`) to fulfill the responsibility `mr`. Both `mr` and `tsm` are
+consumed.
+"""
 function emit(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     mark_dispose(tsm)
     API.LLVMOrcIRTransformLayerEmit(il, mr, tsm)
@@ -983,6 +1047,12 @@ end
 end
 Base.unsafe_convert(::Type{API.LLVMOrcIndirectStubsManagerRef}, ism::IndirectStubsManager) = ism.ref
 
+"""
+    LLVM.LocalIndirectStubsManager(triple)
+
+Create a manager of indirect stubs for the current process, as used by
+[`LLVM.lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+"""
 function LocalIndirectStubsManager(triple)
     ref = API.LLVMOrcCreateLocalIndirectStubsManager(triple)
     IndirectStubsManager(ref)
@@ -997,6 +1067,12 @@ end
 end
 Base.unsafe_convert(::Type{API.LLVMOrcLazyCallThroughManagerRef}, lcm::LazyCallThroughManager) = lcm.ref
 
+"""
+    LLVM.LocalLazyCallThroughManager(triple, es::ExecutionSession)
+
+Create a manager of lazy call-throughs for the current process, as used by
+[`LLVM.lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+"""
 function LocalLazyCallThroughManager(triple, es)
     ref = Ref{API.LLVMOrcLazyCallThroughManagerRef}()
     @check API.LLVMOrcCreateLocalLazyCallThroughManager(triple, es, C_NULL, ref)
@@ -1077,6 +1153,13 @@ else
     end
 end
 
+"""
+    add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
+    add!(jljit::JuliaOJIT, jd::JITDylib, tsm::ThreadSafeModule)
+
+Add an object file or IR module to `jd` in Julia's JIT. The object or module is consumed,
+even if adding it fails.
+"""
 function add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
     err = API.JLJITAddObjectFile(jljit, jd, obj)
     mark_dispose(obj)   # consumed, even on failure
@@ -1172,6 +1255,21 @@ function lookup(jljit::JuliaOJIT, jd::JITDylib, name, external_jd_only=false)
     OrcTargetAddress(result[])
 end
 
+@doc """
+    lookup(jljit::JuliaOJIT, jd::JITDylib, name, [external_jd_only=false])
+
+Look up the symbol with (unmangled) name `name` in `jd`, and the JITDylibs it links
+against, materializing it if necessary.
+
+On Julia versions before 1.14, `jd` is ignored, and the lookup searches all of Julia's
+JITDylibs (or only the one returned by `JITDylib(jljit)` if `external_jd_only` is set).
+""" lookup(::JuliaOJIT, ::JITDylib, ::Any)
+
+"""
+    LLVM.IRCompileLayer(jljit::JuliaOJIT)
+
+Get the layer of Julia's JIT that compiles IR modules, for use with [`LLVM.emit`](@ref).
+"""
 @checked struct IRCompileLayer
     ref::API.LLVMOrcIRCompileLayerRef
     jit

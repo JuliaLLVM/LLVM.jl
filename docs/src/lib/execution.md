@@ -43,7 +43,9 @@ lookup(::LLVM.ExecutionEngine, ::String)
 functions(::LLVM.ExecutionEngine)
 ```
 
-## ORCJIT
+## ORC
+
+### Thread-safe contexts and modules
 
 ```@docs
 ThreadSafeContext
@@ -56,17 +58,56 @@ ThreadSafeModule(::Module)
 dispose(::ThreadSafeModule)
 ```
 
-```@docs
-LLJIT
-JITDylib
-lookup(::LLJIT, ::Any)
-CallbackException
-linkinglayercreator!
-ObjectLinkingLayer(::ExecutionSession, ::String)
-```
+### JITs
 
 ```@docs
+LLJIT
+LLJITBuilder
+targetmachinebuilder!
+linkinglayercreator!
+TargetMachineBuilder
+ObjectLinkingLayer
+ObjectLinkingLayer(::ExecutionSession, ::String)
+JuliaOJIT
+ExecutionSession
+triple(::LLJIT)
+LLVM.global_prefix
+```
+
+### JITDylibs
+
+```@docs
+JITDylib
+LLVM.lookup_dylib
+add!(::LLJIT, ::JITDylib, ::MemoryBuffer)
+add!(::JuliaOJIT, ::JITDylib, ::MemoryBuffer)
+empty!(::JITDylib)
+lookup(::LLJIT, ::Any)
+lookup(::JuliaOJIT, ::JITDylib, ::Any)
+OrcTargetAddress
+```
+
+### Resource trackers
+
+```@docs
+LLVM.ResourceTracker
+LLVM.default_resource_tracker
+remove!(::LLVM.ResourceTracker)
+LLVM.transfer!
+dispose(::LLVM.ResourceTracker)
+```
+
+### Symbols
+
+```@docs
+LLVM.LLVMSymbol
+mangle
+intern
+LLVM.retain
+LLVM.release
+LLVM.symbol_flags
 LLVM.define
+LLVM.absolute_symbols
 ```
 
 ### Definition generators
@@ -77,4 +118,26 @@ add!(::JITDylib, ::LLVM.DefinitionGenerator)
 dispose(::LLVM.DefinitionGenerator)
 LLVM.DynamicLibrarySearchGenerator
 LLVM.CustomDefinitionGenerator
+```
+
+### Materialization
+
+```@docs
+LLVM.CustomMaterializationUnit
+LLVM.MaterializationResponsibility
+LLVM.requested_symbols
+LLVM.emit(::LLVM.IRTransformLayer, ::LLVM.MaterializationResponsibility, ::ThreadSafeModule)
+LLVM.IRTransformLayer
+LLVM.set_transform!
+LLVM.IRCompileLayer
+LLVM.lazy_reexports
+LLVM.LocalLazyCallThroughManager
+LLVM.LocalIndirectStubsManager
+```
+
+### Callback errors
+
+```@docs
+CallbackException
+LLVM.check_callback_error
 ```

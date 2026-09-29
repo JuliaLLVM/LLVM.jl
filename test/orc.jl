@@ -304,10 +304,11 @@ end
                                  code=LLVM.API.LLVMCodeModelJITDefault)
         coff_flags = jit_symbol_flags(; tm)
         @test coff_flags == "[Callable]"
-        @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es, triple); tm) ==
+        # the callback receives the executor's triple on LLVM 21+, so pass the target's
+        @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es, coff_triple); tm) ==
               coff_flags
         @test jit_symbol_flags(; tm) do es, triple
-            ObjectLinkingLayer(es, triple; override_object_flags=true,
+            ObjectLinkingLayer(es, coff_triple; override_object_flags=true,
                                auto_claim_object_symbols=true)
         end == coff_flags
     end

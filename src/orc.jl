@@ -53,22 +53,25 @@ Create a RuntimeDyld-based object linking layer that allocates memory using a
 `SectionMemoryManager`.
 
 The layer is configured the same way LLJIT configures its default object layer for
-`triple`. Objects for COFF targets (e.g., Windows) do not carry reliable symbol
-visibility information, so on those targets the layer uses the symbol flags from the IR
-instead of from the object file (`override_object_flags`), and takes responsibility for
-additional symbols that code generation introduced (`auto_claim_object_symbols`). Pass
-`true` or `false` to either keyword argument to override the default.
+`triple`, which should describe the object files the layer will link. Objects for COFF
+targets (e.g., Windows) do not carry reliable symbol visibility information, so on those
+targets the layer uses the symbol flags from the IR instead of from the object file
+(`override_object_flags`), and takes responsibility for additional symbols that code
+generation introduced (`auto_claim_object_symbols`). Pass `true` or `false` to either
+keyword argument to override the default.
 
-The triple defaults to the host's. When creating the layer in
-[`linkinglayercreator!`](@ref), pass the triple the callback receives instead, as the JIT
-may target a different object format (e.g., [`JITTargetMachine`](@ref) uses ELF on
-Windows):
+The triple defaults to the host's. In a [`linkinglayercreator!`](@ref) callback, pass the
+triple the callback receives:
 
 ```julia
 linkinglayercreator!(builder) do es, triple
     ObjectLinkingLayer(es, triple)
 end
 ```
+
+On LLVM 21 and newer, that is the triple of the process executing the code rather than
+that of the target machine, so pass the target's triple explicitly when JIT-compiling for
+a different object format.
 """
 function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.triple();
                             override_object_flags::Union{Nothing,Bool}=nothing,

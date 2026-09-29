@@ -9,6 +9,8 @@ New features:
   signature from the Julia one and binding arguments to LLVM values. This replaces the
   boilerplate of `create_function` and `call_function`, which remain available.
   `generate_llvmcall` offers the same functionality for use in hand-written generators.
+- Machine code can be disassembled using a `Disassembler` and the `disassemble` function,
+  which lazily decodes instructions into their address, size and textual representation.
 
 Bug fixes:
 

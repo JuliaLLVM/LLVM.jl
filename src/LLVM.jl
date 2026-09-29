@@ -86,6 +86,7 @@ include("execution.jl")
 include("target.jl")
 include("targetmachine.jl")
 include("datalayout.jl")
+include("disasm.jl")
 if has_oldpm()
     include("transform.jl")
 end

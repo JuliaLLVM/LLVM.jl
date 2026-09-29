@@ -48,3 +48,11 @@ preferred_alignment
 element_at
 offsetof
 ```
+
+## Disassembly
+
+```@docs
+Disassembler
+dispose(::Disassembler)
+disassemble
+```

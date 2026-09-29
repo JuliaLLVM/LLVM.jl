@@ -50,6 +50,8 @@ To position an `IRBuilder`, several APIs are available:
 
 - `position`: get the basic block where the builder is currently positioned.
 - `position!(builder, ::Instruction)`: position the builder before an instruction.
+- `position!(builder, ::Instruction; after=true)`: position the builder after an
+  instruction, which is at the end of its basic block if it is the last instruction.
 - `position!(builder, ::BasicBlock)`: position the builder at the end of a basic block.
 - `position!(builder)`: clear the position of the builder.
 
@@ -74,6 +76,27 @@ entry:
 
 For a full list of functions that can be used to create instructions, consult the API
 reference.
+
+Most of these functions correspond to a function of the C API, e.g., `add!` builds an
+`add` instruction using `LLVMBuildAdd`. Some also support functionality that C++'s
+`IRBuilder` offers, like accessing nested elements of an aggregate using a vector of
+(zero-based) indices, as in textual IR:
+
+```jldoctest
+julia> typ = LLVM.StructType([LLVM.Int32Type(), LLVM.ArrayType(LLVM.Int8Type(), 4)]);
+
+julia> f = LLVM.Function(mod, "extract", LLVM.FunctionType(LLVM.Int8Type(), [typ]));
+
+julia> builder = IRBuilder();
+
+julia> position!(builder, BasicBlock(f, "entry"))
+
+julia> ev = extract_value!(builder, f.parameters[1], [1, 2])
+%1 = extractvalue { i32, [4 x i8] } %0, 1, 2
+
+julia> ev.indices == [1, 2]
+true
+```
 
 ### Attributes
 

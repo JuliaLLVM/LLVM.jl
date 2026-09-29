@@ -598,8 +598,96 @@ end
     @test iv.indices == [1]
     @test !hasproperty(ev2, :pointer_operand)
 
+    # nested elements can be selected using a path of indices
+    ev3 = extract_value!(builder, agg, [1, 0])
+    @check_ir ev3 "extractvalue { i32, { i8, i16 } } %0, 1, 0"
+    @test ev3.indices == [1, 0]
+    @test ev3.value_type == LLVM.Int8Type()
+    iv2 = insert_value!(builder, agg, ev3, [1, 0])
+    @check_ir iv2 r"insertvalue \{ i32, \{ i8, i16 \} \} %0, i8 %\d+, 1, 0"
+    @test iv2.indices == [1, 0]
+
+    # indices are checked
+    @test_throws ArgumentError extract_value!(builder, agg, 2)
+    @test_throws ArgumentError extract_value!(builder, agg, [1, 2])
+    @test_throws ArgumentError extract_value!(builder, agg, [0, 0])
+    @test_throws ArgumentError extract_value!(builder, agg, Int[])
+    @test_throws ArgumentError insert_value!(builder, agg, ev3, [1, 1])
+    @test_throws ArgumentError insert_value!(builder, agg, ev3, 0)
+
     ret!(builder, ev2)
     verify(mod)
+end
+end
+
+@testset "positioning" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))
+    bb = BasicBlock(f, "entry")
+    position!(builder, bb)
+    x = f.parameters[1]
+    a = add!(builder, x, x)
+    ret = ret!(builder, a)
+
+    # after an instruction in the middle of a block
+    position!(builder, a; after=true)
+    b = mul!(builder, a, a)
+    @test a.next == b
+    @test b.next == ret
+
+    # after the last instruction of a block, i.e., at the end of the block
+    position!(builder, ret; after=true)
+    c = exactudiv!(builder, a, a)
+    @check_ir c "udiv exact i32"
+    @test ret.next == c
+    erase!(c)
+
+    # before an instruction
+    position!(builder, a)
+    d = sub!(builder, x, x)
+    @test d.next == a
+
+    # instructions need to be part of a block
+    remove!(d)
+    @test_throws ArgumentError position!(builder, d; after=true)
+    insert!(builder, d)
+    @test d.next == a
+
+    verify(mod)
+end
+
+# positioning after an instruction inserts before the debug records of the next one
+if LLVM.version() >= v"19"
+@dispose ctx=Context() builder=IRBuilder() begin
+    mod = parse(LLVM.Module, """
+        define void @f(i32 %x) !dbg !5 {
+          %p = alloca i32, align 4
+            #dbg_value(i32 %x, !9, !DIExpression(), !10)
+          ret void, !dbg !10
+        }
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+
+        !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "test.c", directory: "/tmp")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+        !6 = !DISubroutineType(types: !7)
+        !7 = !{null}
+        !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+        !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
+        !10 = !DILocation(line: 2, column: 1, scope: !5)
+        """)
+    f = mod.functions["f"]
+    alloca, ret = f.entry.instructions
+    position!(builder, alloca; after=true)
+    inst = add!(builder, f.parameters[1], f.parameters[1])
+    @test alloca.next == inst
+    @test isempty(inst.debug_records)
+    @test length(collect(ret.debug_records)) == 1
+    dispose(mod)
+end
 end
 end
 

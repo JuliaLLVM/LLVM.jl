@@ -92,6 +92,13 @@ isterminator
 isconditional
 ```
 
+## Aggregate instructions
+
+```@docs
+extract_value!
+insert_value!
+```
+
 ## Floating Point instructions
 
 ```@docs

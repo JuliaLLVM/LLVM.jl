@@ -668,10 +668,12 @@ end
     let
         val = LLVM.ConstantInt(Int32(42))
 
-        for f = [const_neg, const_nswneg, const_nuwneg]
+        for f = [const_neg, const_nswneg]
             ce = f(val)::LLVM.Constant
             @check_ir ce "i32 -42"
         end
+        ce = @test_deprecated const_nuwneg(val)
+        @check_ir ce "i32 -42"
 
         ce = const_not(val)::LLVM.Constant
         @check_ir ce "i32 -43"

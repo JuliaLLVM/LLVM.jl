@@ -143,7 +143,7 @@ export ret!, br!, switch!, indirectbr!, invoke!, resume!, unreachable!,
 
        binop!, add!, nswadd!, nuwadd!, fadd!, sub!, nswsub!, nuwsub!, fsub!, mul!, nswmul!,
        nuwmul!, fmul!, udiv!, sdiv!, exactsdiv!, fdiv!, urem!, srem!, frem!, neg!, nswneg!,
-       nuwneg!, fneg!,
+       fneg!,
 
        shl!, lshr!, ashr!, and!, or!, xor!, not!,
 
@@ -720,9 +720,6 @@ neg!(builder::IRBuilder, V::Value, Name::String="") =
 nswneg!(builder::IRBuilder, V::Value, Name::String="") =
     Value(API.LLVMBuildNSWNeg(builder, V, Name))
 
-nuwneg!(builder::IRBuilder, V::Value, Name::String="") =
-    Value(API.LLVMBuildNUWNeg(builder, V, Name))
-
 fneg!(builder::IRBuilder, V::Value, Name::String="") =
     Value(API.LLVMBuildFNeg(builder, V, Name))
 
@@ -759,9 +756,9 @@ function globalstring!(builder::IRBuilder, args...; kwargs...)
     globalstring!(mod, args...; kwargs...)
 end
 
-#globalstring_ptr!(builder::IRBuilder, Str::String, Name::String="") =
-#    Value(API.LLVMBuildGlobalStringPtr(builder, Str, Name))
-
+# with opaque pointers, a pointer to the string is the global itself, so this is identical
+# to `globalstring!` (which is why LLVM 20 deprecated `LLVMBuildGlobalStringPtr`). only
+# contexts with typed pointers need the GEP to get an `i8*`.
 function globalstring_ptr!(args...; kwargs...)
     gv = globalstring!(args...; kwargs...)
     zero = LLVM.ConstantInt(LLVM.IntType(32), 0)

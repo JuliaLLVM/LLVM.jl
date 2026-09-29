@@ -1624,6 +1624,131 @@ function Base.show(io::IO, record::DbgRecord)
     API.LLVMDisposeMessage(str_ptr)
 end
 
+# record iteration
+
+export debug_records
+
+struct DbgRecordIterator
+    inst::Instruction
+end
+
+"""
+    debug_records(inst::Instruction)
+
+Get an iterator over the debug records attached to the given instruction, i.e., the
+`#dbg_declare`, `#dbg_value`, `#dbg_assign` and `#dbg_label` records that are printed right
+before it. Requires LLVM 19+.
+
+The records can be inspected using [`kind(::DbgRecord)`](@ref) and the functions listed
+there.
+"""
+debug_records(inst::Instruction) = DbgRecordIterator(inst)
+
+Base.IteratorSize(::Type{DbgRecordIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{DbgRecordIterator}) = DbgRecord
+
+function Base.iterate(iter::DbgRecordIterator)
+    ref = @static if version() >= v"22"
+        API.LLVMGetFirstDbgRecord(iter.inst)
+    else
+        # the upstream function crashes on instructions without debug records
+        API.LLVMGetFirstDbgRecord2(iter.inst)
+    end
+    iterate(iter, ref)
+end
+function Base.iterate(::DbgRecordIterator, ref::API.LLVMDbgRecordRef)
+    ref == C_NULL && return nothing
+    return DbgRecord(ref), API.LLVMGetNextDbgRecord(ref)
+end
+
+# record inspection
+
+@public location_operands
+
+"""
+    kind(record::DbgRecord) -> LLVM.API.LLVMDbgRecordKind
+
+Get the kind of the given debug record: `LLVMDbgRecordDeclare`, `LLVMDbgRecordValue` or
+`LLVMDbgRecordAssign` for variable records, which describe the location of a source
+variable, or `LLVMDbgRecordLabel` for label records.
+
+Variable records can be further inspected using:
+- [`variable(::DbgRecord)`](@ref): the source variable that is described;
+- [`expression(::DbgRecord)`](@ref): the expression that computes the variable's location;
+- [`value(::DbgRecord)`](@ref) or [`LLVM.location_operands`](@ref): the IR values used by
+  that expression.
+
+The source location of every record is available through
+[`debuglocation(::DbgRecord)`](@ref).
+"""
+kind(record::DbgRecord) = API.LLVMDbgRecordGetKind(record)
+
+function check_variable_record(record::DbgRecord)
+    kind(record) == API.LLVMDbgRecordLabel &&
+        throw(ArgumentError("Label records do not describe a variable"))
+    return
+end
+
+"""
+    debuglocation(record::DbgRecord) -> DILocation
+
+Get the source location of the given debug record.
+"""
+debuglocation(record::DbgRecord) =
+    Metadata(API.LLVMDbgRecordGetDebugLoc(record))::DILocation
+
+"""
+    variable(record::DbgRecord) -> DILocalVariable
+
+Get the source variable described by the given variable record.
+"""
+function variable(record::DbgRecord)
+    check_variable_record(record)
+    Metadata(API.LLVMDbgVariableRecordGetVariable(record))::DILocalVariable
+end
+
+"""
+    expression(record::DbgRecord) -> DIExpression
+
+Get the expression that computes the location of the variable described by the given
+variable record, in terms of its [`LLVM.location_operands`](@ref).
+"""
+function expression(record::DbgRecord)
+    check_variable_record(record)
+    Metadata(API.LLVMDbgVariableRecordGetExpression(record))::DIExpression
+end
+
+"""
+    LLVM.location_operands(record::DbgRecord) -> Vector{Union{Value,Nothing}}
+
+Get the IR values that are used to compute the location of the variable described by the
+given variable record. There is usually only one, but records that use a `!DIArgList` can
+refer to several. Entries are `nothing` if the value has been deleted.
+
+See also [`value(::DbgRecord)`](@ref).
+"""
+function location_operands(record::DbgRecord)
+    check_variable_record(record)
+    n = API.LLVMExtraDbgVariableRecordGetNumValues(record)
+    Union{Value,Nothing}[let ref = API.LLVMDbgVariableRecordGetValue(record, i)
+                             ref == C_NULL ? nothing : Value(ref)
+                         end for i in 0:n-1]
+end
+
+"""
+    value(record::DbgRecord) -> Union{Value,Nothing}
+
+Get the IR value used to compute the location of the variable described by the given
+variable record, or `nothing` if that value has been deleted. Records that refer to several
+values need to be inspected using [`LLVM.location_operands`](@ref) instead.
+"""
+function value(record::DbgRecord)
+    ops = location_operands(record)
+    length(ops) == 1 ||
+        throw(ArgumentError("Debug record refers to $(length(ops)) values, use `LLVM.location_operands`"))
+    return ops[1]
+end
+
 declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, instr::Instruction) =
     DbgRecord(API.LLVMDIBuilderInsertDeclareRecordBefore(

@@ -582,6 +582,21 @@ end
         @test collect(cda) == ConstantFP.(vec)
     end
 
+    # from vectors that aren't stored contiguously
+    for vec in [Int32(1):Int32(3), view(Int32[1,0,2,0,3], 1:2:5),
+                reinterpret(Int32, Int64[1, 2])]
+        cda = ConstantDataArray(vec)
+        @test size(cda) == size(vec)
+        @test collect(cda) == ConstantInt.(vec)
+    end
+
+    # unsupported element types
+    @test_throws ArgumentError ConstantDataArray([true, false])
+    @test_throws ArgumentError ConstantDataArray(LLVM.IntType(24), Int32[1, 2])
+    @test_throws ArgumentError ConstantDataArray(LLVM.Int16Type(), Int32[1, 2])
+    @test_throws ArgumentError ConstantDataArray(LLVM.FP128Type(), Float64[1, 2])
+    @test_throws ArgumentError ConstantDataArray(LLVM.Int16Type(), Union{Int8,Int16}[Int8(-1)])
+
     end
 end
 

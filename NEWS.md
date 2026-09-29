@@ -17,6 +17,9 @@ New features:
 
 Bug fixes:
 
+- `ConstantDataArray` now copies vectors that aren't stored contiguously (e.g. strided views
+  or reinterpreted arrays) instead of producing wrong elements or reading out of bounds, and
+  rejects element types that LLVM cannot store as packed data, like `Bool`.
 - `alignment` and `alignment!` are now only defined for values that have an alignment, and
   reject invalid alignments, instead of silently returning garbage or corrupting the IR.
 - Contexts can be created and disposed of concurrently from multiple threads.

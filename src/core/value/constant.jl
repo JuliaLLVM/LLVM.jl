@@ -298,13 +298,29 @@ register(ConstantDataArray, API.LLVMConstantDataArrayValueKind)
 
 Create a constant array of simple data values of the given type and data.
 
-!!! warning
-
-    The memory layout of the data array must match the expected layout of the LLVM type.
+The element type needs to be a 1/2/4/8-byte integer or a half/bfloat/float/double type, of
+the same size as the elements of `data`, whose bits are used as-is.
 """
 function ConstantDataArray(typ::LLVMType, data::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
-    # TODO: can we look up the primitive size of the LLVM type?
-    #       use that to assert it matches the Julia element type.
+    # the element types supported by ConstantDataSequential
+    bits = if typ isa IntegerType && width(typ) in (8, 16, 32, 64)
+        width(typ)
+    elseif typ isa Union{LLVMHalf, LLVMBFloat}
+        16
+    elseif typ isa LLVMFloat
+        32
+    elseif typ isa LLVMDouble
+        64
+    else
+        throw(ArgumentError("ConstantDataArray does not support elements of type $typ; use ConstantArray instead"))
+    end
+    isbitstype(T) ||
+        throw(ArgumentError("ConstantDataArray requires elements of a concrete bits type, got $T"))
+    8*sizeof(T) == bits ||
+        throw(ArgumentError("Elements of type $T do not match the size of LLVM type $typ"))
+
+    # the data is passed as a pointer, so make sure it is stored contiguously
+    data isa Array || (data = collect(data))
     return ConstantDataArray(API.LLVMConstDataArray(typ, data, sizeof(data)))
 end
 
@@ -321,7 +337,7 @@ ConstantDataArray(::AbstractVector)
 ConstantDataArray(data::AbstractVector{T}) where {T<:Integer} =
     ConstantDataArray(IntType(sizeof(T)*8), data)
 ConstantDataArray(data::AbstractVector{Bool}) =
-    ConstantDataArray(Int1Type(), data)
+    throw(ArgumentError("ConstantDataArray does not support elements of type i1; use ConstantArray instead"))
 ConstantDataArray(data::AbstractVector{Float64}) =
     ConstantDataArray(DoubleType(), data)
 ConstantDataArray(data::AbstractVector{Float32}) =

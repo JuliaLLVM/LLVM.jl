@@ -29,10 +29,12 @@ using ..LLVM: libllvm
 using LLVMExtra_jll
 if has_preference(LLVM, "libLLVMExtra")
     const libLLVMExtra = load_preference(LLVM, "libLLVMExtra")
+elseif isdefined(LLVMExtra_jll, :libLLVMExtra)
+    import LLVMExtra_jll: libLLVMExtra
 else
-    if isdefined(LLVMExtra_jll, :libLLVMExtra)
-        import LLVMExtra_jll: libLLVMExtra
-    end
+    error("""LLVM.jl requires the LLVM extensions library, which LLVMExtra_jll does not provide for your platform:
+               $(Base.BinaryPlatforms.triplet(LLVMExtra_jll.host_platform))
+             If you are using a custom version of LLVM, build the library using `deps/build_local.jl`.""")
 end
 
 # auto-generated wrappers
@@ -89,12 +91,7 @@ include("interop.jl")
 
 include("deprecated.jl")
 
-# the precompilation workload requires the LLVM extensions library; skip it when
-# unavailable (e.g., when using a custom LLVM without a matching LLVMExtra_jll)
-# so that the package can still be loaded (reporting an error from `__init__`).
-if isdefined(API, :libLLVMExtra)
-    include("precompile.jl")
-end
+include("precompile.jl")
 
 
 ## initialization
@@ -103,14 +100,6 @@ function __init__()
     @debug "Using LLVM $libllvm_version at $(Base.libllvm_path())"
 
     # sanity checks
-    if !isdefined(API, :libLLVMExtra)
-        @error """LLVM extensions library unavailable for your platform:
-                    $(Base.BinaryPlatforms.triplet(API.LLVMExtra_jll.host_platform))
-                  LLVM.jl will not be functional.
-
-                  If you are using a custom version of LLVM, try building a
-                  custom version of LLVMExtra_jll using `deps/build_local.jl`"""
-    end
     if libllvm_version != Base.libllvm_version
         # this checks that the precompilation image isn't being used
         # after having upgraded Julia and the contained LLVM library.

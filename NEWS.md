@@ -14,6 +14,9 @@ New features:
 - Stack allocations can be aligned using the `align` keyword argument of `alloca!` and
   `array_alloca!`, and the alignment of functions can be inspected and changed using
   `alignment` and `alignment!`.
+- The `memory` attribute that replaced `readnone`, `readonly`, `argmemonly` etc. in LLVM 16
+  can be created and inspected using `MemoryEffects`, e.g.,
+  `memory_effects!(f, MemoryEffects(argmem=:read))` or `access(memory_effects(f)) == :none`.
 
 Bug fixes:
 

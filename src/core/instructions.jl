@@ -688,6 +688,20 @@ function Base.length(iter::CallSiteAttrSet)
     return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
 end
 
+function memory_effects(iter::CallSiteAttrSet)
+    check_memory_effects_index(iter.idx)
+    memory_locations()  # check that the attribute is supported
+    ref = API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, memory_kind())
+    ref == C_NULL && return MemoryEffects(:readwrite)
+    return MemoryEffects(EnumAttribute(ref))
+end
+
+function memory_effects!(iter::CallSiteAttrSet, effects::MemoryEffects)
+    check_memory_effects_index(iter.idx)
+    push!(iter, EnumAttribute(effects))
+    return
+end
+
 # operand bundles
 
 export OperandBundle, operand_bundles, tag, inputs

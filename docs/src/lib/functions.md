@@ -32,6 +32,16 @@ parameter_attributes(::LLVM.Function, ::Integer)
 return_attributes(::LLVM.Function)
 ```
 
+## Memory effects
+
+```@docs
+MemoryEffects
+access
+EnumAttribute(::MemoryEffects)
+memory_effects
+memory_effects!
+```
+
 ## Parameters
 
 ```@docs

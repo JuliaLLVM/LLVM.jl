@@ -216,6 +216,51 @@ function Base.length(iter::FunctionAttrSet)
     API.LLVMGetAttributeCountAtIndex(iter.f, iter.idx)
 end
 
+export memory_effects, memory_effects!
+
+"""
+    memory_effects(f::Function) -> MemoryEffects
+    memory_effects(attrs) -> MemoryEffects
+
+Get the memory effects of a function, as described by its `memory` attribute, or
+`MemoryEffects(:readwrite)` if it doesn't have one. This also works on the function
+attributes of a call, `function_attributes(call)`, in which case only the attributes of the
+call site are considered (and not, e.g., those of the called function).
+
+See also: [`MemoryEffects`](@ref), [`memory_effects!`](@ref)
+"""
+memory_effects(f::Function) = memory_effects(function_attributes(f))
+
+function memory_effects(iter::FunctionAttrSet)
+    check_memory_effects_index(iter.idx)
+    memory_locations()  # check that the attribute is supported
+    ref = API.LLVMGetEnumAttributeAtIndex(iter.f, iter.idx, memory_kind())
+    ref == C_NULL && return MemoryEffects(:readwrite)
+    return MemoryEffects(EnumAttribute(ref))
+end
+
+"""
+    memory_effects!(f::Function, effects::MemoryEffects)
+    memory_effects!(attrs, effects::MemoryEffects)
+
+Set the memory effects of a function, or of a call when passing `function_attributes(call)`,
+by adding a `memory` attribute (replacing any existing one).
+
+See also: [`MemoryEffects`](@ref), [`memory_effects`](@ref)
+"""
+memory_effects!(f::Function, effects::MemoryEffects) =
+    memory_effects!(function_attributes(f), effects)
+
+function memory_effects!(iter::FunctionAttrSet, effects::MemoryEffects)
+    check_memory_effects_index(iter.idx)
+    push!(iter, EnumAttribute(effects))
+    return
+end
+
+check_memory_effects_index(idx::API.LLVMAttributeIndex) =
+    idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex) ||
+        throw(ArgumentError("Memory effects can only be associated with functions and calls, not with parameters or return values"))
+
 
 # parameter iteration
 

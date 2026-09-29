@@ -122,3 +122,162 @@ kind(attr::ConstantRangeAttribute) = API.LLVMGetEnumAttributeKind(attr)
 ## constant range list attribute
 
 kind(attr::ConstantRangeListAttribute) = API.LLVMGetEnumAttributeKind(attr)
+
+
+## memory effects
+
+export MemoryEffects, access
+
+"""
+    MemoryEffects(default::Symbol=:none; argmem, inaccessiblemem, errnomem, other, ...)
+
+The memory effects of a function or call, i.e., the kind of access that may happen to each
+location of memory. These effects are encoded in the `memory` attribute, which since LLVM 16
+replaces the `readnone`, `readonly`, `writeonly`, `argmemonly`, `inaccessiblememonly` and
+`inaccessiblemem_or_argmemonly` function attributes. Use `EnumAttribute(effects)` to create
+that attribute, or [`memory_effects`](@ref) and [`memory_effects!`](@ref) to get and set it.
+
+The access kind of every location is one of `:none`, `:read`, `:write` or `:readwrite`, and
+defaults to `default`. The locations are:
+
+- `argmem`: memory accessed through pointer arguments;
+- `inaccessiblemem`: memory that is not accessible by the current module;
+- `errnomem`: the `errno` variable (LLVM 21 and later, before that part of `other`);
+- `target_mem0`, `target_mem1`: target-specific state (LLVM 22 and later, experimental);
+- `other`: any other memory.
+
+These effects are an upper bound: an access kind like `:read` does not guarantee that a
+read happens. The access kind of a single location can be queried by indexing, e.g.,
+`effects[:argmem]`, while [`access`](@ref) returns the access kind for all locations
+combined. Effects can be combined with `|` (union) and `&` (intersection).
+
+# Examples
+
+```julia
+MemoryEffects(:none)                    # memory(none), formerly `readnone`
+MemoryEffects(:read)                    # memory(read), formerly `readonly`
+MemoryEffects(argmem=:readwrite)        # memory(argmem: readwrite), formerly `argmemonly`
+MemoryEffects(:read; argmem=:readwrite) # memory(read, argmem: readwrite)
+```
+
+!!! note
+    The `memory` attribute requires LLVM 16 or later.
+"""
+struct MemoryEffects
+    # LLVM's encoding (`MemoryEffects::toIntValue`): two bits per location, holding the
+    # `ModRefInfo` in the position of the location in `memory_locations()`
+    data::UInt32
+    MemoryEffects(data::UInt32) = new(data)
+end
+
+# The memory locations of the LLVM version in use, in the order of LLVM's `IRMemLocation`.
+# This needs to be kept in sync with `llvm/Support/ModRef.h` when adding a new LLVM version.
+function memory_locations()
+    if version() >= v"22"
+        (:argmem, :inaccessiblemem, :errnomem, :other, :target_mem0, :target_mem1)
+    elseif version() >= v"21"
+        (:argmem, :inaccessiblemem, :errnomem, :other)
+    elseif version() >= v"16"
+        (:argmem, :inaccessiblemem, :other)
+    else
+        throw(ArgumentError("The memory attribute requires LLVM 16 or later"))
+    end
+end
+const all_memory_locations =
+    (:argmem, :inaccessiblemem, :errnomem, :other, :target_mem0, :target_mem1)
+
+# The access kinds, in the order of LLVM's `ModRefInfo`.
+const memory_access_kinds = (:none, :read, :write, :readwrite)
+
+function memory_location_pos(loc::Symbol)
+    pos = findfirst(==(loc), memory_locations())
+    if pos === nothing
+        if loc in all_memory_locations
+            throw(ArgumentError("Memory location $(repr(loc)) is not supported by LLVM $(version())"))
+        else
+            throw(ArgumentError("Unknown memory location $(repr(loc)); expected one of $(join(map(repr, memory_locations()), ", "))"))
+        end
+    end
+    return 2 * (pos - 1)
+end
+
+function memory_access_value(kind::Symbol)
+    val = findfirst(==(kind), memory_access_kinds)
+    val === nothing &&
+        throw(ArgumentError("Unknown memory access kind $(repr(kind)); expected one of $(join(map(repr, memory_access_kinds), ", "))"))
+    return UInt32(val - 1)
+end
+
+function MemoryEffects(default::Symbol=:none; kwargs...)
+    for loc in keys(kwargs)
+        memory_location_pos(loc)    # reject unsupported locations
+    end
+    data = UInt32(0)
+    for loc in memory_locations()
+        data |= memory_access_value(get(kwargs, loc, default)) << memory_location_pos(loc)
+    end
+    return MemoryEffects(data)
+end
+
+function Base.getindex(effects::MemoryEffects, loc::Symbol)
+    memory_access_kinds[((effects.data >> memory_location_pos(loc)) & 0x3) + 1]
+end
+
+"""
+    access(effects::MemoryEffects) -> Symbol
+
+The kind of memory access that is possible for any location: `:none` if memory is never
+accessed, `:read` if it may only be read, `:write` if it may only be written, and
+`:readwrite` otherwise.
+"""
+function access(effects::MemoryEffects)
+    val = UInt32(0)
+    for loc in memory_locations()
+        val |= (effects.data >> memory_location_pos(loc)) & 0x3
+    end
+    return memory_access_kinds[val + 1]
+end
+
+Base.:(|)(a::MemoryEffects, b::MemoryEffects) = MemoryEffects(a.data | b.data)
+Base.:(&)(a::MemoryEffects, b::MemoryEffects) = MemoryEffects(a.data & b.data)
+
+# print like LLVM does, with the access kind for `other` as the default
+function Base.show(io::IO, effects::MemoryEffects)
+    default = effects[:other]
+    print(io, "MemoryEffects(")
+    show_default = default != :none || access(effects) == default
+    show_default && show(io, default)
+    first = true
+    for loc in memory_locations()
+        kind = effects[loc]
+        (loc == :other || kind == default) && continue
+        print(io, first ? (show_default ? "; " : "") : ", ", loc, "=")
+        show(io, kind)
+        first = false
+    end
+    print(io, ")")
+end
+
+memory_kind() = API.LLVMGetEnumAttributeKindForName("memory", 6)
+
+"""
+    EnumAttribute(effects::MemoryEffects)
+
+Create a `memory` attribute describing the given memory effects.
+"""
+function EnumAttribute(effects::MemoryEffects)
+    memory_locations()  # check that the attribute is supported
+    return EnumAttribute(API.LLVMCreateEnumAttribute(context(), memory_kind(), effects.data))
+end
+
+"""
+    MemoryEffects(attr::EnumAttribute)
+
+Get the memory effects described by a `memory` attribute.
+"""
+function MemoryEffects(attr::EnumAttribute)
+    memory_locations()  # check that the attribute is supported
+    kind(attr) == memory_kind() ||
+        throw(ArgumentError("Expected a memory attribute, got $attr"))
+    return MemoryEffects(UInt32(value(attr)))
+end

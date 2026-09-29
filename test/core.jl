@@ -1670,6 +1670,116 @@ end
     end
 end
 
+# memory effects
+if LLVM.version() >= v"16"
+    locations = LLVM.memory_locations()
+    @test :argmem in locations && :inaccessiblemem in locations && :other in locations
+    @test (:errnomem in locations) == (LLVM.version() >= v"21")
+
+    # construction and querying
+    let effects = MemoryEffects(:read; argmem=:readwrite)
+        @test effects[:argmem] == :readwrite
+        @test effects[:inaccessiblemem] == :read
+        @test effects[:other] == :read
+        @test access(effects) == :readwrite
+    end
+    @test MemoryEffects() == MemoryEffects(:none)
+    @test all(loc -> MemoryEffects(:write)[loc] == :write, locations)
+    @test access(MemoryEffects(:none)) == :none
+    @test access(MemoryEffects(argmem=:read, inaccessiblemem=:write)) == :readwrite
+    @test MemoryEffects(argmem=:read) | MemoryEffects(argmem=:write, other=:read) ==
+          MemoryEffects(argmem=:readwrite, other=:read)
+    @test MemoryEffects(:read) & MemoryEffects(argmem=:readwrite) == MemoryEffects(argmem=:read)
+    @test_throws ArgumentError MemoryEffects(:everything)
+    @test_throws ArgumentError MemoryEffects(argmem=:everything)
+    @test_throws ArgumentError MemoryEffects(globalmem=:read)
+    @test_throws ArgumentError MemoryEffects(:read)[:globalmem]
+    if LLVM.version() < v"21"
+        # locations of later LLVM versions are rejected, not approximated
+        @test_throws ArgumentError MemoryEffects(errnomem=:read)
+        @test_throws ArgumentError MemoryEffects(:read)[:errnomem]
+    end
+
+    # printing, mirroring LLVM's syntax
+    @test repr(MemoryEffects(:none)) == "MemoryEffects(:none)"
+    @test repr(MemoryEffects(:readwrite)) == "MemoryEffects(:readwrite)"
+    @test repr(MemoryEffects(argmem=:read)) == "MemoryEffects(argmem=:read)"
+    @test repr(MemoryEffects(argmem=:read, inaccessiblemem=:write)) ==
+          "MemoryEffects(argmem=:read, inaccessiblemem=:write)"
+    @test repr(MemoryEffects(:read; argmem=:none)) == "MemoryEffects(:read; argmem=:none)"
+    for effects in (MemoryEffects(:read; argmem=:none), MemoryEffects(inaccessiblemem=:write))
+        @test eval(Meta.parse(repr(effects))) == effects
+    end
+
+    # compare against LLVM's textual representation, which catches encoding changes
+    ir_kinds = Dict(:none => "none", :read => "read", :write => "write",
+                    :readwrite => "readwrite")
+    others = filter(!=(:other), locations)
+    cases = Pair{String,MemoryEffects}[
+        "memory(none)" => MemoryEffects(:none),
+        "memory(readwrite)" => MemoryEffects(:readwrite),
+        "memory(read, argmem: readwrite)" => MemoryEffects(:read; argmem=:readwrite),
+        # only `other`
+        "memory(write, $(join(("$loc: none" for loc in others), ", ")))" =>
+            MemoryEffects(other=:write)
+    ]
+    # every other location on its own
+    for loc in others, kind in (:read, :write)
+        push!(cases, "memory($loc: $(ir_kinds[kind]))" => MemoryEffects(; loc => kind))
+    end
+    @dispose ctx=Context() begin
+        ir = join(("declare void @f$i() $str" for (i, (str, _)) in enumerate(cases)), "\n")
+        mod = parse(LLVM.Module, ir)
+        for (i, (str, effects)) in enumerate(cases)
+            f = functions(mod)["f$i"]
+            @test memory_effects(f) == effects
+            @test MemoryEffects(only(collect(function_attributes(f)))) == effects
+
+            # the attribute we create is printed like the one LLVM parsed
+            g = LLVM.Function(mod, "g$i", function_type(f))
+            memory_effects!(g, effects)
+            @test occursin(str, string(g))
+        end
+        @test verify(mod) === nothing
+    end
+
+    # functions and call sites
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+        ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
+        fn = LLVM.Function(mod, "SomeFunction", ft)
+        @test memory_effects(fn) == MemoryEffects(:readwrite)
+
+        memory_effects!(fn, MemoryEffects(:read))
+        @test memory_effects(fn) == MemoryEffects(:read)
+        # setting the memory effects again replaces the attribute
+        memory_effects!(fn, MemoryEffects(argmem=:read))
+        @test memory_effects(fn) == MemoryEffects(argmem=:read)
+        @test length(function_attributes(fn)) == 1
+
+        attr = EnumAttribute(MemoryEffects(:none))
+        @test MemoryEffects(attr) == MemoryEffects(:none)
+        @test_throws ArgumentError MemoryEffects(EnumAttribute("nounwind"))
+        @test_throws ArgumentError memory_effects(parameter_attributes(fn, 1))
+        @test_throws ArgumentError memory_effects!(return_attributes(fn), MemoryEffects())
+
+        caller = LLVM.Function(mod, "SomeCaller", ft)
+        position!(builder, BasicBlock(caller, "entry"))
+        call = call!(builder, ft, fn, [parameters(caller)[1]])
+        ret!(builder)
+
+        # only the attributes of the call site are considered
+        @test memory_effects(function_attributes(call)) == MemoryEffects(:readwrite)
+        memory_effects!(function_attributes(call), MemoryEffects(:none))
+        @test memory_effects(function_attributes(call)) == MemoryEffects(:none)
+        @test occursin("memory(none)", string(mod))     # nothing else has these effects
+        @test_throws ArgumentError memory_effects(argument_attributes(call, 1))
+
+        @test verify(mod) === nothing
+    end
+else
+    @test_throws ArgumentError MemoryEffects(:read)
+end
+
 # parameter iteration
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])

@@ -541,6 +541,27 @@ void registerCallbackParsing(PassBuilder &PB) {
 
 // Vendored API entrypoint
 
+// Pass instrumentation (e.g. `-print-after-all`) receives the IR unit as an `llvm::Any`,
+// which identifies types by the address of `Any::TypeId<T>::Id`. Before LLVM 20
+// (llvm/llvm-project#108051), each shared library creating an `Any` can end up with its own
+// copy of that variable. On Linux, Julia makes libLLVM use the one from libjulia-codegen,
+// but LLVMExtra is loaded with RTLD_DEEPBIND and binds to a different one. So if
+// `PassManager::run` gets inlined here, the instrumentation fails to recognize the IR it
+// is passed and crashes. Avoid that by calling libLLVM's instantiation of `run` through an
+// opaque function pointer.
+template <typename IRUnitT>
+static void runPassManager(PassManager<IRUnitT> &PM, IRUnitT &IR,
+                           AnalysisManager<IRUnitT> &AM) {
+#if LLVM_VERSION_MAJOR < 20
+  using RunFn =
+      PreservedAnalyses (PassManager<IRUnitT>::*)(IRUnitT &, AnalysisManager<IRUnitT> &);
+  static RunFn volatile Run = &PassManager<IRUnitT>::run;
+  (PM.*Run)(IR, AM);
+#else
+  PM.run(IR, AM);
+#endif
+}
+
 static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passes,
                                    TargetMachine *Machine, LLVMPassBuilderOptions *PassOpts,
                                    LLVMPassBuilderExtensions *PassExts) {
@@ -633,7 +654,7 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
       delete SI;
       return wrap(std::move(Err));
     }
-    FPM.run(*Fun, FAM);
+    runPassManager(FPM, *Fun, FAM);
   } else {
     ModulePassManager MPM;
     if (VerifyEach)
@@ -642,7 +663,7 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
       delete SI;
       return wrap(std::move(Err));
     }
-    MPM.run(*Mod, MAM);
+    runPassManager(MPM, *Mod, MAM);
   }
 
   delete SI;

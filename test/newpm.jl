@@ -599,6 +599,68 @@ end
     end
 end
 
+# on Windows, instrumentation needs LLVM 20 to work across libraries, including
+# Julia's own compiler (llvm/llvm-project#108051)
+if !Sys.iswindows() || LLVM.version() >= v"20"
+@testset "instrumentation" begin
+    # LLVM's pass instrumentation is configured through global command-line options,
+    # which are only read once, so test it in a fresh process configured at startup.
+    function instrument(opts...)
+        args = join([get(ENV, "JULIA_LLVM_ARGS", ""), opts...], " ")
+        execute_code("""
+            @dispose ctx=Context() mod=LLVM.Module("test") begin
+                ft = LLVM.FunctionType(LLVM.VoidType())
+                for name in ("SomeFunction", "dead_func")
+                    fn = LLVM.Function(mod, name, ft)
+                    @dispose builder=IRBuilder() begin
+                        position!(builder, BasicBlock(fn, "entry"))
+                        ret!(builder)
+                    end
+                end
+                linkage!(functions(mod)["dead_func"], LLVM.API.LLVMInternalLinkage)
+
+                custom_pass!(fn::LLVM.Function) = false
+                CustomPass() = NewPMFunctionPass("custom-pass", custom_pass!)
+                @dispose pb=NewPMPassBuilder() begin
+                    register!(pb, CustomPass())
+                    add!(pb, NoOpModulePass())
+                    add!(pb, NewPMFunctionPassManager()) do fpm
+                        add!(fpm, NoOpFunctionPass())
+                        add!(fpm, CustomPass())
+                    end
+                    add!(pb, GlobalDCEPass())
+                    run!(pb, mod)
+                end
+
+                @dispose pb=NewPMPassBuilder() begin
+                    add!(pb, EarlyCSEPass())
+                    run!(pb, functions(mod)["SomeFunction"])
+                end
+            end"""; env=("JULIA_LLVM_ARGS" => args,))
+    end
+
+    let (; err, success) = instrument("--print-after-all", "--filter-print-funcs=SomeFunction")
+        @test success
+        @test occursin("IR Dump After NoOpModulePass on [module]", err)
+        @test occursin("IR Dump After NoOpFunctionPass on SomeFunction", err)
+        # custom passes are reported by the name of the C++ class wrapping them
+        @test occursin("IR Dump After JuliaCustomFunctionPass on SomeFunction", err)
+        @test occursin("IR Dump After EarlyCSEPass on SomeFunction", err)
+        @test !occursin("on dead_func", err)
+    end
+
+    # `-print-before` selects passes by their pipeline name, which requires registering the
+    # mapping from class names; `-print-changed` compares the IR before and after each pass
+    let (; err, success) = instrument("--print-before=globaldce", "--print-changed=quiet",
+                                      "--filter-print-funcs=dead_func")
+        @test success
+        @test occursin("IR Dump Before GlobalDCEPass on [module]", err)
+        @test occursin("IR Deleted After GlobalDCEPass on [module]", err)
+        @test !occursin("NoOpModulePass", err)
+    end
+end
+end
+
 @testset "alias analyses" begin
     # default pipeline
     @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(debug_logging=true) begin

@@ -131,6 +131,17 @@ julia> @dispose pb=NewPMPassBuilder() begin
 Hello, World!
 ```
 
+Passes that are implemented in C++ can be used as well, by registering a native callback
+that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:
+
+```julia
+@dispose pb=NewPMPassBuilder() begin
+    register_callbacks!(pb, cglobal((:registerCallbacks, libfoo)))
+    add!(pb, "foo-pass")
+    run!(pb, mod)
+end
+```
+
 
 ## Custom target info
 

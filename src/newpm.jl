@@ -229,6 +229,7 @@ mutable struct NewPMPassBuilder <: AbstractPassManager
     aa_passes::Vector{String}
     custom_passes::Vector{NewPMCustomPass}
     custom_tti::Union{AbstractTargetTransformInfo,Nothing}
+    registration_callbacks::Vector{Ptr{Cvoid}}
 end
 
 Base.string(pm::NewPMPassBuilder) = join(pm.passes, ",")
@@ -238,7 +239,7 @@ Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::NewPMPassBuilder)
 
 function NewPMPassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
-    obj = mark_alloc(NewPMPassBuilder(opts, [], [], [], nothing))
+    obj = mark_alloc(NewPMPassBuilder(opts, [], [], [], nothing, []))
 
     for (name, value) in pairs(kwargs)
         if name == :verify_each
@@ -286,6 +287,32 @@ See also: [`NewPMModulePass`](@ref), [`NewPMFunctionPass`](@ref)
 """
 function register!(pb::NewPMPassBuilder, pass::NewPMCustomPass)
     push!(pb.custom_passes, pass)
+end
+
+@vocabulary Passes register_callbacks!
+
+"""
+    register_callbacks!(pb::NewPMPassBuilder, callback::Ptr{Cvoid})
+
+Register a native callback that is called with LLVM's C++ `PassBuilder` (as a `void *`)
+when the pass builder is used to run passes. This makes it possible to use passes that are
+implemented in C++, by calling the `PassBuilder`'s `register*Callback` methods, like pass
+plugins do. For example, for a library that provides a `registerCallbacks` function:
+
+```julia
+register_callbacks!(pb, cglobal((:registerCallbacks, libfoo)))
+```
+
+The callback needs to have the signature `void (*)(void *)`, and the library that provides
+it needs to be built against the same version of LLVM as the one that Julia uses, and remain
+loaded while the pass builder is used. Callbacks are called in the order they were
+registered, after LLVM.jl registers Julia's passes, and must not throw Julia exceptions. To
+implement a pass in Julia instead, use [`register!`](@ref).
+"""
+function register_callbacks!(pb::NewPMPassBuilder, callback::Ptr{Cvoid})
+    callback == C_NULL && throw(ArgumentError("Registration callback cannot be NULL"))
+    push!(pb.registration_callbacks, callback)
+    return pb
 end
 
 @vocabulary Passes target_transform_info!
@@ -377,6 +404,11 @@ function run_passes!(pb::NewPMPassBuilder, exts::API.LLVMPassBuilderExtensionsRe
         # register Julia passes
         julia_callback = cglobal(:jl_register_passbuilder_callbacks)
         API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+
+        # register native callbacks
+        for callback in pb.registration_callbacks
+            API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, callback)
+        end
 
         # register AA pipeline
         if !isempty(aa_pipeline)

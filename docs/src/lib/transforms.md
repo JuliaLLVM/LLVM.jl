@@ -19,6 +19,7 @@ add!
 ```@docs
 LLVM.NewPMCustomPass
 register!
+register_callbacks!
 ```
 
 ## Custom target info

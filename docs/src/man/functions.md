@@ -87,41 +87,54 @@ value. The `parameter_attributes` property is a vector with the attributes of ea
 parameter:
 
 ```jldoctest function
-julia> push!(fun.function_attributes, StringAttribute("nounwind"));
+julia> push!(fun.function_attributes, EnumAttribute(:nounwind));
 
-julia> push!(fun.parameter_attributes[1], StringAttribute("nocapture"));
+julia> push!(fun.function_attributes, StringAttribute("frame-pointer", "all"));
 
-julia> push!(fun.return_attributes, StringAttribute("sret"));
+julia> push!(fun.parameter_attributes[1], EnumAttribute(:noundef));
 
 julia> mod
 ; ModuleID = 'SomeModule'
 source_filename = "SomeModule"
 
-declare "sret" void @SomeFunction(i32 "nocapture") #0
+; Function Attrs: nounwind
+declare void @SomeFunction(i32 noundef) #0
 
-attributes #0 = { "nounwind" }
+attributes #0 = { nounwind "frame-pointer"="all" }
 ```
-
-These views can be iterated, and attributes can be removed from them using the `delete!`
-function.
 
 Different kinds of attributes are supported:
 
-- `EnumAttribute`: an attribute identified by its enum id, optionally associated with an
-  integer value.
-- `StringAttribute`: an attribute identified by its string name, optionally associated with
-  a string value
-- `TypeAttribute`: an attribute identified by its enum id, associated with a type.
+- `EnumAttribute`: one of LLVM's attribute kinds, identified by a `Symbol`, optionally
+  associated with an integer value, e.g., `EnumAttribute(:align, 16)`.
+- `TypeAttribute`: one of LLVM's attribute kinds that is associated with a type, e.g.,
+  `TypeAttribute(:byval, LLVM.Int32Type())`.
+- `StringAttribute`: an attribute identified by an arbitrary string, optionally associated
+  with a string value, e.g., `StringAttribute("frame-pointer", "all")`.
 
-```jldoctest
-julia> EnumAttribute("nounwind")
-EnumAttribute 38=0
+These views can be iterated, and indexed by the kind of an attribute, which is a `Symbol`
+for LLVM's attribute kinds, and a string for string attributes (like in textual IR, where
+string attributes are quoted):
 
-julia> StringAttribute("frame-pointer", "none")
-StringAttribute frame-pointer=none
+```jldoctest function
+julia> attrs = fun.function_attributes
+FunctionAttrSet(EnumAttribute(:nounwind), StringAttribute("frame-pointer", "all"))
 
-julia> TypeAttribute("byval", LLVM.Int32Type())
-TypeAttribute 74=IntegerType(i32)
+julia> haskey(attrs, :nounwind)
+true
+
+julia> attrs["frame-pointer"].value
+"all"
+
+julia> get(attrs, :noinline, nothing) === nothing
+true
+```
+
+Attributes can be removed using `delete!`, passing either the attribute or its kind:
+
+```jldoctest function
+julia> delete!(attrs, "frame-pointer")
+FunctionAttrSet(EnumAttribute(:nounwind))
 ```
 
 ### Memory effects

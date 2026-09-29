@@ -5,6 +5,29 @@
                EnumAttribute, StringAttribute, TypeAttribute,
                ConstantRangeAttribute, ConstantRangeListAttribute
 
+"""
+    Attribute
+
+An attribute of a function, of its return value or one of its parameters, or of a call
+site. Attributes are immutable, and are created using one of the constructors of its
+subtypes: [`EnumAttribute`](@ref), [`TypeAttribute`](@ref), [`StringAttribute`](@ref), or
+`ConstantRangeAttribute` (LLVM 19+).
+
+# Properties
+
+    attr.kind
+
+The kind of the attribute: a `Symbol` naming one of LLVM's attribute kinds (like
+`:nounwind` or `:align`) for enum, type and constant range attributes, or the `String` name
+of a string attribute. Attribute sets can be indexed by this kind, e.g.,
+`f.function_attributes[attr.kind]`.
+
+    attr.value
+
+The value of the attribute: an integer for enum attributes (0 if the attribute has no
+value), a string for string attributes, and a type for type attributes. Constant range
+attributes do not have this property, as the C API cannot read their value.
+"""
 abstract type Attribute end
 @properties Attribute
 
@@ -54,31 +77,108 @@ function Attribute(ref::API.LLVMAttributeRef)
     end
 end
 
-function Base.show(io::IO, attr::T) where T<:Attribute
-    print(io, "$T $(kind(attr))=$(value(attr))")
+# display attributes as the call that creates them (eliding the value of range attributes,
+# which the C API cannot read back)
+function Base.show(io::IO, attr::Attribute)
+    print(io, nameof(typeof(attr)), "(")
+    show(io, kind(attr))
+    if attr isa Union{EnumAttribute,StringAttribute,TypeAttribute}
+        val = value(attr)
+        if !(attr isa EnumAttribute && val == 0) && !(attr isa StringAttribute && isempty(val))
+            print(io, ", ")
+            val isa Integer ? print(io, val) : show(io, val)
+        end
+    else
+        print(io, ", ...")
+    end
+    print(io, ")")
+end
+
+# LLVM's attribute kinds are an enum that is not part of the C API, so we identify them by
+# their name, as used in textual IR. these are the integer IDs that the C API works with.
+attribute_kind_id(attr::Attribute) = API.LLVMGetEnumAttributeKind(attr)
+attribute_kind_id(name::Symbol) =
+    API.LLVMGetEnumAttributeKindForName(name, ccall(:strlen, Csize_t, (Cstring,), name))
+attribute_kind_id(name::String) =
+    API.LLVMGetEnumAttributeKindForName(name, ncodeunits(name))
+
+# the category of an attribute kind, which determines the kind of attribute it is used for
+function attribute_kind_category(id::Integer)
+    Bool(API.LLVMExtraIsEnumAttributeKind(id)) && return :enum
+    Bool(API.LLVMExtraIsIntAttributeKind(id)) && return :int
+    Bool(API.LLVMExtraIsTypeAttributeKind(id)) && return :type
+    @static if version() >= v"19"
+        Bool(API.LLVMExtraIsConstantRangeAttributeKind(id)) && return :range
+    end
+    return :other
+end
+
+# look up the ID of an attribute kind, checking that it can be used for a certain kind of
+# attribute, as LLVM does not check this (except for an assertion)
+function checked_attribute_kind_id(name::Union{Symbol,String}, categories::Symbol...)
+    id = attribute_kind_id(name)
+    id == 0 && throw(ArgumentError("Unknown attribute kind: $name"))
+    category = attribute_kind_category(id)
+    if !(category in categories)
+        constructor = category in (:enum, :int) ? "EnumAttribute" :
+                      category == :type ? "TypeAttribute" :
+                      category == :range ? "ConstantRangeAttribute" : nothing
+        msg = "Attribute kind $name cannot be used for this kind of attribute"
+        constructor === nothing || (msg *= "; use $constructor instead")
+        throw(ArgumentError(msg))
+    end
+    return id
+end
+
+function attribute_kind_name(id::Integer)
+    len = Ref{Csize_t}()
+    data = API.LLVMExtraGetAttributeKindName(id, len)
+    data == C_NULL && error("Unknown attribute kind ID $id")
+    return Symbol(unsafe_string(convert(Ptr{UInt8}, data), len[]))
 end
 
 
 ## enum attribute
 
-# NOTE: the AttrKind enum is not exported in the C API,
-#       so we don't expose a way to construct EnumAttribute from its raw enum value
-#       (which also would conflict with the inner ref constructor)
-function EnumAttribute(kind::String, value::Integer=0)
-    enum_kind = API.LLVMGetEnumAttributeKindForName(kind, Csize_t(length(kind)))
+"""
+    EnumAttribute(kind::Symbol, value::Integer=0)
+
+Create an attribute of one of LLVM's attribute kinds, e.g., `EnumAttribute(:nounwind)` or
+`EnumAttribute(:align, 16)`. Only kinds that take an integer, like `align`, can have a
+value. Attributes that carry a type, like `sret`, are created using [`TypeAttribute`](@ref)
+instead. The kind can also be passed as a `String`.
+"""
+function EnumAttribute(kind::Union{Symbol,String}, value::Integer)
+    enum_kind = checked_attribute_kind_id(kind, :enum, :int)
+    if attribute_kind_category(enum_kind) == :int
+        # before LLVM 16, a zero value selects the representation of a valueless attribute
+        version() < v"16" && value == 0 &&
+            throw(ArgumentError("Attribute kind $kind requires a value"))
+    else
+        value == 0 || throw(ArgumentError("Attribute kind $kind does not take a value"))
+    end
     return EnumAttribute(API.LLVMCreateEnumAttribute(context(), enum_kind, UInt64(value)))
 end
 
-kind(attr::EnumAttribute) = API.LLVMGetEnumAttributeKind(attr)
+EnumAttribute(kind::Union{Symbol,String}) = EnumAttribute(kind, 0)
+
+kind(attr::EnumAttribute) = attribute_kind_name(attribute_kind_id(attr))
 
 value(attr::EnumAttribute) = API.LLVMGetEnumAttributeValue(attr)
 
 
 ## string attribute
 
-StringAttribute(kind::String, value::String="") =
-    StringAttribute(API.LLVMCreateStringAttribute(context(), kind, length(kind),
-                                                  value, length(value)))
+"""
+    StringAttribute(kind::String, value::String="")
+
+Create a string attribute, identified by an arbitrary name, and optionally carrying a
+string value. These are used for target-specific attributes like `"target-cpu"`, or for
+information that a compiler wants to attach to IR.
+"""
+StringAttribute(kind::AbstractString, value::AbstractString="") =
+    StringAttribute(API.LLVMCreateStringAttribute(context(), kind, ncodeunits(kind),
+                                                  value, ncodeunits(value)))
 
 function kind(attr::StringAttribute)
     len = Ref{Cuint}()
@@ -94,12 +194,19 @@ end
 
 ## type attribute
 
-function TypeAttribute(kind::String, value::LLVMType)
-    enum_kind = API.LLVMGetEnumAttributeKindForName(kind, Csize_t(length(kind)))
+"""
+    TypeAttribute(kind::Symbol, value::LLVMType)
+
+Create an attribute of one of LLVM's attribute kinds that carries a type, e.g.,
+`TypeAttribute(:sret, T)` or `TypeAttribute(:byval, T)`. The kind can also be passed as a
+`String`.
+"""
+function TypeAttribute(kind::Union{Symbol,String}, value::LLVMType)
+    enum_kind = checked_attribute_kind_id(kind, :type)
     return TypeAttribute(API.LLVMCreateTypeAttribute(context(), enum_kind, value))
 end
 
-kind(attr::TypeAttribute) = API.LLVMGetEnumAttributeKind(attr)
+kind(attr::TypeAttribute) = attribute_kind_name(attribute_kind_id(attr))
 
 function value(attr::TypeAttribute)
     return LLVMType(API.LLVMGetTypeAttributeValue(attr))
@@ -108,20 +215,91 @@ end
 ## constant range attribute
 
 if version() >= v"19"
-    function ConstantRangeAttribute(kind::String, nbits::Integer,
+    function ConstantRangeAttribute(kind::Union{Symbol,String}, nbits::Integer,
                                     lower::Vector{UInt64}, upper::Vector{UInt64})
-        enum_kind = API.LLVMGetEnumAttributeKindForName(kind, Csize_t(length(kind)))
+        enum_kind = checked_attribute_kind_id(kind, :range)
         return ConstantRangeAttribute(
             API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
                                                  lower, upper))
     end
 end
 
-kind(attr::ConstantRangeAttribute) = API.LLVMGetEnumAttributeKind(attr)
+kind(attr::ConstantRangeAttribute) = attribute_kind_name(attribute_kind_id(attr))
 
 ## constant range list attribute
 
-kind(attr::ConstantRangeListAttribute) = API.LLVMGetEnumAttributeKind(attr)
+kind(attr::ConstantRangeListAttribute) = attribute_kind_name(attribute_kind_id(attr))
+
+
+
+## attribute sets
+
+# the attributes of a function or call site, at a specific index (the function itself, its
+# return value, or one of its parameters). subtypes implement `attribute_ref(set, kind)`,
+# returning the attribute of the given kind (an attribute kind ID, or the name of a string
+# attribute) or `C_NULL`, and `remove_attribute!(set, kind)`.
+abstract type AttributeSet end
+
+Base.eltype(::AttributeSet) = Attribute
+
+# LLVM only supports fetching all attributes at once
+function Base.iterate(iter::AttributeSet, (attrs, i)=(collect(iter), 1))
+    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
+end
+
+function Base.append!(iter::AttributeSet, attrs)
+    for attr in attrs
+        push!(iter, attr)
+    end
+    return iter
+end
+
+function Base.show(io::IO, iter::AttributeSet)
+    print(io, nameof(typeof(iter)), "(")
+    join(io, collect(iter), ", ")
+    print(io, ")")
+end
+
+# look up attributes by their kind: a `Symbol` for LLVM's attribute kinds, and a string for
+# string attributes. unknown kinds cannot be present.
+function attribute_ref(iter::AttributeSet, kind::Symbol)
+    id = attribute_kind_id(kind)
+    id == 0 ? API.LLVMAttributeRef(C_NULL) : attribute_ref(iter, id)
+end
+
+Base.haskey(iter::AttributeSet, kind::Union{Symbol,AbstractString}) =
+    attribute_ref(iter, kind) != C_NULL
+
+function Base.get(iter::AttributeSet, kind::Union{Symbol,AbstractString}, default)
+    ref = attribute_ref(iter, kind)
+    ref == C_NULL ? default : Attribute(ref)
+end
+
+function Base.getindex(iter::AttributeSet, kind::Union{Symbol,AbstractString})
+    ref = attribute_ref(iter, kind)
+    ref == C_NULL && throw(KeyError(kind))
+    return Attribute(ref)
+end
+
+function Base.delete!(iter::AttributeSet, kind::Symbol)
+    id = attribute_kind_id(kind)
+    id == 0 || remove_attribute!(iter, id)
+    return iter
+end
+
+function Base.delete!(iter::AttributeSet, kind::AbstractString)
+    remove_attribute!(iter, kind)
+    return iter
+end
+
+function Base.delete!(iter::AttributeSet,
+                      attr::Union{EnumAttribute,TypeAttribute,ConstantRangeAttribute,
+                                  ConstantRangeListAttribute})
+    remove_attribute!(iter, attribute_kind_id(attr))
+    return iter
+end
+
+Base.delete!(iter::AttributeSet, attr::StringAttribute) = delete!(iter, kind(attr))
 
 
 ## memory effects
@@ -289,7 +467,7 @@ Get the memory effects described by a `memory` attribute.
 """
 function MemoryEffects(attr::EnumAttribute)
     memory_locations()  # check that the attribute is supported
-    kind(attr) == memory_kind() ||
+    attribute_kind_id(attr) == memory_kind() ||
         throw(ArgumentError("Expected a memory attribute, got $attr"))
     return MemoryEffects(UInt32(value(attr)))
 end

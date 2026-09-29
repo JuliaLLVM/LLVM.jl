@@ -1949,7 +1949,7 @@ end
         @test length(instr_attrs) == 0
 
         let attr = EnumAttribute("sspreq", 0)
-            @test attr.kind != 0
+            @test attr.kind == :sspreq
             @test attr.value == 0
             push!(attrs, attr)
             @test collect(attrs) == [attr]
@@ -1957,8 +1957,8 @@ end
             delete!(attrs, attr)
             @test length(attrs) == 0
         end
-        let instr_attr = EnumAttribute("sspreq", 0)
-            @test instr_attr.kind != 0
+        let instr_attr = EnumAttribute(:sspreq, 0)
+            @test instr_attr.kind == :sspreq
             @test instr_attr.value == 0
             push!(instr_attrs, instr_attr)
             @test collect(instr_attrs) == [instr_attr]
@@ -1987,7 +1987,7 @@ end
         end
 
         let attr = TypeAttribute("sret", LLVM.Int32Type())
-            @test attr.kind != 0
+            @test attr.kind == :sret
             @test attr.value ==  LLVM.Int32Type()
 
             push!(attrs, attr)
@@ -1996,8 +1996,8 @@ end
             delete!(attrs, attr)
             @test length(attrs) == 0
         end
-        let instr_attr = TypeAttribute("sret", LLVM.Int32Type())
-            @test instr_attr.kind != 0
+        let instr_attr = TypeAttribute(:sret, LLVM.Int32Type())
+            @test instr_attr.kind == :sret
             @test instr_attr.value ==  LLVM.Int32Type()
 
             push!(instr_attrs, instr_attr)
@@ -2010,7 +2010,7 @@ end
         if LLVM.version() >= v"19"
             let attr = ConstantRangeAttribute("range", 32, UInt64[0], UInt64[100])
                 @test attr isa ConstantRangeAttribute
-                @test attr.kind != 0
+                @test attr.kind == :range
                 push!(fn.return_attributes, attr)
                 collected = collect(fn.return_attributes)
                 @test any(a -> a isa ConstantRangeAttribute, collected)
@@ -2039,6 +2039,78 @@ end
     let attrs = instr.return_attributes
         @test eltype(attrs) == Attribute
         @test length(attrs) == 0
+    end
+end
+
+# attributes are looked up by kind: a Symbol for LLVM's kinds, a string for string attributes
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=LLVM.IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(LLVM.Int8Type())])
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    caller = LLVM.Function(mod, "CallSomeFunction", ft)
+    position!(builder, LLVM.BasicBlock(caller, "top"))
+    instr = call!(builder, ft, fn, LLVM.Value[caller.parameters[1]])
+
+    @test_throws ArgumentError EnumAttribute(:nonexisting)
+    @test_throws ArgumentError TypeAttribute("nonexisting", LLVM.Int32Type())
+    # kinds need to be used with the right kind of attribute
+    @test_throws "use TypeAttribute" EnumAttribute(:sret)
+    @test_throws "use EnumAttribute" TypeAttribute(:nounwind, LLVM.Int32Type())
+    @test_throws "does not take a value" EnumAttribute(:nounwind, 1)
+    @test EnumAttribute(:align, 16).value == 16
+    if LLVM.version() < v"16"
+        @test_throws "requires a value" EnumAttribute(:align)
+    end
+    if LLVM.version() >= v"19"
+        @test_throws "use ConstantRangeAttribute" EnumAttribute(:range)
+        @test_throws "use EnumAttribute" ConstantRangeAttribute(:nounwind, 32, UInt64[0],
+                                                                UInt64[100])
+    end
+    @test EnumAttribute("nounwind") == EnumAttribute(:nounwind)
+    @test sprint(show, EnumAttribute(:nounwind)) == "EnumAttribute(:nounwind)"
+    @test sprint(show, EnumAttribute(:align, 16)) == "EnumAttribute(:align, 16)"
+    @test sprint(show, StringAttribute("foo")) == "StringAttribute(\"foo\")"
+    @test sprint(show, StringAttribute("foo", "bar")) == "StringAttribute(\"foo\", \"bar\")"
+
+    for (attrs, params) in ((fn.function_attributes, fn.parameter_attributes),
+                            (instr.function_attributes, instr.argument_attributes))
+        # an enum attribute and a string attribute with the same name are different
+        push!(attrs, EnumAttribute(:nounwind))
+        @test haskey(attrs, :nounwind)
+        @test !haskey(attrs, "nounwind")
+        push!(attrs, StringAttribute("nounwind", "foo"))
+        @test haskey(attrs, "nounwind")
+        @test attrs[:nounwind] == EnumAttribute(:nounwind)
+        @test attrs["nounwind"].value == "foo"
+
+        @test !haskey(attrs, :noinline)
+        @test !haskey(attrs, :nonexisting)
+        @test_throws KeyError attrs[:noinline]
+        @test_throws KeyError attrs["noinline"]
+        @test get(attrs, :noinline, nothing) === nothing
+        @test get(attrs, :nounwind, nothing) == EnumAttribute(:nounwind)
+
+        # attributes are indexed by their kind
+        for attr in attrs
+            @test attrs[attr.kind] == attr
+        end
+
+        # deleting by kind, which does nothing when the attribute is absent
+        @test delete!(attrs, :nounwind) === attrs
+        @test !haskey(attrs, :nounwind)
+        @test haskey(attrs, "nounwind")
+        delete!(attrs, "nounwind")
+        @test isempty(collect(attrs))
+        delete!(attrs, :noinline)
+        delete!(attrs, :nonexisting)
+        delete!(attrs, "nonexisting")
+
+        # attributes with a value
+        push!(params[1], EnumAttribute(:align, 16))
+        push!(params[1], TypeAttribute(:byval, LLVM.Int32Type()))
+        @test params[1][:align].value == 16
+        @test params[1][:byval].value == LLVM.Int32Type()
+        delete!(params[1], :byval)
+        @test [attr.kind for attr in params[1]] == [:align]
     end
 end
 
@@ -2568,11 +2640,10 @@ end
     attrs = fn.function_attributes
     append!(attrs, [EnumAttribute("nounwind"), StringAttribute("foo", "bar")])
     @test length(attrs) == 2
-    @test Set(attr.kind for attr in attrs) ==
-          Set([EnumAttribute("nounwind").kind, "foo"])
+    @test Set(attr.kind for attr in attrs) == Set([:nounwind, "foo"])
     call_attrs = call.function_attributes
     append!(call_attrs, [EnumAttribute("nounwind")])
-    @test [attr.kind for attr in call_attrs] == [EnumAttribute("nounwind").kind]
+    @test [attr.kind for attr in call_attrs] == [:nounwind]
 end
 
 # the elements of a structure type are a read-only view

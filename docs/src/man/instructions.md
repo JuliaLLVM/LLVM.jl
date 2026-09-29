@@ -86,10 +86,10 @@ DocTestSetup = quote
     end
 
     mod = LLVM.Module("SomeModule")
-    fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
-    push!(fun.function_attributes, StringAttribute("nounwind"))
-    push!(fun.parameter_attributes[1], StringAttribute("nocapture"))
-    push!(fun.return_attributes, StringAttribute("sret"))
+    fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))
+    push!(fun.function_attributes, EnumAttribute(:nounwind))
+    push!(fun.parameter_attributes[1], EnumAttribute(:noundef))
+    push!(fun.return_attributes, EnumAttribute(:noundef))
     caller = LLVM.Function(mod, "CallSomeFunction", fun.function_type)
     top = BasicBlock(caller, "top")
     builder = LLVM.IRBuilder();
@@ -105,25 +105,31 @@ arguments and its return value:
 ```jldoctest function
 julia> instr = call!(builder, fun.function_type, fun, LLVM.Value[ fun.parameters... ]);
 
-julia> push!(instr.function_attributes, StringAttribute("nounwind"));
+julia> push!(instr.function_attributes, EnumAttribute(:nounwind));
 
-julia> push!(instr.argument_attributes[1], StringAttribute("nocapture"));
+julia> push!(instr.argument_attributes[1], EnumAttribute(:noundef));
 
-julia> push!(instr.return_attributes, StringAttribute("sret"));
+julia> push!(instr.return_attributes, EnumAttribute(:noundef));
 
 julia> mod
 ; ModuleID = 'SomeModule'
 source_filename = "SomeModule"
 
-declare "sret" void @SomeFunction(i32 "nocapture") #0
+; Function Attrs: nounwind
+declare noundef i32 @SomeFunction(i32 noundef) #0
 
-define void @CallSomeFunction(i32 %0) {
+define i32 @CallSomeFunction(i32 %0) {
 top:
-  call "sret" void @SomeFunction(i32 "nocapture" %0) #0
+  %1 = call noundef i32 @SomeFunction(i32 noundef %0) #0
 }
 
-attributes #0 = { "nounwind" }
+attributes #0 = { nounwind }
 ```
+
+Like the attributes of functions, these views can be indexed by the kind of an attribute
+(e.g., `haskey(instr.function_attributes, :nounwind)`), and attributes can be removed using
+`delete!`. They only contain the attributes of the call site, not those of the called
+function.
 
 ### Debug location
 

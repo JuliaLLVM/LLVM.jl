@@ -45,7 +45,10 @@ The entry basic block of the function, or `nothing` if the function has no body.
 
 The attributes of the function itself, as a mutable view that can be iterated, and
 supports `push!`, `append!` and `delete!`. Adding an attribute replaces any existing
-attribute of the same kind.
+attribute of the same kind. The view can also be indexed by the kind of an attribute: a
+`Symbol` for LLVM's attribute kinds, and a string for string attributes, e.g.,
+`haskey(f.function_attributes, :nounwind)`, `f.function_attributes["target-cpu"]` or
+`delete!(f.function_attributes, :noinline)`.
 
 See also the `return_attributes` and `parameter_attributes` properties.
 
@@ -201,7 +204,7 @@ end
 
 # attributes
 
-struct FunctionAttrSet
+struct FunctionAttrSet <: AttributeSet
     f::Function
     idx::API.LLVMAttributeIndex
 end
@@ -232,8 +235,6 @@ return_attributes(f::Function) = FunctionAttrSet(f, API.LLVMAttributeReturnIndex
 
 @property Function return_attributes
 
-Base.eltype(::FunctionAttrSet) = Attribute
-
 function Base.collect(iter::FunctionAttrSet)
     elems = Vector{API.LLVMAttributeRef}(undef, length(iter))
     if length(iter) > 0
@@ -248,40 +249,19 @@ function Base.push!(iter::FunctionAttrSet, attr::Attribute)
     return iter
 end
 
-function Base.delete!(iter::FunctionAttrSet,
-                      attr::Union{EnumAttribute,TypeAttribute,ConstantRangeAttribute,
-                                  ConstantRangeListAttribute})
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-    return iter
-end
-
-function Base.delete!(iter::FunctionAttrSet, attr::StringAttribute)
-    k = kind(attr)
-    API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, k, length(k))
-    return iter
-end
-
 function Base.length(iter::FunctionAttrSet)
     API.LLVMGetAttributeCountAtIndex(iter.f, iter.idx)
 end
 
-# LLVM only supports fetching all attributes at once
-function Base.iterate(iter::FunctionAttrSet, (attrs, i)=(collect(iter), 1))
-    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
-end
+attribute_ref(iter::FunctionAttrSet, id::Integer) =
+    API.LLVMGetEnumAttributeAtIndex(iter.f, iter.idx, id)
+attribute_ref(iter::FunctionAttrSet, kind::AbstractString) =
+    API.LLVMGetStringAttributeAtIndex(iter.f, iter.idx, kind, ncodeunits(kind))
 
-function Base.append!(iter::FunctionAttrSet, attrs)
-    for attr in attrs
-        push!(iter, attr)
-    end
-    return iter
-end
-
-function Base.show(io::IO, iter::FunctionAttrSet)
-    print(io, "FunctionAttrSet(")
-    join(io, collect(iter), ", ")
-    print(io, ")")
-end
+remove_attribute!(iter::FunctionAttrSet, id::Integer) =
+    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, id)
+remove_attribute!(iter::FunctionAttrSet, kind::AbstractString) =
+    API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, kind, ncodeunits(kind))
 
 """
     MemoryEffects(attrs)

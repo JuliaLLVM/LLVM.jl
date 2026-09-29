@@ -660,8 +660,9 @@ argument can be replaced by assigning to it: `call.arguments[i] = val`.
     call.function_attributes
 
 The function attributes of a `call`, `invoke` or `callbr` instruction, as a mutable view
-that can be iterated, and supports `push!`, `append!` and `delete!`. These are the
-attributes of the call site, which do not include those of the called function.
+that can be iterated, indexed by attribute kind, and supports `push!`, `append!` and
+`delete!`, like the `function_attributes` of a function. These are the attributes of the
+call site, which do not include those of the called function.
 
 See also the `return_attributes` and `argument_attributes` properties.
 
@@ -767,7 +768,7 @@ end
 
 # attributes
 
-struct CallSiteAttrSet
+struct CallSiteAttrSet <: AttributeSet
     instr::LLVM.CallBase
     idx::LLVM.API.LLVMAttributeIndex
 end
@@ -797,8 +798,6 @@ return_attributes(instr::LLVM.CallBase) = CallSiteAttrSet(instr, LLVM.API.LLVMAt
 @property CallBase argument_attributes
 @property CallBase return_attributes
 
-Base.eltype(::CallSiteAttrSet) = Attribute
-
 function Base.collect(iter::CallSiteAttrSet)
     elems = Vector{LLVM.API.LLVMAttributeRef}(undef, length(iter))
     if length(iter) > 0
@@ -813,41 +812,19 @@ function Base.push!(iter::CallSiteAttrSet, attr::LLVM.Attribute)
     return iter
 end
 
-function Base.delete!(iter::CallSiteAttrSet,
-                      attr::Union{LLVM.EnumAttribute,LLVM.TypeAttribute,
-                                  LLVM.ConstantRangeAttribute,
-                                  LLVM.ConstantRangeListAttribute})
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-    return iter
-end
-
-function Base.delete!(iter::CallSiteAttrSet, attr::LLVM.StringAttribute)
-    k = kind(attr)
-    LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
-    return iter
-end
-
 function Base.length(iter::CallSiteAttrSet)
     return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
 end
 
-# LLVM only supports fetching all attributes at once
-function Base.iterate(iter::CallSiteAttrSet, (attrs, i)=(collect(iter), 1))
-    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
-end
+attribute_ref(iter::CallSiteAttrSet, id::Integer) =
+    API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, id)
+attribute_ref(iter::CallSiteAttrSet, kind::AbstractString) =
+    API.LLVMGetCallSiteStringAttribute(iter.instr, iter.idx, kind, ncodeunits(kind))
 
-function Base.append!(iter::CallSiteAttrSet, attrs)
-    for attr in attrs
-        push!(iter, attr)
-    end
-    return iter
-end
-
-function Base.show(io::IO, iter::CallSiteAttrSet)
-    print(io, "CallSiteAttrSet(")
-    join(io, collect(iter), ", ")
-    print(io, ")")
-end
+remove_attribute!(iter::CallSiteAttrSet, id::Integer) =
+    API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, id)
+remove_attribute!(iter::CallSiteAttrSet, kind::AbstractString) =
+    API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, kind, ncodeunits(kind))
 
 function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)

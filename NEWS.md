@@ -15,6 +15,9 @@ New features:
 Bug fixes:
 
 - Contexts can be created and disposed of concurrently from multiple threads.
+- Pass instrumentation options like `-print-after-all` and `-print-changed` no longer crash or
+  silently print nothing when running a `NewPMPassBuilder` pipeline on LLVM 19 and older
+  (except on Windows, where Julia itself requires LLVM 20 for these options).
 
 
 ## LLVM.jl v9.13

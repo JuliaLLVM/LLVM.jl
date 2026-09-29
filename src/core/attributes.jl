@@ -209,8 +209,10 @@ function memory_access_value(kind::Symbol)
 end
 
 function MemoryEffects(default::Symbol=:none; kwargs...)
+    # reject invalid arguments, even if they aren't used
+    memory_access_value(default)
     for loc in keys(kwargs)
-        memory_location_pos(loc)    # reject unsupported locations
+        memory_location_pos(loc)
     end
     data = UInt32(0)
     for loc in memory_locations()
@@ -226,7 +228,7 @@ end
 """
     access(effects::MemoryEffects) -> Symbol
 
-The kind of memory access that is possible for any location: `:none` if memory is never
+The kind of memory access that is possible for any location: `:none` if no memory may be
 accessed, `:read` if it may only be read, `:write` if it may only be written, and
 `:readwrite` otherwise.
 """

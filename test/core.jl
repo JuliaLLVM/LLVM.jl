@@ -1691,6 +1691,7 @@ if LLVM.version() >= v"16"
           MemoryEffects(argmem=:readwrite, other=:read)
     @test MemoryEffects(:read) & MemoryEffects(argmem=:readwrite) == MemoryEffects(argmem=:read)
     @test_throws ArgumentError MemoryEffects(:everything)
+    @test_throws ArgumentError MemoryEffects(:everything; (loc => :none for loc in locations)...)
     @test_throws ArgumentError MemoryEffects(argmem=:everything)
     @test_throws ArgumentError MemoryEffects(globalmem=:read)
     @test_throws ArgumentError MemoryEffects(:read)[:globalmem]

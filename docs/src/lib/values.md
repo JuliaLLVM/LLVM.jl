@@ -8,6 +8,9 @@ isconstant(::Value)
 isundef
 ispoison
 isnull
+take_name!
+strip_pointer_casts
+strip_pointer_casts_and_aliases
 ```
 
 ## User values

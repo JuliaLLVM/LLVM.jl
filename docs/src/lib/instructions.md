@@ -5,6 +5,12 @@ Instruction
 copy(::Instruction)
 remove!(::Instruction)
 erase!(::Instruction)
+move_before(::Instruction, ::Instruction)
+move_after(::Instruction, ::Instruction)
+comes_before
+may_read_from_memory
+may_write_to_memory
+may_have_side_effects
 ```
 
 ## Creating instructions

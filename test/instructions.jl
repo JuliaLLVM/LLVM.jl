@@ -691,6 +691,81 @@ end
 end
 end
 
+@testset "operations" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type(), LLVM.PointerType(LLVM.Int32Type())])
+    f = LLVM.Function(mod, "f", ft)
+    entry = BasicBlock(f, "entry")
+    exit = BasicBlock(f, "exit")
+    x, ptr = f.parameters
+    position!(builder, entry)
+    a = add!(builder, x, x, "a")
+    b = mul!(builder, x, x, "b")
+    ld = load!(builder, LLVM.Int32Type(), ptr)
+    st = store!(builder, a, ptr)
+    br!(builder, exit)
+    position!(builder, exit)
+    c = sub!(builder, a, b, "c")
+    ret = ret!(builder, c)
+
+    # ordering within a block
+    @test comes_before(a, b)
+    @test !comes_before(b, a)
+    @test !comes_before(a, a)
+    @test_throws ArgumentError comes_before(a, c)
+
+    # moving instructions, also to other blocks
+    move_before(b, a)
+    @test collect(entry.instructions)[1:2] == [b, a]
+    move_after(b, a)
+    @test collect(entry.instructions)[1:2] == [a, b]
+    move_before(b, c)
+    @test collect(exit.instructions) == [b, c, ret]
+    move_after(b, ld)
+    @test collect(exit.instructions) == [c, ret]
+    @test b.parent == entry
+    move_before(a, a)
+    @test first(entry.instructions) == a
+    verify(mod)
+
+    # memory effects
+    @test !may_read_from_memory(a) && !may_write_to_memory(a) && !may_have_side_effects(a)
+    @test may_read_from_memory(ld) && !may_write_to_memory(ld)
+    @test !may_read_from_memory(st) && may_write_to_memory(st) && may_have_side_effects(st)
+
+    # transferring names
+    position!(builder, ret)
+    d = sub!(builder, a, b)
+    @test take_name!(d, c) == d
+    @test d.name == "c"
+    @test c.name == ""
+    replace_uses!(c, d)
+    erase!(c)
+    verify(mod)
+    @test take_name!(d, d) == d
+    @test d.name == "c"
+
+    # transferring the name of an intrinsic makes a function the intrinsic
+    trap = LLVM.Function(mod, "llvm.trap", LLVM.FunctionType(LLVM.VoidType()))
+    other = LLVM.Function(mod, "other", LLVM.FunctionType(LLVM.VoidType()))
+    take_name!(other, trap)
+    @test other.name == "llvm.trap"
+    @test isintrinsic(other)
+    @test !isintrinsic(trap)
+    erase!(trap)
+
+    # stripping pointer casts
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    alias = GlobalAlias(mod, LLVM.Int32Type(), gv, "alias")
+    cast = const_addrspacecast(gv, LLVM.PointerType(LLVM.Int32Type(), 1))
+    @test strip_pointer_casts(cast) == gv
+    @test strip_pointer_casts(gv) == gv
+    @test strip_pointer_casts(alias) == alias
+    @test strip_pointer_casts_and_aliases(alias) == gv
+    @test strip_pointer_casts_and_aliases(const_addrspacecast(alias, LLVM.PointerType(LLVM.Int32Type(), 1))) == gv
+end
+end
+
 @testset "arguments" begin
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])

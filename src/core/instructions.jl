@@ -155,6 +155,73 @@ Remove the given instruction from the containing basic block and delete the obje
 """
 erase!(inst::Instruction) = API.LLVMInstructionEraseFromParent(inst)
 
+@vocabulary IR comes_before, may_read_from_memory, may_write_to_memory,
+               may_have_side_effects
+
+"""
+    move_before(inst::Instruction, pos::Instruction)
+
+Move the given instruction before the given position, which can be in another basic block
+of the same function. It is up to the caller to keep the IR valid, e.g., to keep the
+instruction dominating its uses, and PHI nodes at the start of a block.
+"""
+move_before(inst::Instruction, pos::Instruction) =
+    API.LLVMExtraMoveInstructionBefore(check_attached(inst), check_attached(pos))
+
+"""
+    move_after(inst::Instruction, pos::Instruction)
+
+Move the given instruction after the given position, which can be in another basic block of
+the same function. See [`move_before`](@ref move_before(::Instruction, ::Instruction)).
+"""
+move_after(inst::Instruction, pos::Instruction) =
+    API.LLVMExtraMoveInstructionAfter(check_attached(inst), check_attached(pos))
+
+function check_attached(inst::Instruction)
+    API.LLVMGetInstructionParent(inst) == C_NULL &&
+        throw(ArgumentError("Instruction is not part of a basic block"))
+    return inst
+end
+
+"""
+    comes_before(a::Instruction, b::Instruction)
+
+Check whether instruction `a` comes before `b`, which should be part of the same basic
+block. An instruction does not come before itself.
+"""
+function comes_before(a::Instruction, b::Instruction)
+    bb = API.LLVMGetInstructionParent(check_attached(a))
+    bb == API.LLVMGetInstructionParent(check_attached(b)) ||
+        throw(ArgumentError("Instructions are not part of the same basic block"))
+    API.LLVMExtraInstructionComesBefore(a, b) |> Bool
+end
+
+"""
+    may_read_from_memory(inst::Instruction)
+
+Check whether the given instruction may read from memory. This is a conservative check,
+e.g., calls may access memory unless their memory effects say otherwise, and ordered
+stores are considered to also read memory.
+"""
+may_read_from_memory(inst::Instruction) = API.LLVMExtraMayReadFromMemory(inst) |> Bool
+
+"""
+    may_write_to_memory(inst::Instruction)
+
+Check whether the given instruction may write to memory. This is a conservative check,
+e.g., calls may access memory unless their memory effects say otherwise, and ordered loads
+are considered to also write memory.
+"""
+may_write_to_memory(inst::Instruction) = API.LLVMExtraMayWriteToMemory(inst) |> Bool
+
+"""
+    may_have_side_effects(inst::Instruction)
+
+Check whether the given instruction may have side effects: whether it may write to memory,
+unwind, or not return.
+"""
+may_have_side_effects(inst::Instruction) = API.LLVMExtraMayHaveSideEffects(inst) |> Bool
+
 function parent(inst::Instruction)
     ref = API.LLVMGetInstructionParent(inst)
     ref == C_NULL && return nothing

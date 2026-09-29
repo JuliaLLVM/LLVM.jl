@@ -23,6 +23,11 @@ a range of general APIs that are common to all values:
 - `val.value_type`: the type of the value.
 - `val.name`: the name of the value, which can also be assigned to.
 - `context(val)`: the context in which the value was created.
+- `take_name!(val, from)`: give `val` the name of `from`, which becomes unnamed. Assigning
+  the name instead would make LLVM add a suffix, as `from` still uses it.
+- `strip_pointer_casts(val)`: the value behind any bitcasts, address space casts and
+  `getelementptr`s with all-zero indices, like C++'s `Value::stripPointerCasts`.
+  `strip_pointer_casts_and_aliases` also looks through global aliases.
 
 
 ## User values

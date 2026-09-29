@@ -25,6 +25,13 @@ functionality from `User` and `Value`:
 - `remove!`/`erase!`: delete the instruction from its parent basic block, or additionally
   also delete the instruction itself.
 - `copy(inst)`: clone an instruction
+- `move_before(inst, pos)`/`move_after(inst, pos)`: move the instruction before or after
+  another one, which can be in a different basic block.
+- `comes_before(a, b)`: check whether an instruction comes before another one in the same
+  basic block.
+- `may_read_from_memory`, `may_write_to_memory` and `may_have_side_effects`: LLVM's
+  conservative checks of what an instruction may do, e.g., to decide whether it can be
+  removed or moved.
 
 
 ## Creating instructions

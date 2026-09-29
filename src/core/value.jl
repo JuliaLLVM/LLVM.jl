@@ -105,6 +105,35 @@ name!(val::Value, name::String) = API.LLVMSetValueName(val, name)
 @property Value value_type
 @property Value name name!
 
+@vocabulary IR take_name!, strip_pointer_casts, strip_pointer_casts_and_aliases
+
+"""
+    take_name!(val::Value, from::Value)
+
+Give `val` the name of `from`, which becomes unnamed. Unlike assigning the name, this avoids
+LLVM making the name unique (by adding a suffix) because `from` still uses it.
+"""
+take_name!(val::Value, from::Value) = (API.LLVMExtraTakeName(val, from); val)
+
+"""
+    strip_pointer_casts(val::Value)
+
+Strip pointer casts from a value, like C++'s `Value::stripPointerCasts`: bitcasts, address
+space casts, and `getelementptr` instructions or constant expressions with all-zero
+indices. Returns the underlying value, or `val` itself if it isn't a cast. This does not
+look through global aliases; see [`strip_pointer_casts_and_aliases`](@ref) for that.
+"""
+strip_pointer_casts(val::Value) = Value(API.LLVMExtraStripPointerCasts(val))
+
+"""
+    strip_pointer_casts_and_aliases(val::Value)
+
+Strip pointer casts from a value, like [`strip_pointer_casts`](@ref), and also look through
+global aliases to the value they alias.
+"""
+strip_pointer_casts_and_aliases(val::Value) =
+    Value(API.LLVMExtraStripPointerCastsAndAliases(val))
+
 Base.string(val::Value) = unsafe_message(API.LLVMPrintValueToString(val))
 
 # by default, only print the value type and its name or address

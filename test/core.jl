@@ -575,12 +575,33 @@ end
         @test collect(cda) == ConstantInt.(vec)
     end
     for T in [Float32, Float64, BFloat16]
-        vec = T[1,2,3,4]
+        vec = if T == BFloat16
+            # LLVM 16 cannot select the vectorized integer conversion that `T[1,2,3,4]`
+            # compiles to on hosts with AVX512BF16 (JuliaMath/BFloat16s.jl#107)
+            reinterpret(BFloat16, UInt16[0x3f80, 0x4000, 0x4040, 0x4080])
+        else
+            T[1,2,3,4]
+        end
         cda = ConstantDataArray(vec)
         @test cda isa ConstantDataArray
         @test size(vec) == size(cda)
         @test collect(cda) == ConstantFP.(vec)
     end
+
+    # from vectors that aren't stored contiguously
+    for vec in [Int32(1):Int32(3), view(Int32[1,0,2,0,3], 1:2:5),
+                reinterpret(Int32, Int64[1, 2])]
+        cda = ConstantDataArray(vec)
+        @test size(cda) == size(vec)
+        @test collect(cda) == ConstantInt.(vec)
+    end
+
+    # unsupported element types
+    @test_throws ArgumentError ConstantDataArray([true, false])
+    @test_throws ArgumentError ConstantDataArray(LLVM.IntType(24), Int32[1, 2])
+    @test_throws ArgumentError ConstantDataArray(LLVM.Int16Type(), Int32[1, 2])
+    @test_throws ArgumentError ConstantDataArray(LLVM.FP128Type(), Float64[1, 2])
+    @test_throws ArgumentError ConstantDataArray(LLVM.Int16Type(), Union{Int8,Int16}[Int8(-1)])
 
     end
 end

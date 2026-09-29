@@ -766,7 +766,7 @@ function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModul
     state = Base.unsafe_pointer_to_objref(ctx)::IRTransform
     try
         state.callback(ThreadSafeModule(unsafe_load(tsm_ref)),
-                       MaterializationResponsibility(mr))
+                       MaterializationResponsibility(mr, false))
         return API.LLVMErrorRef(C_NULL)
     catch err
         _capture_callback_exception!(state, err)
@@ -838,19 +838,32 @@ The responsibility for materializing a set of symbols, as passed to the callback
 [`LLVM.CustomMaterializationUnit`](@ref). It is fulfilled by emitting code that defines
 these symbols, e.g., using [`LLVM.emit`](@ref).
 """
-@checked struct MaterializationResponsibility
+@checked mutable struct MaterializationResponsibility
     ref::API.LLVMOrcMaterializationResponsibilityRef
+    # whether we own the responsibility, i.e., it has not been consumed (e.g., by emit)
+    # and was not borrowed from LLVM
+    owned::Bool
 end
+MaterializationResponsibility(ref::API.LLVMOrcMaterializationResponsibilityRef) =
+    MaterializationResponsibility(ref, true)
 Base.unsafe_convert(::Type{API.LLVMOrcMaterializationResponsibilityRef}, mr::MaterializationResponsibility) = mr.ref
+
+function consume!(mr::MaterializationResponsibility)
+    mr.owned || throw(ArgumentError("cannot consume a materialization responsibility that was already consumed or that is borrowed"))
+    mr.owned = false
+    return mr
+end
 
 """
     LLVM.emit(layer, mr::LLVM.MaterializationResponsibility, tsm::ThreadSafeModule)
 
 Emit the IR module `tsm` through `layer` (an [`LLVM.IRTransformLayer`](@ref) or
 `LLVM.IRCompileLayer`) to fulfill the responsibility `mr`. Both `mr` and `tsm` are
-consumed.
+consumed; a responsibility that is borrowed, e.g., by an IR transformation, cannot be
+emitted.
 """
 function emit(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    consume!(mr)
     mark_dispose(tsm)
     API.LLVMOrcIRTransformLayerEmit(il, mr, tsm)
 end
@@ -921,11 +934,16 @@ end
 
 function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibilityRef)
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
+    responsibility = MaterializationResponsibility(mr, true)
     try
-        mu.materialize(MaterializationResponsibility(mr))
+        mu.materialize(responsibility)
     catch err
         _capture_callback_exception!(mu, err)
-        API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
+        # only fail materialization if the responsibility wasn't handed off already
+        if responsibility.owned
+            API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
+            API.LLVMOrcDisposeMaterializationResponsibility(mr)
+        end
     finally
         # LLVM does not call the destroy callback for materialized units
         @lock CUSTOM_MU_LOCK delete!(CUSTOM_MU_ROOTS, mu)
@@ -1285,6 +1303,7 @@ function emit(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::Thread
             decorate_module(mod)
         end
     end
+    consume!(mr)
     mark_dispose(tsm)
     API.LLVMOrcIRCompileLayerEmit(il, mr, tsm)
 end

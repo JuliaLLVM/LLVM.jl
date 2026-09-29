@@ -290,6 +290,39 @@ end
     end
 end
 
+@testset "Materializer errors after emitting" begin
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        jd = JITDylib(lljit)
+        function materialize(mr)
+            ts_mod = ThreadSafeModule("jit")
+            ts_mod() do mod
+                # emitting directly to a layer bypasses LLJIT's module set-up
+                triple!(mod, triple(lljit))
+                datalayout!(mod, datalayout(lljit))
+                fn = LLVM.Function(mod, "emitted", LLVM.FunctionType(LLVM.Int32Type()))
+                @dispose builder=IRBuilder() begin
+                    position!(builder, BasicBlock(fn, "entry"))
+                    ret!(builder, ConstantInt(Int32(42)))
+                end
+            end
+            LLVM.emit(LLVM.IRTransformLayer(lljit), mr, ts_mod)
+            # the responsibility has been consumed
+            @dispose unused=ThreadSafeModule("jit") begin
+                @test_throws ArgumentError LLVM.emit(LLVM.IRTransformLayer(lljit), mr, unused)
+            end
+            error("materializer error after emitting")
+        end
+        symbols = [mangle(lljit, "emitted") => LLVM.symbol_flags(callable=true)]
+        mu = LLVM.CustomMaterializationUnit("emittingMU", symbols, materialize,
+                                            (jd, sym) -> nothing)
+        LLVM.define(jd, mu)
+
+        # the code was emitted, so the lookup succeeds
+        @test ccall(pointer(lookup(lljit, "emitted")), Int32, ()) == 42
+        @test_throws CallbackException LLVM.check_callback_error(mu)
+    end
+end
+
 @testset "Unmaterialized units" begin
     local mu
     @dispose lljit=LLJIT() begin

@@ -218,7 +218,7 @@
         @check_ir storeinst "store i32 %0, ptr %4"
     end
 
-    fenceinst = fence!(builder, LLVM.API.LLVMAtomicOrderingNotAtomic)
+    fenceinst = fence!(builder, LLVM.API.LLVMAtomicOrderingSequentiallyConsistent)
     @check_ir fenceinst "fence"
 
     gepinst = gep!(builder, LLVM.Int32Type(), ptr1, [int1])
@@ -248,6 +248,13 @@
     @test syncscope(atomic_rmw_inst) == SyncScope("system")
     syncscope!(atomic_rmw_inst, SyncScope("agent"))
     @test syncscope(atomic_rmw_inst) == SyncScope("agent")
+    @test name(syncscope(atomic_rmw_inst)) == "agent"
+    @test sprint(show, syncscope(atomic_rmw_inst)) == "SyncScope(\"agent\")"
+    for str in ("singlethread", "system", "agent")
+        @test name(SyncScope(str)) == str
+    end
+    @test_throws ArgumentError name(SyncScope(1000))
+    @test sprint(show, SyncScope(1000)) == "SyncScope(target-specific scope 1000)"
 
     atomic_cmpxchg_inst = atomic_cmpxchg!(builder, ptr1, int1, int2,
         LLVM.API.LLVMAtomicOrderingSequentiallyConsistent, LLVM.API.LLVMAtomicOrderingAcquire, single_thread)
@@ -293,6 +300,34 @@
     else
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 syncscope(\"agent\") monotonic"
     end
+
+    @test !isvolatile(atomic_rmw_inst)
+    volatile!(atomic_rmw_inst, true)
+    @test isvolatile(atomic_rmw_inst)
+    @test occursin("atomicrmw volatile add", string(atomic_rmw_inst))
+    @test !isvolatile(atomic_cmpxchg_inst)
+    volatile!(atomic_cmpxchg_inst, true)
+    @test isvolatile(atomic_cmpxchg_inst)
+
+    # operations that are newer than the C API of some LLVM versions
+    for op in (LLVM.API.LLVMAtomicRMWBinOpUIncWrap, LLVM.API.LLVMAtomicRMWBinOpUDecWrap,
+               LLVM.API.LLVMAtomicRMWBinOpUSubCond, LLVM.API.LLVMAtomicRMWBinOpUSubSat)
+        if LLVM.available(op)
+            for scope in (true, SyncScope("agent"))
+                inst = atomic_rmw!(builder, op, ptr1, int1,
+                                   LLVM.API.LLVMAtomicOrderingMonotonic, scope)
+                @test binop(inst) == op
+            end
+        else
+            @test_throws ArgumentError atomic_rmw!(builder, op, ptr1, int1,
+                                                   LLVM.API.LLVMAtomicOrderingMonotonic, false)
+        end
+    end
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpAdd)
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
+    @test !LLVM.available(LLVM.API.LLVMAtomicRMWBinOp(1000))
 
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"

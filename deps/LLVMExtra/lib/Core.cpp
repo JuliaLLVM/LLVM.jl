@@ -804,7 +804,17 @@ static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
   llvm_unreachable("Invalid LLVMAtomicOrdering value!");
 }
 
-static AtomicRMWInst::BinOp mapFromLLVMRMWBinOp(LLVMAtomicRMWBinOp BinOp) {
+#if LLVM_VERSION_MAJOR >= 16 && LLVM_VERSION_MAJOR < 19
+// operations that the C API only exposes from LLVM 19 on, using the values it assigns them
+enum {
+  LLVMExtraAtomicRMWBinOpUIncWrap = 15,
+  LLVMExtraAtomicRMWBinOpUDecWrap = 16,
+};
+#endif
+
+// takes an integer, because LLVMExtraBuildAtomicRMWSyncScope passes values that are out of
+// range of the LLVMAtomicRMWBinOp enum
+static AtomicRMWInst::BinOp mapFromLLVMRMWBinOp(unsigned BinOp) {
   switch (BinOp) {
     case LLVMAtomicRMWBinOpXchg: return AtomicRMWInst::Xchg;
     case LLVMAtomicRMWBinOpAdd: return AtomicRMWInst::Add;
@@ -824,6 +834,9 @@ static AtomicRMWInst::BinOp mapFromLLVMRMWBinOp(LLVMAtomicRMWBinOp BinOp) {
 #if LLVM_VERSION_MAJOR >= 19
     case LLVMAtomicRMWBinOpUIncWrap: return AtomicRMWInst::UIncWrap;
     case LLVMAtomicRMWBinOpUDecWrap: return AtomicRMWInst::UDecWrap;
+#elif LLVM_VERSION_MAJOR >= 16
+    case LLVMExtraAtomicRMWBinOpUIncWrap: return AtomicRMWInst::UIncWrap;
+    case LLVMExtraAtomicRMWBinOpUDecWrap: return AtomicRMWInst::UDecWrap;
 #endif
   }
 
@@ -863,6 +876,58 @@ LLVMValueRef LLVMBuildAtomicRMWSyncScope(LLVMBuilderRef B, LLVMAtomicRMWBinOp op
                                          mapFromLLVMOrdering(ordering), SSID));
 }
 
+#if LLVM_VERSION_MAJOR >= 16 && LLVM_VERSION_MAJOR < 19
+LLVMValueRef LLVMExtraBuildAtomicRMWSyncScope(LLVMBuilderRef B, unsigned op, LLVMValueRef PTR,
+                                              LLVMValueRef Val, LLVMAtomicOrdering ordering,
+                                              unsigned SSID) {
+  return wrap(unwrap(B)->CreateAtomicRMW(mapFromLLVMRMWBinOp(op), unwrap(PTR), unwrap(Val),
+                                         MaybeAlign(), mapFromLLVMOrdering(ordering), SSID));
+}
+
+// LLVMGetAtomicRMWBinOp hits an llvm_unreachable on these operations
+unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef Inst) {
+  switch (unwrap<AtomicRMWInst>(Inst)->getOperation()) {
+    case AtomicRMWInst::UIncWrap: return LLVMExtraAtomicRMWBinOpUIncWrap;
+    case AtomicRMWInst::UDecWrap: return LLVMExtraAtomicRMWBinOpUDecWrap;
+    default: return LLVMGetAtomicRMWBinOp(Inst);
+  }
+}
+#endif
+
+#if LLVM_VERSION_MAJOR < 18
+static LLVMAtomicOrdering mapToLLVMOrdering(AtomicOrdering Ordering) {
+  switch (Ordering) {
+    case AtomicOrdering::NotAtomic: return LLVMAtomicOrderingNotAtomic;
+    case AtomicOrdering::Unordered: return LLVMAtomicOrderingUnordered;
+    case AtomicOrdering::Monotonic: return LLVMAtomicOrderingMonotonic;
+    case AtomicOrdering::Acquire: return LLVMAtomicOrderingAcquire;
+    case AtomicOrdering::Release: return LLVMAtomicOrderingRelease;
+    case AtomicOrdering::AcquireRelease: return LLVMAtomicOrderingAcquireRelease;
+    case AtomicOrdering::SequentiallyConsistent:
+      return LLVMAtomicOrderingSequentiallyConsistent;
+    default: break;
+  }
+  llvm_unreachable("Invalid AtomicOrdering value!");
+}
+
+// the C API versions don't handle fences, and can't set the ordering of atomicrmw
+LLVMAtomicOrdering LLVMExtraGetOrdering(LLVMValueRef MemAccessInst) {
+  Value *P = unwrap(MemAccessInst);
+  if (FenceInst *FI = dyn_cast<FenceInst>(P))
+    return mapToLLVMOrdering(FI->getOrdering());
+  return LLVMGetOrdering(MemAccessInst);
+}
+
+void LLVMExtraSetOrdering(LLVMValueRef MemAccessInst, LLVMAtomicOrdering Ordering) {
+  Value *P = unwrap(MemAccessInst);
+  if (FenceInst *FI = dyn_cast<FenceInst>(P))
+    return FI->setOrdering(mapFromLLVMOrdering(Ordering));
+  if (AtomicRMWInst *RMWI = dyn_cast<AtomicRMWInst>(P))
+    return RMWI->setOrdering(mapFromLLVMOrdering(Ordering));
+  LLVMSetOrdering(MemAccessInst, Ordering);
+}
+#endif
+
 LLVMValueRef LLVMBuildAtomicCmpXchgSyncScope(LLVMBuilderRef B, LLVMValueRef Ptr,
                                              LLVMValueRef Cmp, LLVMValueRef New,
                                              LLVMAtomicOrdering SuccessOrdering,
@@ -888,6 +953,19 @@ void LLVMSetAtomicSyncScopeID(LLVMValueRef AtomicInst, unsigned SSID) {
 }
 
 #endif
+
+
+const char *LLVMExtraGetSyncScopeName(LLVMContextRef C, unsigned SSID, size_t *Len) {
+  // the names are indexed by ID, and owned by the context
+  SmallVector<StringRef> Names;
+  unwrap(C)->getSyncScopeNames(Names);
+  if (SSID >= Names.size()) {
+    *Len = 0;
+    return nullptr;
+  }
+  *Len = Names[SSID].size();
+  return Names[SSID].data();
+}
 
 
 //

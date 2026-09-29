@@ -371,6 +371,14 @@ function LLVMSetAtomicSyncScopeID(AtomicInst, SSID)
     ccall((:LLVMSetAtomicSyncScopeID, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint), AtomicInst, SSID)
 end
 
+function LLVMExtraGetOrdering(MemAccessInst)
+    ccall((:LLVMExtraGetOrdering, libLLVMExtra), LLVMAtomicOrdering, (LLVMValueRef,), MemAccessInst)
+end
+
+function LLVMExtraSetOrdering(MemAccessInst, Ordering)
+    ccall((:LLVMExtraSetOrdering, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMAtomicOrdering), MemAccessInst, Ordering)
+end
+
 function LLVMGetValueContext(Val)
     ccall((:LLVMGetValueContext, libLLVMExtra), LLVMContextRef, (LLVMValueRef,), Val)
 end
@@ -382,6 +390,65 @@ end
 mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
+
+function LLVMExtraBuildAtomicRMWValue(B, Op, Loaded, Val)
+    ccall((:LLVMExtraBuildAtomicRMWValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, Cuint, LLVMValueRef, LLVMValueRef), B, Op, Loaded, Val)
+end
+
+function LLVMExtraBuildCmpXchgValue(B, PointerVal, Cmp, Val, Alignment, Success)
+    ccall((:LLVMExtraBuildCmpXchgValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, LLVMValueRef, Cuint, Ptr{LLVMValueRef}), B, PointerVal, Cmp, Val, Alignment, Success)
+end
+
+function LLVMExtraLowerAtomicRMWInst(RMWI)
+    ccall((:LLVMExtraLowerAtomicRMWInst, libLLVMExtra), LLVMBool, (LLVMValueRef,), RMWI)
+end
+
+function LLVMExtraLowerAtomicCmpXchgInst(CXI)
+    ccall((:LLVMExtraLowerAtomicCmpXchgInst, libLLVMExtra), LLVMBool, (LLVMValueRef,), CXI)
+end
+
+function LLVMExtraExpandAtomicRMWToCmpXchg(RMWI)
+    ccall((:LLVMExtraExpandAtomicRMWToCmpXchg, libLLVMExtra), LLVMBool, (LLVMValueRef,), RMWI)
+end
+
+function LLVMExtraCastAtomicToInteger(Inst)
+    ccall((:LLVMExtraCastAtomicToInteger, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
+end
+
+struct LLVMExtraPartwordMaskValues
+    WordType::LLVMTypeRef
+    ValueType::LLVMTypeRef
+    IntValueType::LLVMTypeRef
+    AlignedAddr::LLVMValueRef
+    AlignedAddrAlignment::Cuint
+    ShiftAmt::LLVMValueRef
+    Mask::LLVMValueRef
+    InvMask::LLVMValueRef
+end
+
+function LLVMExtraCreatePartwordMaskValues(B, ValueType, Addr, AddrAlign, MinWordSize, PMV)
+    ccall((:LLVMExtraCreatePartwordMaskValues, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Cuint, Cuint, Ptr{LLVMExtraPartwordMaskValues}), B, ValueType, Addr, AddrAlign, MinWordSize, PMV)
+end
+
+function LLVMExtraExtractMaskedValue(B, WideWord, PMV)
+    ccall((:LLVMExtraExtractMaskedValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, Ptr{LLVMExtraPartwordMaskValues}), B, WideWord, PMV)
+end
+
+function LLVMExtraInsertMaskedValue(B, WideWord, Updated, PMV)
+    ccall((:LLVMExtraInsertMaskedValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{LLVMExtraPartwordMaskValues}), B, WideWord, Updated, PMV)
+end
+
+function LLVMExtraExpandPartwordAtomicRMW(RMWI, MinWordSize)
+    ccall((:LLVMExtraExpandPartwordAtomicRMW, libLLVMExtra), LLVMBool, (LLVMValueRef, Cuint), RMWI, MinWordSize)
+end
+
+function LLVMExtraExpandPartwordCmpXchg(CXI, MinWordSize)
+    ccall((:LLVMExtraExpandPartwordCmpXchg, libLLVMExtra), LLVMBool, (LLVMValueRef, Cuint), CXI, MinWordSize)
+end
+
+function LLVMExtraGetSyncScopeName(C, SSID, Len)
+    ccall((:LLVMExtraGetSyncScopeName, libLLVMExtra), Cstring, (LLVMContextRef, Cuint, Ptr{Csize_t}), C, SSID, Len)
+end
 
 function LLVMCreatePassBuilderExtensions()
     ccall((:LLVMCreatePassBuilderExtensions, libLLVMExtra), LLVMPassBuilderExtensionsRef, ())

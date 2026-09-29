@@ -95,6 +95,151 @@ end
 
 end
 
+@testset "llvmgenerated" begin
+
+@llvmgenerated builder function lg_add(x::T, y::T)::T where {T<:Integer}
+    add!(builder, x, y)
+end
+@test lg_add(1, 2) === 3
+@test lg_add(Int32(1), Int32(2)) === Int32(3)
+ir = sprint(io->code_llvm(io, lg_add, Tuple{Int, Int}; debuginfo=:none))
+@test occursin(r"add i64", ir)
+@test !occursin(r"call", ir)
+
+# statically-known arguments are not passed, but bound to their value
+@llvmgenerated builder function lg_static(::Val{N}, ::Type{T}, x::T)::T where {N, T}
+    add!(builder, x, ConstantInt(convert(LLVMType, T), N))
+end
+@test lg_static(Val(3), Int, 4) === 7
+@test lg_static(Val(3), Int32, Int32(4)) === Int32(7)
+
+# varargs are bound to a tuple, preserving the position of static arguments
+@llvmgenerated builder function lg_vararg(x::Int, rest...)::Int
+    @test rest[2] === Val(100)
+    @test rest[4] === nothing
+    acc = x
+    for val in rest
+        val isa LLVM.Value && (acc = add!(builder, acc, val))
+    end
+    acc
+end
+@test lg_vararg(1, 2, Val(100), 3, nothing, 4) === 10
+
+# Bool arguments and return values lower to i8
+@llvmgenerated builder function lg_iszero(x::Int)::Bool
+    cmp = icmp!(builder, LLVM.API.LLVMIntEQ, x, ConstantInt(0))
+    zext!(builder, cmp, value_type(ConstantInt(Int8(0))))
+end
+@test lg_iszero(0) === true
+@test lg_iszero(1) === false
+
+# returning nothing
+@llvmgenerated builder function lg_store(ptr::Ptr{Int}, val::Int)::Nothing
+    T_ptr = LLVM.PointerType(convert(LLVMType, Int))
+    if !(value_type(ptr) isa LLVM.PointerType)
+        ptr = inttoptr!(builder, ptr, T_ptr)
+    elseif supports_typed_pointers(context())
+        ptr = bitcast!(builder, ptr, T_ptr)
+    end
+    store!(builder, val, ptr)
+    nothing
+end
+let r = Ref(0)
+    GC.@preserve r lg_store(Base.unsafe_convert(Ptr{Int}, r), 42)
+    @test r[] == 42
+end
+
+# control flow, emitting returns explicitly
+@llvmgenerated builder function lg_select(c::Bool, x::Int, y::Int)::Int
+    f = current_function(builder)
+    then_bb = BasicBlock(f, "then")
+    else_bb = BasicBlock(f, "else")
+    br!(builder, trunc!(builder, c, LLVM.Int1Type()), then_bb, else_bb)
+    position!(builder, then_bb)
+    ret!(builder, x)
+    position!(builder, else_bb)
+    ret!(builder, y)
+end
+@test lg_select(true, 1, 2) === 1
+@test lg_select(false, 1, 2) === 2
+
+# non-returning functions
+@llvmgenerated builder function lg_trap()::Union{}
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    call!(builder, ft, LLVM.Function(current_module(builder), "llvm.trap", ft))
+    nothing
+end
+@test only(Base.return_types(lg_trap, Tuple{})) === Union{}
+ir = sprint(io->code_llvm(io, lg_trap, Tuple{}; debuginfo=:none))
+@test occursin(r"call void @llvm.trap\(\)\s+unreachable", ir)
+
+# boxed values are passed as tracked pointers
+@llvmgenerated builder function lg_boxed(x::String)::String
+    x
+end
+@test lg_boxed("foo") === "foo"
+
+# default arguments
+@llvmgenerated builder function lg_default(x::Int, ::Val{N}=Val(1))::Int where {N}
+    add!(builder, x, ConstantInt(N))
+end
+@test lg_default(1) === 2
+@test lg_default(1, Val(2)) === 3
+
+# IR is verified as llvmcall sees it, after upgrading outdated constructs
+@llvmgenerated builder function lg_upgraded()::Int32
+    ft = LLVM.FunctionType(LLVM.Int32Type())
+    decl = LLVM.Function(current_module(builder), "lg_readnone_decl", ft)
+    push!(function_attributes(decl), EnumAttribute("readnone", 0))
+    ConstantInt(Int32(42))
+end
+@test lg_upgraded() === Int32(42)
+
+"docstring for lg_documented"
+@llvmgenerated builder function lg_documented(x::Int)::Int
+    x
+end
+@test occursin("docstring for lg_documented", string(@doc lg_documented))
+
+# errors during generation
+@llvmgenerated builder function lg_wrong_type(x::Int)::Int32
+    x
+end
+@test_throws "the body returned a value of type i64, but return type Int32 lowers to i32" lg_wrong_type(1)
+@llvmgenerated builder function lg_wrong_void(x::Int)::Nothing
+    x
+end
+@test_throws "the body should return `nothing`" lg_wrong_void(1)
+@llvmgenerated builder function lg_invalid()::Nothing
+    br!(builder, BasicBlock(current_function(builder), "unterminated"))
+end
+@test_throws "generated invalid LLVM IR" lg_invalid()
+
+# errors during macro expansion
+@test_throws "requires a return type annotation" @eval @llvmgenerated b function lg_bad(x) end
+@test_throws "keyword arguments are not supported" @eval @llvmgenerated b function lg_bad(x; y)::Nothing end
+@test_throws "conflicts with the name of the builder" @eval @llvmgenerated b function lg_bad(b)::Nothing end
+@test_throws "expects the name of the builder" @eval @llvmgenerated function lg_bad(b)::Nothing end
+
+# the functional interface, evaluating arguments even when they aren't passed
+counter = Ref(0)
+@eval lg_expr(x) = $(generate_llvmcall(Int, Tuple{Nothing, Int}, :($counter[] += 1; nothing), :x) do builder, n, x
+    @test n === nothing
+    x
+end)
+@test lg_expr(42) === 42
+@test counter[] == 1
+@eval lg_order(x) = $(generate_llvmcall(Int, Tuple{Int,Int}, :x, :(x = 2)) do builder, x, y
+    x
+end)
+@test lg_order(1) === 1
+@eval lg_undef() = $(generate_llvmcall(Nothing, Tuple{Nothing}, :lg_undefined_variable) do builder, x
+    nothing
+end)
+@test_throws UndefVarError lg_undef()
+
+end
+
 @testset "asmcall" begin
 
 # only asm

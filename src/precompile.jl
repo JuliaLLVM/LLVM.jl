@@ -40,6 +40,15 @@
             end
             Interop.call_function(cf, Float32, Tuple{Float32, Float32}, :x, :y)
 
+            # staged IR generation, as done by `@llvmgenerated`
+            Interop.generate_llvmcall(Int, Tuple{Ptr{Int}, Int, Val{1}}, :x, :y, :z) do builder, x, y, z
+                T_int = convert(LLVMType, Int)
+                if !(value_type(x) isa LLVM.PointerType)
+                    x = inttoptr!(builder, x, LLVM.PointerType(T_int))
+                end
+                load!(builder, T_int, gep!(builder, T_int, x, [y]))
+            end
+
             # MCJIT execution
             mod = LLVM.Module("jit")
             T_i32 = LLVM.Int32Type()

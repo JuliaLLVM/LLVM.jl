@@ -2029,6 +2029,7 @@ if LLVM.version() >= v"16"
             @test occursin(str, string(g))
         end
         @test verify(mod) === nothing
+        dispose(mod)
     end
 
     # functions and call sites

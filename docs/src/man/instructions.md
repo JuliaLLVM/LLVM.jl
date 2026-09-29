@@ -21,7 +21,7 @@ functionality from `User` and `Value`:
 - `opcode`: get the opcode of the instruction.
 - `remove!`/`erase!`: delete the instruction from its parent basic block, or additionally
   also delete the instruction itself.
-- `Instruction(::Instruction)`: clone an instruction
+- `copy(inst)`: clone an instruction
 
 
 ## Creating instructions

@@ -415,39 +415,6 @@ function kwargs_to_params(kwargs; allow_empty=false)
 
     params = String[]
     for (k, v) in kwargs
-        # deprecated option names
-        deprecated_bindings = Dict{Symbol, Symbol}(
-            :eagerchecks => :eager_checks,
-            :trackorigins => :track_origins,
-            :onlymandatory => :only_mandatory,
-            :reusestorage => :reuse_storage,
-            :postinline => :post_inline,
-            :full_unroll_max_count => :full_unroll_max,
-            :allow_partial => :partial,
-            :allow_peeling => :peeling,
-            :allow_profile_based_peeling => :profile_peeling,
-            :allow_runtime => :runtime,
-            :allow_upper_bound => :upper_bound,
-            :forward_switch_cond_to_phi => :forward_switch_cond,
-            :convert_switch_range_to_icmp => :switch_range_to_icmp,
-            :convert_switch_to_lookup_table => :switch_to_lookup,
-            :interleaveforcedonly => :interleave_forced_only,
-            :vectorizeforcedonly => :vectorize_forced_only,
-            :splitfooterbb => :split_footer_bb,
-            :allowpre => :pre,
-            :allowloadpre => :load_pre,
-            :allowloadpresplitbackedge => :split_backedge_load_pre,
-            :allowmemdep => :memdep
-        )
-        if haskey(deprecated_bindings, k)
-            new = deprecated_bindings[k]
-            Base.depwarn(
-                "LLVM pass keyword argument $k is deprecated, use $new instead.",
-                k
-            )
-            k = new
-        end
-
         # Julia uses `_` in kwargs, while LLVM always uses `-`
         k = replace(string(k), "_" => "-")
 

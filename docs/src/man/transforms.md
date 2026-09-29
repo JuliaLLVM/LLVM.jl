@@ -52,7 +52,7 @@ The `loop-unroll` pass from above, for example, can also be constructed using th
 `LoopUnrollPass` object, which simplifies setting options for the pass:
 
 ```jldoctest
-julia> run!(LoopUnrollPass(; allow_partial=true), mod)
+julia> run!(LoopUnrollPass(; partial=true), mod)
 ```
 
 ### Pipelines

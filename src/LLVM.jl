@@ -111,8 +111,6 @@ include("newpm.jl")
 include("state.jl")
 include("interop.jl")
 
-include("deprecated.jl")
-
 include("precompile.jl")
 
 

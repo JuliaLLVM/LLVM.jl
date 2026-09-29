@@ -457,9 +457,6 @@
     nswneginst = nswneg!(builder, int1)
     @check_ir nswneginst "sub nsw i32 0, %0"
 
-    nuwneginst = @test_deprecated nuwneg!(builder, int1)
-    @check_ir nuwneginst "sub nuw i32 0, %0"
-
     fneginst = fneg!(builder, float1)
     @check_ir fneginst "fneg float %2"
 

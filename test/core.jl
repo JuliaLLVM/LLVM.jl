@@ -1545,6 +1545,8 @@ end
     end
 
     anotherfn = LLVM.Function(mod, "SomeOtherFunction", ft)
+    @test first(functions(mod)) == dummyfn
+    @test last(functions(mod)) == anotherfn
     @test prevfun(dummyfn) === nothing
     @test nextfun(dummyfn) == anotherfn
     @test prevfun(anotherfn) == dummyfn

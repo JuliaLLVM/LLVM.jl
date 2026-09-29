@@ -419,7 +419,7 @@ function Base.first(iter::ModuleFunctionSet)
 end
 
 function Base.last(iter::ModuleFunctionSet)
-    ref = API.LLVMGetFirstFunction(iter.mod)
+    ref = API.LLVMGetLastFunction(iter.mod)
     ref == C_NULL && throw(BoundsError(iter))
     Function(ref)
 end

@@ -34,6 +34,7 @@ Bug fixes:
   (except on Windows, where Julia itself requires LLVM 20 for these options).
 - `section!` is now only defined for global objects, as LLVM does not support setting the
   section of a global alias.
+- `last(functions(mod))` returns the last function of a module, instead of the first one.
 
 
 ## LLVM.jl v9.13

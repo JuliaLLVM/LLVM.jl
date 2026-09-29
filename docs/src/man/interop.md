@@ -1,4 +1,4 @@
-# Julia integration
+# [Julia integration](@id man-interop)
 
 ```@meta
 DocTestSetup = quote
@@ -15,7 +15,9 @@ end
 ```
 
 LLVM.jl offers several tools to interoperate with Julia's LLVM-based code generator. These
-tools are part of the `Interop` submodule, and need to be imported explicitly.
+tools are part of the `LLVM.Interop` submodule, and need to be imported explicitly
+(`using LLVM.Interop`). Unlike the vocabularies, which bring LLVM.jl's own functionality
+into scope, `Interop` builds on top of LLVM.jl to integrate with Julia.
 
 
 ## Type conversion
@@ -107,8 +109,7 @@ Refer to the documentation of `@llvmgenerated` for more details. For generators 
 more control, e.g., because they sometimes return Julia code instead, the
 `generate_llvmcall` function offers the same functionality while returning the `llvmcall`
 expression, which can be returned from a regular `@generated` function or spliced into an
-`@eval`'d definition. The lower-level `create_function` and `call_function` remain
-available too.
+`@eval`'d definition.
 
 
 ## Inline assembly
@@ -137,7 +138,8 @@ julia> @code_native add(1,2)
 Julia's pointer type `Ptr` only keeps track of the element type, and not the address space.
 Julia has `Core.LLVMPtr` to track address space information, with the necessary codegen
 support, but no utility functions. LLVM.jl provides the functionality that's commonly needed
-when working with pointers:
+when working with pointers. Since these are methods of Base functions like `unsafe_load`,
+they are available as soon as LLVM.jl is loaded, without having to import `LLVM.Interop`:
 
 - `pointerref`: get the value of memory, at a specific index, with specific alignment
 - `pointerset`: set the value of memory, at a specific index, with specific alignment

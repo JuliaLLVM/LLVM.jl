@@ -9,36 +9,15 @@
                 convert(LLVMType, T)
             end
 
-            # IR building: function creation, arithmetic, memory, control flow
-            T_int = LLVM.IntType(sizeof(Int) * 8)
-            T_ptr = LLVM.PointerType(T_int)
-
-            f, _ = Interop.create_function(T_int, [T_ptr, T_int])
-            @dispose builder=IRBuilder() begin
-                bb = BasicBlock(f, "entry")
-                position!(builder, bb)
-                ptr = gep!(builder, T_int, parameters(f)[1], [parameters(f)[2]])
-                val = load!(builder, T_int, ptr)
-                ret!(builder, val)
-            end
-            Interop.call_function(f, Int, Tuple{Ptr{Int}, Int}, :x, :y)
-
             # Intrinsics and metadata
-            T_f32 = LLVM.FloatType()
-            cf, _ = Interop.create_function(T_f32, [T_f32, T_f32])
-            intr = Intrinsic("llvm.experimental.constrained.fadd")
-            intr_fn = LLVM.Function(LLVM.parent(cf), intr, [T_f32])
-            intr_ft = LLVM.FunctionType(intr, [T_f32])
-            @dispose builder=IRBuilder() begin
-                bb = BasicBlock(cf, "entry")
-                position!(builder, bb)
-                val = call!(builder, intr_ft, intr_fn,
-                            [parameters(cf)...,
-                             Value(MDString("round.upward")),
-                             Value(MDString("fpexcept.strict"))])
-                ret!(builder, val)
+            Interop.generate_llvmcall(Float32, Tuple{Float32, Float32}, :x, :y) do builder, x, y
+                T_f32 = LLVM.FloatType()
+                intr = Intrinsic("llvm.experimental.constrained.fadd")
+                intr_fn = LLVM.Function(Interop.current_module(builder), intr, [T_f32])
+                intr_ft = LLVM.FunctionType(intr, [T_f32])
+                call!(builder, intr_ft, intr_fn,
+                      [x, y, Value(MDString("round.upward")), Value(MDString("fpexcept.strict"))])
             end
-            Interop.call_function(cf, Float32, Tuple{Float32, Float32}, :x, :y)
 
             # staged IR generation, as done by `@llvmgenerated`
             Interop.generate_llvmcall(Int, Tuple{Ptr{Int}, Int, Val{1}}, :x, :y, :z) do builder, x, y, z

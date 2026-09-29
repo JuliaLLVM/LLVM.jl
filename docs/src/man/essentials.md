@@ -74,6 +74,12 @@ Some functionality is not part of any vocabulary, and is always used qualified: 
 initialization, targets, target machines and data layouts (`LLVM.TargetMachine`), and the
 legacy execution engines (`LLVM.JIT`).
 
+Finally, the `LLVM.Interop` submodule contains functionality to integrate with Julia's code
+generator, like generating `llvmcall`s or inline assembly, and Julia's own LLVM passes.
+It is imported the same way, `using LLVM.Interop`, but unlike the vocabularies, which bring
+LLVM.jl's own functionality into scope, it builds on top of LLVM.jl. See [Julia
+integration](@ref man-interop) for more details.
+
 The examples in this documentation assume all vocabularies have been imported.
 
 

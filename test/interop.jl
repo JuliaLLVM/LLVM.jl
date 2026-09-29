@@ -19,58 +19,24 @@ end
 
 @testset "base" begin
 
+# hand-written generators, using `generate_llvmcall`
 @generated function foo()
-    @dispose ctx=Context() begin
-        f, ft = create_function()
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(f, "entry")
-            position!(builder, entry)
-
-            ret!(builder)
-        end
-
-        call_function(f, Nothing, Tuple{})
+    generate_llvmcall(Nothing, Tuple{}) do builder
+        nothing
     end
 end
 @test foo() === nothing
 
 @generated function bar()
-    @dispose ctx=Context() begin
-        T_int = convert(LLVMType, Int)
-
-        f, ft = create_function(T_int)
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(f, "entry")
-            position!(builder, entry)
-
-            val = ConstantInt(T_int, 42)
-
-            ret!(builder, val)
-        end
-
-        call_function(f, Int, Tuple{})
+    generate_llvmcall(Int, Tuple{}) do builder
+        ConstantInt(convert(LLVMType, Int), 42)
     end
 end
 @test bar() == 42
 
 @generated function baz(i)
-    @dispose ctx=Context() begin
-        T_int = convert(LLVMType, Int)
-
-        f, ft = create_function(T_int, [T_int])
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(f, "entry")
-            position!(builder, entry)
-
-            val = add!(builder, parameters(f)[1], ConstantInt(T_int, 42))
-
-            ret!(builder, val)
-        end
-
-        call_function(f, Int, Tuple{Int}, :i)
+    generate_llvmcall(Int, Tuple{i}, :i) do builder, i
+        add!(builder, i, ConstantInt(i.value_type, 42))
     end
 end
 @test baz(1) == 43

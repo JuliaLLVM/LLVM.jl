@@ -75,6 +75,7 @@ for (name, val) in ((:LLVMAtomicRMWBinOpUIncWrap, 15), (:LLVMAtomicRMWBinOpUDecW
 end
 
 end # module API
+@public API
 
 has_oldpm() = LLVM.version() < v"17"
 
@@ -110,6 +111,7 @@ include("newpm.jl")
 include("state.jl")
 include("vocabularies.jl")
 include("interop.jl")
+@public Interop
 
 include("precompile.jl")
 

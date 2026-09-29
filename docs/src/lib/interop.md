@@ -14,8 +14,6 @@ LLVM.Interop.@llvmgenerated
 LLVM.Interop.generate_llvmcall
 LLVM.Interop.current_function
 LLVM.Interop.current_module
-LLVM.Interop.create_function
-LLVM.Interop.call_function
 ```
 
 ## Calling inline assembly

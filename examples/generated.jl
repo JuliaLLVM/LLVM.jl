@@ -8,40 +8,20 @@ struct CustomPtr{T}
     ptr::Ptr{T}
 end
 
-@generated function Base.unsafe_load(p::CustomPtr{T}, i::Integer=1) where T
-    @dispose ctx=Context() begin
-        # get the element type
-        eltyp = convert(LLVMType, T)
+# generate the IR that loads an element; the arguments are bound to LLVM values
+@llvmgenerated builder function load_element(ptr::Ptr{T}, i::Int)::T where {T}
+    eltyp = convert(LLVMType, T)
 
-        T_int = LLVM.IntType(sizeof(Int)*8)
-        T_ptr = LLVM.PointerType(eltyp)
-
-        # create a function
-        paramtyps = if VERSION >= v"1.12-"
-            [T_ptr, T_int]
-        else
-            [T_int, T_int]
-        end
-        llvmf, _ = create_function(eltyp, paramtyps)
-
-        # generate IR
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(llvmf, "entry")
-            position!(builder, entry)
-
-            ptr = parameters(llvmf)[1]
-            if ptr.value_type isa LLVM.IntegerType
-                ptr = inttoptr!(builder, ptr, T_ptr)
-            end
-
-            ptr = gep!(builder, eltyp, ptr, [parameters(llvmf)[2]])
-            val = load!(builder, eltyp, ptr)
-            ret!(builder, val)
-        end
-
-        call_function(llvmf, T, Tuple{Ptr{T}, Int}, :(p.ptr), :(Int(i-1)))
+    # older versions of Julia pass pointers as integers
+    if ptr.value_type isa LLVM.IntegerType
+        ptr = inttoptr!(builder, ptr, LLVM.PointerType(eltyp))
     end
+
+    ptr = gep!(builder, eltyp, ptr, [i])
+    load!(builder, eltyp, ptr)
 end
+
+Base.unsafe_load(p::CustomPtr, i::Integer=1) = load_element(p.ptr, Int(i-1))
 
 a = [42]
 ptr = CustomPtr{Int}(pointer(a))

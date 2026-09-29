@@ -169,9 +169,8 @@ generate_llvmcall(gen, @nospecialize(rettyp::Type), @nospecialize(argtypes::Type
     end
 
 Define a staged function `f` whose body is executed once per specialization, at compile
-time, to generate the LLVM IR that implements it. This is a convenient alternative to
-writing a `@generated` function that calls [`create_function`](@ref) and
-[`call_function`](@ref), deriving the LLVM signature from the Julia one:
+time, to generate the LLVM IR that implements it. The LLVM signature of the generated
+function is derived from the Julia one:
 
 ```julia
 @llvmgenerated builder function add(x::T, y::T)::T where {T<:Integer}

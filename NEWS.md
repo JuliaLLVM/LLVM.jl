@@ -34,7 +34,7 @@ Properties:
   `mod.triple`, `loc.line`), its relationships to other objects (`inst.parent.parent`,
   `bb.terminator`, `f.entry`, `gv.initializer`), and its contents (`mod.functions`,
   `f.blocks`, `inst.operands`). Assigning to a property sets it, where that is supported
-  (`gv.linkage = LLVM.API.LLVMInternalLinkage`). This generally follows the getters and
+  (`gv.linkage = LLVM.Linkage.Internal`). This generally follows the getters and
   setters of LLVM's C++ API, e.g., `I->getParent()` becomes `inst.parent`.
 - The functions that used to provide this information have been removed from the API:
   `name(f)` becomes `f.name`, `name!(f, "x")` becomes `f.name = "x"`, `blocks(f)` becomes
@@ -67,7 +67,7 @@ Properties:
   `inst.nuw`, `inst.nsw`, `inst.exact`, `inst.disjoint`, `inst.nneg` and `inst.samesign`,
   which are only available on the instructions (and LLVM versions) that support them.
   `isconstant(val)` still exists, but only checks whether a value is a constant.
-- `gv.unnamed_addr` holds an `LLVM.API.LLVMUnnamedAddr`, replacing `unnamed_addr` and
+- `gv.unnamed_addr` holds an `LLVM.UnnamedAddr.T`, replacing `unnamed_addr` and
   `local_unnamed_addr`, which described the same state with two Bools. `gv.threadlocal` is
   a Bool view of `gv.threadlocal_mode`, and `call.tailcall` of the new `call.tailcall_kind`
   (available on every LLVM version).
@@ -132,6 +132,92 @@ Removed functionality:
   `DynamicLibrarySearchGenerator(jit)`), `reexports` (use `lazy_reexports`), `get_prefix`
   and `get_requested_symbols`. `string(::MDString)` now returns the textual form of the
   metadata, like for other metadata; use `convert(String, md)` for the string's contents.
+
+Enumerations:
+
+- The enums of the C API, which LLVM.jl uses for enum-valued state, are available using
+  scoped names, without the common prefix and suffix of their names:
+  `LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage`, `LLVM.IntPredicate.EQ`,
+  `LLVM.Opcode.BitCast`, and `LLVM.Linkage.T === LLVM.API.LLVMLinkage` for the type. These
+  modules are public but not part of a vocabulary, and are generated from `LLVM.API`, so
+  they contain the values that it defines for the current version of LLVM (including
+  backfilled `atomicrmw` operations; see `LLVM.isavailable`). Values of these enums
+  are displayed and converted to strings using these names, e.g., `LLVM.Linkage.Internal`
+  instead of `LLVMInternalLinkage::LLVMLinkage = 0x00000008` (or `LLVMInternalLinkage`, for
+  `string`). `LLVM.DebugEmissionKind` covers the debug info levels of Julia's code
+  generator, as used with its `CodegenParams`.
+
+Attributes:
+
+- The kind of an enum, type or constant range attribute is a `Symbol` naming it
+  (`attr.kind == :nounwind`) instead of an integer ID, and enum, type and string attributes
+  are displayed as the call that creates them (`EnumAttribute(:align, 16)`). Code that
+  compared `attr.kind` against an ID from the C API (e.g., from
+  `LLVMGetEnumAttributeKindForName`) now silently compares a Symbol against an integer; use
+  the keyed operations below instead, or `LLVM.API.LLVMGetEnumAttributeKind(attr)`.
+- The constructors of attributes accept Symbols, and reject unknown kinds, kinds that
+  belong to another kind of attribute (e.g., `EnumAttribute(:sret)`, which needs a type),
+  and values for kinds that don't take one, which used to create invalid attributes.
+- Attribute sets can be indexed by kind, using a `Symbol` for LLVM's attribute kinds and a
+  string for string attributes: `haskey(f.function_attributes, :nounwind)`,
+  `attrs["target-cpu"]`, `get(call.argument_attributes[1], :align, nothing)` and
+  `delete!(attrs, :noinline)`.
+
+New functionality:
+
+- `get(mod.functions, name, default)`, and similarly for global variables, aliases and
+  ifuncs, looks up a value without throwing. `get!(f, mod.functions, name)` looks up a
+  function, or calls `f` to declare it (e.g., using a do-block that also adds attributes),
+  like C++'s `Module::getOrInsertFunction`, and `get!(f, mod.globals, name)` does the same
+  for global variables.
+- Properties for the operands and types of common instructions: `inst.pointer_operand`
+  (loads, stores, GEPs, `atomicrmw` and `cmpxchg`), `inst.value_operand` (stores and
+  `atomicrmw`), `alloca.allocated_type`, `gep.source_element_type`, `gep.inbounds`,
+  `inst.indices` of `extractvalue` and `insertvalue`, `call.called_function` (the function
+  that is called directly, or `nothing`), `arg.index`, and `f.intrinsic` (the intrinsic,
+  or `nothing`). `call.called_operand` can be assigned to replace the callee.
+- `isintrinsic` accepts any value, and optionally the intrinsic to check for, e.g.,
+  `isintrinsic(call.called_operand, Intrinsic("llvm.memcpy"))`. `Intrinsic(name)` throws
+  for unknown intrinsics, and intrinsics are displayed by name (`Intrinsic("llvm.abs")`)
+  instead of by their ID, which differs between versions of LLVM.
+- `copy_attributes!(dest, src)` copies the attributes of a function or global variable
+  that aren't needed to create it (calling convention, section, function attributes, ...),
+  like C++'s `copyAttributesFrom`, e.g., to replace a function by one with a different
+  signature.
+- `position!(builder, inst; after=true)` positions a builder after an instruction (at the
+  end of the block if it is the last one). `extract_value!` and `insert_value!` accept a
+  vector of indices to access nested elements, and check the indices. `exactudiv!` builds
+  an exact unsigned division.
+- `move_before` and `move_after` move instructions, `comes_before` orders them, and
+  `may_read_from_memory`, `may_write_to_memory` and `may_have_side_effects` query what they
+  may do. `take_name!(val, from)` transfers a name, and `strip_pointer_casts` and
+  `strip_pointer_casts_and_aliases` look through casts and aliases.
+- `val.users` is a view of the users of a value, and `remove_dead_constant_users!(c)`
+  removes constant expressions that use a constant but are unused themselves.
+- `supports_fast_math(inst)` checks whether an instruction can have fast-math flags, which
+  for `phi`, `select` and `call` instructions depends on their type.
+- `isstring(val)` checks whether a value is a constant string, and `String(str)` returns
+  the contents of one.
+- `switch.cases` is a mutable view of the cases of a switch instruction, which supports
+  adding cases with `push!` and `append!`.
+- `verify(f)` reports the verifier's message instead of "broken function", and
+  `verification_error` returns the message (or `nothing`) instead of throwing.
+- `register_callbacks!(pb, callback)` registers a native pass builder callback, like the
+  ones of pass plugins, to use passes implemented in C++ with a `NewPMPassBuilder`.
+- `LLVM.host_cpu_name()` and `LLVM.host_cpu_features()` return the name and features of
+  the host CPU, e.g., to create a `TargetMachine` for it.
+- It is documented that the element that was just returned by iterating the views of the
+  instructions of a block, the blocks of a function, or the functions and global variables
+  of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.
+
+Bug fixes:
+
+- Running a `NewPMPassBuilder` with custom passes multiple times no longer uses the
+  callbacks, and garbage-collected state, of the first run.
+- Array types with 2^32 or more elements can be created, and their `length` is correct
+  (on LLVM 17 and later), instead of being truncated to 32 bits.
+- The operands of constants other than global values can no longer be changed using the
+  `operands` view, which corrupted LLVM's uniquing of constants.
 
 Other changes:
 

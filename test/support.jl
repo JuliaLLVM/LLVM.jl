@@ -1,22 +1,5 @@
 @testset "support" begin
 
-function execute_code(code)
-    script = """
-        using LLVM
-        $code"""
-    cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) -e $script`
-
-    out = Pipe()
-    err = Pipe()
-    proc = run(pipeline(cmd, stdout=out, stderr=err), wait=false)
-    close(out.in)
-    close(err.in)
-    wait(proc)
-    out = read(out, String)
-    err = read(err, String)
-    return (; out, err)
-end
-
 @testset "command-line options" begin
 
 code = """

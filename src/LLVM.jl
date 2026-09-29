@@ -59,7 +59,8 @@ include(joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 # named on every LLVM version (use `LLVM.available` to check whether LLVM supports them)
 for (name, val) in ((:LLVMAtomicRMWBinOpUIncWrap, 15), (:LLVMAtomicRMWBinOpUDecWrap, 16),
                     (:LLVMAtomicRMWBinOpUSubCond, 17), (:LLVMAtomicRMWBinOpUSubSat, 18),
-                    (:LLVMAtomicRMWBinOpFMaximum, 19), (:LLVMAtomicRMWBinOpFMinimum, 20))
+                    (:LLVMAtomicRMWBinOpFMaximum, 19), (:LLVMAtomicRMWBinOpFMinimum, 20),
+                    (:LLVMAtomicRMWBinOpFMaximumNum, 21), (:LLVMAtomicRMWBinOpFMinimumNum, 22))
     isdefined(@__MODULE__, name) || @eval const $name = LLVMAtomicRMWBinOp($val)
 end
 

@@ -228,6 +228,15 @@ function binop(inst::AtomicRMWInst)
     end
 end
 
+# the LLVM version that introduced each atomicrmw operation, indexed by its C API value
+const ATOMIC_RMW_BINOP_SINCE = (
+    ntuple(_ -> v"0", 15)...,   # Xchg through FMin
+    v"16", v"16",               # UIncWrap, UDecWrap
+    v"20", v"20",               # USubCond, USubSat
+    v"21", v"21",               # FMaximum, FMinimum
+    v"23", v"23",               # FMaximumNum, FMinimumNum
+)
+
 """
     available(op::API.LLVMAtomicRMWBinOp)
 
@@ -236,15 +245,8 @@ LLVM in use. All operations can be named on every LLVM version, but instructions
 be created with the ones that are available.
 """
 function available(op::API.LLVMAtomicRMWBinOp)
-    if op == API.LLVMAtomicRMWBinOpUIncWrap || op == API.LLVMAtomicRMWBinOpUDecWrap
-        version() >= v"16"
-    elseif op == API.LLVMAtomicRMWBinOpUSubCond || op == API.LLVMAtomicRMWBinOpUSubSat
-        version() >= v"20"
-    elseif op == API.LLVMAtomicRMWBinOpFMaximum || op == API.LLVMAtomicRMWBinOpFMinimum
-        version() >= v"21"
-    else
-        Integer(op) <= Integer(API.LLVMAtomicRMWBinOpFMin)
-    end
+    since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)
+    since !== nothing && version() >= since
 end
 
 """

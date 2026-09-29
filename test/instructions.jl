@@ -319,6 +319,8 @@
     @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpAdd)
     @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
     @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
+    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
+    @test !LLVM.available(LLVM.API.LLVMAtomicRMWBinOp(1000))
 
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"

@@ -46,30 +46,44 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
+
+      # check that Enzyme can be installed with this version of LLVM.jl. when it can't,
+      # this is a breaking release that Enzyme doesn't support yet, which is fine, so skip
+      # the remainder of the job.
+      - name: Install Enzyme with this version of LLVM.jl
+        id: install
+        shell: julia --color=yes --project=downstream {0}
+        env:
+          JULIA_PKG_PRECOMPILE_AUTO: 0
+        run: |
+          using Pkg
+          installable = try
+            Pkg.develop(PackageSpec(path="."))
+            Pkg.update()
+            true
+          catch err
+            err isa Pkg.Resolve.ResolverError || rethrow()
+            @info "Enzyme is not compatible with this version of LLVM.jl, skipping its tests" exception=err
+            false
+          end
+          open(ENV["GITHUB_OUTPUT"], "a") do io
+            println(io, "installable=$installable")
+          end
+
       - uses: julia-actions/julia-buildpkg@latest
+        if: steps.install.outputs.installable == 'true'
       - name: Build libLLVMExtra
+        if: steps.install.outputs.installable == 'true'
         run: julia --project=deps deps/build_ci.jl
       - name: Propagate libLLVMExtra preference to downstream
+        if: steps.install.outputs.installable == 'true'
         run: |
           if [ -f LocalPreferences.toml ]; then
             cp LocalPreferences.toml downstream/LocalPreferences.toml
           fi
-      - name: Load this and run the downstream tests
+      - name: Run the Enzyme tests
+        if: steps.install.outputs.installable == 'true'
         shell: julia --color=yes --project=downstream {0}
         run: |
           using Pkg
-          try
-            # force it to use this PR's version of the package
-            ## resolver may fail with main deps
-            Pkg.develop(PackageSpec(path="."))
-            Pkg.update()
-            ## # resolver may fail with test time deps
-            Pkg.test(; coverage=true, julia_args=`--depwarn=no`)
-          catch err
-            err isa Pkg.Resolve.ResolverError || rethrow()
-            # If we can't resolve that means this is incompatible by SemVer and this is fine
-            # It means we marked this as a breaking change, so we don't need to worry about
-            # Mistakenly introducing a breaking change, as we have intentionally made one
-            @info "Not compatible with this release. No problem." exception=err
-            exit(0)  # Exit immediately, as a success
-          end
+          Pkg.test(; coverage=true, julia_args=`--depwarn=no`)

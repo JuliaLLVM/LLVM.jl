@@ -1,6 +1,149 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.0
+
+This release reorganizes LLVM.jl's API, so that it can be combined with other packages and
+has one spelling for every concept. The "Vocabularies" and "Properties" sections of the
+manual describe the new design.
+
+Namespace:
+
+- `using LLVM` now only brings `@dispose` into scope, so that it doesn't clash with other
+  packages. The rest of the API is public, and can be used qualified
+  (`LLVM.isdeclaration(f)`) or brought into scope by opting into one of the new
+  vocabularies: `LLVM.IR` for the object model, its predicates and operations, `LLVM.Build`
+  for the `IRBuilder`, the `DIBuilder` and constant expressions, `LLVM.Passes` for passes
+  and pipelines, and `LLVM.ORC` for the ORC JIT. Code that did `using LLVM` typically needs
+  `using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes`.
+- Targets, target machines, data layouts, target initialization, the disassembler and the
+  legacy execution engines are not part of any vocabulary, and need to be qualified
+  (`LLVM.TargetMachine`, `LLVM.DataLayout`), as do `LLVM.Module` and `LLVM.Function`,
+  which would clash with Base. Types that used to require qualification, like
+  `LLVM.Int32Type()`, `LLVM.PointerType`, `LLVM.FunctionType` and the instruction types
+  (`LLVM.CallInst`, `LLVM.LoadInst`, ...), are part of `LLVM.IR`, and so are new union
+  types for groups of instructions that share properties: `CallBase` (`call`, `invoke` and
+  `callbr`), `TerminatorInst`, `AtomicInst`, `MemAccessInst`, `AlignedInst`, `NoWrapInst`,
+  `ExactInst`, `NonNegInst` and `FPMathInst`.
+- The functions of the `DIBuilder` (`LLVM.file!`, `LLVM.subprogram!`, ...), which were
+  public but not exported, are part of `LLVM.Build`.
+
+Properties:
+
+- What an LLVM object has is now a property: its attributes (`f.name`, `gv.linkage`,
+  `mod.triple`, `loc.line`), its relationships to other objects (`inst.parent.parent`,
+  `bb.terminator`, `f.entry`, `gv.initializer`), and its contents (`mod.functions`,
+  `f.blocks`, `inst.operands`). Assigning to a property sets it, where that is supported
+  (`gv.linkage = LLVM.API.LLVMInternalLinkage`). This generally follows the getters and
+  setters of LLVM's C++ API, e.g., `I->getParent()` becomes `inst.parent`.
+- The functions that used to provide this information have been removed from the API:
+  `name(f)` becomes `f.name`, `name!(f, "x")` becomes `f.name = "x"`, `blocks(f)` becomes
+  `f.blocks`, `LLVM.parent(inst)` becomes `inst.parent`, and so on. The exception is
+  `context`, because of `context()` (the task-local context): `context(mod)` becomes
+  `mod.context`, but `context()` and `context!` remain. Functions remain for predicates
+  (`isdeclaration(f)`), computations that take arguments, and operations.
+- Relationships that can be absent are `nothing`: the `entry` of a function without a body,
+  the `parent` of an instruction or block that has been removed, and the `next` or `prev`
+  sibling at the end of a list.
+- The contents of objects are live views of the IR, which reflect later changes. They are
+  mutable where LLVM supports it (`inst.operands[i] = val`,
+  `push!(f.function_attributes, attr)`, `mod.flags[name, behavior] = md`), and read-only
+  otherwise, so that mutation throws an error instead of silently changing a copy. Keyed
+  lookups index these views (`mod.functions["f"]`, `inst.metadata[kind]`), and collections
+  indexed by position are vectors of views (`f.parameter_attributes[i]`,
+  `call.argument_attributes[i]`, `switch.case_values[i]`). Collections that used to be
+  copies are now views too: the operands of metadata nodes and named metadata nodes, the
+  parameters of function types, the predecessors of a block, the arguments of a call and
+  the location operands of a debug record. Use `collect` to get a copy. Functions that take
+  a vector of IR objects accept these views.
+- Siblings in a list are the `next` and `prev` properties, replacing `nextinst`/`previnst`,
+  `nextblock`/`prevblock`, `nextfun`/`prevfun`, `nextglobal`/`prevglobal`,
+  `nextalias`/`prevalias` and `nextifunc`/`previfunc`. They are also available on function
+  parameters, named metadata nodes and debug records (`prev` requires LLVM 20).
+- Flags that can be assigned are `Bool` properties named without an `is` or `has` prefix,
+  replacing pairs of predicates and setters: `gv.constant` (`isconstant(gv)`/`constant!`),
+  `gv.externally_initialized` (`isextinit`/`extinit!`), `gv.threadlocal`, `inst.volatile`,
+  `cmpxchg.weak`, `call.tailcall`, and the poison-generating flags introduced in 9.14,
+  `inst.nuw`, `inst.nsw`, `inst.exact`, `inst.disjoint`, `inst.nneg` and `inst.samesign`,
+  which are only available on the instructions (and LLVM versions) that support them.
+  `isconstant(val)` still exists, but only checks whether a value is a constant.
+- `gv.unnamed_addr` holds an `LLVM.API.LLVMUnnamedAddr`, replacing `unnamed_addr` and
+  `local_unnamed_addr`, which described the same state with two Bools. `gv.threadlocal` is
+  a Bool view of `gv.threadlocal_mode`, and `call.tailcall` of the new `call.tailcall_kind`
+  (available on every LLVM version).
+- The fast-math flags of a floating-point instruction are a `FastMathFlags` view with a Bool
+  property per flag: `inst.fast_math.nnan = true` sets a flag, `inst.fast_math.fast = true`
+  sets all of them, and `inst.fast_math = (; nnan=true)` replaces all flags.
+  `NamedTuple(inst.fast_math)` replaces `fast_math(inst)`.
+- The memory effects of a function are a `FunctionMemoryEffects` view of its `memory`
+  attribute, which can be modified in place (`f.memory_effects[:argmem] = :read`) or
+  replaced (`f.memory_effects = MemoryEffects(...)`). Call sites use
+  `MemoryEffects(call.function_attributes)` and `push!(call.function_attributes,
+  EnumAttribute(effects))` instead of `memory_effects` and `memory_effects!`.
+- Module-level inline assembly is a collection: `push!(mod.inline_asm, asm)` appends,
+  `empty!` clears, and `String(mod.inline_asm)` returns its text, replacing `inline_asm`
+  and `inline_asm!`. This anticipates LLVM 24, which represents it as a list of fragments.
+- The global values in `llvm.used` and `llvm.compiler.used` are sets, available as
+  `mod.used` and `mod.compiler_used`, which support `push!`, `delete!`, `union!`,
+  `setdiff!`, `empty!`, iteration and `in`. This replaces `set_used!(mod, gvs...)` and
+  `set_compiler_used!`, which could only append global variables, with
+  `union!(mod.used, gvs)`.
+- The documentation of properties is part of the docstring of the type that has them, in
+  a "Properties" section, e.g., `?LLVM.GlobalVariable` or `?LLVM.CallBase`.
+- The ORC API follows the same design: `jit.triple`, `jit.datalayout`, `jit.global_prefix`
+  (replacing `get_prefix`), `jit.execution_session`, `lljit.main_dylib`,
+  `lljit.ir_transform_layer`, `jljit.ir_compile_layer`, `jd.default_resource_tracker` and
+  `mr.requested_symbols` (replacing `get_requested_symbols`, as a read-only view). The
+  constructors that used to return these, like `JITDylib(lljit)` or
+  `ExecutionSession(jit)`, have been removed; constructors that create objects, like
+  `JITDylib(es, name)`, remain.
+- The size, offset and alignment of debug info types are `ty.size_in_bits`,
+  `ty.offset_in_bits` and `ty.align_in_bits`. This replaces `offset(ty)`, `align(ty)` and
+  `sizeof(ty)`, which returned eight times the size in bits.
+
+Renamed functionality, for consistency:
+
+- `is_opaque(ptrtyp)` is now `isopaque`, like for structure types, `is_atomic` is
+  `isatomic`, and `LLVM.available(op)` is `LLVM.isavailable`.
+- `targetmachinebuilder!`, `linkinglayercreator!` and `set_transform!` are now
+  `target_machine_builder!`, `linking_layer_creator!` and `transform!`.
+- `debuglocation` is now the `debug_location` property, and `threadlocalmode` the
+  `threadlocal_mode` property.
+- `LLVM.triple()` (the host triple) is now `LLVM.default_triple()`, and
+  `LLVM.name(intrinsic, types)` is `LLVM.overloaded_name`.
+- `subprogram!(f, sp)` becomes `f.subprogram = sp`, while `subprogram!` remains the
+  `DIBuilder` function that creates a subprogram. `debuglocation!(builder, inst)`, which
+  copied the builder's debug location to an instruction, becomes
+  `inst.debug_location = builder.debug_location`.
+- `elements!(st, elems, packed)` takes `packed` as a keyword argument, as documented.
+
+Removed functionality:
+
+- `LLVM.Interop.create_function` and `call_function` have been removed in favor of
+  `@llvmgenerated` and `generate_llvmcall`.
+- Deprecated functionality has been removed: `called_value`, `predicate_int`,
+  `predicate_real`, `unsafe_delete!`, `get_subprogram`/`set_subprogram!`, `has_orc_v1`,
+  `has_orc_v2`, `has_newpm`, `has_julia_ojit`, `ValueMetadataDict`,
+  `LLVM.Interop.JuliaPipelinePass`, `lookup(jljit, name)` without a `JITDylib`, string
+  sync scopes for `fence!`/`atomic_rmw!`/`atomic_cmpxchg!`, `size(::VectorType)`,
+  `Module(::Module)`, `Instruction(::Instruction)`, `delete!` on functions and blocks, the
+  old spellings of pass keyword arguments (e.g., `allow_partial`, now `partial`), `nuwneg!`
+  and `const_nuwneg`, `CreateDynamicLibrarySearchGeneratorForProcess(prefix)` (use
+  `DynamicLibrarySearchGenerator(jit)`), `reexports` (use `lazy_reexports`), `get_prefix`
+  and `get_requested_symbols`. `string(::MDString)` now returns the textual form of the
+  metadata, like for other metadata; use `convert(String, md)` for the string's contents.
+
+Other changes:
+
+- Mutating methods on views, like `push!` on attribute sets or `setindex!` on metadata,
+  return the view, like Base's collections do, instead of `nothing`.
+- `f.blocks` no longer caches the blocks of the function, which made it return stale blocks
+  after blocks were added or removed.
+- Attribute sets support `append!` as documented, and they, the metadata of an instruction
+  and the flags of a module can be iterated.
+- Property access on values whose concrete type is only known at run time doesn't dispatch.
+
+
 ## LLVM.jl v9.14
 
 New features:

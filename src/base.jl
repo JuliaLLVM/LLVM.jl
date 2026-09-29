@@ -120,7 +120,10 @@ export @dispose
 
 Helper macro for disposing resources (by calling the `dispose` function for every resource
 in reverse order) after executing a block of code. This is often equivalent to calling the
-recourse constructor with do-block syntax, but without using (potentially costly) closures.
+resource constructor with do-block syntax, but without using (potentially costly) closures.
+
+Resources are constructed in order, and each one is disposed of even if constructing a later
+resource fails. For example, if `Bar()` throws, `foo` is still disposed of.
 """
 macro dispose(ex...)
     resources = ex[1:end-1]
@@ -129,20 +132,20 @@ macro dispose(ex...)
     Meta.isexpr(code, :block) ||
         error("Expected a code block as final argument to LLVM.@dispose")
 
-    cleanup = quote
-    end
+    # nest a try/finally block per resource, so that resources that have already been
+    # constructed are disposed of when constructing a later one throws. this matters for,
+    # e.g., contexts, which would otherwise remain active on the context stack.
+    ex = code
     for res in reverse(resources)
         Meta.isexpr(res, :(=)) ||
             error("Resource arguments to LLVM.@dispose should be assignments")
-        push!(cleanup.args, :($dispose($(res.args[1]))))
-    end
-
-    ex = quote
-        let $(resources...)
-            try
-                $code
-            finally
-                $(cleanup.args...)
+        ex = quote
+            let $res
+                try
+                    $ex
+                finally
+                    $dispose($(res.args[1]))
+                end
             end
         end
     end

@@ -55,6 +55,15 @@ let
     @test occursin("42", string(val[]))
 end
 
+# `@dispose` should dispose of resources that were already constructed when constructing a
+# later one throws, so that the context doesn't remain active (JuliaLLVM/LLVM.jl#429)
+Context() do ctx
+    @test_throws LLVMException @dispose ctx2=Context() mod=parse(LLVM.Module, UInt8[1,2,3,4]) begin
+        error("unreachable")
+    end
+    @test context() == ctx
+end
+
 @test context(; throw_error=false) === nothing
 
 end

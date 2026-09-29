@@ -302,10 +302,10 @@ julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "counter");
 
 julia> gv.initializer = ConstantInt(Int32(0));
 
-julia> gv.linkage = LLVM.API.LLVMInternalLinkage;
+julia> gv.linkage = LLVM.Linkage.Internal;
 
 julia> gv.name, gv.linkage
-("counter", LLVM.API.LLVMInternalLinkage)
+("counter", LLVM.Linkage.Internal)
 
 julia> gv
 @counter = internal global i32 0
@@ -435,3 +435,33 @@ do flags like `GV->isThreadLocal()`/`GV->setThreadLocal(true)`, which become
 `I->operands()` become `mod.functions` and `inst.operands`, navigation like
 `I->getNextNode()` becomes `inst.next`, and iteration like `for (auto &I : BB)` becomes
 `for inst in bb.instructions`.
+
+
+## Enumerations
+
+LLVM's C API defines enumerations for things like the linkage of a global value, the
+predicate of a comparison, or the opcode of an instruction. LLVM.jl uses these values
+directly, as returned by properties like `gv.linkage` or taken by functions like `icmp!`.
+They are available as `LLVM.API.LLVMInternalLinkage`, but also with a shorter name, in a
+module per enumeration:
+
+```jldoctest
+julia> LLVM.Linkage.Internal
+LLVM.Linkage.Internal
+
+julia> LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage
+true
+
+julia> LLVM.IntPredicate.EQ, LLVM.Opcode.BitCast, LLVM.AtomicOrdering.Acquire
+(LLVM.IntPredicate.EQ, LLVM.Opcode.BitCast, LLVM.AtomicOrdering.Acquire)
+```
+
+These names are those of the C API, without their common prefix and suffix. The modules
+contain the values that `LLVM.API` defines for the current version of LLVM (including
+values that LLVM.jl backfills, like newer `atomicrmw` operations, whose availability can be
+checked with `LLVM.isavailable`), and `T`, their type (e.g., `LLVM.Linkage.T ===
+LLVM.API.LLVMLinkage`), to use in type annotations or with functions like
+`parse(LLVM.AtomicOrdering.T, "acquire")`. The modules are public, but not
+part of any vocabulary, so they are always qualified by default. To use them unqualified,
+import them explicitly: `using LLVM: Linkage, IntPredicate`.
+

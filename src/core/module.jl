@@ -96,7 +96,7 @@ The ifuncs of the module, as a view that can be iterated, and indexed by name
 
 The module flags of the module, as a dictionary-like view mapping the name of each flag to
 its value. Flags can be looked up by name, and added using
-`mod.flags[name, behavior] = md`, where `behavior` is an `LLVM.API.LLVMModuleFlagBehavior`
+`mod.flags[name, behavior] = md`, where `behavior` is an `LLVM.ModuleFlagBehavior.T`
 that determines how the flag is merged when linking modules. Module flags cannot be
 removed.
 

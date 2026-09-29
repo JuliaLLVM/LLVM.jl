@@ -196,7 +196,7 @@ dictionary-like view returned by the `flags` property:
 ```jldoctest module
 julia> mod = LLVM.Module("SomeModule");
 
-julia> mod.flags["SomeFlag", LLVM.API.LLVMModuleFlagBehaviorError] = Metadata(ConstantInt(42))
+julia> mod.flags["SomeFlag", LLVM.ModuleFlagBehavior.Error] = Metadata(ConstantInt(42))
 i64 42
 
 julia> mod

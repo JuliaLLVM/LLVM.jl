@@ -259,7 +259,7 @@ types support a few additional APIs:
 - `call.tailcall`: whether a `call` instruction is a tail call, i.e., is marked `tail` or
   `musttail`.
 - `call.tailcall_kind`: the tail call marker of a `call` instruction, e.g.,
-  `LLVM.API.LLVMTailCallKindMustTail`.
+  `LLVM.TailCallKind.MustTail`.
 - `call.called_type`: the function type of the called value of the call site.
 - `call.called_operand`: the called value of the call site, which can be any value (e.g.,
   a function pointer). Assigning to it replaces the callee, but keeps the function type,

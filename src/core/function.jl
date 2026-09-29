@@ -24,7 +24,7 @@ a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed point
     f.callconv
     f.callconv = cc
 
-The calling convention of the function, e.g., `LLVM.API.LLVMFastCallConv`.
+The calling convention of the function, e.g., `LLVM.CallConv.Fast`.
 
     f.gc
     f.gc = name::String

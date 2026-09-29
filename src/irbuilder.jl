@@ -475,7 +475,7 @@ end
 
 """
     load!(builder::IRBuilder, T::LLVMType, ptr::Value, name::String="";
-          ordering=API.LLVMAtomicOrderingNotAtomic, scope=nothing, align=nothing,
+          ordering=LLVM.AtomicOrdering.NotAtomic, scope=nothing, align=nothing,
           volatile=false)
 
 Load a value of type `T` from `ptr`. The load is atomic if an `ordering` other than
@@ -504,7 +504,7 @@ end
 
 """
     store!(builder::IRBuilder, val::Value, ptr::Value;
-           ordering=API.LLVMAtomicOrderingNotAtomic, scope=nothing, align=nothing,
+           ordering=LLVM.AtomicOrdering.NotAtomic, scope=nothing, align=nothing,
            volatile=false)
 
 Store `val` to `ptr`. See [`load!`](@ref) for the meaning of the keyword arguments.
@@ -525,7 +525,7 @@ function store!(builder::IRBuilder, Val::Value, Ptr::Value;
 end
 
 """
-    fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering; scope=nothing)
+    fence!(builder::IRBuilder, ordering::LLVM.AtomicOrdering.T; scope=nothing)
 
 Create a fence with the given ordering, which must be `acquire`, `release`, `acq_rel` or
 `seq_cst`, in the given synchronization `scope` (see [`load!`](@ref)).
@@ -576,8 +576,8 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
 end
 
 """
-    atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, ptr::Value, val::Value,
-                ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing, volatile=false)
+    atomic_rmw!(builder::IRBuilder, op::LLVM.AtomicRMWBinOp.T, ptr::Value, val::Value,
+                ordering::LLVM.AtomicOrdering.T; scope=nothing, align=nothing, volatile=false)
 
 Atomically apply the operation `op` to the value at `ptr` and `val`, returning the old
 value. The operation must be supported by the version of LLVM in use (see
@@ -617,8 +617,8 @@ end
 
 """
     atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
-                    success::API.LLVMAtomicOrdering,
-                    failure::API.LLVMAtomicOrdering=strongest_failure_ordering(success);
+                    success::LLVM.AtomicOrdering.T,
+                    failure::LLVM.AtomicOrdering.T=strongest_failure_ordering(success);
                     scope=nothing, align=nothing, volatile=false, weak=false)
 
 Atomically compare the value at `ptr` with `cmp`, and if equal, replace it with `new`.

@@ -192,7 +192,7 @@ add_library_info!(pm::PassManager, triple::String) =
 
 """
     JITTargetMachine(; triple=LLVM.default_triple(), cpu="", features="",
-                     optlevel=API.LLVMCodeGenLevelDefault)
+                     optlevel=LLVM.CodeGenOptLevel.Default)
 
 Create a target machine suitable for JIT compilation with the ORC JIT.
 """

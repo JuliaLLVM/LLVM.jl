@@ -5,7 +5,7 @@
 @vocabulary IR lower_atomic!, expand_to_cmpxchg!, cast_atomic_to_integer!, expand_partword!
 
 """
-    atomic_rmw_value!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, loaded::Value,
+    atomic_rmw_value!(builder::IRBuilder, op::LLVM.AtomicRMWBinOp.T, loaded::Value,
                       val::Value)
 
 Emit the computation of an `atomicrmw` on values in registers: the value that

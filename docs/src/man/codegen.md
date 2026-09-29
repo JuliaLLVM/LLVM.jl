@@ -100,7 +100,7 @@ julia> mod = LLVM.Module("SomeModule");
 
 julia> LLVM.InitializeWebAssemblyAsmPrinter()
 
-julia> String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile)) |> println
+julia> String(LLVM.emit(tm, mod, LLVM.CodeGenFileType.Assembly)) |> println
 	.text
 	.file	"SomeModule"
 	.section	.custom_section.target_features,"",@

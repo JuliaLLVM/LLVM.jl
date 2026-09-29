@@ -77,6 +77,8 @@ end
 end # module API
 @public API
 
+include("enums.jl")
+
 has_oldpm() = LLVM.version() < v"17"
 
 # helpers

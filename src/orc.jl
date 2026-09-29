@@ -431,12 +431,12 @@ Create a definition generator that calls `f(kind, jd, jd_flags, lookup_set)` whe
 lookup fails to find symbols in the JITDylib the generator is attached to. The arguments
 mirror those of LLVM's `DefinitionGenerator::tryToGenerate`:
 
-- `kind::LLVM.API.LLVMOrcLookupKind`: whether this is a static (linker) lookup, or a
+- `kind::LLVM.LookupKind.T`: whether this is a static (linker) lookup, or a
   `dlsym`-like one;
 - `jd::JITDylib`: the JITDylib to define the symbols in;
-- `jd_flags::LLVM.API.LLVMOrcJITDylibLookupFlags`: whether the lookup matches only exported
+- `jd_flags::LLVM.JITDylibLookupFlags.T`: whether the lookup matches only exported
   symbols, or all of them;
-- `lookup_set::Vector{Pair{LLVMSymbol,LLVM.API.LLVMOrcSymbolLookupFlags}}`: the
+- `lookup_set::Vector{Pair{LLVMSymbol,LLVM.SymbolLookupFlags.T}}`: the
   linker-mangled names of the symbols that were not found, each paired with a flag
   indicating whether the symbol is required or only weakly referenced.
 

@@ -1275,14 +1275,14 @@ register(DICompileUnit, API.LLVMDICompileUnitMetadataKind)
                  optimized::Bool=true, cmdline::AbstractString="",
                  runtime_version::Integer=0,
                  split_name::Union{AbstractString,Nothing}=nothing,
-                 emission_kind=API.LLVMDWARFEmissionFull,
+                 emission_kind=LLVM.DWARFEmissionKind.Full,
                  dwo_id::Integer=0,
                  split_debug_inlining::Bool=true,
                  debug_info_for_profiling::Bool=false,
                  sysroot::AbstractString="", sdk::AbstractString="") -> DICompileUnit
 
-Create a new [`DICompileUnit`](@ref). `lang` is a `LLVMDWARFSourceLanguage`
-value (e.g. `LLVM.API.LLVMDWARFSourceLanguageJulia`). `cmdline` is a
+Create a new [`DICompileUnit`](@ref). `lang` is a `LLVM.DWARFSourceLanguage.T`
+value (e.g. `LLVM.DWARFSourceLanguage.Julia`). `cmdline` is a
 command-line string embedded verbatim in the emitted debug info.
 """
 function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;

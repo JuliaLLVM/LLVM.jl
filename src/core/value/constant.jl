@@ -701,7 +701,7 @@ the LLVM IR instructions: `const_neg`, `const_not`, etc.
 
     ce.opcode
 
-The opcode of the constant expression, e.g., `LLVM.API.LLVMAdd`.
+The opcode of the constant expression, e.g., `LLVM.Opcode.Add`.
 
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
@@ -930,7 +930,7 @@ This differs from the `value_type` property in that it is the type of the contai
 not the type of the global value itself, which is always a pointer type.
 
     gv.linkage
-    gv.linkage = linkage::LLVM.API.LLVMLinkage
+    gv.linkage = linkage::LLVM.Linkage.T
 
 The linkage of the global value.
 
@@ -942,21 +942,21 @@ section. Only global objects (functions, global variables and ifuncs) can be ass
 section: the section of an alias is that of its aliasee, and cannot be changed.
 
     gv.visibility
-    gv.visibility = visibility::LLVM.API.LLVMVisibility
+    gv.visibility = visibility::LLVM.Visibility.T
 
 The visibility of the global value.
 
     gv.dllstorage
-    gv.dllstorage = storage::LLVM.API.LLVMDLLStorageClass
+    gv.dllstorage = storage::LLVM.DLLStorageClass.T
 
 The DLL storage class of the global value.
 
     gv.unnamed_addr
-    gv.unnamed_addr = kind::LLVM.API.LLVMUnnamedAddr
+    gv.unnamed_addr = kind::LLVM.UnnamedAddr.T
 
-Whether the address of the global value is significant: `LLVM.API.LLVMNoUnnamedAddr` if it
-is, `LLVM.API.LLVMLocalUnnamedAddr` if it is insignificant within the module
-(`local_unnamed_addr`), and `LLVM.API.LLVMGlobalUnnamedAddr` if it is insignificant
+Whether the address of the global value is significant: `LLVM.UnnamedAddr.No` if it
+is, `LLVM.UnnamedAddr.Local` if it is insignificant within the module
+(`local_unnamed_addr`), and `LLVM.UnnamedAddr.Global` if it is insignificant
 altogether (`unnamed_addr`), which allows merging it with other constants that have the
 same initializer.
 
@@ -1089,10 +1089,10 @@ This differs from `isconstant(gv)`, which checks whether a value is an LLVM cons
 is true for every global variable (which represents a constant address).
 
     gv.threadlocal_mode
-    gv.threadlocal_mode = mode::LLVM.API.LLVMThreadLocalMode
+    gv.threadlocal_mode = mode::LLVM.ThreadLocalMode.T
 
 The thread-local storage model of the global variable, e.g.,
-`LLVM.API.LLVMGeneralDynamicTLSModel`, or `LLVM.API.LLVMNotThreadLocal` if it is not
+`LLVM.ThreadLocalMode.GeneralDynamic`, or `LLVM.ThreadLocalMode.NotThreadLocal` if it is not
 thread-local. See also the `threadlocal` property.
 
     gv.externally_initialized

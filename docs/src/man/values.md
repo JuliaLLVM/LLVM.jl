@@ -250,7 +250,7 @@ couple of additional APIs:
 - `gv.linkage`, `gv.visibility`, `gv.section`, `gv.dllstorage`: the linkage, visibility,
   section and DLL storage class of the global value.
 - `gv.unnamed_addr`: whether the address of the global value is significant, e.g.,
-  `LLVM.API.LLVMGlobalUnnamedAddr` for an `unnamed_addr` global.
+  `LLVM.UnnamedAddr.Global` for an `unnamed_addr` global.
 - `isdeclaration(gv)`: whether the global value is a declaration, i.e., it does not have a
   body.
 
@@ -291,9 +291,9 @@ julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGV");
 julia> gv.threadlocal = true;
 
 julia> gv.threadlocal_mode
-LLVMGeneralDynamicTLSModel::LLVMThreadLocalMode = 0x00000001
+LLVM.ThreadLocalMode.GeneralDynamic
 
-julia> gv.threadlocal_mode = LLVM.API.LLVMLocalExecTLSModel;
+julia> gv.threadlocal_mode = LLVM.ThreadLocalMode.LocalExec;
 
 julia> gv
 @SomeGV = external thread_local(localexec) global i32

@@ -14,7 +14,7 @@ of a basic block.
 
     inst.opcode
 
-The opcode of the instruction, e.g., `LLVM.API.LLVMAdd`.
+The opcode of the instruction, e.g., `LLVM.Opcode.Add`.
 
     inst.metadata
     gv.metadata
@@ -50,7 +50,7 @@ the instruction is not part of a basic block).
     cmp.predicate
 
 The comparison predicate of an integer or floating-point comparison instruction, e.g.,
-`LLVM.API.LLVMIntEQ` or `LLVM.API.LLVMRealOLT`.
+`LLVM.IntPredicate.EQ` or `LLVM.RealPredicate.OLT`.
 
     phi.incoming
 
@@ -295,7 +295,7 @@ The group of instructions that can be atomic: `load`, `store`, `fence`, `atomicr
 # Properties
 
     inst.ordering
-    inst.ordering = ordering::LLVM.API.LLVMAtomicOrdering
+    inst.ordering = ordering::LLVM.AtomicOrdering.T
 
 The atomic ordering of a load, store, fence or `atomicrmw` instruction. Reading it
 requires the instruction to be atomic, while assigning an ordering to a load or store makes
@@ -311,7 +311,7 @@ instruction.
     rmw.binop
 
 The binary operation of an atomic read-modify-write instruction, e.g.,
-`LLVM.API.LLVMAtomicRMWBinOpAdd`.
+`LLVM.AtomicRMWBinOp.Add`.
 
     cmpxchg.weak
     cmpxchg.weak = flag::Bool
@@ -320,12 +320,12 @@ Whether an atomic compare-and-exchange instruction is weak, i.e., whether it is 
 fail spuriously, even if the comparison succeeds.
 
     cmpxchg.success_ordering
-    cmpxchg.success_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+    cmpxchg.success_ordering = ordering::LLVM.AtomicOrdering.T
 
 The ordering of an atomic compare-and-exchange instruction when the comparison succeeds.
 
     cmpxchg.failure_ordering
-    cmpxchg.failure_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+    cmpxchg.failure_ordering = ordering::LLVM.AtomicOrdering.T
 
 The ordering of an atomic compare-and-exchange instruction when the comparison fails.
 
@@ -392,7 +392,7 @@ const ORDERING_NAMES = Dict(
     "sequentially_consistent" => API.LLVMAtomicOrderingSequentiallyConsistent)
 
 """
-    parse(API.LLVMAtomicOrdering, name::AbstractString)
+    parse(LLVM.AtomicOrdering.T, name::AbstractString)
 
 Get the atomic ordering with the given name, as used in LLVM IR (e.g. `"acq_rel"`), or as
 used by Julia's atomics (e.g. `"acquire_release"`).
@@ -419,7 +419,7 @@ const RMW_BINOP_NAMES = Dict(
     "fminimum" => API.LLVMAtomicRMWBinOpFMinimum)
 
 """
-    parse(API.LLVMAtomicRMWBinOp, name::AbstractString)
+    parse(LLVM.AtomicRMWBinOp.T, name::AbstractString)
 
 Get the `atomicrmw` operation with the given name, as used in LLVM IR (e.g. `"uinc_wrap"`).
 This works for every operation, whether or not the version of LLVM in use supports it (see
@@ -449,7 +449,7 @@ const ORDERING_LATTICE = let
 end
 
 """
-    is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering)
+    is_stronger(a::LLVM.AtomicOrdering.T, b::LLVM.AtomicOrdering.T)
 
 Check whether ordering `a` is strictly stronger than `b`. Orderings are only partially
 ordered: `acquire` and `release` are incomparable, and both are weaker than `acq_rel`.
@@ -457,7 +457,7 @@ ordered: `acquire` and `release` are incomparable, and both are weaker than `acq
 is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering) = b in ORDERING_LATTICE[a]
 
 """
-    is_acquire_or_stronger(ordering::API.LLVMAtomicOrdering)
+    is_acquire_or_stronger(ordering::LLVM.AtomicOrdering.T)
 
 Check whether an ordering has acquire semantics: `acquire`, `acq_rel` or `seq_cst`.
 """
@@ -465,7 +465,7 @@ is_acquire_or_stronger(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingAcquire || is_stronger(o, API.LLVMAtomicOrderingAcquire)
 
 """
-    is_release_or_stronger(ordering::API.LLVMAtomicOrdering)
+    is_release_or_stronger(ordering::LLVM.AtomicOrdering.T)
 
 Check whether an ordering has release semantics: `release`, `acq_rel` or `seq_cst`.
 """
@@ -473,7 +473,7 @@ is_release_or_stronger(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingRelease || is_stronger(o, API.LLVMAtomicOrderingRelease)
 
 """
-    merged_ordering(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering)
+    merged_ordering(a::LLVM.AtomicOrdering.T, b::LLVM.AtomicOrdering.T)
     merged_ordering(inst::AtomicCmpXchgInst)
 
 Get the weakest ordering that is at least as strong as both `a` and `b`, e.g., to perform
@@ -491,7 +491,7 @@ merged_ordering(inst::AtomicCmpXchgInst) =
     merged_ordering(success_ordering(inst), failure_ordering(inst))
 
 """
-    strongest_failure_ordering(success::API.LLVMAtomicOrdering)
+    strongest_failure_ordering(success::LLVM.AtomicOrdering.T)
 
 Get the strongest failure ordering that is valid for a `cmpxchg` with the given success
 ordering, i.e., the success ordering without its release semantics. This is the
@@ -605,7 +605,7 @@ const ATOMIC_RMW_BINOP_SINCE = (
 )
 
 """
-    isavailable(op::API.LLVMAtomicRMWBinOp)
+    isavailable(op::LLVM.AtomicRMWBinOp.T)
 
 Check whether the atomic read-modify-write operation `op` is supported by the version of
 LLVM in use. All operations can be named on every LLVM version, but instructions can only
@@ -740,7 +740,7 @@ The group of call sites: `call`, `invoke` and `callbr` instructions, like LLVM's
     call.callconv = cc
 
 The calling convention of a `call`, `invoke` or `callbr` instruction, e.g.,
-`LLVM.API.LLVMFastCallConv`.
+`LLVM.CallConv.Fast`.
 
     call.called_operand
     call.called_operand = callee::Value
@@ -805,11 +805,11 @@ call that is not a tail call marks it `tail`, while assigning `false` to a tail 
 removes the marker. Assigning the current value does not change the kind of tail call.
 
     call.tailcall_kind
-    call.tailcall_kind = kind::LLVM.API.LLVMTailCallKind
+    call.tailcall_kind = kind::LLVM.TailCallKind.T
 
-The tail call marker of a `call` instruction: `LLVM.API.LLVMTailCallKindNone`,
-`LLVMTailCallKindTail` (`tail`), `LLVMTailCallKindMustTail` (`musttail`) or
-`LLVMTailCallKindNoTail` (`notail`). See also the `tailcall` property.
+The tail call marker of a `call` instruction: `LLVM.TailCallKind.None`,
+`LLVM.TailCallKind.Tail` (`tail`), `LLVM.TailCallKind.MustTail` (`musttail`) or
+`LLVM.TailCallKind.NoTail` (`notail`). See also the `tailcall` property.
 
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.

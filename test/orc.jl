@@ -266,7 +266,11 @@ end
             @test pointer(addr) != C_NULL
             @test ccall(pointer(addr), Float64, (Float64,), 1.0) == 2.25
 
-            m = match(Regex("\"$sym\": \\S+ (\\S+)"), string(jd))
+            # the JITDylib is keyed by linker-mangled names (e.g. prefixed with _ on macOS)
+            mangled = mangle(lljit, sym)
+            name = string(mangled)
+            LLVM.release(mangled)
+            m = match(Regex("\"$name\": \\S+ (\\S+)"), string(jd))
             @test m !== nothing
             return m[1]
         end

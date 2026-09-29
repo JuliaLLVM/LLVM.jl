@@ -526,6 +526,15 @@ end
         @test collect(ca) == ConstantInt.(vec)
     end
 
+    # multidimensional, with rows that aren't stored as packed data
+    let
+        mod = parse(LLVM.Module, "@g = global [2 x [2 x i32]] [[2 x i32] zeroinitializer, [2 x i32] [i32 1, i32 2]]")
+        ca = initializer(globals(mod)["g"])
+        @test ca isa ConstantArray
+        @test convert.(Int, collect(ca)) == [0 0; 1 2]
+        dispose(mod)
+    end
+
     end
 
     @testset "struct aggregate constants" begin

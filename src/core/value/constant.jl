@@ -332,7 +332,7 @@ Base.length(cda::ConstantDataSequential) = length(value_type(cda))
 Base.size(cda::ConstantDataSequential) = (length(cda),)
 function Base.getindex(cda::ConstantDataSequential, idx::Integer)
     @boundscheck 1 <= idx <= length(cda) || throw(BoundsError(cda, idx))
-    Value(API.LLVMGetElementAsConstant(cda, idx-1))
+    Value(API.LLVMGetAggregateElement(cda, idx-1))
 end
 function Base.collect(cda::ConstantDataSequential)
     constants = Array{Value}(undef, length(cda))
@@ -537,15 +537,14 @@ Base.axes(ca::ConstantArray) = Base.OneTo.(size(ca))
 function Base.getindex(ca::ConstantArray, idx::Integer...)
     # multidimensional arrays are represented by arrays of arrays,
     # which we need to 'peel back' by looking at the operand sets.
-    # for the final dimension, we use LLVMGetElementAsConstant
+    # for the final dimension, we use LLVMGetAggregateElement
     @boundscheck Base.checkbounds_indices(Bool, axes(ca), idx) ||
         throw(BoundsError(ca, idx))
     I = CartesianIndices(size(ca))[idx...]
     for i in Tuple(I)
         if isempty(operands(ca))
-            # XXX: is this valid? LLVMGetElementAsConstant is meant to be used with
-            #      Constant*Data*Arrays, not ConstantArrays
-            ca = Value(API.LLVMGetElementAsConstant(ca, i-1))
+            # packed data (ConstantDataArray) or a zero/undef/poison aggregate
+            ca = Value(API.LLVMGetAggregateElement(ca, i-1))
         else
             ca = (Base.@_propagate_inbounds_meta; operands(ca)[i])
         end

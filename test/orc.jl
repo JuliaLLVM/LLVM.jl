@@ -87,13 +87,14 @@ end
             Libc.Libdl.dlsym(handle, :LLVMContextCreate)
         end
 
-        @test_throws LLVMException lookup(lljit, "LLVMContextCreate")
+        jd = JITDylib(ExecutionSession(lljit), "libllvm"; bare=true)
+        @test_throws LLVMException lookup(lljit, jd, "LLVMContextCreate")
         dg = LLVM.DynamicLibrarySearchGenerator(lljit, path)
-        add!(JITDylib(lljit), dg)
-        @test pointer(lookup(lljit, "LLVMContextCreate")) == expected
+        add!(jd, dg)
+        @test pointer(lookup(lljit, jd, "LLVMContextCreate")) == expected
 
         # the generator only searches the library it was created for
-        @test_throws LLVMException lookup(lljit, "jl_apply_generic")
+        @test_throws LLVMException lookup(lljit, jd, "jl_apply_generic")
     end
 
     # generators that are not added to a JITDylib need to be disposed of
@@ -352,6 +353,31 @@ end
     @test flags.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsCallable) |
                                 UInt8(LLVM.API.LLVMJITSymbolGenericFlagsWeak)
     @test flags.TargetFlags == 1
+end
+
+@testset "Lookup in JITDylib" begin
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        es = ExecutionSession(lljit)
+        jd = JITDylib(es, "other")
+
+        ts_mod = ThreadSafeModule("jit")
+        ts_mod() do mod
+            fn = LLVM.Function(mod, "other_fn", LLVM.FunctionType(LLVM.Int32Type()))
+            @dispose builder=IRBuilder() begin
+                position!(builder, BasicBlock(fn, "entry"))
+                ret!(builder, ConstantInt(Int32(42)))
+            end
+        end
+        add!(lljit, jd, ts_mod)
+
+        # the main JITDylib doesn't link against the other one
+        @test_throws LLVMException lookup(lljit, "other_fn")
+        addr = lookup(lljit, jd, "other_fn")
+        @test ccall(pointer(addr), Int32, ()) == 42
+
+        @test_throws LLVMException lookup(lljit, jd, "undefined")
+        @test isempty(LLVM.SESSION_LOOKUP_ROOTS)
+    end
 end
 
 @testset "ResourceTracker" begin

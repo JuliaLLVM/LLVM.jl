@@ -617,14 +617,73 @@ Base.pointer(addr::OrcTargetAddress) = reinterpret(Ptr{Cvoid}, addr.ptr % UInt) 
 OrcTargetAddress(ptr::Ptr{Cvoid}) = OrcTargetAddress(reinterpret(UInt, ptr))
 
 """
-    lookup(lljit::LLJIT, name)
+    lookup(lljit::LLJIT, [jd::JITDylib], name) -> OrcTargetAddress
 
-Takes an unmangled symbol names and searches for it in the LLJIT.
+Look up the symbol with (unmangled) name `name` in `jd`, defaulting to the main JITDylib,
+materializing it if necessary. Throws an [`LLVMException`](@ref) if the symbol cannot be
+found or materialized. Use `pointer` to convert the resulting address to a pointer.
 """
 function lookup(lljit::LLJIT, name)
     result = Ref{API.LLVMOrcJITTargetAddress}()
     @check API.LLVMOrcLLJITLookup(lljit, result, name)
     OrcTargetAddress(result[])
+end
+
+# state of an asynchronous execution session lookup
+mutable struct SessionLookup
+    done::Base.Event
+    completed::Threads.Atomic{Bool}
+    error::API.LLVMErrorRef
+    address::API.LLVMOrcJITTargetAddress
+    SessionLookup() = new(Base.Event(), Threads.Atomic{Bool}(false), C_NULL, 0)
+end
+
+# LLVM only holds a raw pointer to the lookup state, so root it until the lookup completes
+const SESSION_LOOKUP_ROOTS = Base.IdSet{SessionLookup}()
+const SESSION_LOOKUP_LOCK = ReentrantLock()
+
+function __lookup_result(err::API.LLVMErrorRef, result::API.LLVMOrcCSymbolMapPairs,
+                         num_pairs::Csize_t, ctx::Ptr{Cvoid})
+    state = Base.unsafe_pointer_to_objref(ctx)::SessionLookup
+    state.error = err
+    if err == C_NULL
+        # we only look up a single symbol
+        state.address = unsafe_load(result).Sym.Address
+    end
+    # may be invoked from another thread, when materialization completes asynchronously
+    state.completed[] = true
+    notify(state.done)
+    return
+end
+
+function lookup(lljit::LLJIT, jd::JITDylib, name)
+    es = ExecutionSession(lljit)
+    order = Ref(API.LLVMOrcCJITDylibSearchOrderElement(
+        jd.ref, API.LLVMOrcJITDylibLookupFlagsMatchAllSymbols))
+    symbols = Ref(API.LLVMOrcCLookupSetElement(
+        mangle(lljit, name), API.LLVMOrcSymbolLookupFlagsRequiredSymbol))
+
+    # like LLJIT::lookup, but with the JITDylib as search order
+    state = SessionLookup()
+    @lock SESSION_LOOKUP_LOCK push!(SESSION_LOOKUP_ROOTS, state)
+    try
+        API.LLVMOrcExecutionSessionLookup(es, API.LLVMOrcLookupKindStatic, order, 1,
+                                          symbols, 1,
+                                          @cfunction(__lookup_result, Cvoid,
+                                                     (API.LLVMErrorRef,
+                                                      API.LLVMOrcCSymbolMapPairs,
+                                                      Csize_t, Ptr{Cvoid})),
+                                          Base.pointer_from_objref(state))
+        wait(state.done)
+    finally
+        # only unroot once LLVM is done with the state; if waiting was interrupted,
+        # leak it instead.
+        if state.completed[]
+            @lock SESSION_LOOKUP_LOCK delete!(SESSION_LOOKUP_ROOTS, state)
+        end
+    end
+    @check state.error
+    OrcTargetAddress(state.address)
 end
 
 @checked struct IRTransformLayer

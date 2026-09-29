@@ -39,6 +39,12 @@ iterating the view, so use `collect` to get a vector.
 The successors of the basic block, i.e., the `successors` of its terminator. Throws an
 `ArgumentError` if the block does not have a terminator.
 
+    bb.next
+    bb.prev
+
+The next or previous basic block in the function, or `nothing` if there is none (or if the
+block is not part of a function).
+
 The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct BasicBlock <: Value
@@ -130,8 +136,6 @@ move_after(bb::BasicBlock, pos::BasicBlock) =
 
 ## instruction iteration
 
-@vocabulary IR previnst, nextinst
-
 struct BasicBlockInstructionSet
     bb::BasicBlock
 end
@@ -164,29 +168,20 @@ Base.isempty(iter::BasicBlockInstructionSet) =
 
 Base.IteratorSize(::Type{BasicBlockInstructionSet}) = Base.SizeUnknown()
 
-"""
-    previnst(inst::Instruction)
-
-Get the instruction before the given instruction in the basic block, or `nothing` if there
-is none.
-"""
-function previnst(inst::Instruction)
-    ref = API.LLVMGetPreviousInstruction(inst)
-    ref == C_NULL && return nothing
-    Instruction(ref)
-end
-
-"""
-    nextinst(inst::Instruction)
-
-Get the instruction after the given instruction in the basic block, or `nothing` if there
-is none.
-"""
-function nextinst(inst::Instruction)
+function next(inst::Instruction)
+    API.LLVMGetInstructionParent(inst) == C_NULL && return nothing
     ref = API.LLVMGetNextInstruction(inst)
-    ref == C_NULL && return nothing
-    Instruction(ref)
+    ref == C_NULL ? nothing : Instruction(ref)
 end
+
+function prev(inst::Instruction)
+    API.LLVMGetInstructionParent(inst) == C_NULL && return nothing
+    ref = API.LLVMGetPreviousInstruction(inst)
+    ref == C_NULL ? nothing : Instruction(ref)
+end
+
+@property Instruction next
+@property Instruction prev
 
 
 ## cfg-like operations

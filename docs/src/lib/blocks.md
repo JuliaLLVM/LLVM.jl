@@ -15,10 +15,3 @@ erase!(::BasicBlock)
 move_before(::BasicBlock, ::BasicBlock)
 move_after(::BasicBlock, ::BasicBlock)
 ```
-
-## Instructions
-
-```@docs
-previnst
-nextinst
-```

@@ -41,6 +41,12 @@ The records can be inspected using their properties, like `record.kind`; see
 The debug location attached to the instruction, or `nothing` if it has none. Assigning
 `nothing` removes the debug location.
 
+    inst.next
+    inst.prev
+
+The next or previous instruction in the basic block, or `nothing` if there is none (or if
+the instruction is not part of a basic block).
+
     cmp.predicate
 
 The comparison predicate of an integer or floating-point comparison instruction, e.g.,

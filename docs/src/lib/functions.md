@@ -23,13 +23,6 @@ FunctionMemoryEffects
 EnumAttribute(::MemoryEffects)
 ```
 
-## Basic Blocks
-
-```@docs
-prevblock
-nextblock
-```
-
 ## Intrinsics
 
 ```@docs

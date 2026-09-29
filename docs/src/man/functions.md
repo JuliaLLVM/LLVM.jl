@@ -226,5 +226,6 @@ top:
   ret i64 %2
 ```
 
-In addition to the iteration interface, it is possible to move from one basic block to the
-previous or next one using respectively the `prevblock` and `nextblock` functions.
+In addition to iterating the blocks of a function, it is possible to move from one basic
+block to the previous or next one using respectively the `bb.prev` and `bb.next`
+properties, which are `nothing` at the start and the end of the function.

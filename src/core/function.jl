@@ -88,6 +88,11 @@ of blocks, so iterate instead of indexing each block.
 
 The subprogram that describes the function, or `nothing` if it has none.
 
+    f.next
+    f.prev
+
+The next or previous function in the module, or `nothing` if there is none.
+
 The properties of [`GlobalObject`](@ref LLVM.GlobalObject), [`GlobalValue`](@ref
 LLVM.GlobalValue), [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available
 too.
@@ -376,6 +381,11 @@ A parameter of a function, as a value that can be used in its body.
 
 The function that the parameter belongs to.
 
+    arg.next
+    arg.prev
+
+The next or previous parameter of the function, or `nothing` if there is none.
+
 The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct Argument <: Value
@@ -423,14 +433,25 @@ function Base.collect(iter::FunctionParameterSet)
     return map(el->Argument(el), elems)
 end
 
+function next(arg::Argument)
+    ref = API.LLVMGetNextParam(arg)
+    ref == C_NULL ? nothing : Argument(ref)
+end
+
+function prev(arg::Argument)
+    ref = API.LLVMGetPreviousParam(arg)
+    ref == C_NULL ? nothing : Argument(ref)
+end
+
+@property Argument next
+@property Argument prev
+
 parent(arg::Argument) = Function(API.LLVMGetParamParent(arg))
 
 @property Argument parent
 
 
 # basic block iteration
-
-@vocabulary IR prevblock, nextblock
 
 struct FunctionBlockSet <: AbstractVector{BasicBlock}
     f::Function
@@ -458,27 +479,20 @@ end
     state == C_NULL ? nothing : (BasicBlock(state), API.LLVMGetNextBasicBlock(state))
 end
 
-"""
-    prevblock(bb::BasicBlock)
-
-Get the previous basic block of the given basic block, or `nothing` if there is none.
-"""
-function prevblock(bb::BasicBlock)
-    ref = API.LLVMGetPreviousBasicBlock(bb)
-    ref == C_NULL && return nothing
-    BasicBlock(ref)
-end
-
-"""
-    nextblock(bb::BasicBlock)
-
-Get the next basic block of the given basic block, or `nothing` if there is none.
-"""
-function nextblock(bb::BasicBlock)
+function next(bb::BasicBlock)
+    API.LLVMGetBasicBlockParent(bb) == C_NULL && return nothing
     ref = API.LLVMGetNextBasicBlock(bb)
-    ref == C_NULL && return nothing
-    BasicBlock(ref)
+    ref == C_NULL ? nothing : BasicBlock(ref)
 end
+
+function prev(bb::BasicBlock)
+    API.LLVMGetBasicBlockParent(bb) == C_NULL && return nothing
+    ref = API.LLVMGetPreviousBasicBlock(bb)
+    ref == C_NULL ? nothing : BasicBlock(ref)
+end
+
+@property BasicBlock next
+@property BasicBlock prev
 
 # LLVM keeps blocks in a linked list, so random access walks the list (from whichever end
 # is closest). caching the blocks would make the view go stale when blocks are added or

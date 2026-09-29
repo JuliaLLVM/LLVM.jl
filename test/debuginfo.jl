@@ -394,6 +394,13 @@ end
         @test all(r -> r isa DbgRecord, records)
         declare, val, arglist, label = records
 
+        @test declare.next == val
+        @test label.next === nothing
+        if LLVM.version() >= v"20"
+            @test val.prev == declare
+            @test declare.prev === nothing
+        end
+
         @test declare.kind == LLVM.API.LLVMDbgRecordDeclare
         @test val.kind == LLVM.API.LLVMDbgRecordValue
         @test arglist.kind == LLVM.API.LLVMDbgRecordValue

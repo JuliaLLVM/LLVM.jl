@@ -149,8 +149,8 @@ julia> collect(mod.globals)
  @SomeGlobal = external global i32
 ```
 
-In addition to the iteration interface, it is possible to move from one global to the
-previous or next one using respectively the `prevglobal` and `nextglobal` functions.
+In addition to iterating the globals of a module, it is possible to move from one global to
+the previous or next one using respectively the `gv.prev` and `gv.next` properties.
 Global variables can be reordered with `move_before` and `move_after`, or sorted in place
 with `sort!(mod.globals)`. The latter defaults to sorting by name, which is useful for
 producing deterministic module layouts.
@@ -168,7 +168,7 @@ julia> collect(mod.functions)
 ```
 
 Again, it is possible to move from one function to the previous or next one using
-respectively the `prevfun` and `nextfun` functions. Functions can be reordered with
+respectively the `f.prev` and `f.next` properties. Functions can be reordered with
 `move_before` and `move_after`, or sorted by name with `sort!(mod.functions)` to produce a
 deterministic module layout.
 
@@ -185,8 +185,8 @@ julia> collect(mod.aliases)
  @SomeAlias = alias void (), ptr @SomeFunction
 ```
 
-Here too it is possible to move to the previous or next element with `prevalias` and
-`nextalias`, or `previfunc` and `nextifunc`.
+Here too it is possible to move to the previous or next element with the `prev` and `next`
+properties.
 
 ### Flags
 

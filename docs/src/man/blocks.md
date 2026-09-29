@@ -81,5 +81,6 @@ julia> collect(bb.instructions)
  ret i64 %2
 ```
 
-In addition to the iteration interface, it is possible to move from one instruction to the
-previous or next one using respectively the `previnst` and `nextinst` functions.
+In addition to iterating the instructions of a block, it is possible to move from one
+instruction to the previous or next one using respectively the `inst.prev` and `inst.next`
+properties, which are `nothing` at the start and the end of the block.

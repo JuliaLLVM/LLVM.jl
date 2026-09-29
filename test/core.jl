@@ -1608,10 +1608,9 @@ end
     end
 
     # names are unique across all global values, so use a different prefix for each kind
-    for (iter, T, prevf, nextf, create) in
-        ((mod.aliases, GlobalAlias, prevalias, nextalias,
-          name -> GlobalAlias(mod, gv, "alias_$name")),
-         (mod.ifuncs, GlobalIFunc, previfunc, nextifunc,
+    for (iter, T, create) in
+        ((mod.aliases, GlobalAlias, name -> GlobalAlias(mod, gv, "alias_$name")),
+         (mod.ifuncs, GlobalIFunc,
           name -> GlobalIFunc(mod, LLVM.FunctionType(LLVM.VoidType()), resolver_fn, "ifunc_$name")))
         @test eltype(iter) == T
         @test isempty(iter)
@@ -1625,10 +1624,10 @@ end
         @test collect(iter) == [x, y]
         @test first(iter) == x
         @test last(iter) == y
-        @test nextf(x) == y
-        @test nextf(y) === nothing
-        @test prevf(y) == x
-        @test prevf(x) === nothing
+        @test x.next == y
+        @test y.next === nothing
+        @test y.prev == x
+        @test x.prev === nothing
 
         @test haskey(iter, y.name)
         @test iter[y.name] == y
@@ -1676,10 +1675,10 @@ end
     anotherfn = LLVM.Function(mod, "SomeOtherFunction", ft)
     @test first(mod.functions) == dummyfn
     @test last(mod.functions) == anotherfn
-    @test prevfun(dummyfn) === nothing
-    @test nextfun(dummyfn) == anotherfn
-    @test prevfun(anotherfn) == dummyfn
-    @test nextfun(anotherfn) === nothing
+    @test dummyfn.prev === nothing
+    @test dummyfn.next == anotherfn
+    @test anotherfn.prev == dummyfn
+    @test anotherfn.next === nothing
 end
 
 # function ordering
@@ -2268,10 +2267,10 @@ end
     @test bb1.terminator == brinst
     @test bb2.terminator == retinst
 
-    @test prevblock(bb1) === nothing
-    @test nextblock(bb1) == bb2
-    @test prevblock(bb2) == bb1
-    @test nextblock(bb2) === nothing
+    @test bb1.prev === nothing
+    @test bb1.next == bb2
+    @test bb2.prev == bb1
+    @test bb2.next === nothing
 
     bb3 = BasicBlock("YetAnotherBasicBlock")
     @test bb3.parent == nothing
@@ -2338,10 +2337,10 @@ end
     brinst = br!(builder, fn.parameters[1], bb2, bb3)
     @test brinst.opcode == LLVM.API.LLVMBr
 
-    @test previnst(addinst) === nothing
-    @test nextinst(addinst) == brinst
-    @test previnst(brinst) == addinst
-    @test nextinst(brinst) === nothing
+    @test addinst.prev === nothing
+    @test addinst.next == brinst
+    @test brinst.prev == addinst
+    @test brinst.next === nothing
 
     # walking the IR doesn't dispatch dynamically, only allocating a box for every value
     # whose concrete type is determined at run time
@@ -2573,6 +2572,45 @@ end
     @test_throws BoundsError elems[3]
     @test_throws CanonicalIndexError elems[1] = LLVM.Int64Type()
     @test ctx.types["SomeStruct"] == st
+end
+
+# objects in a list can navigate to their siblings
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    a = GlobalVariable(mod, LLVM.Int32Type(), "a")
+    b = GlobalVariable(mod, LLVM.Int32Type(), "b")
+    @test a.prev === nothing
+    @test a.next == b
+    @test b.prev == a
+    @test b.next === nothing
+    @test_throws "read-only" a.next = b
+
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()])
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    x, y = fn.parameters
+    @test x.prev === nothing
+    @test x.next == y
+    @test y.prev == x
+    @test y.next === nothing
+
+    foo, bar = mod.metadata["foo"], mod.metadata["bar"]
+    @test foo.prev === nothing
+    @test foo.next == bar
+    @test bar.prev == foo
+    @test bar.next === nothing
+
+    # objects that are not part of a list have no siblings
+    position!(builder, BasicBlock(fn, "entry"))
+    inst = ret!(builder)
+    remove!(inst)
+    @test inst.next === nothing
+    @test inst.prev === nothing
+    bb = BasicBlock("detached")
+    @test bb.next === nothing
+    @test bb.prev === nothing
+
+    # only objects in a list have siblings
+    @test !hasproperty(ConstantInt(Int32(1)), :next)
+    @test !hasproperty(ft, :next)
 end
 
 # instruction metadata and module flags can be iterated

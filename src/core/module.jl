@@ -414,8 +414,6 @@ end
 
 ## global variable iteration
 
-@vocabulary IR prevglobal, nextglobal
-
 struct ModuleGlobalSet
     mod::Module
 end
@@ -446,31 +444,18 @@ Base.isempty(iter::ModuleGlobalSet) = API.LLVMGetLastGlobal(iter.mod) == C_NULL
 
 Base.IteratorSize(::Type{ModuleGlobalSet}) = Base.SizeUnknown()
 
-"""
-    prevglobal(gv::LLVM.GlobalVariable)
-
-Get the previous global variable in the module, or `nothing` if there is none.
-
-See also: [`nextglobal`](@ref).
-"""
-function prevglobal(gv::GlobalVariable)
-    ref = API.LLVMGetPreviousGlobal(gv)
-    ref == C_NULL && return nothing
-    GlobalVariable(ref)
-end
-
-"""
-    nextglobal(gv::LLVM.GlobalVariable)
-
-Get the next global variable in the module, or `nothing` if there is none.
-
-See also: [`prevglobal`](@ref).
-"""
-function nextglobal(gv::GlobalVariable)
+function next(gv::GlobalVariable)
     ref = API.LLVMGetNextGlobal(gv)
-    ref == C_NULL && return nothing
-    GlobalVariable(ref)
+    ref == C_NULL ? nothing : GlobalVariable(ref)
 end
+
+function prev(gv::GlobalVariable)
+    ref = API.LLVMGetPreviousGlobal(gv)
+    ref == C_NULL ? nothing : GlobalVariable(ref)
+end
+
+@property GlobalVariable next
+@property GlobalVariable prev
 
 # partial associative interface
 
@@ -502,8 +487,6 @@ end
 
 ## function iteration
 
-@vocabulary IR prevfun, nextfun
-
 struct ModuleFunctionSet
     mod::Module
 end
@@ -534,27 +517,18 @@ Base.isempty(iter::ModuleFunctionSet) = API.LLVMGetLastFunction(iter.mod) == C_N
 
 Base.IteratorSize(::Type{ModuleFunctionSet}) = Base.SizeUnknown()
 
-"""
-    prevfun(fun::LLVM.Function)
-
-Get the previous function in the module, or `nothing` if there is none.
-"""
-function prevfun(fun::Function)
-    ref = API.LLVMGetPreviousFunction(fun)
-    ref == C_NULL && return nothing
-    Function(ref)
+function next(f::Function)
+    ref = API.LLVMGetNextFunction(f)
+    ref == C_NULL ? nothing : Function(ref)
 end
 
-"""
-    nextfun(fun::LLVM.Function)
-
-Get the next function in the module, or `nothing` if there is none.
-"""
-function nextfun(fun::Function)
-    ref = API.LLVMGetNextFunction(fun)
-    ref == C_NULL && return nothing
-    Function(ref)
+function prev(f::Function)
+    ref = API.LLVMGetPreviousFunction(f)
+    ref == C_NULL ? nothing : Function(ref)
 end
+
+@property Function next
+@property Function prev
 
 # partial associative interface
 
@@ -586,8 +560,6 @@ end
 
 ## global alias iteration
 
-@vocabulary IR prevalias, nextalias
-
 struct ModuleAliasSet
     mod::Module
 end
@@ -618,31 +590,18 @@ Base.isempty(iter::ModuleAliasSet) = API.LLVMGetLastGlobalAlias(iter.mod) == C_N
 
 Base.IteratorSize(::Type{ModuleAliasSet}) = Base.SizeUnknown()
 
-"""
-    prevalias(alias::GlobalAlias)
-
-Get the previous global alias in the module, or `nothing` if there is none.
-
-See also: [`nextalias`](@ref).
-"""
-function prevalias(alias::GlobalAlias)
-    ref = API.LLVMGetPreviousGlobalAlias(alias)
-    ref == C_NULL && return nothing
-    GlobalAlias(ref)
-end
-
-"""
-    nextalias(alias::GlobalAlias)
-
-Get the next global alias in the module, or `nothing` if there is none.
-
-See also: [`prevalias`](@ref).
-"""
-function nextalias(alias::GlobalAlias)
+function next(alias::GlobalAlias)
     ref = API.LLVMGetNextGlobalAlias(alias)
-    ref == C_NULL && return nothing
-    GlobalAlias(ref)
+    ref == C_NULL ? nothing : GlobalAlias(ref)
 end
+
+function prev(alias::GlobalAlias)
+    ref = API.LLVMGetPreviousGlobalAlias(alias)
+    ref == C_NULL ? nothing : GlobalAlias(ref)
+end
+
+@property GlobalAlias next
+@property GlobalAlias prev
 
 # partial associative interface
 
@@ -657,8 +616,6 @@ function Base.getindex(iter::ModuleAliasSet, name::String)
 end
 
 ## ifunc iteration
-
-@vocabulary IR previfunc, nextifunc
 
 struct ModuleIFuncSet
     mod::Module
@@ -690,31 +647,18 @@ Base.isempty(iter::ModuleIFuncSet) = API.LLVMGetLastGlobalIFunc(iter.mod) == C_N
 
 Base.IteratorSize(::Type{ModuleIFuncSet}) = Base.SizeUnknown()
 
-"""
-    previfunc(ifunc::GlobalIFunc)
-
-Get the previous ifunc in the module, or `nothing` if there is none.
-
-See also: [`nextifunc`](@ref).
-"""
-function previfunc(ifunc::GlobalIFunc)
-    ref = API.LLVMGetPreviousGlobalIFunc(ifunc)
-    ref == C_NULL && return nothing
-    GlobalIFunc(ref)
-end
-
-"""
-    nextifunc(ifunc::GlobalIFunc)
-
-Get the next ifunc in the module, or `nothing` if there is none.
-
-See also: [`previfunc`](@ref).
-"""
-function nextifunc(ifunc::GlobalIFunc)
+function next(ifunc::GlobalIFunc)
     ref = API.LLVMGetNextGlobalIFunc(ifunc)
-    ref == C_NULL && return nothing
-    GlobalIFunc(ref)
+    ref == C_NULL ? nothing : GlobalIFunc(ref)
 end
+
+function prev(ifunc::GlobalIFunc)
+    ref = API.LLVMGetPreviousGlobalIFunc(ifunc)
+    ref == C_NULL ? nothing : GlobalIFunc(ref)
+end
+
+@property GlobalIFunc next
+@property GlobalIFunc prev
 
 # partial associative interface
 

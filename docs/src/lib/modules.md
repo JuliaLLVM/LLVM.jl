@@ -27,15 +27,7 @@ write(io::IO, mod::LLVM.Module)
 
 ```@docs
 sort!(::LLVM.ModuleGlobalSet)
-prevglobal
-nextglobal
 sort!(::LLVM.ModuleFunctionSet)
-prevfun
-nextfun
-prevalias
-nextalias
-previfunc
-nextifunc
 ```
 
 ## Linking

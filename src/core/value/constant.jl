@@ -1068,6 +1068,11 @@ initializer.
 The alignment of the global variable in bytes, or 0 if it has no explicit alignment. The
 assigned alignment must be a power of 2, or 0 to remove the explicit alignment.
 
+    gv.next
+    gv.prev
+
+The next or previous global variable in the module, or `nothing` if there is none.
+
 The properties of [`GlobalObject`](@ref LLVM.GlobalObject), [`GlobalValue`](@ref
 LLVM.GlobalValue), [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available
 too.
@@ -1194,6 +1199,11 @@ A global alias, i.e., a new symbol for an existing global value or constant expr
 The value that the global alias refers to. The type of an assigned value must match that of
 the alias.
 
+    alias.next
+    alias.prev
+
+The next or previous global alias in the module, or `nothing` if there is none.
+
 The properties of [`GlobalValue`](@ref LLVM.GlobalValue), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
 """
@@ -1263,6 +1273,11 @@ function.
 
 The resolver of the ifunc. The type of an assigned value must be a pointer in the address
 space of the ifunc.
+
+    ifunc.next
+    ifunc.prev
+
+The next or previous ifunc in the module, or `nothing` if there is none.
 
 The properties of [`GlobalObject`](@ref LLVM.GlobalObject), [`GlobalValue`](@ref
 LLVM.GlobalValue), [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available

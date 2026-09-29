@@ -1699,6 +1699,12 @@ See also the `LLVM.DbgRecord` property.
 The IR value used to compute the location of the variable described by a variable record,
 or `nothing` if that value has been deleted. Records that refer to several values need to
 be inspected using their `location_operands` instead.
+
+    record.next
+    record.prev
+
+The next or previous debug record attached to the same instruction, or `nothing` if there
+is none. `prev` requires LLVM 20+.
 """
 @checked struct DbgRecord
     ref::API.LLVMDbgRecordRef
@@ -1794,12 +1800,26 @@ function value(record::DbgRecord)
     return ref == C_NULL ? nothing : Value(ref)
 end
 
+function next(record::DbgRecord)
+    ref = API.LLVMGetNextDbgRecord(record)
+    ref == C_NULL ? nothing : DbgRecord(ref)
+end
+
+function prev(record::DbgRecord)
+    ref = API.LLVMGetPreviousDbgRecord(record)
+    ref == C_NULL ? nothing : DbgRecord(ref)
+end
+
 @property DbgRecord kind
 @property DbgRecord debug_location
 @property DbgRecord variable
 @property DbgRecord expression
 @property DbgRecord value
 @property DbgRecord location_operands
+@property DbgRecord next
+@static if version() >= v"20"
+    @property DbgRecord prev
+end
 
 declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, instr::Instruction) =

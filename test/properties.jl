@@ -235,16 +235,19 @@ end
         end
     end
 
-    # collections are properties, so the functions that returned them are internal
-    # accessors, or have been removed altogether
+    # collections and siblings are properties, so the functions that returned them are
+    # internal accessors, or have been removed altogether
     for name in (:functions, :globals, :aliases, :ifuncs, :metadata, :inline_asm, :blocks,
                  :parameters, :function_attributes, :return_attributes,
                  :parameter_attributes, :argument_attributes, :instructions, :predecessors,
                  :successors, :operands, :incoming, :arguments, :operand_bundles, :inputs,
-                 :uses, :debug_records, :location_operands, :elements, :types, :case_values)
+                 :uses, :debug_records, :location_operands, :elements, :types, :case_values,
+                 :next, :prev)
         @test !isdefined(LLVM.IR, name)
     end
-    for name in (:module_flags, :set_used!, :set_compiler_used!, :case_value, :case_value!, :replace_operand)
+    for name in (:module_flags, :set_used!, :set_compiler_used!, :nextinst, :previnst, :nextblock, :prevblock, :nextfun,
+                 :prevfun, :nextglobal, :prevglobal, :nextalias, :prevalias, :nextifunc,
+                 :previfunc, :case_value, :case_value!, :replace_operand)
         @test !isdefined(LLVM, name)
     end
 

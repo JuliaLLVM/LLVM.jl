@@ -427,6 +427,11 @@ iteration. The view is mutable, and supports:
 - `push!(node.operands, md::MDNode)`: append an operand;
 - `node.operands[i] = md::MDNode`: replace an operand;
 - `empty!(node.operands)`: remove all operands.
+
+    node.next
+    node.prev
+
+The next or previous named metadata node in the module, or `nothing` if there is none.
 """
 struct NamedMDNode
     mod::LLVM.Module # not exposed by the API
@@ -461,6 +466,19 @@ end
 operands(node::NamedMDNode) = NamedMDNodeOperandSet(node)
 
 @property NamedMDNode operands
+
+function next(node::NamedMDNode)
+    ref = API.LLVMGetNextNamedMetadata(node)
+    ref == C_NULL ? nothing : NamedMDNode(node.mod, ref)
+end
+
+function prev(node::NamedMDNode)
+    ref = API.LLVMGetPreviousNamedMetadata(node)
+    ref == C_NULL ? nothing : NamedMDNode(node.mod, ref)
+end
+
+@property NamedMDNode next
+@property NamedMDNode prev
 
 Base.size(iter::NamedMDNodeOperandSet) =
     (Int(API.LLVMGetNamedMetadataNumOperands2(iter.node)),)

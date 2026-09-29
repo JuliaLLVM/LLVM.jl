@@ -29,18 +29,18 @@ end
 
 @testset "JITDylib" begin
     @dispose ts_ctx=ThreadSafeContext() jljit=JuliaOJIT() begin
-        es = ExecutionSession(jljit)
+        es = jljit.execution_session
 
-        @test LLVM.lookup_dylib(es, "my.so") === nothing
+        @test lookup_dylib(es, "my.so") === nothing
 
         jd = JITDylib(es, "my.so")
         jd_bare = JITDylib(es, "mybare.so", bare=true)
 
-        @test LLVM.lookup_dylib(es, "my.so") === jd
+        @test lookup_dylib(es, "my.so") === jd
 
         jd_main = JITDylib(jljit, "main")
 
-        dg = LLVM.DynamicLibrarySearchGenerator(jljit)
+        dg = DynamicLibrarySearchGenerator(jljit)
         add!(jd_main, dg)
 
         addr = lookup(jljit, jd_main, "jl_apply_generic")
@@ -106,17 +106,17 @@ end
         name = string(gensym("generated"))
         mangled = mangle(jljit, name)
         data = Ref{Int32}(42)
-        dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+        dg = CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
             for (sym, flags) in lookup_set
                 sym == mangled || continue
-                LLVM.retain(sym)
-                LLVM.define(jd, LLVM.absolute_symbols(sym => pointer_from_objref(data)))
+                retain(sym)
+                define(jd, absolute_symbols(sym => pointer_from_objref(data)))
             end
         end
         add!(jd, dg)
 
         @test pointer(lookup(jljit, jd, name)) == pointer_from_objref(data)
-        LLVM.release(mangled)
+        release(mangled)
     end
 end
 
@@ -185,8 +185,8 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
                 gv = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
 
-                mu = LLVM.absolute_symbols(Ref(gv))
-                LLVM.define(jd, mu)
+                mu = absolute_symbols(Ref(gv))
+                define(jd, mu)
 
                 add!(jljit, jd, MemoryBuffer(obj))
 
@@ -206,10 +206,10 @@ end
 @testset "Lazy" begin
     @dispose ts_ctx=ThreadSafeContext() jljit=JuliaOJIT() begin
         jd = JITDylib(jljit, "lazy")
-        es = ExecutionSession(jljit)
+        es = jljit.execution_session
 
-        lctm = LLVM.LocalLazyCallThroughManager(jljit.triple, es)
-        ism = LLVM.LocalIndirectStubsManager(jljit.triple)
+        lctm = LocalLazyCallThroughManager(jljit.triple, es)
+        ism = LocalIndirectStubsManager(jljit.triple)
         try
             # 1. define entry symbol
             entry_sym = "foo_entry"
@@ -221,8 +221,8 @@ end
                 LLVM.API.LLVMOrcCSymbolAliasMapEntry(
                     mangle(jljit, "foo"), flags))
 
-            mu = LLVM.lazy_reexports(lctm, ism, jd, Ref(entry))
-            LLVM.define(jd, mu)
+            mu = lazy_reexports(lctm, ism, jd, Ref(entry))
+            define(jd, mu)
 
             # 2. Lookup address of entry symbol
             addr = lookup(jljit, jd, entry_sym)
@@ -232,7 +232,7 @@ end
             sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(jljit, "foo"), flags)
 
             function materialize(mr)
-                syms = LLVM.requested_symbols(mr)
+                syms = mr.requested_symbols
                 @assert length(syms) == 1
 
                 # syms contains mangled symbols
@@ -264,8 +264,8 @@ end
                     end
                 end
 
-                il = LLVM.IRCompileLayer(jljit)
-                LLVM.emit(il, mr, ts_mod)
+                il = jljit.ir_compile_layer
+                emit(il, mr, ts_mod)
 
                 return nothing
             end
@@ -273,8 +273,8 @@ end
             function discard(jd, sym)
             end
 
-            mu = LLVM.CustomMaterializationUnit("fooMU", Ref(sym), materialize, discard)
-            LLVM.define(jd, mu)
+            mu = CustomMaterializationUnit("fooMU", Ref(sym), materialize, discard)
+            define(jd, mu)
 
             @test ccall(pointer(addr), Int32, (Int32, Int32), 1, 2) == 3
         finally

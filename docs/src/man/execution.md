@@ -157,7 +157,7 @@ julia> ts_mod() do mod
            return
        end
 
-julia> jd = JITDylib(lljit);
+julia> jd = lljit.main_dylib;
 
 julia> add!(lljit, jd, ts_mod)
 
@@ -177,15 +177,15 @@ To customize the JIT, e.g., to use a different object linking layer, create it f
 ### JITDylibs and symbols
 
 Code is added to JITDylibs, which are the JIT's equivalent of dynamic libraries. Every
-`LLJIT` has a main JITDylib, `JITDylib(lljit)`, which `lookup(lljit, name)` searches. More
+`LLJIT` has a main JITDylib, `lljit.main_dylib`, which `lookup(lljit, name)` searches. More
 JITDylibs can be created in the JIT's execution session, and searched explicitly:
 
 ```jldoctest orc
-julia> es = ExecutionSession(lljit);
+julia> es = lljit.execution_session;
 
 julia> other = JITDylib(es, "other");
 
-julia> LLVM.lookup_dylib(es, "other") == other
+julia> lookup_dylib(es, "other") == other
 true
 
 julia> lookup(lljit, other, "add")
@@ -208,7 +208,7 @@ Symbols are reference counted. `mangle` returns a new reference, which most APIs
 symbols take ownership of. Otherwise, release it:
 
 ```jldoctest orc
-julia> LLVM.release(sym)
+julia> release(sym)
 ```
 
 ### Making host symbols available
@@ -219,7 +219,7 @@ functions or access host data, define them as absolute symbols:
 ```jldoctest orc
 julia> counter = Ref(41);
 
-julia> LLVM.define(jd, LLVM.absolute_symbols(
+julia> define(jd, absolute_symbols(
            mangle(lljit, "counter") => pointer_from_objref(counter)))
 
 julia> pointer(lookup(lljit, "counter")) == pointer_from_objref(counter)
@@ -227,26 +227,26 @@ true
 ```
 
 Alternatively, attach a definition generator to the JITDylib, which is consulted whenever a
-symbol cannot be found. `LLVM.DynamicLibrarySearchGenerator` makes all symbols of the current
+symbol cannot be found. `DynamicLibrarySearchGenerator` makes all symbols of the current
 process, or of a specific library, available:
 
 ```jldoctest orc
-julia> add!(jd, LLVM.DynamicLibrarySearchGenerator(lljit))
+julia> add!(jd, DynamicLibrarySearchGenerator(lljit))
 
 julia> lookup(lljit, "jl_apply_generic");
 ```
 
-For other policies, `LLVM.CustomDefinitionGenerator` calls a Julia function with the symbols
+For other policies, `CustomDefinitionGenerator` calls a Julia function with the symbols
 that could not be found, which can then define them:
 
 ```jldoctest orc
 julia> answer = Ref(42);
 
-julia> dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+julia> dg = CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
            for (name, flags) in lookup_set
                if String(name) in ("answer", "_answer")
-                   LLVM.retain(name)   # the lookup set's names are borrowed
-                   LLVM.define(jd, LLVM.absolute_symbols(name => pointer_from_objref(answer)))
+                   retain(name)   # the lookup set's names are borrowed
+                   define(jd, absolute_symbols(name => pointer_from_objref(answer)))
                end
            end
        end;
@@ -263,7 +263,7 @@ Code can be removed from a JITDylib by clearing it with `empty!`, or selectively
 adding it using a resource tracker:
 
 ```jldoctest orc
-julia> rt = LLVM.ResourceTracker(jd);
+julia> rt = ResourceTracker(jd);
 
 julia> ts_mod = ThreadSafeModule("jit");
 
@@ -286,8 +286,9 @@ julia> lookup(lljit, "temporary")
 ERROR: LLVM error: Symbols not found: [ temporary ]
 ```
 
-Resource trackers are reference counted too; `dispose` releases the reference, without
-removing the tracked code:
+Code that is added without a tracker is tracked by the JITDylib's default tracker,
+`jd.default_resource_tracker`. Resource trackers are reference counted too; `dispose`
+releases the reference, without removing the tracked code:
 
 ```jldoctest orc
 julia> dispose(rt)
@@ -298,37 +299,40 @@ julia> dispose(lljit)
 ### Lazy compilation
 
 Instead of adding code upfront, a materialization unit can promise to define symbols, and
-only generate code when one of them is looked up. `LLVM.CustomMaterializationUnit` calls a
+only generate code when one of them is looked up. `CustomMaterializationUnit` calls a
 Julia function to do so, which typically generates a module and emits it through one of the
 JIT's layers:
 
 ```julia
-flags = LLVM.symbol_flags(callable=true)
-mu = LLVM.CustomMaterializationUnit("lazy", [mangle(lljit, "foo") => flags],
+flags = symbol_flags(callable=true)
+mu = CustomMaterializationUnit("lazy", [mangle(lljit, "foo") => flags],
     function materialize(mr)
         ts_mod = ThreadSafeModule("foo")
         ts_mod() do mod
             # generate IR defining `foo`
         end
-        LLVM.emit(LLVM.IRTransformLayer(lljit), mr, ts_mod)
+        emit(lljit.ir_transform_layer, mr, ts_mod)
     end,
     function discard(jd, sym)
         # `sym` was overridden before being materialized
     end)
-LLVM.define(jd, mu)
+define(jd, mu)
 ```
 
-Looking up `foo` then materializes it. To defer compilation even further, until a function
-is first *called*, create a lazy reexport. Looking it up returns the address of a stub,
-which calls into the JIT to look up (and thus materialize) the target the first time it is
-called:
+Looking up `foo` then materializes it. When a unit defines multiple symbols, the
+`requested_symbols` property of the materialization responsibility tells which of them were
+looked up.
+
+To defer compilation even further, until a function is first *called*, create a lazy
+reexport. Looking it up returns the address of a stub, which calls into the JIT to look up
+(and thus materialize) the target the first time it is called:
 
 ```julia
-es = ExecutionSession(lljit)
-lctm = LLVM.LocalLazyCallThroughManager(triple(lljit), es)
-ism = LLVM.LocalIndirectStubsManager(triple(lljit))
-LLVM.define(jd, LLVM.lazy_reexports(lctm, ism, jd,
-                                    [mangle(lljit, "foo_stub") => mangle(lljit, "foo")]))
+es = lljit.execution_session
+lctm = LocalLazyCallThroughManager(lljit.triple, es)
+ism = LocalIndirectStubsManager(lljit.triple)
+define(jd, lazy_reexports(lctm, ism, jd,
+                          [mangle(lljit, "foo_stub") => mangle(lljit, "foo")]))
 addr = lookup(lljit, "foo_stub")    # doesn't materialize `foo` yet
 ```
 
@@ -339,7 +343,7 @@ Finally, to process all modules before they are compiled, e.g., to optimize them
 transformation on the JIT's IR transform layer:
 
 ```julia
-LLVM.transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
+transform!(lljit.ir_transform_layer) do tsm, mr
     tsm() do mod
         run!("default<O2>", mod)
     end
@@ -351,7 +355,7 @@ end
 Julia exceptions cannot propagate through LLVM. When a callback like a materializer,
 definition generator or transformation throws, the operation that triggered it fails with a
 generic `LLVMException`. The original exception is kept, and can be rethrown as a
-`CallbackException` by calling `LLVM.check_callback_error` on the object that owns the
+`LLVM.CallbackException` by calling `check_callback_error` on the object that owns the
 callback.
 
 ### Julia's JIT

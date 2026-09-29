@@ -77,9 +77,10 @@ end
     LLVM.ORC
 
 The ORC just-in-time compiler: `LLJIT`, execution sessions, JIT dylibs, thread-safe
-modules and contexts, and the layers of the JIT.
+modules and contexts, symbols and their definitions, definition generators, resource
+trackers, materialization units, and the layers of the JIT.
 """
 module ORC
     import ..LLVM
-    LLVM.@reexport ORC dispose emit add!
+    LLVM.@reexport ORC dispose emit add! remove!
 end

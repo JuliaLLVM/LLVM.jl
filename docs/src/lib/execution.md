@@ -68,14 +68,13 @@ ObjectLinkingLayer
 ObjectLinkingLayer(::ExecutionSession, ::String)
 JuliaOJIT
 ExecutionSession
-LLVM.global_prefix
 ```
 
 ### JITDylibs
 
 ```@docs
 JITDylib
-LLVM.lookup_dylib
+lookup_dylib
 add!(::LLJIT, ::JITDylib, ::MemoryBuffer)
 add!(::JuliaOJIT, ::JITDylib, ::MemoryBuffer)
 empty!(::JITDylib)
@@ -87,54 +86,52 @@ OrcTargetAddress
 ### Resource trackers
 
 ```@docs
-LLVM.ResourceTracker
-LLVM.default_resource_tracker
-remove!(::LLVM.ResourceTracker)
-LLVM.transfer!
-dispose(::LLVM.ResourceTracker)
+ResourceTracker
+remove!(::ResourceTracker)
+transfer!
+dispose(::ResourceTracker)
 ```
 
 ### Symbols
 
 ```@docs
-LLVM.LLVMSymbol
+LLVMSymbol
 mangle
 intern
-LLVM.retain
-LLVM.release
-LLVM.symbol_flags
-LLVM.define
-LLVM.absolute_symbols
+retain
+release
+symbol_flags
+define
+absolute_symbols
 ```
 
 ### Definition generators
 
 ```@docs
-LLVM.DefinitionGenerator
-add!(::JITDylib, ::LLVM.DefinitionGenerator)
-dispose(::LLVM.DefinitionGenerator)
-LLVM.DynamicLibrarySearchGenerator
-LLVM.CustomDefinitionGenerator
+DefinitionGenerator
+add!(::JITDylib, ::DefinitionGenerator)
+dispose(::DefinitionGenerator)
+DynamicLibrarySearchGenerator
+CustomDefinitionGenerator
 ```
 
 ### Materialization
 
 ```@docs
-LLVM.CustomMaterializationUnit
-LLVM.MaterializationResponsibility
-LLVM.requested_symbols
-LLVM.emit(::LLVM.IRTransformLayer, ::LLVM.MaterializationResponsibility, ::ThreadSafeModule)
-LLVM.IRTransformLayer
-LLVM.transform!
-LLVM.IRCompileLayer
-LLVM.lazy_reexports
-LLVM.LocalLazyCallThroughManager
-LLVM.LocalIndirectStubsManager
+CustomMaterializationUnit
+MaterializationResponsibility
+emit(::IRTransformLayer, ::MaterializationResponsibility, ::ThreadSafeModule)
+IRTransformLayer
+transform!
+IRCompileLayer
+lazy_reexports
+LocalLazyCallThroughManager
+LocalIndirectStubsManager
 ```
 
 ### Callback errors
 
 ```@docs
 LLVM.CallbackException
-LLVM.check_callback_error
+check_callback_error
 ```

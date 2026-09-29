@@ -51,7 +51,7 @@ jit = LLJIT(; tm=LLVM.JITTargetMachine())
         codegen!(mod, name, tm)
     end
 
-    jd = JITDylib(jit)
+    jd = jit.main_dylib
     add!(jit, jd, ts_mod)
     addr = lookup(jit, name)
 

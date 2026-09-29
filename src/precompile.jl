@@ -67,7 +67,7 @@
                 end
                 verify(mod)
             end
-            jd = JITDylib(jit)
+            jd = jit.main_dylib
             add!(jit, jd, ts_mod)
             lookup(jit, "sum")
         end

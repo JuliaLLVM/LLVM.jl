@@ -274,6 +274,13 @@ end
 #   support depends on the LLVM version, only declare the property on versions that support
 #   it (e.g., `disjoint`), but keep defining its accessor so that it can be documented.
 # - When a relationship can be absent, the accessor returns `nothing` instead of throwing.
+# - A relationship is a property even if it refers to a different kind of object, like the
+#   execution session of a JIT (`jit.execution_session`, not `ExecutionSession(jit)`).
+#   Constructors are for creating objects (`JITDylib(es, name)`), or for converting and
+#   interpreting values (`MemoryEffects(f.memory_effects)`, `Intrinsic(f)`).
+# - State that can be set but not read back, or that is a callback, is set with a function
+#   named after it (`asm_verbosity!(tm, true)`, `transform!(f, layer)`), as there are no
+#   write-only properties.
 # - When assignment should not simply call `name!(x, v)`, pass an adapter as the setter,
 #   e.g., to accept `nothing` (`debug_location`), or when `name!` is taken by an unrelated
 #   function (`subprogram!` creates a subprogram using a `DIBuilder`). If the underlying API

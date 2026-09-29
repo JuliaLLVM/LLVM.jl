@@ -28,6 +28,26 @@ The target triple that the JIT compiles code for. Modules added to the JIT shoul
 
 The data layout that the JIT compiles code for, as a string. Modules added to the JIT
 should use it.
+
+    jit.global_prefix
+
+The character that the JIT's target prepends to global symbols when mangling them (e.g.,
+`'_'` on macOS), or `'\\0'` if there is none, as a `Cchar`.
+
+    jit.execution_session
+
+The [`ExecutionSession`](@ref) of a JIT, which manages its JITDylibs and symbol string pool.
+
+    lljit.main_dylib
+
+The main [`JITDylib`](@ref) of the JIT, which `lookup(lljit, name)` searches.
+
+    lljit.ir_transform_layer
+
+The [`IRTransformLayer`](@ref) of the JIT, which transforms IR modules before they are
+compiled. Modules added with `add!` pass through this layer, as can modules emitted by a
+materialization unit with [`emit`](@ref). By default, it does not change modules; use
+[`transform!`](@ref) to install a transformation.
 """
 @checked mutable struct LLJIT
     ref::API.LLVMOrcLLJITRef
@@ -141,15 +161,11 @@ end
 @property LLJIT triple
 @property LLJIT datalayout
 
-"""
-    LLVM.global_prefix(jit)
-
-Get the character that the JIT's target prepends to global symbols when mangling them (e.g.,
-`'_'` on macOS), or `'\\0'` if there is none, as a `Cchar`.
-"""
 function global_prefix(lljit::LLJIT)
     return API.LLVMOrcLLJITGetGlobalPrefix(lljit)
 end
+
+@property LLJIT global_prefix
 
 
 # JuliaOJIT interface
@@ -160,6 +176,12 @@ end
 
 Get a handle to Julia's own JIT, e.g., to add code to it that can be called from Julia
 code. The JIT is not owned by LLVM.jl, so disposing of the handle is a no-op.
+
+# Properties
+
+    jljit.ir_compile_layer
+
+The [`IRCompileLayer`](@ref) of Julia's JIT, which compiles IR modules.
 """
 @checked mutable struct JuliaOJIT
     ref::API.JuliaOJITRef
@@ -187,6 +209,8 @@ end
 function global_prefix(jljit::JuliaOJIT)
     return API.JLJITGetGlobalPrefix(jljit)
 end
+
+@property JuliaOJIT global_prefix
 
 function dispose(jljit::JuliaOJIT)
     # don't dispose of the Julia JIT

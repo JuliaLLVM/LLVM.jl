@@ -249,10 +249,6 @@ function LLVMPostDominatorTreeInstructionDominates(Tree, InstA, InstB)
     ccall((:LLVMPostDominatorTreeInstructionDominates, libLLVMExtra), LLVMBool, (LLVMPostDominatorTreeRef, LLVMValueRef, LLVMValueRef), Tree, InstA, InstB)
 end
 
-mutable struct LLVMOpaquePassBuilderExtensions end
-
-const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
-
 function LLVMExtraBuildAtomicRMWValue(B, Op, Loaded, Val)
     ccall((:LLVMExtraBuildAtomicRMWValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, Cuint, LLVMValueRef, LLVMValueRef), B, Op, Loaded, Val)
 end
@@ -311,6 +307,10 @@ end
 function LLVMExtraGetSyncScopeName(C, SSID, Len)
     ccall((:LLVMExtraGetSyncScopeName, libLLVMExtra), Cstring, (LLVMContextRef, Cuint, Ptr{Csize_t}), C, SSID, Len)
 end
+
+mutable struct LLVMOpaquePassBuilderExtensions end
+
+const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
 
 function LLVMCreatePassBuilderExtensions()
     ccall((:LLVMCreatePassBuilderExtensions, libLLVMExtra), LLVMPassBuilderExtensionsRef, ())
@@ -452,3 +452,12 @@ end
 function LLVMOrcThreadSafeContextGetContext(TSCtx)
     ccall((:LLVMOrcThreadSafeContextGetContext, libLLVMExtra), LLVMContextRef, (LLVMOrcThreadSafeContextRef,), TSCtx)
 end
+
+function LLVMExtraConstFPGetBits(ConstantVal, N)
+    ccall((:LLVMExtraConstFPGetBits, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
+end
+
+function LLVMExtraDbgVariableRecordGetNumValues(Rec)
+    ccall((:LLVMExtraDbgVariableRecordGetNumValues, libLLVMExtra), Cuint, (LLVMDbgRecordRef,), Rec)
+end
+

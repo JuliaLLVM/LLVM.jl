@@ -1,7 +1,7 @@
-export LLJITBuilder, LLJIT, ExecutionSession, JITDylib, OrcTargetAddress
-export TargetMachineBuilder, target_machine_builder!, linking_layer_creator!
-export mangle, lookup, intern
-export ObjectLinkingLayer, register!
+@vocabulary ORC LLJITBuilder, LLJIT, ExecutionSession, JITDylib, OrcTargetAddress
+@vocabulary ORC TargetMachineBuilder, target_machine_builder!, linking_layer_creator!
+@vocabulary ORC mangle, lookup, intern
+@vocabulary ORC ObjectLinkingLayer, register!
 
 @public define, absolute_symbols, symbol_flags,
         DynamicLibrarySearchGenerator, CustomDefinitionGenerator,
@@ -1140,7 +1140,7 @@ end
 
 # JuliaOJIT
 
-export JuliaOJIT
+@vocabulary ORC JuliaOJIT
 
 function ExecutionSession(jljit::JuliaOJIT)
     es = API.JLJITGetLLVMOrcExecutionSession(jljit)

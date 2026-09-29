@@ -1,6 +1,7 @@
 module Interop
 
 using ..LLVM
+using ..LLVM.IR, ..LLVM.Build, ..LLVM.Passes
 import ..LLVM: API
 
 include("interop/base.jl")

@@ -100,7 +100,7 @@
             catch err
                 err
             end
-            @test err isa CallbackException
+            @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
             @test occursin("type mapper error", string(err.ex))
             @test !isempty(err.processed_bt)
@@ -119,7 +119,7 @@
             catch err
                 err
             end
-            @test err isa CallbackException
+            @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
             @test occursin("materializer error", string(err.ex))
             @test !isempty(err.processed_bt)

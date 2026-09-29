@@ -2,7 +2,7 @@
 
 using Test
 
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
 if length(ARGS) == 2
     x, y = parse.([Int32], ARGS[1:2])
@@ -32,17 +32,17 @@ function codegen!(mod::LLVM.Module, name, tm)
     verify(mod)
 
     @dispose pm=ModulePassManager() begin
-        add_library_info!(pm, mod.triple)
-        add_transform_info!(pm, tm)
+        LLVM.add_library_info!(pm, mod.triple)
+        LLVM.add_transform_info!(pm, tm)
         run!(pm, mod)
     end
 
     verify(mod)
 end
 
-tm = JITTargetMachine()
+tm = LLVM.JITTargetMachine()
 # XXX: LLJIT calls TargetMachineBuilder which disposes the TargetMachine
-jit = LLJIT(; tm=JITTargetMachine())
+jit = LLJIT(; tm=LLVM.JITTargetMachine())
 
 @dispose ts_ctx=ThreadSafeContext() begin
     ts_mod = ThreadSafeModule("jit")

@@ -9,7 +9,7 @@
 #
 # This example is not complete and could use some better error handling
 
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build
 using LLVM.Interop
 
 # map Julia functions to llvm intrinsic

@@ -1,7 +1,7 @@
 ## target
 
-export Target,
-       hasjit, hastargetmachine, hasasmparser
+@public Target,
+        hasjit, hastargetmachine, hasasmparser
 
 """
     Target
@@ -90,7 +90,7 @@ end
 
 ## target iteration
 
-export targets
+@public targets
 
 struct TargetIterator end
 

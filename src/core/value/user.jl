@@ -8,10 +8,11 @@ A value that uses other values.
 See also: [`operands`](@ref).
 """
 abstract type User <: Value end
+@vocabulary IR User
 
 # operand iteration
 
-export operands
+@vocabulary IR operands
 
 struct UserOperandSet <: AbstractVector{Value}
     user::User

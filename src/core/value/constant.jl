@@ -1,4 +1,4 @@
-export null, isnull, all_ones
+@vocabulary IR null, isnull, all_ones
 
 """
     LLVM.Constant <: LLVM.User
@@ -6,16 +6,19 @@ export null, isnull, all_ones
 Abstract supertype for all constant values.
 """
 abstract type Constant <: User end
+@vocabulary IR Constant
 
 unsafe_destroy!(constant::Constant) = API.LLVMDestroyConstant(constant)
 
 # forward declarations
+# not part of a vocabulary, as it would clash with `Base.Module`
+@public Module
 @checked struct Module
     ref::API.LLVMModuleRef
 end
 abstract type Instruction <: User end
 
-export convert_users_to_instructions!
+@vocabulary IR convert_users_to_instructions!
 
 """
     convert_users_to_instructions!(consts::Vector{<:Constant};
@@ -77,7 +80,7 @@ isnull(val::Value) = API.LLVMIsNull(val) |> Bool
 
 ## data
 
-export PointerNull, UndefValue, PoisonValue, ConstantInt, ConstantFP
+@vocabulary IR PointerNull, UndefValue, PoisonValue, ConstantInt, ConstantFP
 
 # Abstract supertype for all constant value without operands.
 abstract type ConstantData <: Constant end
@@ -312,7 +315,7 @@ end
 
 # sequential data
 
-export ConstantDataSequential, ConstantDataArray, ConstantDataVector
+@vocabulary IR ConstantDataSequential, ConstantDataArray, ConstantDataVector
 
 abstract type ConstantDataSequential <: Constant end
 
@@ -425,7 +428,7 @@ register(ConstantDataVector, API.LLVMConstantDataVectorValueKind)
 
 # aggregate zero
 
-export ConstantAggregateZero
+@vocabulary IR ConstantAggregateZero
 
 @checked struct ConstantAggregateZero <: ConstantData
     ref::API.LLVMValueRef
@@ -450,7 +453,7 @@ abstract type ConstantAggregate <: Constant end
 
 # arrays
 
-export ConstantArray
+@vocabulary IR ConstantArray
 
 """
     ConstantArray <: LLVM.ConstantAggregate
@@ -558,7 +561,7 @@ end
 
 # structs
 
-export ConstantStruct
+@vocabulary IR ConstantStruct
 
 """
     ConstantStruct <: LLVM.ConstantAggregate
@@ -629,7 +632,7 @@ end
 
 # vectors
 
-export ConstantVector
+@vocabulary IR ConstantVector
 
 @checked struct ConstantVector <: ConstantAggregate
     ref::API.LLVMValueRef
@@ -639,14 +642,12 @@ register(ConstantVector, API.LLVMConstantVectorValueKind)
 
 ## constant expressions
 
-export ConstantExpr,
-
-       const_neg, const_nswneg, const_not, const_add,
-       const_nswadd, const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_xor,
-       const_gep, const_inbounds_gep, const_trunc,
-       const_ptrtoint, const_inttoptr, const_bitcast,
-       const_addrspacecast, const_truncorbitcast,
-       const_pointercast, const_shufflevector
+@vocabulary IR ConstantExpr
+@vocabulary Build const_neg, const_nswneg, const_not, const_add, const_nswadd,
+                  const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_xor, const_gep,
+                  const_inbounds_gep, const_trunc, const_ptrtoint, const_inttoptr,
+                  const_bitcast, const_addrspacecast, const_truncorbitcast,
+                  const_pointercast, const_shufflevector
 
 """
     LLVM.ConstantExpr <: LLVM.Constant
@@ -743,7 +744,7 @@ const_shufflevector(vector1::Constant, vector2::Constant, mask::Constant) =
 
 if version() < v"17"
 
-export const_select
+@vocabulary Build const_select
 
 const_select(cond::Constant, if_true::Value, if_false::Value) =
     Value(API.LLVMConstSelect(cond, if_true, if_false))
@@ -752,10 +753,10 @@ end
 
 if version() < v"18"
 
-export const_and, const_or, const_lshr, const_ashr, const_sext, const_zext,
-       const_fptrunc, const_fpext, const_fptoui, const_fptosi, const_uitofp,
-       const_sitofp, const_intcast, const_fpcast, const_zextorbitcast,
-       const_sextorbitcast
+@vocabulary Build const_and, const_or, const_lshr, const_ashr, const_sext, const_zext,
+                  const_fptrunc, const_fpext, const_fptoui, const_fptosi, const_uitofp,
+                  const_sitofp, const_intcast, const_fpcast, const_zextorbitcast,
+                  const_sextorbitcast
 
 const_and(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstAnd(lhs, rhs))
@@ -809,7 +810,7 @@ end
 
 if version() < v"19"
 
-export const_icmp, const_fcmp, const_shl
+@vocabulary Build const_icmp, const_fcmp, const_shl
 
 const_icmp(Predicate::API.LLVMIntPredicate, lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstICmp(Predicate, lhs, rhs))
@@ -824,7 +825,7 @@ end
 
 if version() < v"21"
 
-export const_mul, const_nswmul, const_nuwmul
+@vocabulary Build const_mul, const_nswmul, const_nuwmul
 
 const_mul(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstMul(lhs, rhs))
@@ -842,7 +843,7 @@ end
 
 ## inline assembly
 
-export InlineAsm
+@vocabulary IR InlineAsm
 
 """
     InlineAsm <: LLVM.Constant
@@ -935,8 +936,9 @@ Abstract supertype for global values that are backed by an actual object in memo
 functions, global variables and ifuncs, but not aliases.
 """
 abstract type GlobalObject <: GlobalValue end
+@vocabulary IR GlobalObject
 
-export GlobalValue, isdeclaration
+@vocabulary IR GlobalValue, isdeclaration
 
 parent(val::GlobalValue) = Module(API.LLVMGetGlobalParent(val))
 
@@ -1009,10 +1011,10 @@ local_unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(va
 
 ## global variables
 
-export GlobalVariable, erase!,
-       isthreadlocal, threadlocal!,
-       isconstant, constant!,
-       isextinit, extinit!
+@vocabulary IR GlobalVariable, erase!,
+               isthreadlocal, threadlocal!,
+               isconstant, constant!,
+               isextinit, extinit!
 
 """
     GlobalVariable <: LLVM.GlobalObject
@@ -1167,7 +1169,7 @@ end
 
 ## global aliases
 
-export GlobalAlias
+@vocabulary IR GlobalAlias
 
 """
     GlobalAlias <: LLVM.GlobalValue
@@ -1236,7 +1238,7 @@ end
 
 ## global ifuncs
 
-export GlobalIFunc
+@vocabulary IR GlobalIFunc
 
 """
     GlobalIFunc <: LLVM.GlobalObject

@@ -1,9 +1,11 @@
 ## target machine
 
-export TargetMachine, dispose,
-       asm_verbosity!, normalize, default_triple,
-       emit, add_transform_info!, add_library_info!
-export JITTargetMachine
+@public TargetMachine, dispose,
+        asm_verbosity!, normalize, default_triple,
+        emit
+# these add analyses to a legacy pass manager
+@vocabulary Passes add_transform_info!, add_library_info!
+@public JITTargetMachine
 
 """
     TargetMachine

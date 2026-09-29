@@ -78,8 +78,8 @@ end
 
         # target machines
         host_triple = LLVM.default_triple()
-        host_t = Target(triple=host_triple)
-        @dispose tm=TargetMachine(host_t, host_triple) mod=test_module() begin
+        host_t = LLVM.Target(triple=host_triple)
+        @dispose tm=LLVM.TargetMachine(host_t, host_triple) mod=test_module() begin
             @test run!(NoOpModulePass(), mod, tm) === nothing
             @test run!("no-op-module", mod, tm) === nothing
         end
@@ -266,7 +266,7 @@ end
     # A do-nothing subtype: exercises the abstract defaults, which must match
     # LLVM's baseline well enough that InferAddressSpaces can't find a flat AS
     # and therefore folds nothing — same observable behavior as no TTI at all.
-    struct BaselineTTI <: AbstractTargetTransformInfo end
+    struct BaselineTTI <: LLVM.AbstractTargetTransformInfo end
 
     @dispose ctx=Context() mod=make_mod() begin
         @dispose pb=NewPMPassBuilder() begin
@@ -280,7 +280,7 @@ end
     end
 
     # With an overriding subtype: cast gets folded.
-    struct FlatZeroTTI <: AbstractTargetTransformInfo end
+    struct FlatZeroTTI <: LLVM.AbstractTargetTransformInfo end
     LLVM.flat_address_space(::FlatZeroTTI) = UInt(0)
     LLVM.is_noop_addr_space_cast(::FlatZeroTTI, from::Unsigned, to::Unsigned) =
         from == 0 || to == 0
@@ -303,7 +303,7 @@ end
     # module.
     let calls = Ref(0)
         # Subtype-local field lets the method see per-instance state.
-        struct CountingTTI <: AbstractTargetTransformInfo
+        struct CountingTTI <: LLVM.AbstractTargetTransformInfo
             calls::Base.RefValue{Int}
         end
         LLVM.flat_address_space(::CountingTTI) = UInt(0)
@@ -338,7 +338,7 @@ end
     end
 
     # Exceptions in TTI callbacks are caught and rethrown as PassException.
-    struct BoomTTI <: AbstractTargetTransformInfo
+    struct BoomTTI <: LLVM.AbstractTargetTransformInfo
         calls::Base.RefValue{Int}
     end
     LLVM.flat_address_space(::BoomTTI) = UInt(0)

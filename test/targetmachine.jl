@@ -1,22 +1,22 @@
 @testset "targetmachine" begin
 
 host_triple = LLVM.default_triple()
-host_t = Target(triple=host_triple)
+host_t = LLVM.Target(triple=host_triple)
 
 let
-    tm = TargetMachine(host_t, host_triple)
+    tm = LLVM.TargetMachine(host_t, host_triple)
     dispose(tm)
 end
 
-TargetMachine(host_t, host_triple) do tm
+LLVM.TargetMachine(host_t, host_triple) do tm
 end
 
-@dispose tm=TargetMachine(host_t, host_triple) begin
+@dispose tm=LLVM.TargetMachine(host_t, host_triple) begin
     @test tm.target == host_t
     @test tm.triple == host_triple
     @test tm.cpu == ""
     @test tm.features == ""
-    asm_verbosity!(tm, true)
+    LLVM.asm_verbosity!(tm, true)
 
     # emission
     @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
@@ -51,7 +51,7 @@ end
         end
     end
 
-    dispose(DataLayout(tm))
+    dispose(LLVM.DataLayout(tm))
 end
 
 end

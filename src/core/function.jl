@@ -1,4 +1,4 @@
-export erase!
+@vocabulary IR erase!
 
 """
     LLVM.Function
@@ -62,6 +62,9 @@ Function
 # forward declaration of Function in src/core/basicblock.jl
 
 register(Function, API.LLVMFunctionValueKind)
+
+# not part of a vocabulary, as it would clash with `Base.Function`
+@public Function
 
 """
     LLVM.Function(mod::Module, name::String, ft::FunctionType)
@@ -156,7 +159,7 @@ end
 
 # attributes
 
-export function_attributes, parameter_attributes, return_attributes
+@vocabulary IR function_attributes, parameter_attributes, return_attributes
 
 struct FunctionAttrSet
     f::Function
@@ -264,7 +267,7 @@ check_memory_effects_index(idx::API.LLVMAttributeIndex) =
 
 # parameter iteration
 
-export Argument, parameters
+@vocabulary IR Argument, parameters
 
 """
     LLVM.Argument
@@ -335,7 +338,7 @@ parent(arg::Argument) = Function(API.LLVMGetParamParent(arg))
 
 # basic block iteration
 
-export blocks, prevblock, nextblock
+@vocabulary IR blocks, prevblock, nextblock
 
 struct FunctionBlockSet <: AbstractVector{BasicBlock}
     f::Function
@@ -417,7 +420,7 @@ end
 
 # intrinsics
 
-export isintrinsic, Intrinsic, isoverloaded
+@vocabulary IR isintrinsic, Intrinsic, isoverloaded
 @public overloaded_name
 
 """

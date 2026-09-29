@@ -48,7 +48,7 @@ if LLVM.memcheck_enabled
         close(io)
         script = """using LLVM
                     buf = LLVM.MemoryBuffer(UInt8[])
-                    dispose(buf)
+                    LLVM.dispose(buf)
                     length(buf)"""
         cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) -e $script`
         run(pipeline(ignorestatus(cmd), stdout=path, stderr=devnull))

@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -38,13 +38,14 @@ top:
 LLVM's interpreter is a simple way to execute LLVM IR code, and can be constructed from just
 a module. Executing code is done using the `run` function, which takes a reference to the
 function to execute, and an array of `GenericValue` arguments, returning a `GenericValue`
-result:
+result. These legacy execution engines are not part of any vocabulary, so they are used
+qualified:
 
 ```jldoctest
-julia> engine = Interpreter(mod);
+julia> engine = LLVM.Interpreter(mod);
 
-julia> res = run(engine, add, [GenericValue(LLVM.Int64Type(), 1),
-                               GenericValue(LLVM.Int64Type(), 2)]);
+julia> res = run(engine, add, [LLVM.GenericValue(LLVM.Int64Type(), 1),
+                               LLVM.GenericValue(LLVM.Int64Type(), 2)]);
 
 julia> convert(Int, res)
 3
@@ -64,9 +65,9 @@ One crucial difference is that MCJIT does not support the `run` function with ar
 Instead, you need to look up the address of the compiled function, and call it directly:
 
 ```jldoctest
-julia> engine = JIT(mod);
+julia> engine = LLVM.JIT(mod);
 
-julia> addr = lookup(engine, "add");
+julia> addr = LLVM.lookup(engine, "add");
 
 julia> res = ccall(addr, Int64, (Int64, Int64), 1, 2)
 3
@@ -77,10 +78,11 @@ julia> res = ccall(addr, Int64, (Int64, Int64), 1, 2)
 
 ORC is LLVM's modern JIT framework, and the recommended way to execute LLVM IR. LLVM.jl
 supports LLJIT, a ready-to-use JIT built on ORC, as well as adding code to Julia's own JIT.
+Its functionality is available in the `LLVM.ORC` vocabulary (`using LLVM.ORC`).
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     # XXX: clean-up previous contexts
     while ts_context(; throw_error=false) !== nothing
@@ -126,7 +128,7 @@ through `context(ts_ctx)`, bypasses the lock.
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if ts_context(; throw_error=false) === nothing
         ThreadSafeContext()

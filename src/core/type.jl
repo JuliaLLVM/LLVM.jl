@@ -1,4 +1,4 @@
-export LLVMType, issized, context
+@vocabulary IR LLVMType, issized, context
 
 """
     LLVMType
@@ -120,6 +120,8 @@ The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 @checked struct IntegerType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR IntegerType, IntType, Int1Type, Int8Type, Int16Type, Int32Type, Int64Type,
+               Int128Type
 register(IntegerType, API.LLVMIntegerTypeKind)
 
 """
@@ -151,6 +153,9 @@ width(inttyp::IntegerType) = Int(API.LLVMGetIntTypeWidth(inttyp))
 # NOTE: this type doesn't exist in the LLVM API,
 #       we add it for convenience of typechecking generic values (see execution.jl)
 abstract type FloatingPointType <: LLVMType end
+
+@vocabulary IR FloatingPointType, HalfType, FloatType, DoubleType, BFloatType, FP128Type,
+               X86FP80Type, PPCFP128Type
 
 for T in [:Half, :Float, :Double, :BFloat, :FP128, :X86_FP80, :PPC_FP128]
     CleanT = Symbol(replace(String(T), "_"=>""))    # only the type kind retains the underscore
@@ -221,7 +226,7 @@ PPCFP128Type
 
 ## function types
 
-export isvararg, parameters
+@vocabulary IR isvararg, parameters
 
 """
     LLVM.FunctionType <: LLVMType
@@ -239,6 +244,7 @@ The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 @checked struct FunctionType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR FunctionType
 register(FunctionType, API.LLVMFunctionTypeKind)
 
 """
@@ -281,8 +287,6 @@ end
 
 ## pointer types
 
-export isopaque
-
 """
     LLVM.PointerType <: LLVMType
 
@@ -299,6 +303,7 @@ The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 @checked struct PointerType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR PointerType
 register(PointerType, API.LLVMPointerTypeKind)
 
 """
@@ -358,6 +363,7 @@ An array type, representing a fixed-size array of identically-typed elements.
 @checked struct ArrayType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR ArrayType
 register(ArrayType, API.LLVMArrayTypeKind)
 
 """
@@ -397,6 +403,7 @@ used for SIMD operations.
 @checked struct VectorType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR VectorType
 register(VectorType, API.LLVMVectorTypeKind)
 
 """
@@ -420,7 +427,7 @@ Base.length(vectyp::VectorType) = Int(API.LLVMGetVectorSize(vectyp))
 
 ## structure types
 
-export ispacked, isopaque, elements!
+@vocabulary IR ispacked, isopaque, elements!
 
 """
     LLVM.StructType <: LLVMType
@@ -438,6 +445,7 @@ The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 @checked struct StructType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR StructType
 register(StructType, API.LLVMStructTypeKind)
 
 """
@@ -500,7 +508,7 @@ Base.isempty(@nospecialize(T::StructType)) =
 
 # element iteration
 
-export elements
+@vocabulary IR elements
 
 struct StructTypeElementSet
     typ::StructType
@@ -548,6 +556,7 @@ A void type, representing the absence of a value.
 @checked struct VoidType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR VoidType
 register(VoidType, API.LLVMVoidTypeKind)
 
 """
@@ -565,6 +574,7 @@ A label type, representing a code label.
 @checked struct LabelType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR LabelType
 register(LabelType, API.LLVMLabelTypeKind)
 
 """
@@ -582,6 +592,7 @@ A metadata type, representing a metadata value.
 @checked struct MetadataType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR MetadataType
 register(MetadataType, API.LLVMMetadataTypeKind)
 
 MetadataType() = MetadataType(API.LLVMMetadataTypeInContext(context()))
@@ -594,6 +605,7 @@ A token type, representing a token value.
 @checked struct TokenType <: LLVMType
     ref::API.LLVMTypeRef
 end
+@vocabulary IR TokenType
 register(TokenType, API.LLVMTokenTypeKind)
 
 """
@@ -606,7 +618,7 @@ TokenType() = TokenType(API.LLVMTokenTypeInContext(context()))
 
 ## type iteration
 
-export types
+@vocabulary IR types
 
 struct ContextTypeDict <: AbstractDict{String,LLVMType}
     ctx::Context

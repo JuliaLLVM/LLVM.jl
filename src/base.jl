@@ -1,3 +1,72 @@
+## public API
+
+# `@public foo, bar` → `public foo, bar` on Julia ≥ 1.11, nothing on older.
+# `public` is only parseable at module top-level on all Julia versions, so a
+# bare `@static if ...; public foo; end` would fail at parse time. Taking the
+# names through a macro sidesteps that: `foo, bar` parses as a plain tuple,
+# and we splice its members into an `Expr(:public, ...)` the lowerer accepts.
+macro public(names)
+    @static if VERSION >= v"1.11"
+        syms = names isa Symbol ? (names,) :
+               Meta.isexpr(names, :tuple) ? names.args :
+               error("@public expects a symbol or a comma-separated list of symbols")
+        return esc(Expr(:public, syms...))
+    else
+        return nothing
+    end
+end
+
+# To avoid clashes, `using LLVM` only brings `@dispose` into scope. The rest of the API is
+# public, and grouped into vocabularies that code can opt into, e.g., `using LLVM.IR` (see
+# src/vocabularies.jl). `@vocabulary IR foo, bar` marks `foo` and `bar` public, and adds
+# them to the `IR` vocabulary.
+#
+# When adding API, use `@vocabulary` instead of `export`, picking the subsystem it belongs
+# to: `IR` for the object model and its traversal and modification, `Build` for
+# constructing IR (including debug info, using the `DIBuilder`), `Passes` for passes and
+# pipelines, `ORC` for the JIT. A type and the functions that operate on it belong to the
+# same vocabulary, and a name can be part of several vocabularies when it is used by
+# several subsystems (e.g., `add!`, `dispose` or `finalize!`). Use `@public` instead for
+# functionality that should always be used qualified, like specialized subsystems
+# (targets, target machines, data layouts, the legacy execution engines). The accessors
+# that back a property are not public at all (see `@property` below).
+#
+# Only add a method to a Base function when the meaning clearly matches its documented
+# contract; e.g., LLVM's `parent` property (the containing object) is not `Base.parent`
+# (which unwraps a view), and the size of a debug info type is a property in bits, not
+# `Base.sizeof`.
+#
+# Naming: predicates are named `isfoo` or `hasfoo`, with the words concatenated when that
+# reads well (`isdeclaration`, `isopaque`, `hasjit`), and separated by underscores when it
+# doesn't (`is_acquire_or_stronger`). Other names use underscores to separate words
+# (`linking_layer_creator!`, `target_machine_builder!`, `debug_location`), except for established
+# LLVM terms and abbreviations that are written as one word (`callconv`, `datalayout`,
+# `syncscope`, `threadlocal`, `inbounds_gep!`). Functions that mirror a family of LLVM
+# names, like the instruction builders or the methods of `AbstractTargetTransformInfo`,
+# follow that family.
+const vocabularies = Dict{Symbol,Vector{Symbol}}()
+
+macro vocabulary(vocabulary::Symbol, names)
+    syms = names isa Symbol ? (names,) :
+           Meta.isexpr(names, :tuple) ? names.args :
+           error("@vocabulary expects a symbol or a comma-separated list of symbols")
+    quote
+        @public $names
+        append!(get!(vocabularies, $(QuoteNode(vocabulary)), Symbol[]),
+                $(Expr(:tuple, QuoteNode.(syms)...)))
+    end |> esc
+end
+
+# the vocabulary modules re-export bindings that are defined in LLVM: those declared using
+# `@vocabulary`, and any additional ones that are passed explicitly
+macro reexport(vocabulary::Symbol, extra::Symbol...)
+    names = unique([vocabularies[vocabulary]; extra...])
+    path = Expr(:., :., :., :LLVM)
+    imports = Expr(:import, Expr(:(:), path, (Expr(:., n) for n in names)...))
+    esc(Expr(:toplevel, imports, Expr(:export, names...)))
+end
+
+
 # helpers for wrapping the library
 
 function unsafe_message(ptr, args...)
@@ -6,7 +75,8 @@ function unsafe_message(ptr, args...)
     str
 end
 
-export CallbackException
+@vocabulary IR CallbackException
+@vocabulary ORC CallbackException
 
 """
     CallbackException
@@ -51,23 +121,6 @@ function _take_callback_exception!(state)
         exception
     end
 end
-
-# `@public foo, bar` → `public foo, bar` on Julia ≥ 1.11, nothing on older.
-# `public` is only parseable at module top-level on all Julia versions, so a
-# bare `@static if ...; public foo; end` would fail at parse time. Taking the
-# names through a macro sidesteps that: `foo, bar` parses as a plain tuple,
-# and we splice its members into an `Expr(:public, ...)` the lowerer accepts.
-macro public(names)
-    @static if VERSION >= v"1.11"
-        syms = names isa Symbol ? (names,) :
-               Meta.isexpr(names, :tuple) ? names.args :
-               error("@public expects a symbol or a comma-separated list of symbols")
-        return esc(Expr(:public, syms...))
-    else
-        return nothing
-    end
-end
-
 
 ## defining types in the LLVM type hierarchy
 
@@ -166,12 +219,29 @@ end
 # group of instructions are documented on the union type of that group, like `CallBase`, and
 # those of individual instruction types on the group they belong to, or on `Instruction`.
 #
-# The one exception is `context`, which is public because of `context()`, the task-local
-# context, and `context(::ThreadSafeContext)`. The `context` property is documented on the
-# types that have it, like other properties.
+# The one exception is `context`, which is public (and part of `LLVM.IR`) because of
+# `context()`, the task-local context, and `context(::ThreadSafeContext)`. The `context`
+# property is documented on the types that have it, like other properties.
 #
 # The root of a type hierarchy opts in using `@properties`, after which `@property`
 # declares individual properties for that type or any of its subtypes.
+#
+# When to use a property, as documented for users in the "Properties" section of the manual
+# (docs/src/man/essentials.md):
+# - Properties expose named characteristics and distinguished relationships of an object
+#   (`name`, `linkage`, `initializer`, `parent`, `terminator`). Predicates (`isX`, with
+#   their `x!` setters), collections and traversal (`operands`, `blocks`, `nextinst`), keyed
+#   or parameterized lookups (`metadata(inst)[kind]`), and operations are functions.
+# - Reading a property may perform a lookup or convert data, but must not run an analysis,
+#   traverse the IR, or construct a collection of IR objects.
+# - Declare the property on the types that support it, not on a supertype where the
+#   accessor would fail (e.g., `alignment` is only available on memory instructions).
+# - When a relationship can be absent, the accessor returns `nothing` instead of throwing.
+# - When assignment should not simply call `name!(x, v)`, pass an adapter as the setter,
+#   e.g., to replace instead of append (`inline_asm`), or to accept `nothing`
+#   (`debug_location`). If the underlying API cannot implement assignment semantics, keep
+#   the property read-only (`fast_math` can only add flags).
+# - Don't add the backing accessors to a vocabulary: the property is the preferred spelling.
 
 # the reference of wrapper objects (overridden for hierarchies whose concrete type is only
 # known at run time, to access it without dispatch)
@@ -193,7 +263,8 @@ end
     names = property_names(x, false)
     if s in names
         # the property exists, but its setter does not support this value
-        throw(ArgumentError("cannot set property `$s` of $(typeof(x)) to a value of type $(typeof(only(v)))"))
+        throw(ArgumentError("cannot set property `$s` of $(typeof(x)) to a value of type " *
+                            string(typeof(only(v)))))
     end
     error(typeof(x), " has no property `", s, "`; available properties are: ",
           join(names, ", "))

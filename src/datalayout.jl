@@ -1,10 +1,7 @@
 ## data layout
 
-export DataLayout, dispose,
-       pointersize, intptr,
-       sizeof, storage_size, abi_size,
-       abi_alignment, frame_alignment, preferred_alignment,
-       element_at, offsetof
+@public DataLayout, dispose, pointersize, intptr, storage_size, abi_size, abi_alignment,
+        frame_alignment, preferred_alignment, element_at, offsetof
 
 """
     DataLayout

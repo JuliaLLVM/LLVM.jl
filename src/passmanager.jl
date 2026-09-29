@@ -1,5 +1,5 @@
-export PassManager,
-       add!, dispose
+@vocabulary Passes PassManager,
+                   add!, dispose
 
 # subtypes are expected to have a 'ref::API.LLVMPassManagerRef' field
 abstract type PassManager end
@@ -44,7 +44,7 @@ dispose(pm::PassManager) = mark_dispose(API.LLVMDisposePassManager, pm)
 # Module pass manager
 #
 
-export ModulePassManager, run!
+@vocabulary Passes ModulePassManager, run!
 
 @checked struct ModulePassManager <: PassManager
     ref::API.LLVMPassManagerRef
@@ -71,8 +71,8 @@ run!(mpm::ModulePassManager, mod::Module) =
 # Function pass manager
 #
 
-export FunctionPassManager,
-       initialize!, finalize!, run!
+@vocabulary Passes FunctionPassManager,
+                   initialize!, finalize!, run!
 
 @checked struct FunctionPassManager <: PassManager
     ref::API.LLVMPassManagerRef

@@ -78,7 +78,7 @@ end
             end
 
             mod.triple = jljit.triple
-            @dispose pm=ModulePassManager() tm=JITTargetMachine() begin
+            @dispose pm=ModulePassManager() tm=LLVM.JITTargetMachine() begin
                 # TODO: Get TM from jljit?
                 add_library_info!(pm, mod.triple)
                 add_transform_info!(pm, tm)
@@ -139,7 +139,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 end
                 verify(mod)
 
-                @dispose tm=JITTargetMachine() begin
+                @dispose tm=LLVM.JITTargetMachine() begin
                     emit(tm, mod, LLVM.API.LLVMObjectFile)
                 end
             end
@@ -170,7 +170,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 end
                 verify(mod)
 
-                @dispose tm=JITTargetMachine() begin
+                @dispose tm=LLVM.JITTargetMachine() begin
                     emit(tm, mod, LLVM.API.LLVMObjectFile)
                 end
             end

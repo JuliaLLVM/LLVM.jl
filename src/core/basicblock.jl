@@ -1,5 +1,5 @@
-export BasicBlock, remove!, erase!,
-       move_before, move_after
+@vocabulary IR BasicBlock, remove!, erase!,
+               move_before, move_after
 
 """
     BasicBlock
@@ -110,7 +110,7 @@ move_after(bb::BasicBlock, pos::BasicBlock) =
 
 ## instruction iteration
 
-export instructions, previnst, nextinst
+@vocabulary IR instructions, previnst, nextinst
 
 struct BasicBlockInstructionSet
     bb::BasicBlock
@@ -174,7 +174,7 @@ end
 
 ## cfg-like operations
 
-export predecessors, successors
+@vocabulary IR predecessors, successors
 
 """
     predecessors(bb::BasicBlock)

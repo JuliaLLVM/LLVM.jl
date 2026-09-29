@@ -1,7 +1,7 @@
 # The bulk of LLVM's object model consists of values, which comprise a very rich type
 # hierarchy.
 
-export Value
+@vocabulary IR Value
 
 """
     LLVM.Value
@@ -85,7 +85,7 @@ end
 
 ## general APIs
 
-export isconstant, isundef, ispoison, context
+@vocabulary IR isconstant, isundef, ispoison, context
 
 value_type(val::Value) = LLVMType(API.LLVMTypeOf(val))
 
@@ -153,7 +153,7 @@ include("value/constant.jl")
 
 ## usage
 
-export replace_uses!, replace_metadata_uses!, Use
+@vocabulary IR replace_uses!, replace_metadata_uses!, Use
 
 """
     replace_uses!(old::LLVM.Value, new::LLVM.Value)
@@ -233,7 +233,7 @@ value(use::Use) = Value(API.LLVMGetUsedValue(use))
 
 # use iteration
 
-export uses
+@vocabulary IR uses
 
 struct ValueUseSet
     val::Value

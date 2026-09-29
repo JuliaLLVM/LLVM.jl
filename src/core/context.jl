@@ -1,6 +1,6 @@
 # Contexts are execution states for the core LLVM IR system.
 
-export Context, dispose
+@vocabulary IR Context, dispose
 
 """
     LLVM.Context
@@ -93,7 +93,7 @@ end
 
 ## opaque pointer handling
 
-export supports_typed_pointers
+@vocabulary IR supports_typed_pointers
 
 """
     supports_typed_pointers()
@@ -135,7 +135,7 @@ end
 
 ## wrapper exception type
 
-export LLVMException
+@vocabulary IR LLVMException
 
 """
     LLVMException

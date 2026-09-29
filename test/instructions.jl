@@ -796,8 +796,8 @@ end
     # optimize
     function optimize(mod)
         host_triple = LLVM.default_triple()
-        host_t = Target(triple=host_triple)
-        @dispose tm=TargetMachine(host_t, host_triple) begin
+        host_t = LLVM.Target(triple=host_triple)
+        @dispose tm=LLVM.TargetMachine(host_t, host_triple) begin
             run!("default<O3>", mod, tm)
         end
     end

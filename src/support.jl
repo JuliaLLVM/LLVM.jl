@@ -1,5 +1,7 @@
 ## support routines
 
+@public clopts
+
 """
     clopts(opts...)
 

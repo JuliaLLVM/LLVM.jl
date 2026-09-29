@@ -2,7 +2,7 @@
 
 using Test
 
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build
 using LLVM.Interop
 
 if length(ARGS) == 2

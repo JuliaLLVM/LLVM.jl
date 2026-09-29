@@ -1,9 +1,9 @@
 # Attributes that can be associated with parameters, function results, or the function
 # itself.
 
-export Attribute,
-       EnumAttribute, StringAttribute, TypeAttribute,
-       ConstantRangeAttribute, ConstantRangeListAttribute
+@vocabulary IR Attribute,
+               EnumAttribute, StringAttribute, TypeAttribute,
+               ConstantRangeAttribute, ConstantRangeListAttribute
 
 abstract type Attribute end
 @properties Attribute
@@ -126,7 +126,7 @@ kind(attr::ConstantRangeListAttribute) = API.LLVMGetEnumAttributeKind(attr)
 
 ## memory effects
 
-export MemoryEffects
+@vocabulary IR MemoryEffects
 
 """
     MemoryEffects(default::Symbol=:none; argmem, inaccessiblemem, errnomem, other, ...)

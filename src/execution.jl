@@ -3,7 +3,7 @@
 # TODO: this is a _very_ ugly wrapper, but hard to improve since we can't deduce the type
 #       of a GenericValue, and need to pass concrete LLVM type objects to the API
 
-export GenericValue, dispose
+@public GenericValue, dispose
 
 """
     GenericValue
@@ -110,8 +110,7 @@ Base.convert(::Type{Ptr{T}}, val::GenericValue) where {T} =
 
 ## execution engine
 
-export Interpreter, JIT,
-       run, lookup
+@public Interpreter, JIT, lookup
 
 """
     LLVM.ExecutionEngine
@@ -122,6 +121,7 @@ An execution engine that can run functions in a module.
     ref::API.LLVMExecutionEngineRef
     mods::Set{Module}
 end
+@public ExecutionEngine
 
 Base.unsafe_convert(::Type{API.LLVMExecutionEngineRef}, engine::ExecutionEngine) =
     mark_use(engine).ref
@@ -258,7 +258,7 @@ end
 
 # function lookup
 
-export functions
+@public functions
 
 struct ExecutionEngineFunctionSet
     engine::ExecutionEngine
@@ -297,8 +297,8 @@ end
 
 # event listeners
 
-export GDBRegistrationListener, IntelJITEventListener,
-       OProfileJITEventListener, PerfJITEventListener
+@vocabulary ORC GDBRegistrationListener, IntelJITEventListener,
+                OProfileJITEventListener, PerfJITEventListener
 
 @checked struct JITEventListener
     ref::API.LLVMJITEventListenerRef

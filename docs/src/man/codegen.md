@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -13,15 +13,18 @@ end
 To generate native code from an LLVM module, you need to create a target, a target machine,
 and use those objects to call the `emit` function to generate machine code.
 
+The functionality on this page is not part of any of the vocabularies, so it is used
+qualified, e.g., `LLVM.TargetMachine`.
+
 
 ## Targets
 
 In LLVM, targets represent a specific architecture, such as `x86_64`, or `aarch64`. You
-can inspect the available targets using the `targets` function:
+can inspect the available targets using the `LLVM.targets` function:
 
 ```julia-repl
-julia> collect(targets())
-5-element Vector{Target}:
+julia> collect(LLVM.targets())
+5-element Vector{LLVM.Target}:
  LLVM.Target(aarch64_32): AArch64 (little endian ILP32)
  LLVM.Target(aarch64_be): AArch64 (big endian)
  LLVM.Target(aarch64): AArch64 (little endian)
@@ -43,12 +46,12 @@ Alternatively, targets can also be constructed by name or by triple (again, assu
 necessary bits in LLVM have been initialized):
 
 ```jldoctest target
-julia> target = Target(; name="wasm64")
+julia> target = LLVM.Target(; name="wasm64")
 LLVM.Target(wasm64): WebAssembly 64-bit
 
 julia> triple = "wasm64-unknown-unknown";
 
-julia> target = Target(; triple)
+julia> target = LLVM.Target(; triple)
 LLVM.Target(wasm64): WebAssembly 64-bit
 ```
 
@@ -56,9 +59,9 @@ With these objects, a number of APIs are available:
 
 - `target.name`: the target's name
 - `target.description`: a textual description of the target
-- `hasjit`: whether the target has a JIT
-- `hastargetmachine`: whether the target has a target machine
-- `hasasmparser`: whether the target has an assembly parser
+- `LLVM.hasjit`: whether the target has a JIT
+- `LLVM.hastargetmachine`: whether the target has a target machine
+- `LLVM.hasasmparser`: whether the target has an assembly parser
 
 
 ## Target machines
@@ -72,7 +75,7 @@ julia> LLVM.InitializeWebAssemblyTarget();
 
 julia> LLVM.InitializeWebAssemblyTargetMC();
 
-julia> tm = TargetMachine(target, triple);
+julia> tm = LLVM.TargetMachine(target, triple);
 ```
 
 The target machine constructor takes various additional options too:
@@ -97,7 +100,7 @@ julia> mod = LLVM.Module("SomeModule");
 
 julia> LLVM.InitializeWebAssemblyAsmPrinter()
 
-julia> String(emit(tm, mod, LLVM.API.LLVMAssemblyFile)) |> println
+julia> String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile)) |> println
 	.text
 	.file	"SomeModule"
 	.section	.custom_section.target_features,"",@
@@ -126,10 +129,10 @@ To create a data layout object, you call the `DataLayout` constructor, either sp
 the data layout string directly, or by inferring it from a target machine
 
 ```jldoctest target
-julia> DataLayout(tm)
+julia> LLVM.DataLayout(tm)
 DataLayout(e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20)
 
-julia> dl = DataLayout("e-m:e-p:64:64-i64:64-n32:64-S128");
+julia> dl = LLVM.DataLayout("e-m:e-p:64:64-i64:64-n32:64-S128");
 ```
 
 An IR module can now be configured with this data layout:
@@ -176,7 +179,7 @@ julia> LLVM.InitializeWebAssemblyTargetMC()
 
 julia> LLVM.InitializeWebAssemblyDisassembler()
 
-julia> dis = Disassembler("wasm32-unknown-unknown");
+julia> dis = LLVM.Disassembler("wasm32-unknown-unknown");
 ```
 
 Like the target machine constructor, the disassembler constructor also takes `cpu` and
@@ -194,7 +197,7 @@ bytes could not be decoded):
 julia> code = UInt8[0x41, 0x2a,  # i32.const 42
                     0x0b];       # end
 
-julia> for (; address, size, text) in disassemble(dis, code; address=0x100)
+julia> for (; address, size, text) in LLVM.disassemble(dis, code; address=0x100)
            println(string(address; base=16), " (", size, "):", text)
        end
 100 (2):	i32.const	42
@@ -204,7 +207,7 @@ julia> for (; address, size, text) in disassemble(dis, code; address=0x100)
 Alternatively, the instructions can be printed directly:
 
 ```jldoctest disasm
-julia> disassemble(stdout, dis, code)
+julia> LLVM.disassemble(stdout, dis, code)
 	i32.const	42
 	end
 

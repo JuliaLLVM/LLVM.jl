@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -119,7 +119,7 @@ julia> StringAttribute("frame-pointer", "none")
 StringAttribute frame-pointer=none
 
 julia> TypeAttribute("byval", LLVM.Int32Type())
-TypeAttribute 74=LLVM.IntegerType(i32)
+TypeAttribute 74=IntegerType(i32)
 ```
 
 ### Memory effects
@@ -168,7 +168,7 @@ julia> collect(parameters(fun))
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()

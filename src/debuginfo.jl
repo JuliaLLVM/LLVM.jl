@@ -1,6 +1,6 @@
 ## debug info builder
 
-export DIBuilder
+@vocabulary Build DIBuilder, finalize!
 
 """
     DIBuilder
@@ -82,7 +82,7 @@ end
 
 ## nodes
 
-export DINode
+@vocabulary IR DINode
 
 """
     DINode
@@ -107,7 +107,7 @@ line_number(x::Cuint) = x == typemax(Cuint) ? -1 : Int(x)
 
 ## variables
 
-export DIVariable
+@vocabulary IR DIVariable
 
 """
     DIVariable
@@ -157,6 +157,8 @@ A global variable in the source code.
 """
 DIGlobalVariable
 
+@vocabulary IR DILocalVariable, DIGlobalVariable
+
 function file(var::DIVariable)
     ref = API.LLVMDIVariableGetFile(var)
     ref == C_NULL ? nothing : Metadata(ref)::DIFile
@@ -176,7 +178,7 @@ line(var::DIVariable) = line_number(API.LLVMDIVariableGetLine(var))
 
 ## scopes
 
-export DIScope
+@vocabulary IR DIScope
 
 """
     DIScope
@@ -214,7 +216,7 @@ abstract type DILocalScope <: DIScope end
 
 ## location information
 
-export DILocation
+@vocabulary IR DILocation
 
 """
     DILocation
@@ -283,8 +285,8 @@ end
 
 ## file
 
-export DIFile
-@public file!
+@vocabulary IR DIFile
+@vocabulary Build file!
 
 """
     DIFile
@@ -352,8 +354,8 @@ end
 
 ## type
 
-export DIType, DIEnumerator, DISubrange
-@public basic_type!, unspecified_type!, pointer_type!, reference_type!, nullptr_type!,
+@vocabulary IR DIType, DIEnumerator, DISubrange
+@vocabulary Build basic_type!, unspecified_type!, pointer_type!, reference_type!, nullptr_type!,
         typedef_type!, qualified_type!, artificial_type!, object_pointer_type!,
         inheritance!, member_type!, bitfield_member_type!, static_member_type!,
         member_pointer_type!, struct_type!, union_type!, class_type!, array_type!,
@@ -441,6 +443,8 @@ A function/subroutine type, listing the return and parameter types. Built
 with [`subroutine_type!`](@ref).
 """
 DISubroutineType
+
+@vocabulary IR DIBasicType, DIDerivedType, DICompositeType, DISubroutineType
 
 """
     DIEnumerator
@@ -581,7 +585,7 @@ function qualified_type!(builder::DIBuilder, tag::Integer, type::DIType)
     DIDerivedType(API.LLVMDIBuilderCreateQualifiedType(builder, Cuint(tag), type))
 end
 
-@public const_type!, volatile_type!, lvalue_reference_type!, rvalue_reference_type!
+@vocabulary Build const_type!, volatile_type!, lvalue_reference_type!, rvalue_reference_type!
 
 # DWARF tag values used by the convenience wrappers below. Not exported; part
 # of a wider DWARF-constants cleanup.
@@ -973,7 +977,7 @@ end
 
 # subrange / array helpers
 
-@public get_or_create_array!, get_or_create_type_array!
+@vocabulary Build get_or_create_array!, get_or_create_type_array!
 
 """
     get_or_create_subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer)
@@ -1010,8 +1014,8 @@ end
 
 # ObjC
 
-export DIObjCProperty
-@public objc_ivar!, objc_property!
+@vocabulary IR DIObjCProperty
+@vocabulary Build objc_ivar!, objc_property!
 
 """
     DIObjCProperty
@@ -1065,8 +1069,8 @@ end
 
 @static if version() >= v"21"
 
-export DISubrangeType
-@public set_type!, subrange_type!, dynamic_array_type!, enumerator_arbitrary!
+@vocabulary IR DISubrangeType
+@vocabulary Build set_type!, subrange_type!, dynamic_array_type!, enumerator_arbitrary!
 
 """
     DISubrangeType <: DIType
@@ -1177,8 +1181,8 @@ end # @static if version() >= v"21"
 
 ## subprogram
 
-export DISubProgram
-@public subprogram!, finalize_subprogram!
+@vocabulary IR DISubProgram
+@vocabulary Build subprogram!, finalize_subprogram!
 
 """
     DISubProgram
@@ -1247,8 +1251,8 @@ finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
 
 ## compile unit
 
-export DICompileUnit
-@public compile_unit!
+@vocabulary IR DICompileUnit
+@vocabulary Build compile_unit!
 
 """
     DICompileUnit
@@ -1308,8 +1312,8 @@ end
 
 ## module
 
-export DIModule
-@public dimodule!
+@vocabulary IR DIModule
+@vocabulary Build dimodule!
 
 """
     DIModule
@@ -1343,7 +1347,7 @@ end
 
 ## variable factories
 
-@public auto_variable!, parameter_variable!
+@vocabulary Build auto_variable!, parameter_variable!
 
 """
     auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
@@ -1386,8 +1390,8 @@ end
 
 ## expression
 
-export DIExpression, DIGlobalVariableExpression
-@public expression!, constant_value_expression!
+@vocabulary IR DIExpression, DIGlobalVariableExpression
+@vocabulary Build expression!, constant_value_expression!
 
 """
     DIExpression
@@ -1458,7 +1462,7 @@ end
 
 ## global variable
 
-@public global_variable_expression!, temp_global_variable_fwd_decl!
+@vocabulary Build global_variable_expression!, temp_global_variable_fwd_decl!
 
 """
     global_variable_expression!(builder::DIBuilder, scope::DIScope,
@@ -1509,8 +1513,8 @@ end
 
 ## lexical block
 
-export DILexicalBlock, DILexicalBlockFile
-@public lexical_block!, lexical_block_file!
+@vocabulary IR DILexicalBlock, DILexicalBlockFile
+@vocabulary Build lexical_block!, lexical_block_file!
 
 """
     DILexicalBlock
@@ -1560,8 +1564,8 @@ end
 
 ## namespace
 
-export DINamespace
-@public namespace!
+@vocabulary IR DINamespace
+@vocabulary Build namespace!
 
 """
     DINamespace
@@ -1590,7 +1594,7 @@ end
 
 ## instruction insertion
 
-@public declare_before!, declare_at_end!, value_before!, value_at_end!
+@vocabulary Build declare_before!, declare_at_end!, value_before!, value_at_end!
 
 """
     declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
@@ -1637,7 +1641,7 @@ value_at_end!
 
 @static if version() >= v"19"
 
-export DbgRecord
+@vocabulary IR DbgRecord
 
 """
     DbgRecord
@@ -1697,7 +1701,7 @@ end
 
 # record iteration
 
-export debug_records
+@vocabulary IR debug_records
 
 struct DbgRecordIterator
     inst::Instruction
@@ -1734,7 +1738,7 @@ end
 
 # record inspection
 
-@public location_operands
+@vocabulary IR location_operands
 
 kind(record::DbgRecord) = API.LLVMDbgRecordGetKind(record)
 
@@ -1838,8 +1842,8 @@ end # @static version check
 
 @static if version() >= v"20"
 
-export DILabel
-@public label!, label_before!, label_at_end!
+@vocabulary IR DILabel
+@vocabulary Build label!, label_before!, label_at_end!
 
 """
     DILabel
@@ -1892,8 +1896,8 @@ end # @static version check
 
 ## imported entity
 
-export DIImportedEntity
-@public imported_module_from_namespace!, imported_module_from_alias!,
+@vocabulary IR DIImportedEntity
+@vocabulary Build imported_module_from_namespace!, imported_module_from_alias!,
         imported_module_from_module!, imported_declaration!
 
 """
@@ -1972,8 +1976,8 @@ end
 
 ## macro
 
-export DIMacro, DIMacroFile
-@public macro!, temp_macro_file!
+@vocabulary IR DIMacro, DIMacroFile
+@vocabulary Build macro!, temp_macro_file!
 
 """
     DIMacro
@@ -2045,7 +2049,7 @@ debug_location!(inst::Instruction) =
 
 ## mutation / advanced helpers
 
-@public temporary_mdnode, dispose_temporary
+@vocabulary IR temporary_mdnode, dispose_temporary
 
 """
     temporary_mdnode(operands::Vector{<:Metadata}=Metadata[]) -> MDNode
@@ -2080,7 +2084,7 @@ replace_uses!(temp::Metadata, replacement::Metadata) =
 
 @static if version() >= v"21"
 
-@public replace_arrays!, replace_type!
+@vocabulary Build replace_arrays!, replace_type!
 
 """
     replace_arrays!(builder::DIBuilder, T::DICompositeType,
@@ -2109,7 +2113,7 @@ end # @static version check
 
 ## other
 
-export DEBUG_METADATA_VERSION, strip_debuginfo!
+@vocabulary IR DEBUG_METADATA_VERSION, strip_debuginfo!
 
 """
     DEBUG_METADATA_VERSION()

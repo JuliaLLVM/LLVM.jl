@@ -1,4 +1,5 @@
 using Documenter, LLVM
+using LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
 function main()
     ci = get(ENV, "CI", "") == "true"

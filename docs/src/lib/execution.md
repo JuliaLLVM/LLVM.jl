@@ -3,41 +3,41 @@
 ## Generic Value
 
 ```@docs
-GenericValue
-dispose(::GenericValue)
+LLVM.GenericValue
+dispose(::LLVM.GenericValue)
 ```
 
 ### Integer
 
 ```@docs
-GenericValue(::LLVM.IntegerType, ::Integer)
-convert(::Type{T}, val::GenericValue) where {T <: Integer}
+LLVM.GenericValue(::LLVM.IntegerType, ::Integer)
+convert(::Type{T}, val::LLVM.GenericValue) where {T <: Integer}
 ```
 
 ## Floating Point
 
 ```@docs
-GenericValue(::LLVM.FloatingPointType, ::AbstractFloat)
-convert(::Type{T}, val::GenericValue, typ::LLVMType) where {T<:AbstractFloat}
+LLVM.GenericValue(::LLVM.FloatingPointType, ::AbstractFloat)
+convert(::Type{T}, val::LLVM.GenericValue, typ::LLVMType) where {T<:AbstractFloat}
 ```
 
 ## Pointer
 
 ```@docs
-GenericValue(::Ptr)
-convert(::Type{Ptr{T}}, ::GenericValue) where T
+LLVM.GenericValue(::Ptr)
+convert(::Type{Ptr{T}}, ::LLVM.GenericValue) where T
 ```
 
 ## MCJIT
 
 ```@docs
 LLVM.ExecutionEngine
-Interpreter
-JIT
+LLVM.Interpreter
+LLVM.JIT
 dispose(::LLVM.ExecutionEngine)
 Base.push!(::LLVM.ExecutionEngine, ::LLVM.Module)
 Base.delete!(::LLVM.ExecutionEngine, ::LLVM.Module)
-run(::LLVM.ExecutionEngine, ::LLVM.Function, ::Vector{GenericValue})
+run(::LLVM.ExecutionEngine, ::LLVM.Function, ::Vector{LLVM.GenericValue})
 lookup(::LLVM.ExecutionEngine, ::String)
 functions(::LLVM.ExecutionEngine)
 ```
@@ -136,6 +136,6 @@ LLVM.LocalIndirectStubsManager
 ### Callback errors
 
 ```@docs
-CallbackException
+LLVM.CallbackException
 LLVM.check_callback_error
 ```

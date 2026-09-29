@@ -5,8 +5,8 @@
 # concrete type of their operands (which would compile them for every combination).
 @nospecialize
 
-export IRBuilder,
-       position!
+@vocabulary Build IRBuilder,
+                  position!
 
 """
     IRBuilder
@@ -130,28 +130,29 @@ debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
 # NOTE: the return values for these operations are, according to the C API, always a Value.
 #       however, the C++ API learns us that we can be more strict.
 
-export ret!, br!, switch!, indirectbr!, invoke!, resume!, unreachable!,
+@vocabulary Build ret!, br!, switch!, indirectbr!, invoke!, resume!, unreachable!,
 
-       binop!, add!, nswadd!, nuwadd!, fadd!, sub!, nswsub!, nuwsub!, fsub!, mul!, nswmul!,
-       nuwmul!, fmul!, udiv!, sdiv!, exactsdiv!, fdiv!, urem!, srem!, frem!, neg!, nswneg!,
-       fneg!,
+                  binop!, add!, nswadd!, nuwadd!, fadd!, sub!, nswsub!, nuwsub!, fsub!,
+                  mul!, nswmul!, nuwmul!, fmul!, udiv!, sdiv!, exactsdiv!, fdiv!, urem!,
+                  srem!, frem!, neg!, nswneg!, fneg!,
 
-       shl!, lshr!, ashr!, and!, or!, xor!, not!,
+                  shl!, lshr!, ashr!, and!, or!, xor!, not!,
 
-       extract_element!, insert_element!, shuffle_vector!,
+                  extract_element!, insert_element!, shuffle_vector!,
 
-       extract_value!, insert_value!,
+                  extract_value!, insert_value!,
 
-       alloca!, array_alloca!, malloc!, array_malloc!, memset!, memcpy!, memmove!, free!,
-       load!, store!, fence!, atomic_rmw!, atomic_cmpxchg!, gep!, inbounds_gep!, struct_gep!,
+                  alloca!, array_alloca!, malloc!, array_malloc!, memset!, memcpy!,
+                  memmove!, free!, load!, store!, fence!, atomic_rmw!, atomic_cmpxchg!,
+                  gep!, inbounds_gep!, struct_gep!,
 
-       trunc!, zext!, sext!, fptoui!, fptosi!, uitofp!, sitofp!, fptrunc!, fpext!,
-       ptrtoint!, inttoptr!, bitcast!, addrspacecast!, zextorbitcast!, sextorbitcast!,
-       truncorbitcast!, cast!, pointercast!, intcast!, fpcast!,
+                  trunc!, zext!, sext!, fptoui!, fptosi!, uitofp!, sitofp!, fptrunc!,
+                  fpext!, ptrtoint!, inttoptr!, bitcast!, addrspacecast!, zextorbitcast!,
+                  sextorbitcast!, truncorbitcast!, cast!, pointercast!, intcast!, fpcast!,
 
-       icmp!, fcmp!, phi!, select!, call!, va_arg!, landingpad!,
+                  icmp!, fcmp!, phi!, select!, call!, va_arg!, landingpad!,
 
-       globalstring!, globalstring_ptr!, isnull!, isnotnull!, ptrdiff!
+                  globalstring!, globalstring_ptr!, isnull!, isnotnull!, ptrdiff!
 
 
 # terminator instructions

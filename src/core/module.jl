@@ -1,7 +1,7 @@
 # Modules represent the top-level structure in an LLVM program.
 
-export dispose, context,
-       set_used!, set_compiler_used!, append_inline_asm!
+@vocabulary IR dispose, context,
+               set_used!, set_compiler_used!, append_inline_asm!
 
 """
     LLVM.Module
@@ -302,7 +302,7 @@ end
 
 ## global variable iteration
 
-export globals, prevglobal, nextglobal
+@vocabulary IR globals, prevglobal, nextglobal
 
 struct ModuleGlobalSet
     mod::Module
@@ -393,7 +393,7 @@ end
 
 ## function iteration
 
-export functions, prevfun, nextfun
+@vocabulary IR functions, prevfun, nextfun
 
 struct ModuleFunctionSet
     mod::Module
@@ -480,7 +480,7 @@ end
 
 ## global alias iteration
 
-export aliases, prevalias, nextalias
+@vocabulary IR aliases, prevalias, nextalias
 
 struct ModuleAliasSet
     mod::Module
@@ -555,7 +555,7 @@ end
 
 ## ifunc iteration
 
-export ifuncs, previfunc, nextifunc
+@vocabulary IR ifuncs, previfunc, nextifunc
 
 struct ModuleIFuncSet
     mod::Module
@@ -631,7 +631,7 @@ end
 ## module flag iteration
 # TODO: doesn't actually iterate, since we can't list the available keys
 
-export module_flags
+@vocabulary IR module_flags
 
 struct ModuleFlagDict <: AbstractDict{String,Metadata}
     mod::Module

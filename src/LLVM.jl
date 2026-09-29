@@ -22,10 +22,9 @@ module API
 using CEnum
 using Preferences
 
-using ..LLVM
-
 # library handles
-using ..LLVM: libllvm
+import ..LLVM
+using ..LLVM: libllvm, version
 using LLVMExtra_jll
 if has_preference(LLVM, "libLLVMExtra")
     const libLLVMExtra = load_preference(LLVM, "libLLVMExtra")
@@ -109,6 +108,7 @@ include("newpm.jl")
 
 # high-level functionality
 include("state.jl")
+include("vocabularies.jl")
 include("interop.jl")
 
 include("precompile.jl")

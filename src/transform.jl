@@ -1,9 +1,9 @@
 ## pass manager builder
 
-export PassManagerBuilder, dispose,
-       optlevel!, sizelevel!,
-       unit_at_a_time!, unroll_loops!, simplify_libcalls!, inliner!,
-       populate!
+@vocabulary Passes PassManagerBuilder, dispose,
+                   optlevel!, sizelevel!,
+                   unit_at_a_time!, unroll_loops!, simplify_libcalls!, inliner!,
+                   populate!
 
 @checked struct PassManagerBuilder
     ref::API.LLVMPassManagerBuilderRef
@@ -79,7 +79,7 @@ function define_transforms(transforms, available=true; exported=true)
         jl_fname = Symbol(join(lowercase.(groups), '_'), '!')
 
         if available
-            exported && @eval export $jl_fname
+            exported && @eval @vocabulary Passes $jl_fname
             @eval begin
                 $jl_fname(pm::PassManager) = API.$api_fname(pm)
             end
@@ -106,7 +106,7 @@ define_transforms([
     :MergeFunctions, :SpeculativeExecutionIfHasBranchDivergence, :SimpleLoopUnroll,
     :InductiveRangeCheckElimination, :SimpleLoopUnswitchLegacy,
 ])
-export scalar_repl_aggregates!, scalar_repl_aggregates_ssa!, cfgsimplification!
+@vocabulary Passes scalar_repl_aggregates!, scalar_repl_aggregates_ssa!, cfgsimplification!
 
 scalar_repl_aggregates!(pm::PassManager, threshold::Integer) =
     API.LLVMAddScalarReplAggregatesPassWithThreshold(pm, Cint(threshold))
@@ -165,7 +165,7 @@ define_transforms([:ExpandReductions])
 
 ## other
 
-export internalize!
+@vocabulary Passes internalize!
 
 internalize!(pm::PassManager, allbutmain::Bool=true) =
     API.LLVMAddInternalizePass(pm, allbutmain)

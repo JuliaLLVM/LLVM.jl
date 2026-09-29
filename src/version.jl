@@ -1,6 +1,6 @@
 # Version management
 
-export version
+@public version
 
 version() = libllvm_version
 

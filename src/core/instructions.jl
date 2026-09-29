@@ -1,4 +1,4 @@
-export Instruction, remove!, erase!
+@vocabulary IR Instruction, remove!, erase!
 
 """
     Instruction
@@ -149,6 +149,7 @@ for op in opcodes
         register($typename, API.$enum)
     end
 end
+@eval @vocabulary IR $(Expr(:tuple, (Symbol(op, :Inst) for op in opcodes)...))
 
 
 ## comparisons
@@ -161,10 +162,12 @@ predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
 
 ## atomics
 
-export isatomic, SyncScope,
-       isweak, weak!, isvolatile, volatile!,
-       is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
-       strongest_failure_ordering, mmra!, copy_atomic_metadata!
+@vocabulary IR isatomic, SyncScope,
+               isweak, weak!, isvolatile, volatile!,
+               is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
+               strongest_failure_ordering, mmra!, copy_atomic_metadata!
+
+@vocabulary IR AtomicInst
 
 """
     LLVM.AtomicInst
@@ -489,6 +492,7 @@ function isavailable(op::API.LLVMAtomicRMWBinOp)
     since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)
     since !== nothing && version() >= since
 end
+@public isavailable
 
 """
     isweak(inst::AtomicCmpXchgInst)
@@ -593,6 +597,8 @@ end
 ## call sites and invocations
 
 # TODO: add this to the actual type hierarchy
+@vocabulary IR CallBase
+
 """
     LLVM.CallBase
 
@@ -620,7 +626,7 @@ available too.
 """
 const CallBase = Union{CallBrInst, CallInst, InvokeInst}
 
-export istailcall, tailcall!, arguments
+@vocabulary IR istailcall, tailcall!, arguments
 
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
@@ -668,7 +674,7 @@ end
 
 # attributes
 
-export function_attributes, argument_attributes, return_attributes
+@vocabulary IR function_attributes, argument_attributes, return_attributes
 
 struct CallSiteAttrSet
     instr::LLVM.CallBase
@@ -749,7 +755,7 @@ end
 
 # operand bundles
 
-export OperandBundle, operand_bundles, inputs
+@vocabulary IR OperandBundle, operand_bundles, inputs
 
 # NOTE: OperandBundle objects aren't LLVM IR objects, but created by the C API wrapper,
 #       so we need to free them explicitly when we get or create them.
@@ -851,7 +857,7 @@ Base.show(io::IO, bundle::OperandBundle) =
 
 ## terminators
 
-export isterminator, isconditional
+@vocabulary IR isterminator, isconditional
 
 """
     isterminator(inst::Instruction)
@@ -877,7 +883,7 @@ default_dest(switch::SwitchInst) = BasicBlock(API.LLVMGetSwitchDefaultDest(switc
 
 @property SwitchInst default_dest
 
-export case_value, case_value!
+@vocabulary IR case_value, case_value!
 
 """
     case_value(switch::SwitchInst, i::Integer)
@@ -906,7 +912,7 @@ end
 
 # successor iteration
 
-export successors
+@vocabulary IR successors
 
 struct TerminatorSuccessorSet <: AbstractVector{BasicBlock}
     term::Instruction
@@ -939,7 +945,7 @@ Base.setindex!(iter::TerminatorSuccessorSet, bb::BasicBlock, i::Int) =
 
 # incoming iteration
 
-export incoming
+@vocabulary IR incoming
 
 struct PhiIncomingSet <: AbstractVector{Tuple{Value,BasicBlock}}
     phi::Instruction
@@ -976,8 +982,8 @@ Base.push!(iter::PhiIncomingSet, args::Tuple{<:Value, BasicBlock}) = append!(ite
 
 ## poison-generating flags
 
-export hasnuw, nuw!, hasnsw, nsw!, isexact, exact!, hasdisjoint, disjoint!,
-       hasnneg, nneg!, hassamesign, samesign!
+@vocabulary IR hasnuw, nuw!, hasnsw, nsw!, isexact, exact!, hasdisjoint, disjoint!,
+               hasnneg, nneg!, hassamesign, samesign!
 
 # which instructions support each flag, depending on the version of LLVM
 supports_nuw(inst::Instruction) =
@@ -1132,7 +1138,7 @@ end
 
 ## floating point operations
 
-export fast_math!
+@vocabulary IR fast_math!
 
 function fast_math(inst::Instruction)
     if !Bool(API.LLVMCanValueUseFastMathFlags(inst))
@@ -1190,6 +1196,8 @@ end
 
 
 ## alignment
+
+@vocabulary IR AlignedInst
 
 """
     LLVM.AlignedInst

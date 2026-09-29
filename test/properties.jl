@@ -156,3 +156,26 @@ end
         @test measure(sum_refs, vals) == 0
     end
 end
+
+@testset "vocabularies" begin
+    # `using LLVM` only exports `@dispose`
+    @test filter(n -> Base.isexported(LLVM, n), names(LLVM)) == [Symbol("@dispose"), :LLVM]
+
+    # the vocabularies re-export LLVM's bindings
+    # including the instruction types, and the groups of instructions that have properties
+    @test LLVM.IR.CallInst === LLVM.CallInst
+    for name in (:CallBase, :AtomicInst, :AlignedInst)
+        @test Base.isexported(LLVM.IR, name)
+    end
+    @test LLVM.IR.functions === LLVM.functions
+    @test LLVM.Build.add! === LLVM.Passes.add! === LLVM.ORC.add! === LLVM.add!
+    @test !Base.isexported(LLVM, :IR)
+    @static if VERSION >= v"1.11"
+        @test Base.ispublic(LLVM, :IR)
+    end
+
+    # accessors that back properties are not part of any vocabulary
+    for vocab in (LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC), name in (:name, :parent, :entry)
+        @test !Base.isexported(vocab, name)
+    end
+end

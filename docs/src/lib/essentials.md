@@ -1,5 +1,14 @@
 # Essentials
 
+## Vocabularies
+
+```@docs
+LLVM.IR
+LLVM.Build
+LLVM.Passes
+LLVM.ORC
+```
+
 ## Initialization
 
 ```@docs

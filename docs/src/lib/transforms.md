@@ -24,7 +24,7 @@ register!
 ## Custom target info
 
 ```@docs
-AbstractTargetTransformInfo
+LLVM.AbstractTargetTransformInfo
 target_transform_info!
 LLVM.flat_address_space
 LLVM.has_branch_divergence

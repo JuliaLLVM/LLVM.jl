@@ -3,8 +3,8 @@
 
 ## pass managers
 
-export NewPMModulePassManager, NewPMCGSCCPassManager, NewPMFunctionPassManager,
-       NewPMLoopPassManager, NewPMAAManager
+@vocabulary Passes NewPMModulePassManager, NewPMCGSCCPassManager, NewPMFunctionPassManager,
+                   NewPMLoopPassManager, NewPMAAManager
 
 abstract type AbstractPassManager end
 
@@ -52,6 +52,7 @@ struct NewPMPassManager <: AbstractPassManager
 
     NewPMPassManager(type::String) = new(type, [])
 end
+@vocabulary Passes NewPMPassManager
 
 Base.string(pm::NewPMPassManager) = "$(pm.type)($(join(pm.passes, ",")))"
 
@@ -80,7 +81,7 @@ NewPMLoopPassManager(; use_memory_ssa=false) =
 
 # TODO: support for options
 
-export NewPMModulePass, NewPMFunctionPass
+@vocabulary Passes NewPMModulePass, NewPMFunctionPass
 
 """
     NewPMModulePass(name, callback)
@@ -105,6 +106,7 @@ struct NewPMCustomPass
   name::String
   callback::Any
 end
+@vocabulary Passes NewPMCustomPass
 
 Base.string(pass::NewPMCustomPass) = pass.name
 
@@ -122,7 +124,7 @@ mutable struct CustomPassState
 end
 
 # Exception type to preserve original error and backtrace
-export PassException
+@vocabulary Passes PassException
 struct PassException <: Exception
     ex::Any
     processed_bt::Vector{Base.StackTraces.StackFrame}
@@ -173,7 +175,7 @@ end
 
 ## pass builder
 
-export NewPMPassBuilder, register!, add!, run!
+@vocabulary Passes NewPMPassBuilder, register!, add!, run!
 
 """
     NewPMPassBuilder(; verify_each=false, debug_logging=false, pipeline_tuning_kwargs...)
@@ -289,7 +291,7 @@ function register!(pb::NewPMPassBuilder, pass::NewPMCustomPass)
     push!(pb.custom_passes, pass)
 end
 
-export target_transform_info!
+@vocabulary Passes target_transform_info!
 
 function install_custom_tti!(exts::API.LLVMPassBuilderExtensionsRef,
                               tti::AbstractTargetTransformInfo)
@@ -427,15 +429,23 @@ function kwargs_to_params(kwargs; allow_empty=false)
     "<" * join(params, ";") * ">"
 end
 
-function define_pass(pass_name, class_name, define_class=true)
+function define_pass(mod, pass_name, class_name, define_class=true)
     # don't re-define passes (some work with multiple types of managers,
     # or could be manually-defined)
     if isdefined(LLVM, class_name)
         return
     end
 
-    ex = quote
-        export $(esc(class_name))
+    # LLVM's passes are part of the Passes vocabulary, while passes defined elsewhere
+    # (e.g., Julia's passes in LLVM.Interop) are exported by their module
+    ex = if mod === LLVM
+        quote
+            $(esc(:(@vocabulary Passes $class_name)))
+        end
+    else
+        quote
+            export $(esc(class_name))
+        end
     end
     if define_class
         push!(ex.args, :(
@@ -455,19 +465,19 @@ const loop_passes = String[]
 
 macro module_pass(pass_name, class_name, define_class=true)
     push!(module_passes, pass_name)
-    define_pass(pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, define_class)
 end
 macro cgscc_pass(pass_name, class_name, define_class=true)
     push!(cgscc_passes, pass_name)
-    define_pass(pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, define_class)
 end
 macro function_pass(pass_name, class_name, define_class=true)
     push!(function_passes, pass_name)
-    define_pass(pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, define_class)
 end
 macro loop_pass(pass_name, class_name, define_class=true)
     push!(loop_passes, pass_name)
-    define_pass(pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, define_class)
 end
 
 # module passes
@@ -600,8 +610,8 @@ end
 
 # module callbacks
 @static if version() >= v"17"
-export PipelineStartCallbacks, PipelineEarlySimplificationCallbacks,
-       OptimizerEarlyCallbacks, OptimizerLastCallbacks
+@vocabulary Passes PipelineStartCallbacks, PipelineEarlySimplificationCallbacks,
+                   OptimizerEarlyCallbacks, OptimizerLastCallbacks
 PipelineStartCallbacks(; opt_level=0) =
     ep_callbacks_pass("pipeline-start-callbacks"; opt_level)
 PipelineEarlySimplificationCallbacks(; opt_level=0) =
@@ -625,7 +635,7 @@ end
 
 # CGSCC callbacks
 @static if version() >= v"17"
-export CGSCCOptimizerLateCallbacks
+@vocabulary Passes CGSCCOptimizerLateCallbacks
 CGSCCOptimizerLateCallbacks(; opt_level=0) =
     ep_callbacks_pass("cgscc-optimizer-late-callbacks"; opt_level)
 end
@@ -818,7 +828,7 @@ end
 
 # Function pass callbacks
 @static if version() >= v"17"
-export PeepholeCallbacks, ScalarOptimizerLateCallbacks, VectorizerStartCallbacks
+@vocabulary Passes PeepholeCallbacks, ScalarOptimizerLateCallbacks, VectorizerStartCallbacks
 PeepholeCallbacks(; opt_level=0) =
     ep_callbacks_pass("peephole-callbacks"; opt_level)
 ScalarOptimizerLateCallbacks(; opt_level=0) =
@@ -826,7 +836,7 @@ ScalarOptimizerLateCallbacks(; opt_level=0) =
 VectorizerStartCallbacks(; opt_level=0) =
     ep_callbacks_pass("vectorizer-start-callbacks"; opt_level)
 @static if version() >= v"21"
-    export VectorizerEndCallbacks
+    @vocabulary Passes VectorizerEndCallbacks
     VectorizerEndCallbacks(; opt_level=0) =
         ep_callbacks_pass("vectorizer-end-callbacks"; opt_level)
 end
@@ -870,7 +880,7 @@ end
 
 # loop callbacks
 @static if version() >= v"17"
-export LateLoopOptimizationsCallbacks, LoopOptimizerEndCallbacks
+@vocabulary Passes LateLoopOptimizationsCallbacks, LoopOptimizerEndCallbacks
 LateLoopOptimizationsCallbacks(; opt_level=0) =
     ep_callbacks_pass("late-loop-optimizations-callbacks"; opt_level)
 LoopOptimizerEndCallbacks(; opt_level=0) =
@@ -894,7 +904,7 @@ add!(pm::NewPMAAManager, aa::NewPMAAManager) =
     error("Alias analyses can only be added to the top-level pass builder")
 
 macro aa_pass(pass_name, class_name)
-    define_pass(pass_name, class_name)
+    define_pass(__module__, pass_name, class_name)
 end
 
 @aa_pass "basic-aa" BasicAA
@@ -906,7 +916,7 @@ end
 
 ## pipelines
 
-export DefaultPipeline
+@vocabulary Passes DefaultPipeline
 
 function DefaultPipeline(; opt_level=0, kwargs...)
     kwargs = Dict{Symbol, Any}(kwargs)

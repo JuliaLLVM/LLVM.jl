@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -163,9 +163,9 @@ about; every other query falls back to a default matching LLVM's
 with `target_transform_info!`:
 
 ```julia
-using LLVM
+using LLVM, LLVM.Passes
 
-struct MyTTI <: AbstractTargetTransformInfo end
+struct MyTTI <: LLVM.AbstractTargetTransformInfo end
 LLVM.flat_address_space(::MyTTI) = UInt(0)
 LLVM.is_noop_addr_space_cast(::MyTTI, from::Unsigned, to::Unsigned) =
     from == 0 || to == 0
@@ -198,7 +198,7 @@ function, cloning the source into the destination:
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()

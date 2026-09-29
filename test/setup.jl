@@ -1,10 +1,10 @@
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 using Test
 
 # run code in a fresh Julia process with LLVM loaded, e.g., to test global state
 function execute_code(code; env=())
     script = """
-        using LLVM
+        using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
         $code"""
     cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) -e $script`
     cmd = addenv(cmd, env...)

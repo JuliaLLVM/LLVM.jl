@@ -1,6 +1,6 @@
 ## core type
 
-export Metadata
+@vocabulary IR Metadata
 
 """
     Metadata
@@ -81,6 +81,7 @@ See also: [`Value(::Metadata)`](@ref) to convert back to a value.
 @checked struct MetadataAsValue <: Value
     ref::API.LLVMValueRef
 end
+@vocabulary IR MetadataAsValue
 register(MetadataAsValue, API.LLVMMetadataAsValueValueKind)
 
 """
@@ -109,6 +110,7 @@ Abstract type for values wrapped as metadata, for use in APIs that expect a `LLV
 See also: [`Metadata(::Value)`](@ref) to convert back to a metadata.
 """
 abstract type ValueAsMetadata <: Metadata end
+@vocabulary IR ValueAsMetadata
 
 @checked struct ConstantAsMetadata <: ValueAsMetadata
     ref::API.LLVMMetadataRef
@@ -135,7 +137,7 @@ Base.convert(T::Type{<:Metadata}, val::Value) = Metadata(val)::T
 
 ## strings
 
-export MDString
+@vocabulary IR MDString
 
 """
     MDString
@@ -169,7 +171,7 @@ end
 
 ## nodes
 
-export MDNode, operands
+@vocabulary IR MDNode, operands
 
 """
     MDNode
@@ -200,7 +202,7 @@ end
 
 ## tuples
 
-export MDTuple
+@vocabulary IR MDTuple
 
 """
     MDTuple
@@ -232,7 +234,7 @@ Base.convert(::Type{Metadata}, ::Nothing) = MDNull()
 
 ## metadata
 
-export metadata, MDKind
+@vocabulary IR metadata, MDKind
 
 """
     metadata(inst::Instruction)
@@ -363,7 +365,7 @@ Base.delete!(md::GlobalMetadataDict, key) =
 
 ## named metadata
 
-export NamedMDNode, operands
+@vocabulary IR NamedMDNode, operands
 
 """
     NamedMDNode
@@ -437,7 +439,7 @@ end
 
 ## module named metadata
 
-export metadata
+@vocabulary IR metadata
 
 struct ModuleMetadataIterator <: AbstractDict{String,NamedMDNode}
     mod::Module

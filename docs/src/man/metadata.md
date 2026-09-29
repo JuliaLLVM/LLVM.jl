@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -67,7 +67,7 @@ julia> val = Value(md)
 !"test"
 
 julia> typeof(val)
-LLVM.MetadataAsValue
+MetadataAsValue
 ```
 
 
@@ -78,7 +78,7 @@ to inspect and mutate that metadata using the `metadata` function:
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -158,7 +158,7 @@ To query the debug info attached to an instruction, one queries the `!dbg` metad
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()

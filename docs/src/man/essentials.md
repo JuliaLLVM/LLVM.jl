@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 end
 ```
 
@@ -40,11 +40,48 @@ e.g., `LLVM.InitializeAllTargetInfos`, or to initialize the native target, e.g.,
 `LLVM.InitializeNativeTarget`.
 
 
+## Vocabularies
+
+LLVM's API uses many common words, like `functions`, `add!`, `lookup` or `Context`, which
+would clash with other packages if they were all exported. That's why `using LLVM` only
+brings the `@dispose` macro into scope. The rest of the API is public, and can be used
+qualified, e.g., `LLVM.functions(mod)`, or brought into scope by opting into one or more
+vocabularies:
+
+| Vocabulary    | Contents                                                                  |
+|:------------- |:------------------------------------------------------------------------- |
+| `LLVM.IR`     | contexts, modules, values, types, metadata and debug info, and functions to traverse and modify them (`functions`, `blocks`, `instructions`, `operands`, `uses`, ...) |
+| `LLVM.Build`  | the `IRBuilder` and its instruction-building functions (`add!`, `load!`, `call!`, `ret!`, ...), constant expressions, and the `DIBuilder` |
+| `LLVM.Passes` | pass builders and managers, passes like `InstCombinePass`, and pipeline callbacks |
+| `LLVM.ORC`    | the ORC just-in-time compiler: `LLJIT`, JIT dylibs, thread-safe modules, ... |
+
+Code that mainly works with LLVM, like a compiler, typically opts into the vocabularies it
+needs and uses their names unqualified:
+
+```julia
+using LLVM, LLVM.IR, LLVM.Build
+
+for f in functions(mod), bb in blocks(f), inst in instructions(bb)
+    # ...
+end
+```
+
+Code that only occasionally uses LLVM.jl, or that combines it with other packages using
+the same words (e.g., `mul!` from LinearAlgebra), can instead qualify the names,
+`LLVM.mul!(builder, lhs, rhs)`, or import specific ones, `using LLVM: functions, mul!`.
+
+Some functionality is not part of any vocabulary, and is always used qualified: target
+initialization, targets, target machines and data layouts (`LLVM.TargetMachine`), and the
+legacy execution engines (`LLVM.JIT`).
+
+The examples in this documentation assume all vocabularies have been imported.
+
+
 ## Contexts
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     # XXX: clean-up previous contexts
     while context(; throw_error=false) !== nothing
@@ -101,7 +138,7 @@ ERROR: No LLVM context is active
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -227,7 +264,7 @@ WARNING: An instance of Context was not properly disposed of.
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()

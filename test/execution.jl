@@ -3,28 +3,28 @@
 @testset "generic values" begin
 
 @dispose ctx=Context() begin
-    val = GenericValue(LLVM.Int32Type(), -1)
+    val = LLVM.GenericValue(LLVM.Int32Type(), -1)
     @test val.intwidth == 32
     @test convert(Int, val) == -1
     dispose(val)
 end
 
 @dispose ctx=Context() begin
-    val = GenericValue(LLVM.Int32Type(), UInt(1))
+    val = LLVM.GenericValue(LLVM.Int32Type(), UInt(1))
     @test convert(Int, val) == 1
     @test convert(UInt, val) == 1
     dispose(val)
 end
 
 @dispose ctx=Context() begin
-    val = GenericValue(LLVM.DoubleType(), Float32(1.1))
+    val = LLVM.GenericValue(LLVM.DoubleType(), Float32(1.1))
     @test convert(Float32, val, LLVM.DoubleType()) == Float32(1.1)
     @test convert(Float64, val, LLVM.DoubleType()) == Float64(Float32(1.1))
     dispose(val)
 end
 
 @dispose ctx=Context() begin
-    val = GenericValue(LLVM.DoubleType(), 1.1)
+    val = LLVM.GenericValue(LLVM.DoubleType(), 1.1)
     @test convert(Float32, val, LLVM.DoubleType()) == Float32(1.1)
     @test convert(Float64, val, LLVM.DoubleType()) == 1.1
     dispose(val)
@@ -32,7 +32,7 @@ end
 
 let
     obj = "whatever"
-    val = GenericValue(pointer(obj))
+    val = LLVM.GenericValue(pointer(obj))
     @test convert(Ptr{Cvoid}, val) == pointer(obj)
     dispose(val)
 end
@@ -109,21 +109,21 @@ end
 @dispose ctx=Context() begin
     mod = emit_inc(1)
 
-    args = [GenericValue(LLVM.Int32Type(), 41)]
+    args = [LLVM.GenericValue(LLVM.Int32Type(), 41)]
 
     let mod = copy(mod)
-        engine = Interpreter(mod)
+        engine = LLVM.Interpreter(mod)
         dispose(engine)
     end
 
     let mod = copy(mod)
-        Interpreter(mod) do engine
+        LLVM.Interpreter(mod) do engine
         end
     end
 
     let mod = copy(mod)
         fn = functions(mod)["add_1"]
-        @dispose engine=Interpreter(mod) begin
+        @dispose engine=LLVM.Interpreter(mod) begin
             res = run(engine, fn, args)
             @test convert(Int, res) == 42
             dispose(res)
@@ -136,17 +136,17 @@ end
 
 @dispose ctx=Context() begin
     let mod = emit_inc(1)
-        engine = JIT(mod)
+        engine = LLVM.JIT(mod)
         dispose(engine)
     end
 
     let mod = emit_inc(1)
-        JIT(mod) do engine
+        LLVM.JIT(mod) do engine
         end
     end
 
     let mod = emit_inc(1)
-        @dispose engine=JIT(mod) begin
+        @dispose engine=LLVM.JIT(mod) begin
             addr = lookup(engine, "add_1")
             res = ccall(addr, Int32, (Int32,), 41)
             @test res == 42
@@ -155,16 +155,16 @@ end
 end
 
 @dispose ctx=Context() begin
-    args1 = [GenericValue(LLVM.Int32Type(), 1),
-             GenericValue(LLVM.Int32Type(), 2)]
+    args1 = [LLVM.GenericValue(LLVM.Int32Type(), 1),
+             LLVM.GenericValue(LLVM.Int32Type(), 2)]
 
-    args2 = [GenericValue(LLVM.Int32Type(), 2),
-             GenericValue(LLVM.Int32Type(), 1)]
+    args2 = [LLVM.GenericValue(LLVM.Int32Type(), 2),
+             LLVM.GenericValue(LLVM.Int32Type(), 1)]
 
     for (args, true_res) in ((args1, -3), (args2, 4))
         let mod = emit_phi()
             fn = functions(mod)["gt"]
-            @dispose engine=Interpreter(mod) begin
+            @dispose engine=LLVM.Interpreter(mod) begin
                 res = run(engine, fn, args)
                 @test convert(Int, res) == true_res
                 dispose(res)
@@ -174,7 +174,7 @@ end
     end
 
     let mod1 = emit_inc(1), mod2 = emit_inc(2)
-        @dispose engine=JIT(mod1) begin
+        @dispose engine=LLVM.JIT(mod1) begin
             @test_throws ErrorException collect(functions(engine))
             @test haskey(functions(engine), "add_1")
             @test functions(engine)["add_1"] isa LLVM.Function

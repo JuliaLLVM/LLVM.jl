@@ -2,7 +2,7 @@
 
 ## cloning
 
-export clone_into!, clone
+@vocabulary IR clone_into!, clone
 
 mutable struct CloneCallbackState
     type_mapper

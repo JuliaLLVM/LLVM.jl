@@ -218,7 +218,7 @@ end
         @test_throws LLVMException lookup(lljit, string(gensym()))
     end
 
-    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(;tm=JITTargetMachine()) begin
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(;tm=LLVM.JITTargetMachine()) begin
         jd = JITDylib(lljit)
 
         ts_mod = ThreadSafeModule("jit")
@@ -242,7 +242,7 @@ end
             end
 
             mod.triple = lljit.triple
-            @dispose pm=ModulePassManager() tm=JITTargetMachine() begin
+            @dispose pm=ModulePassManager() tm=LLVM.JITTargetMachine() begin
                 # TODO: Get TM from lljit?
                 add_library_info!(pm, mod.triple)
                 add_transform_info!(pm, tm)
@@ -281,7 +281,7 @@ end
             LLVM.check_callback_error(mu)
             @test false
         catch err
-            @test err isa CallbackException
+            @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
             @test occursin("materialization callback error", string(err.ex))
             @test !isempty(err.processed_bt)
@@ -528,7 +528,7 @@ end
 end
 
 @testset "Loading ObjectFile" begin
-    @dispose lljit=LLJIT(;tm=JITTargetMachine()) begin
+    @dispose lljit=LLJIT(;tm=LLVM.JITTargetMachine()) begin
         jd = JITDylib(lljit)
 
         sym = "SomeFunction"
@@ -543,7 +543,7 @@ end
             end
             verify(mod)
 
-            @dispose tm=JITTargetMachine() begin
+            @dispose tm=LLVM.JITTargetMachine() begin
                 emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
@@ -560,7 +560,7 @@ end
         @test_throws LLVMException add!(lljit, jd, MemoryBuffer(rand(UInt8, 64)))
     end
 
-    @dispose lljit=LLJIT(; tm=JITTargetMachine()) begin
+    @dispose lljit=LLJIT(; tm=LLVM.JITTargetMachine()) begin
         jd = JITDylib(lljit)
 
         sym = "SomeFunction"
@@ -579,7 +579,7 @@ end
             end
             verify(mod)
 
-            @dispose tm=JITTargetMachine() begin
+            @dispose tm=LLVM.JITTargetMachine() begin
                 emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
@@ -663,7 +663,7 @@ end
     # a custom layer should behave like LLJIT's default one
     @test flags == jit_symbol_flags()
     @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es)) == flags
-    let tm = () -> JITTargetMachine()
+    let tm = () -> LLVM.JITTargetMachine()
         tm_flags = jit_symbol_flags(; tm)
         @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es, triple); tm) ==
               tm_flags
@@ -674,9 +674,9 @@ end
     # RuntimeDyld can link them on any host, so test that everywhere.
     if Sys.ARCH == :x86_64 && :X86 in LLVM.backends()
         coff_triple = "x86_64-w64-windows-gnu"
-        tm = () -> TargetMachine(LLVM.Target(; triple=coff_triple), coff_triple;
-                                 reloc=LLVM.API.LLVMRelocStatic,
-                                 code=LLVM.API.LLVMCodeModelJITDefault)
+        tm = () -> LLVM.TargetMachine(LLVM.Target(; triple=coff_triple), coff_triple;
+                                      reloc=LLVM.API.LLVMRelocStatic,
+                                      code=LLVM.API.LLVMCodeModelJITDefault)
         coff_flags = jit_symbol_flags(; tm)
         @test coff_flags == "[Callable]"
         # the callback receives the executor's triple on LLVM 21+, so pass the target's
@@ -697,7 +697,7 @@ end
         LLJIT(builder)
         @test false
     catch err
-        @test err isa CallbackException
+        @test err isa LLVM.CallbackException
         @test err.ex isa ArgumentError
         @test occursin("object layer creator error", string(err.ex))
         @test !isempty(err.processed_bt)

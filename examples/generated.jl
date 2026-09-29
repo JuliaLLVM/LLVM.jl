@@ -1,6 +1,6 @@
 # an example using generated functions which build their own IR
 
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build
 using LLVM.Interop
 
 # pointer wrapper type for which we'll build our own low-level intrinsics

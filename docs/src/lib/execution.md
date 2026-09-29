@@ -64,3 +64,7 @@ CallbackException
 linkinglayercreator!
 ObjectLinkingLayer(::ExecutionSession, ::String)
 ```
+
+```@docs
+LLVM.define
+```

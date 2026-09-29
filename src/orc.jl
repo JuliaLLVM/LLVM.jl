@@ -322,8 +322,21 @@ end
 
 abstract type AbstractMaterializationUnit end
 
+"""
+    define(jd::JITDylib, mu)
+
+Add the materialization unit `mu` to `jd`. The unit is consumed, even if this throws: on
+failure (e.g., because one of its symbols is already defined in `jd`) it is disposed of
+before the error is rethrown as an [`LLVMException`](@ref).
+"""
 function define(jd::JITDylib, mu::AbstractMaterializationUnit)
-    API.LLVMOrcJITDylibDefine(jd, mu)
+    err = API.LLVMOrcJITDylibDefine(jd, mu)
+    if err != C_NULL
+        # on failure, ownership of the materialization unit stays with us
+        API.LLVMOrcDisposeMaterializationUnit(mu)
+        throw(convert(LLVMException, LLVMError(err)))
+    end
+    return
 end
 
 @checked struct MaterializationUnit <: AbstractMaterializationUnit

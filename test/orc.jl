@@ -155,6 +155,28 @@ end
     end
 end
 
+@testset "Duplicate definitions" begin
+    @dispose lljit=LLJIT() begin
+        jd = JITDylib(lljit)
+        data = Ref{Int32}(42)
+        GC.@preserve data begin
+            address = LLVM.API.LLVMOrcJITTargetAddress(
+                reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
+            flags = LLVM.API.LLVMJITSymbolFlags(
+                LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
+            symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
+
+            gv = LLVM.API.LLVMOrcCSymbolMapPair(mangle(lljit, "gv"), symbol)
+            LLVM.define(jd, LLVM.absolute_symbols(Ref(gv)))
+
+            gv = LLVM.API.LLVMOrcCSymbolMapPair(mangle(lljit, "gv"), symbol)
+            @test_throws LLVMException LLVM.define(jd, LLVM.absolute_symbols(Ref(gv)))
+
+            @test pointer(lookup(lljit, "gv")) == Base.unsafe_convert(Ptr{Int32}, data)
+        end
+    end
+end
+
 @testset "Loading ObjectFile" begin
     @dispose lljit=LLJIT(;tm=JITTargetMachine()) begin
         jd = JITDylib(lljit)

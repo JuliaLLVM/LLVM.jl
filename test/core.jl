@@ -1411,8 +1411,20 @@ end
 
 # binary bitcode
 @dispose ctx=Context() builder=IRBuilder() source_mod=LLVM.Module("SomeModule") begin
-    invalid_bitcode = "invalid"
-    @test_throws LLVMException parse(LLVM.Module, unsafe_wrap(Vector{UInt8}, invalid_bitcode))
+    invalid_bitcode = unsafe_wrap(Vector{UInt8}, "invalid")
+    invalid_signature = LLVMException("Invalid bitcode signature")
+    @test_throws invalid_signature parse(LLVM.Module, invalid_bitcode)
+    @test_throws invalid_signature parse(LLVM.Module, invalid_bitcode; lazy=true)
+
+    # contexts we did not create lack our diagnostic handler, which used to make
+    # LLVM print the parse error and exit the process
+    let foreign_ctx = Context(LLVM.API.LLVMContextCreate())
+        context!(foreign_ctx) do
+            @test_throws invalid_signature parse(LLVM.Module, invalid_bitcode)
+            @test_throws invalid_signature parse(LLVM.Module, invalid_bitcode; lazy=true)
+        end
+        LLVM.API.LLVMContextDispose(foreign_ctx)
+    end
 
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(source_mod, "SomeFunction", ft)
@@ -1445,6 +1457,12 @@ end
                 verify(mod)
                 @test haskey(functions(mod), "SomeFunction")
             end
+        end
+
+        # a valid header followed by truncated contents fails deeper in the reader
+        let truncated_bitcode = bitcode[1:end÷2]
+            @test_throws LLVMException parse(LLVM.Module, truncated_bitcode)
+            @test_throws LLVMException parse(LLVM.Module, truncated_bitcode; lazy=true)
         end
 
         mktemp() do path, io

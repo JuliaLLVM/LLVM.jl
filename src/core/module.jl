@@ -223,17 +223,23 @@ demand. The module then takes ownership of `membuf`, and the underlying byte sto
 """
 function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     out_ref = Ref{API.LLVMModuleRef}()
+    out_error = Ref{Cstring}()
     ctx = context()
     prepare_diagnostic(ctx)
 
+    # use the variants that return the parser error, instead of the `2` ones that
+    # report it through the context's diagnostic handler: contexts we did not create
+    # (e.g., Julia's) may not have one installed, making LLVM print the error and exit.
     if lazy
-        # `LLVMGetBitcodeModuleInContext2` consumes `membuf` regardless of success
-        status = API.LLVMGetBitcodeModuleInContext2(ctx, membuf, out_ref) |> Bool
+        status = API.LLVMGetBitcodeModuleInContext(ctx, membuf, out_ref, out_error) |> Bool
+        # the module only takes ownership of `membuf` on success
+        status && API.LLVMDisposeMemoryBuffer(membuf)
         mark_dispose(membuf)
     else
-        status = API.LLVMParseBitcodeInContext2(ctx, membuf, out_ref) |> Bool
+        status = API.LLVMParseBitcodeInContext(ctx, membuf, out_ref, out_error) |> Bool
     end
-    check_diagnostic(ctx, status, "failed to parse bitcode")
+    status && throw(LLVMException(unsafe_message(out_error[])))
+    check_diagnostic(ctx)
 
     mark_alloc(Module(out_ref[]))
 end

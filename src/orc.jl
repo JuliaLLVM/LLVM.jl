@@ -489,9 +489,9 @@ the callback.
 function check_callback_error end
 
 function check_callback_error(dg::CustomDefinitionGenerator)
-    dg.exception === nothing && return nothing
-    err, bt = dg.exception
-    dg.exception = nothing
+    exception = _take_callback_exception!(dg)
+    exception === nothing && return nothing
+    err, bt = exception
     throw(CallbackException("ORC definition generator", err, bt))
 end
 
@@ -820,9 +820,10 @@ end
 
 function check_callback_error(il::IRTransformLayer)
     for state in il.jit.roots
-        if state isa IRTransform && state.exception !== nothing
-            err, bt = state.exception
-            state.exception = nothing
+        state isa IRTransform || continue
+        exception = _take_callback_exception!(state)
+        if exception !== nothing
+            err, bt = exception
             throw(CallbackException("ORC IR transform", err, bt))
         end
     end
@@ -912,9 +913,9 @@ const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
 const CUSTOM_MU_LOCK = ReentrantLock()
 
 function check_callback_error(mu::CustomMaterializationUnit)
-    mu.exception === nothing && return nothing
-    err, bt = mu.exception
-    mu.exception = nothing
+    exception = _take_callback_exception!(mu)
+    exception === nothing && return nothing
+    err, bt = exception
     throw(CallbackException("ORC materialization unit", err, bt))
 end
 

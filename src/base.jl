@@ -31,9 +31,25 @@ function Base.showerror(io::IO, err::CallbackException)
     showerror(io, err.ex, err.processed_bt, backtrace=true)
 end
 
+# callbacks may run concurrently, e.g., when LLVM compiles on multiple threads
+const CALLBACK_EXCEPTION_LOCK = ReentrantLock()
+
+# record the first exception thrown by a callback (to be called from a `catch` block)
 function _capture_callback_exception!(state, err)
-    state.exception === nothing && (state.exception = (err, Base.catch_backtrace()))
+    bt = Base.catch_backtrace()
+    @lock CALLBACK_EXCEPTION_LOCK begin
+        state.exception === nothing && (state.exception = (err, bt))
+    end
     return nothing
+end
+
+# take and clear the recorded exception, if any
+function _take_callback_exception!(state)
+    @lock CALLBACK_EXCEPTION_LOCK begin
+        exception = state.exception
+        state.exception = nothing
+        exception
+    end
 end
 
 # `@public foo, bar` → `public foo, bar` on Julia ≥ 1.11, nothing on older.

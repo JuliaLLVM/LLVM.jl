@@ -20,12 +20,29 @@ New features:
 - Global aliases and ifuncs are supported by means of the `GlobalAlias` and `GlobalIFunc`
   types, and can be iterated using `aliases` and `ifuncs`. Previously, encountering such a
   value, e.g., as an instruction operand, resulted in an "Unknown value kind" error.
+- The flags that make integer instructions return poison can be inspected and changed:
+  `hasnuw`/`nuw!`, `hasnsw`/`nsw!`, `isexact`/`exact!`, `hasdisjoint`/`disjoint!`,
+  `hasnneg`/`nneg!` and `hassamesign`/`samesign!`.
+- `case_value` and `case_value!` work on every LLVM version, not just LLVM 22.
+- Floating-point constants can be created from and converted to their exact bit pattern,
+  using `ConstantFP(typ; bits)` and `LLVM.bitpattern`, e.g., for `fp128` values that a
+  `Float64` cannot represent.
+- The debug records attached to an instruction can be iterated using `debug_records`
+  (LLVM 19+), and inspected using `kind`, `debuglocation`, `variable`, `expression`,
+  `value` and `LLVM.location_operands`.
+
+Deprecations:
+
+- `nuwneg!` and `const_nuwneg` are deprecated, following LLVM 19, which removed `nuw`
+  negation. Use `neg!` followed by `nuw!`, or `const_neg`.
 
 Bug fixes:
 
 - `ConstantDataArray` now copies vectors that aren't stored contiguously (e.g. strided views
   or reinterpreted arrays) instead of producing wrong elements or reading out of bounds, and
   rejects element types that LLVM cannot store as packed data, like `Bool`.
+- Indexing a multidimensional `ConstantArray` no longer crashes when one of its rows is a
+  `zeroinitializer`, `undef` or `poison` value.
 - `alignment` and `alignment!` are now only defined for values that have an alignment, and
   reject invalid alignments, instead of silently returning garbage or corrupting the IR.
 - Contexts can be created and disposed of concurrently from multiple threads.

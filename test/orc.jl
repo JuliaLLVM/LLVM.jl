@@ -354,6 +354,68 @@ end
     @test flags.TargetFlags == 1
 end
 
+@testset "ResourceTracker" begin
+    function constant_module(name, val)
+        ts_mod = ThreadSafeModule("jit")
+        ts_mod() do mod
+            fn = LLVM.Function(mod, name, LLVM.FunctionType(LLVM.Int32Type()))
+            @dispose builder=IRBuilder() begin
+                position!(builder, BasicBlock(fn, "entry"))
+                ret!(builder, ConstantInt(Int32(val)))
+            end
+        end
+        ts_mod
+    end
+
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        jd = JITDylib(lljit)
+
+        add!(lljit, jd, constant_module("untracked", 1))
+        LLVM.ResourceTracker(jd) do rt
+            add!(lljit, rt, constant_module("tracked", 2))
+            @test ccall(pointer(lookup(lljit, "tracked")), Int32, ()) == 2
+
+            # removing a tracker only removes its code
+            remove!(rt)
+            @test_throws LLVMException lookup(lljit, "tracked")
+            @test ccall(pointer(lookup(lljit, "untracked")), Int32, ()) == 1
+        end
+
+        # code of released trackers stays around
+        LLVM.ResourceTracker(jd) do rt
+            add!(lljit, rt, constant_module("released", 3))
+        end
+        @test ccall(pointer(lookup(lljit, "released")), Int32, ()) == 3
+
+        # transferring resources
+        rt1 = LLVM.ResourceTracker(jd)
+        rt2 = LLVM.ResourceTracker(jd)
+        add!(lljit, rt1, constant_module("transferred", 4))
+        LLVM.transfer!(rt2, rt1)
+        remove!(rt1)
+        @test ccall(pointer(lookup(lljit, "transferred")), Int32, ()) == 4
+        remove!(rt2)
+        @test_throws LLVMException lookup(lljit, "transferred")
+        dispose(rt1)
+        dispose(rt2)
+
+        # the default tracker tracks code added without an explicit tracker
+        rt = LLVM.default_resource_tracker(jd)
+        remove!(rt)
+        dispose(rt)
+        @test_throws LLVMException lookup(lljit, "untracked")
+        @test_throws LLVMException lookup(lljit, "released")
+
+        # LLVM doesn't retain the default tracker for us, so disposing of it shouldn't
+        # release it (which used to corrupt the heap)
+        for _ in 1:10
+            dispose(LLVM.default_resource_tracker(jd))
+        end
+        add!(lljit, jd, constant_module("after_default", 5))
+        @test ccall(pointer(lookup(lljit, "after_default")), Int32, ()) == 5
+    end
+end
+
 @testset "Loading ObjectFile" begin
     @dispose lljit=LLJIT(;tm=JITTargetMachine()) begin
         jd = JITDylib(lljit)

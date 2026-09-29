@@ -503,6 +503,110 @@ function Base.empty!(jd::JITDylib)
     return jd
 end
 
+
+## resource trackers
+
+"""
+    LLVM.ResourceTracker(jd::JITDylib)
+    LLVM.ResourceTracker(f, jd::JITDylib)
+
+Create a resource tracker for `jd`. Code added using a tracker, with
+`add!(jit, rt, tsm_or_object)`, can later be removed from the JIT using
+[`remove!`](@ref remove!(::LLVM.ResourceTracker)), without affecting other code in `jd`.
+
+Resource trackers are reference counted: the returned reference needs to be released using
+[`dispose`](@ref dispose(::LLVM.ResourceTracker)), or by using the do-block form. Releasing a
+tracker does not remove the code it tracks; that code then remains in `jd` until `jd` is
+cleared.
+
+See also: [`LLVM.default_resource_tracker`](@ref).
+"""
+@checked mutable struct ResourceTracker
+    # mutable, so that the memory checker can tell multiple references apart
+    ref::API.LLVMOrcResourceTrackerRef
+    owned::Bool     # whether we hold a reference that needs to be released
+end
+ResourceTracker(ref::API.LLVMOrcResourceTrackerRef) = ResourceTracker(ref, true)
+Base.unsafe_convert(::Type{API.LLVMOrcResourceTrackerRef}, rt::ResourceTracker) = rt.ref
+
+function ResourceTracker(jd::JITDylib)
+    mark_alloc(ResourceTracker(API.LLVMOrcJITDylibCreateResourceTracker(jd)))
+end
+
+function ResourceTracker(f::Core.Function, jd::JITDylib)
+    rt = ResourceTracker(jd)
+    try
+        f(rt)
+    finally
+        dispose(rt)
+    end
+end
+
+"""
+    LLVM.default_resource_tracker(jd::JITDylib)
+
+Get the resource tracker that tracks code added to `jd` without an explicit tracker. The
+tracker is owned by `jd`, so disposing of it is not required (and does nothing).
+"""
+function default_resource_tracker(jd::JITDylib)
+    # contrary to its documentation, LLVMOrcJITDylibGetDefaultResourceTracker does not
+    # retain the tracker, so we should not release it either.
+    # See https://github.com/llvm/llvm-project/issues/227221
+    ResourceTracker(API.LLVMOrcJITDylibGetDefaultResourceTracker(jd), false)
+end
+
+"""
+    dispose(rt::LLVM.ResourceTracker)
+
+Release a reference to the resource tracker `rt`. This does not remove the tracked code.
+"""
+function dispose(rt::ResourceTracker)
+    rt.owned || return
+    mark_dispose(API.LLVMOrcReleaseResourceTracker, rt)
+end
+
+"""
+    remove!(rt::LLVM.ResourceTracker)
+
+Remove all code and data tracked by `rt` from the JIT. The tracker becomes defunct, and
+cannot be used to add code anymore (but still needs to be disposed of).
+
+It is the caller's responsibility to ensure that the removed code is not executing, and
+that no pointers into it are used anymore.
+"""
+function remove!(rt::ResourceTracker)
+    @check API.LLVMOrcResourceTrackerRemove(rt)
+    return
+end
+
+"""
+    LLVM.transfer!(dst::LLVM.ResourceTracker, src::LLVM.ResourceTracker)
+
+Transfer tracking of all resources from `src` to `dst`, which should belong to the same
+JITDylib.
+"""
+function transfer!(dst::ResourceTracker, src::ResourceTracker)
+    API.LLVMOrcResourceTrackerTransferTo(src, dst)
+    return
+end
+
+function add!(lljit::LLJIT, rt::ResourceTracker, obj::MemoryBuffer)
+    err = API.LLVMOrcLLJITAddObjectFileWithRT(lljit, rt, obj)
+    mark_dispose(obj)   # consumed, even on failure
+    @check err
+    return
+end
+
+function add!(lljit::LLJIT, rt::ResourceTracker, mod::ThreadSafeModule)
+    err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, mod)
+    mark_dispose(mod)   # consumed, even on failure
+    @check err
+    return
+end
+
+
+## lookup
+
 struct OrcTargetAddress
     ptr::API.LLVMOrcJITTargetAddress
 end

@@ -445,6 +445,28 @@ end
         end
     end
 
+    # a pass builder can be run multiple times, with the callbacks of each run using
+    # their own state (they used to refer to the state of the first run)
+    @dispose ctx=Context() mod=LLVM.Module("test") begin
+        runs = Ref(0)
+        function counting_pass!(mod)
+            runs[] += 1
+            runs[] == 3 && error("third run")
+            return false
+        end
+
+        @dispose pb=NewPMPassBuilder() begin
+            register!(pb, NewPMModulePass("counting-pass", counting_pass!))
+            add!(pb, "counting-pass")
+            run!(pb, mod)
+            GC.gc(true)
+            run!(pb, mod)
+            @test runs[] == 2
+            @test_throws LLVM.PassException run!(pb, mod)
+            @test runs[] == 3
+        end
+    end
+
     # This deliberately violates the raw callback's no-throw contract. Run it
     # in a child process so native state abandoned by longjmp cannot affect the
     # rest of the test suite.

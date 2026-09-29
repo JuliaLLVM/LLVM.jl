@@ -9,14 +9,15 @@ function main()
         try
             callback = @cfunction(raw_throwing_module_pass, Bool,
                                   (LLVM.API.LLVMModuleRef, Ptr{Cvoid}))
-            pb = NewPMPassBuilder()
+            opts = LLVM.API.LLVMCreatePassBuilderOptions()
+            exts = LLVM.API.LLVMCreatePassBuilderExtensions()
             try
                 LLVM.API.LLVMPassBuilderExtensionsRegisterModulePass(
-                    pb.exts, "raw-throwing-pass", callback, C_NULL)
-                add!(pb, "raw-throwing-pass")
-                run!(pb, mod)
+                    exts, "raw-throwing-pass", callback, C_NULL)
+                LLVM.API.LLVMRunJuliaPasses(mod, "raw-throwing-pass", C_NULL, opts, exts)
             finally
-                dispose(pb)
+                LLVM.API.LLVMDisposePassBuilderExtensions(exts)
+                LLVM.API.LLVMDisposePassBuilderOptions(opts)
             end
             error("raw pass callback did not throw")
         catch err

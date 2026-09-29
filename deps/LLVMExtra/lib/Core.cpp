@@ -29,6 +29,7 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/ReplaceConstant.h>
+#include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Transforms/IPO.h>
@@ -1308,3 +1309,166 @@ unsigned LLVMExtraDbgVariableRecordGetNumValues(LLVMDbgRecordRef Rec) {
 }
 
 #endif
+
+
+//
+// attributes
+//
+
+const char *LLVMExtraGetAttributeKindName(unsigned KindID, size_t *Len) {
+  if (KindID == Attribute::None || KindID >= Attribute::EndAttrKinds)
+    return nullptr;
+  StringRef Name = Attribute::getNameFromAttrKind((Attribute::AttrKind)KindID);
+  *Len = Name.size();
+  return Name.data();
+}
+
+LLVMBool LLVMExtraIsEnumAttributeKind(unsigned KindID) {
+  return Attribute::isEnumAttrKind((Attribute::AttrKind)KindID);
+}
+
+LLVMBool LLVMExtraIsIntAttributeKind(unsigned KindID) {
+  return Attribute::isIntAttrKind((Attribute::AttrKind)KindID);
+}
+
+LLVMBool LLVMExtraIsTypeAttributeKind(unsigned KindID) {
+  return Attribute::isTypeAttrKind((Attribute::AttrKind)KindID);
+}
+
+#if LLVM_VERSION_MAJOR >= 19
+LLVMBool LLVMExtraIsConstantRangeAttributeKind(unsigned KindID) {
+  return Attribute::isConstantRangeAttrKind((Attribute::AttrKind)KindID);
+}
+#endif
+
+
+//
+// aggregates
+//
+
+LLVMValueRef LLVMExtraBuildExtractValue(LLVMBuilderRef B, LLVMValueRef AggVal,
+                                        const unsigned *Idxs, unsigned NumIdxs,
+                                        const char *Name) {
+  return wrap(
+      unwrap(B)->CreateExtractValue(unwrap(AggVal), ArrayRef<unsigned>(Idxs, NumIdxs), Name));
+}
+
+LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
+                                       LLVMValueRef EltVal, const unsigned *Idxs,
+                                       unsigned NumIdxs, const char *Name) {
+  return wrap(unwrap(B)->CreateInsertValue(unwrap(AggVal), unwrap(EltVal),
+                                           ArrayRef<unsigned>(Idxs, NumIdxs), Name));
+}
+
+
+//
+// instructions
+//
+
+void LLVMExtraMoveInstructionBefore(LLVMValueRef Inst, LLVMValueRef MovePos) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  Instruction *Pos = unwrap<Instruction>(MovePos);
+  if (I == Pos)
+    return;
+  I->moveBefore(*Pos->getParent(), Pos->getIterator());
+}
+
+void LLVMExtraMoveInstructionAfter(LLVMValueRef Inst, LLVMValueRef MovePos) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  Instruction *Pos = unwrap<Instruction>(MovePos);
+  if (I == Pos)
+    return;
+  I->moveAfter(Pos);
+}
+
+LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other) {
+  return unwrap<Instruction>(Inst)->comesBefore(unwrap<Instruction>(Other));
+}
+
+LLVMBool LLVMExtraMayReadFromMemory(LLVMValueRef Inst) {
+  return unwrap<Instruction>(Inst)->mayReadFromMemory();
+}
+
+LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst) {
+  return unwrap<Instruction>(Inst)->mayWriteToMemory();
+}
+
+LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst) {
+  return unwrap<Instruction>(Inst)->mayHaveSideEffects();
+}
+
+
+//
+// values
+//
+
+void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From) {
+  Value *V = unwrap(Val);
+  Value *F = unwrap(From);
+  if (V == F)
+    return;
+  V->takeName(F);
+  // functions cache their intrinsic ID based on their name, which `setName` updates, but
+  // `takeName` doesn't
+  for (Value *Val : {V, F}) {
+    if (auto *Fn = dyn_cast<Function>(Val)) {
+#if LLVM_VERSION_MAJOR >= 18 // llvm/llvm-project#72867
+      Fn->updateAfterNameChange();
+#else
+      Fn->recalculateIntrinsicID();
+#endif
+    }
+  }
+}
+
+LLVMValueRef LLVMExtraStripPointerCasts(LLVMValueRef Val) {
+  return wrap(unwrap(Val)->stripPointerCasts());
+}
+
+LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val) {
+  return wrap(unwrap(Val)->stripPointerCastsAndAliases());
+}
+
+unsigned LLVMExtraGetArgNo(LLVMValueRef Arg) { return unwrap<Argument>(Arg)->getArgNo(); }
+
+
+//
+// functions and global variables
+//
+
+void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src) {
+  Value *D = unwrap(Dst);
+  if (auto *F = dyn_cast<Function>(D))
+    F->copyAttributesFrom(unwrap<Function>(Src));
+  else
+    unwrap<GlobalVariable>(Dst)->copyAttributesFrom(unwrap<GlobalVariable>(Src));
+}
+
+
+//
+// constants
+//
+
+void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C) {
+  Constant *Const = unwrap<Constant>(C);
+#if LLVM_VERSION_MAJOR >= 21 // llvm/llvm-project#137313
+  // constant data doesn't track its uses anymore
+  if (!Const->hasUseList())
+    return;
+#endif
+  Const->removeDeadConstantUsers();
+}
+
+
+//
+// verification
+//
+
+LLVMBool LLVMExtraVerifyFunction(LLVMValueRef Fn, char **OutMessage) {
+  std::string Message;
+  raw_string_ostream OS(Message);
+  bool Broken = verifyFunction(*unwrap<Function>(Fn), &OS);
+  OS.flush();
+  *OutMessage = Broken ? strdup(Message.c_str()) : nullptr;
+  return Broken;
+}

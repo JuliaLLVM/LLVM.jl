@@ -182,6 +182,18 @@ function LLVMDumpJitDylibToString(JD)
     ccall((:LLVMDumpJitDylibToString, libLLVMExtra), Cstring, (LLVMOrcJITDylibRef,), JD)
 end
 
+function LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(RTDyldObjLinkingLayer, OverrideObjectFlags)
+    ccall((:LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, LLVMBool), RTDyldObjLinkingLayer, OverrideObjectFlags)
+end
+
+function LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(RTDyldObjLinkingLayer, AutoClaimObjectSymbols)
+    ccall((:LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, LLVMBool), RTDyldObjLinkingLayer, AutoClaimObjectSymbols)
+end
+
+function LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(RTDyldObjLinkingLayer, Triple)
+    ccall((:LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, Cstring), RTDyldObjLinkingLayer, Triple)
+end
+
 @cenum LLVMCloneFunctionChangeType::UInt32 begin
     LLVMCloneFunctionChangeTypeLocalChangesOnly = 0
     LLVMCloneFunctionChangeTypeGlobalChanges = 1

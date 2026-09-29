@@ -237,38 +237,81 @@ end
 end
 
 @testset "ObjectLinkingLayer" begin
-    called_oll = Ref{Int}(0)
+    # JIT a simple function and return the symbol flags ORC recorded for it.
+    function jit_symbol_flags(creator=nothing; tm=nothing)
+        builder = LLJITBuilder()
+        tm === nothing || targetmachinebuilder!(builder, TargetMachineBuilder(tm()))
+        creator === nothing || linkinglayercreator!(creator, builder)
+        @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
+            jd = JITDylib(lljit)
 
-    builder = LLJITBuilder()
-    linkinglayercreator!(builder) do es, triple
-        oll = ObjectLinkingLayer(es)
+            ts_mod = ThreadSafeModule("jit")
+            sym = "SomeFunctionOLL"
+
+            ts_mod() do mod
+                T = LLVM.DoubleType()
+                ft = LLVM.FunctionType(T, [T])
+                fn = LLVM.Function(mod, sym, ft)
+
+                @dispose builder=IRBuilder() begin
+                    entry = BasicBlock(fn, "entry")
+                    position!(builder, entry)
+                    ret!(builder, fadd!(builder, parameters(fn)[1], ConstantFP(T, 1.25)))
+                end
+                verify(mod)
+            end
+
+            add!(lljit, jd, ts_mod)
+            addr = lookup(lljit, sym)
+            @test pointer(addr) != C_NULL
+            @test ccall(pointer(addr), Float64, (Float64,), 1.0) == 2.25
+
+            # the JITDylib is keyed by linker-mangled names (e.g. prefixed with _ on macOS)
+            mangled = mangle(lljit, sym)
+            name = string(mangled)
+            LLVM.release(mangled)
+            m = match(Regex("\"$name\": \\S+ (\\S+)"), string(jd))
+            @test m !== nothing
+            return m[1]
+        end
+    end
+
+    called_oll = Ref{Int}(0)
+    flags = jit_symbol_flags() do es, triple
+        oll = ObjectLinkingLayer(es, triple)
         register!(oll, GDBRegistrationListener())
         called_oll[] += 1
         return oll
     end
-    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
-        jd = JITDylib(lljit)
-
-        ts_mod = ThreadSafeModule("jit")
-        sym = "SomeFunctionOLL"
-
-        ts_mod() do mod
-            ft = LLVM.FunctionType(LLVM.VoidType())
-            fn = LLVM.Function(mod, sym, ft)
-
-            @dispose builder=IRBuilder() begin
-                entry = BasicBlock(fn, "entry")
-                position!(builder, entry)
-                ret!(builder)
-            end
-            verify(mod)
-        end
-
-        add!(lljit, jd, ts_mod)
-        addr = lookup(lljit, sym)
-        @test pointer(addr) != C_NULL
-    end
     @test called_oll[] >= 1
+
+    # a custom layer should behave like LLJIT's default one
+    @test flags == jit_symbol_flags()
+    @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es)) == flags
+    let tm = () -> JITTargetMachine()
+        tm_flags = jit_symbol_flags(; tm)
+        @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es, triple); tm) ==
+              tm_flags
+        @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es); tm) == tm_flags
+    end
+
+    # COFF objects need additional configuration (JuliaLLVM/LLVM.jl#395).
+    # RuntimeDyld can link them on any host, so test that everywhere.
+    if Sys.ARCH == :x86_64 && :X86 in LLVM.backends()
+        coff_triple = "x86_64-w64-windows-gnu"
+        tm = () -> TargetMachine(LLVM.Target(; triple=coff_triple), coff_triple;
+                                 reloc=LLVM.API.LLVMRelocStatic,
+                                 code=LLVM.API.LLVMCodeModelJITDefault)
+        coff_flags = jit_symbol_flags(; tm)
+        @test coff_flags == "[Callable]"
+        # the callback receives the executor's triple on LLVM 21+, so pass the target's
+        @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es, coff_triple); tm) ==
+              coff_flags
+        @test jit_symbol_flags(; tm) do es, triple
+            ObjectLinkingLayer(es, coff_triple; override_object_flags=true,
+                               auto_claim_object_symbols=true)
+        end == coff_flags
+    end
 
     builder = LLJITBuilder()
     linkinglayercreator!(builder) do es, triple

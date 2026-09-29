@@ -305,11 +305,33 @@ insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value, Index, Name::Str
 
 # memory access and addressing operations
 
-alloca!(builder::IRBuilder, Ty::LLVMType, Name::String="") =
-    Instruction(API.LLVMBuildAlloca(builder, Ty, Name))
+"""
+    alloca!(builder::IRBuilder, T::LLVMType, name::String=""; align=nothing)
 
-array_alloca!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::String="") =
-    Instruction(API.LLVMBuildArrayAlloca(builder, Ty, Val, Name))
+Allocate stack memory for a value of type `T`. By default, the allocation is aligned to the
+preferred alignment of `T`; use `align` to specify a different alignment in bytes.
+"""
+function alloca!(builder::IRBuilder, Ty::LLVMType, Name::String=""; align=nothing)
+    check_alignment(align)
+    inst = Instruction(API.LLVMBuildAlloca(builder, Ty, Name))
+    align === nothing || alignment!(inst, align)
+    return inst
+end
+
+"""
+    array_alloca!(builder::IRBuilder, T::LLVMType, count::Value, name::String="";
+                  align=nothing)
+
+Allocate stack memory for `count` values of type `T`. See [`alloca!`](@ref) for the meaning
+of `align`.
+"""
+function array_alloca!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::String="";
+                       align=nothing)
+    check_alignment(align)
+    inst = Instruction(API.LLVMBuildArrayAlloca(builder, Ty, Val, Name))
+    align === nothing || alignment!(inst, align)
+    return inst
+end
 
 malloc!(builder::IRBuilder, Ty::LLVMType, Name::String="") =
     Instruction(API.LLVMBuildMalloc(builder, Ty, Name))
@@ -347,11 +369,6 @@ const AcquireRelease = API.LLVMAtomicOrderingAcquireRelease
 atomic_scope(::Nothing) = SyncScope(1)
 atomic_scope(scope::SyncScope) = scope
 atomic_scope(name::Union{AbstractString,Symbol}) = SyncScope(String(name))
-
-function check_alignment(align)
-    align === nothing || (align > 0 && ispow2(align)) ||
-        throw(ArgumentError("Alignment must be a positive power of 2, got $align"))
-end
 
 # atomic accesses must be of a byte-sized power-of-two size. only integers are checked, as
 # the size of other types can depend on the data layout.

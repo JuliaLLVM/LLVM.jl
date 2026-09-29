@@ -37,7 +37,17 @@ else
              If you are using a custom version of LLVM, build the library using `deps/build_local.jl`.""")
 end
 
-# auto-generated wrappers
+# auto-generated wrappers. these only convert their arguments and call into the library, so
+# we don't specialize them on the concrete type of LLVM.jl objects (which would compile them
+# for every combination of, e.g., value types). that makes calls with abstractly-typed
+# arguments resolve statically, and inlining them makes the argument conversions do so too.
+function inline_wrapper(ex)
+    if Meta.isexpr(ex, :function) && Meta.isexpr(ex.args[2], :block)
+        pushfirst!(ex.args[2].args, Expr(:meta, :inline))
+    end
+    return ex
+end
+@nospecialize
 let
     if version().major < 15
         error("LLVM.jl only supports LLVM 15 and later.")
@@ -50,10 +60,11 @@ let
     end
     @assert isdir(dir)
 
-    include(joinpath(dir, "libLLVM.jl"))
-    include(joinpath(dir, "libLLVM_extra.jl"))
+    include(inline_wrapper, joinpath(dir, "libLLVM.jl"))
+    include(inline_wrapper, joinpath(dir, "libLLVM_extra.jl"))
 end
-include(joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
+include(inline_wrapper, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
+@specialize
 
 # atomicrmw operations that older C APIs lack, numbered as in newer ones, so that they can be
 # named on every LLVM version (use `LLVM.available` to check whether LLVM supports them)

@@ -15,6 +15,15 @@ abstract type LLVMType end
     unsafe_load_ref(API.LLVMTypeRef, typ)
 end
 
+# avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
+# wrappers consist of nothing but their reference, so there's nothing else to keep alive.
+Base.cconvert(::Type{API.LLVMTypeRef}, @nospecialize(obj::LLVMType)) = obj
+function Base.cconvert(::Type{Ptr{API.LLVMTypeRef}},
+                       @nospecialize(objs::Vector{<:LLVMType}))
+    R = API.LLVMTypeRef
+    R[Base.unsafe_convert(R, obj) for obj in objs]
+end
+
 """
     eltype(typ::LLVMType)
 

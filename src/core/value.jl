@@ -18,6 +18,15 @@ abstract type Value end
     unsafe_load_ref(API.LLVMValueRef, val)
 end
 
+# avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
+# wrappers consist of nothing but their reference, so there's nothing else to keep alive.
+Base.cconvert(::Type{API.LLVMValueRef}, @nospecialize(obj::Value)) = obj
+function Base.cconvert(::Type{Ptr{API.LLVMValueRef}},
+                       @nospecialize(objs::Vector{<:Value}))
+    R = API.LLVMValueRef
+    R[Base.unsafe_convert(R, obj) for obj in objs]
+end
+
 const value_kinds = Vector{Type}(fill(Nothing, typemax(API.LLVMValueKind)+1))
 function identify(::Type{Value}, ref::API.LLVMValueRef)
     kind = API.LLVMGetValueKind(ref)

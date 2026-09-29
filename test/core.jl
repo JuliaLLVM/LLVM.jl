@@ -261,6 +261,7 @@ end
     # abstractly-typed values are converted without knowing their concrete type
     vals = Value[val, fn, parameters(fn)[1], ConstantInt(Int32(1))]
     @test all(v -> Base.unsafe_convert(LLVM.API.LLVMValueRef, v) === v.ref, vals)
+    @test Base.cconvert(Ptr{LLVM.API.LLVMValueRef}, vals) == [v.ref for v in vals]
 
     # wrapper types need to consist of a single reference
     @eval struct InvalidValue <: LLVM.Value

@@ -161,3 +161,51 @@ generating IR:
 - `preferred_alignment`
 - `element_at`
 - `offsetof`
+
+
+## Disassembly
+
+To go the other way, from machine code to assembly, create a `Disassembler` for a target
+triple. This requires initializing the target's info, machine code layer, and disassembler:
+
+```jldoctest disasm
+julia> LLVM.InitializeWebAssemblyTargetInfo()
+
+julia> LLVM.InitializeWebAssemblyTargetMC()
+
+julia> LLVM.InitializeWebAssemblyDisassembler()
+
+julia> dis = Disassembler("wasm32-unknown-unknown");
+```
+
+Like the target machine constructor, the disassembler constructor also takes `cpu` and
+`features` keyword arguments, as well as a couple of options that affect the output:
+
+- `hex_immediates`: print immediate operands in hexadecimal
+- `alternate_syntax`: use the target's alternate assembly dialect (e.g. Intel syntax on X86)
+- `comments`: annotate instructions with target-specific comments
+
+The `disassemble` function then decodes machine code, lazily yielding instructions with
+their address, their size in bytes, and their textual representation (or `nothing` if the
+bytes could not be decoded):
+
+```jldoctest disasm
+julia> code = UInt8[0x41, 0x2a,  # i32.const 42
+                    0x0b];       # end
+
+julia> for (; address, size, text) in disassemble(dis, code; address=0x100)
+           println(string(address; base=16), " (", size, "):", text)
+       end
+100 (2):	i32.const	42
+102 (1):	end
+```
+
+Alternatively, the instructions can be printed directly:
+
+```jldoctest disasm
+julia> disassemble(stdout, dis, code)
+	i32.const	42
+	end
+
+julia> dispose(dis)
+```

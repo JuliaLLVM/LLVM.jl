@@ -156,7 +156,7 @@ end
 @llvmgenerated builder function lg_upgraded()::Int32
     ft = LLVM.FunctionType(LLVM.Int32Type())
     decl = LLVM.Function(current_module(builder), "lg_readnone_decl", ft)
-    push!(function_attributes(decl), EnumAttribute("readnone", 0))
+    push!(decl.function_attributes, EnumAttribute("readnone", 0))
     ConstantInt(Int32(42))
 end
 @test lg_upgraded() === Int32(42)

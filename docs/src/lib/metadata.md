@@ -6,7 +6,6 @@ MDString
 MDString(::String)
 convert(::Type{String}, ::MDString)
 MDNode
-operands(::MDNode)
 MDTuple
 MDNode(::Vector)
 ```
@@ -23,12 +22,7 @@ Value(::Metadata)
 ## Inspecting and attaching
 
 ```@docs
-metadata(::Union{Instruction, LLVM.GlobalObject})
 NamedMDNode
-metadata(::LLVM.Module)
-operands(::NamedMDNode)
-push!(::NamedMDNode, ::MDNode)
-empty!(::NamedMDNode)
 ```
 
 ## Debug information

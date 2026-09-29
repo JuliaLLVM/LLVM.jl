@@ -11,8 +11,8 @@ end
 ```
 
 Instructions represent the operations that are executed by the program. They are grouped in
-basic blocks, and can be iterated using the `instructions` function. To create instructions,
-an instruction builder is used.
+basic blocks, and are available as the `instructions` property of a block. To create
+instructions, an instruction builder is used.
 
 The abstract `LLVM.Instruction` type supports a few additional APIs on top of the
 functionality from `User` and `Value`:
@@ -87,9 +87,9 @@ DocTestSetup = quote
 
     mod = LLVM.Module("SomeModule")
     fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
-    push!(function_attributes(fun), StringAttribute("nounwind"))
-    push!(parameter_attributes(fun, 1), StringAttribute("nocapture"))
-    push!(return_attributes(fun), StringAttribute("sret"))
+    push!(fun.function_attributes, StringAttribute("nounwind"))
+    push!(fun.parameter_attributes[1], StringAttribute("nocapture"))
+    push!(fun.return_attributes, StringAttribute("sret"))
     caller = LLVM.Function(mod, "CallSomeFunction", fun.function_type)
     top = BasicBlock(caller, "top")
     builder = LLVM.IRBuilder();
@@ -97,19 +97,19 @@ DocTestSetup = quote
 end
 ```
 
-Call and invoke instructions can have attributes just like functions.
-They can be set and retrieved using the iterators returned by the
-`function_attributes`, `argument_attributes` and `return_attributes` functions
-to respectively set attributes on the instructions, its arguments and its return value:
+Call and invoke instructions can have attributes just like functions. They can be set and
+retrieved using the views returned by the `function_attributes`, `argument_attributes` and
+`return_attributes` properties, to respectively set attributes on the instruction, its
+arguments and its return value:
 
 ```jldoctest function
-julia> instr = call!(builder, fun.function_type, fun, LLVM.Value[ parameters(fun)... ]);
+julia> instr = call!(builder, fun.function_type, fun, LLVM.Value[ fun.parameters... ]);
 
-julia> push!(function_attributes(instr), StringAttribute("nounwind"))
+julia> push!(instr.function_attributes, StringAttribute("nounwind"))
 
-julia> push!(argument_attributes(instr, 1), StringAttribute("nocapture"))
+julia> push!(instr.argument_attributes[1], StringAttribute("nocapture"))
 
-julia> push!(return_attributes(instr), StringAttribute("sret"))
+julia> push!(instr.return_attributes, StringAttribute("sret"))
 
 julia> mod
 ; ModuleID = 'SomeModule'
@@ -199,20 +199,18 @@ types support a few additional APIs:
   `LLVM.API.LLVMTailCallKindMustTail`.
 - `call.called_type`: the function type of the called value of the call site.
 - `call.called_operand`: the called value of the call site.
-- `arguments`: get the arguments of the call site.
+- `call.arguments`: the arguments of the call site, as a mutable view.
 
 ### Operand bundles
 
 Calls can also be associated with operand bundles, which are tagged sets of SSA values that
 can be associated with certain LLVM instructions, but cannot be dropped like metadata can.
 
-To inspect the operand bundle of a call site, use the iterator returned by the
-`operand_bundles` function on a call site instruction. This iterator returns objects
-that support the following APIs:
+To inspect the operand bundles of a call site, use its `operand_bundles` property, a
+read-only view. The operand bundles themselves are copies that support the following APIs:
 
 - `bundle.tag`: the tag of the operand bundle.
-- `inputs`: get the inputs of the operand bundle, which itself is an iterator that can be
-  indexed.
+- `bundle.inputs`: the inputs of the operand bundle.
 
 Operand bundles can also be created directly, using the `OperandBundle` constructor:
 
@@ -234,21 +232,22 @@ Terminator instructions are the last instructions in a basic block, and are used
 the flow of execution. They support a few additional APIs:
 
 - `isterminator`: check if the instruction is a terminator.
-- `successors`: get the successors of the terminator.
+- `term.successors`: the successors of the terminator, as a mutable view.
 
 If the terminator is a branch, it's possible to check if the branch is conditional using the
 `isconditional` function, and get or set the condition using the `condition` property.
 
 If the terminator is a switch, it's possible to get the default destination using the
-`default_dest` property, and to get or set the value of each case using `case_value` and
-`case_value!`.
+`default_dest` property, and to get or set the value of each case using the `case_values`
+property, a mutable view (`switch.case_values[i]` is the value of the case that branches to
+`switch.successors[i+1]`).
 
 
 ## Phi nodes
 
 Phi nodes are used to select a value based on the predecessor of a basic block. It's
-possible to inspect, and mutate, the incoming values using the iterator returned by
-the `incoming` function, which supports the following APIs:
+possible to inspect, and mutate, the incoming values using the view returned by the
+`incoming` property, which supports the following APIs:
 
 - `getindex`: get the incoming value at a specific index.
 - `push!`: add an incoming value (a value, block tuple) to the phi node.
@@ -285,7 +284,7 @@ a `Bool` property, which only exists on the instructions that support the flag:
 - `inst.samesign`: operands of equal sign, for `icmp` (LLVM 20+).
 
 ```jldoctest
-julia> x, y = parameters(fun);
+julia> x, y = fun.parameters;
 
 julia> inst = add!(builder, x, y)
 %2 = add i32 %0, %1
@@ -324,7 +323,7 @@ a `FastMathFlags` view of these flags, with a `Bool` property per flag that can 
 assigned to:
 
 ```jldoctest
-julia> inst = fadd!(builder, parameters(fun)[1], ConstantFP(1f0))
+julia> inst = fadd!(builder, fun.parameters[1], ConstantFP(1f0))
 %1 = fadd float %0, 1.000000e+00
 
 julia> inst.fast_math
@@ -340,7 +339,7 @@ Assigning to the `fast_math` property replaces all flags, clearing the ones that
 specified. The `fast` pseudo-flag stands for all flags:
 
 ```jldoctest
-julia> inst = fadd!(builder, parameters(fun)[1], ConstantFP(1f0));
+julia> inst = fadd!(builder, fun.parameters[1], ConstantFP(1f0));
 
 julia> inst.fast_math = (; ninf=true, nsz=true);
 

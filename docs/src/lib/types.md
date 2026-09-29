@@ -30,7 +30,6 @@ LLVM.PPCFP128Type
 ```@docs
 LLVM.FunctionType
 isvararg
-parameters(::LLVM.FunctionType)
 ```
 
 ## Pointer types
@@ -62,7 +61,6 @@ LLVM.StructType
 ispacked
 isopaque(::LLVM.StructType)
 elements!
-elements
 ```
 
 ## Other types
@@ -72,10 +70,4 @@ LLVM.VoidType
 LLVM.LabelType
 LLVM.MetadataType
 LLVM.TokenType
-```
-
-## Type iteration
-
-```@docs
-types
 ```

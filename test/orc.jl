@@ -237,7 +237,7 @@ end
                 entry = BasicBlock(wrapper, "entry")
                 position!(builder, entry)
 
-                tmp = call!(builder, ft, fn, [parameters(wrapper)...])
+                tmp = call!(builder, ft, fn, [wrapper.parameters...])
                 ret!(builder, tmp)
             end
 
@@ -496,10 +496,10 @@ end
         transformed = String[]
         LLVM.transform!(il) do tsm, mr
             tsm() do mod
-                for fn in functions(mod)
+                for fn in mod.functions
                     push!(transformed, fn.name)
                     ret = fn.entry.terminator
-                    operands(ret)[1] = ConstantInt(Int32(2))
+                    ret.operands[1] = ConstantInt(Int32(2))
                 end
             end
         end
@@ -631,7 +631,7 @@ end
                 @dispose builder=IRBuilder() begin
                     entry = BasicBlock(fn, "entry")
                     position!(builder, entry)
-                    ret!(builder, fadd!(builder, parameters(fn)[1], ConstantFP(T, 1.25)))
+                    ret!(builder, fadd!(builder, fn.parameters[1], ConstantFP(T, 1.25)))
                 end
                 verify(mod)
             end
@@ -751,7 +751,7 @@ end
                         entry = BasicBlock(fn, "entry")
                         position!(builder, entry)
 
-                        tmp = add!(builder, parameters(fn)...)
+                        tmp = add!(builder, fn.parameters...)
                         ret!(builder, tmp)
                     end
                 end

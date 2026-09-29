@@ -6,14 +6,6 @@ copy(::LLVM.Module)
 dispose(::LLVM.Module)
 ```
 
-## Operations
-
-```@docs
-append_inline_asm!
-set_used!
-set_compiler_used!
-```
-
 ## Textual representation
 
 ```@docs
@@ -34,21 +26,16 @@ write(io::IO, mod::LLVM.Module)
 ## Contents
 
 ```@docs
-globals
 sort!(::LLVM.ModuleGlobalSet)
 prevglobal
 nextglobal
-functions(::LLVM.Module)
 sort!(::LLVM.ModuleFunctionSet)
 prevfun
 nextfun
-aliases
 prevalias
 nextalias
-ifuncs
 previfunc
 nextifunc
-module_flags
 ```
 
 ## Linking

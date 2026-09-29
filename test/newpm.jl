@@ -23,7 +23,7 @@ end
     @dispose ctx=Context() begin
         # single pass
         @dispose mod=test_module() begin
-            fun = only(functions(mod))
+            fun = only(mod.functions)
 
             # by string
             @test run!("no-op-module", mod) === nothing
@@ -261,7 +261,7 @@ end
         end
         return parse(LLVM.Module, ir)
     end
-    has_addrspacecast(mod) = occursin("addrspacecast", string(functions(mod)["f"]))
+    has_addrspacecast(mod) = occursin("addrspacecast", string(mod.functions["f"]))
 
     # A do-nothing subtype: exercises the abstract defaults, which must match
     # LLVM's baseline well enough that InferAddressSpaces can't find a flat AS
@@ -617,7 +617,7 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
                         ret!(builder)
                     end
                 end
-                functions(mod)["dead_func"].linkage = LLVM.API.LLVMInternalLinkage
+                mod.functions["dead_func"].linkage = LLVM.API.LLVMInternalLinkage
 
                 custom_pass!(fn::LLVM.Function) = false
                 CustomPass() = NewPMFunctionPass("custom-pass", custom_pass!)
@@ -634,7 +634,7 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
 
                 @dispose pb=NewPMPassBuilder() begin
                     add!(pb, EarlyCSEPass())
-                    run!(pb, functions(mod)["SomeFunction"])
+                    run!(pb, mod.functions["SomeFunction"])
                 end
             end"""; env=("JULIA_LLVM_ARGS" => args,))
     end

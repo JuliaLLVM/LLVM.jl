@@ -39,7 +39,7 @@ end
     T_ptr = LLVM.PointerType(T_int)
     ptr_str = supports_typed_pointers(ctx) ? "i32\\* %0" : "ptr %0"
     f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [T_ptr, T_int, T_float]))
-    ptr, int, float = parameters(f)
+    ptr, int, float = f.parameters
     position!(builder, BasicBlock(f, "entry"))
 
     ld = load!(builder, T_int, ptr; ordering=AC, scope="agent", align=8, volatile=true)
@@ -92,7 +92,7 @@ end
     @test_throws "integer or pointer values" atomic_cmpxchg!(builder, ptr, float, float, SC)
     @test_throws "same type" atomic_cmpxchg!(builder, ptr, int, float, SC)
     @test_throws "release or acq_rel" atomic_cmpxchg!(builder, ptr, int, int, SC, RE)
-    @test isempty(instructions(position(builder)))
+    @test isempty(position(builder).instructions)
 end
 end
 
@@ -100,27 +100,27 @@ end
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("atomics") begin
     T_int = LLVM.Int32Type()
     f = LLVM.Function(mod, "f", LLVM.FunctionType(T_int, [LLVM.PointerType(T_int), T_int]))
-    ptr, int = parameters(f)
+    ptr, int = f.parameters
     position!(builder, BasicBlock(f, "entry"))
 
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, int, MO)
     mmra!(rmw, "amdgpu-as" => "local")
-    tag = metadata(rmw)["mmra"]
-    @test length(operands(tag)) == 2
+    tag = rmw.metadata["mmra"]
+    @test length(tag.operands) == 2
     mmra!(rmw, "amdgpu-as" => "local", "amdgpu-as" => "global")
-    @test length(operands(metadata(rmw)["mmra"])) == 2
-    @test all(op -> op isa MDNode, operands(metadata(rmw)["mmra"]))
+    @test length(rmw.metadata["mmra"].operands) == 2
+    @test all(op -> op isa MDNode, rmw.metadata["mmra"].operands)
     mmra!(rmw)
-    @test !haskey(metadata(rmw), "mmra")
+    @test !haskey(rmw.metadata, "mmra")
 
     mmra!(rmw, "amdgpu-as" => "local")
-    metadata(rmw)["amdgpu.no.fine.grained.memory"] = MDNode(Metadata[])
-    metadata(rmw)[LLVM.MD_range] = MDNode([ConstantInt(Int32(0)), ConstantInt(Int32(10))])
+    rmw.metadata["amdgpu.no.fine.grained.memory"] = MDNode(Metadata[])
+    rmw.metadata[LLVM.MD_range] = MDNode([ConstantInt(Int32(0)), ConstantInt(Int32(10))])
     cx = atomic_cmpxchg!(builder, ptr, int, int, MO)
     copy_atomic_metadata!(cx, rmw)
-    @test haskey(metadata(cx), "mmra")
-    @test haskey(metadata(cx), "amdgpu.no.fine.grained.memory")
-    @test !haskey(metadata(cx), LLVM.MD_range)
+    @test haskey(cx.metadata, "mmra")
+    @test haskey(cx.metadata, "amdgpu.no.fine.grained.memory")
+    @test !haskey(cx.metadata, LLVM.MD_range)
 
     ret!(builder, rmw)
 end
@@ -132,7 +132,7 @@ end
     function newfun(name, T)
         f = LLVM.Function(mod, name, LLVM.FunctionType(T, [LLVM.PointerType(T), T]))
         position!(builder, BasicBlock(f, "entry"))
-        return f, parameters(f)...
+        return f, f.parameters...
     end
 
     # computing the values of atomic operations

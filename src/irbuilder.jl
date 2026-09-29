@@ -178,9 +178,10 @@ switch!(builder::IRBuilder, V::Value, Else::BasicBlock, NumCases::Integer=10) =
 indirectbr!(builder::IRBuilder, Addr::Value, NumDests::Integer=10) =
     Instruction(API.LLVMBuildIndirectBr(builder, Addr, NumDests))
 
-function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value},
+function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                  Then::BasicBlock, Catch::BasicBlock, Name::String="")
-    Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, Args, length(Args), Then, Catch, Name))
+    Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, as_vector(Args), length(Args), Then,
+                                     Catch, Name))
 end
 
 resume!(builder::IRBuilder, Exn::Value) =
@@ -680,23 +681,25 @@ phi!(builder::IRBuilder, Ty::LLVMType, Name::String="") =
 select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::String="") =
     Value(API.LLVMBuildSelect(builder, If, Then, Else, Name))
 
-function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value}=Value[],
-               Name::String="")
+function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
+               Args::AbstractVector{<:Value}=Value[], Name::String="")
     @static if version() >= v"11"
-        Instruction(API.LLVMBuildCall2(builder, Ty, Fn, Args, length(Args), Name))
+        Instruction(API.LLVMBuildCall2(builder, Ty, Fn, as_vector(Args), length(Args),
+                                       Name))
     else
-        Instruction(API.LLVMBuildCall(builder, Fn, Args, length(Args), Name))
+        Instruction(API.LLVMBuildCall(builder, Fn, as_vector(Args), length(Args), Name))
     end
 end
 
-function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value},
+function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                Bundles::Vector{OperandBundle}, Name::String="")
-    Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, Args, length(Args), Bundles,
-                                                    length(Bundles), Name))
+    Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, as_vector(Args),
+                                                    length(Args), Bundles, length(Bundles),
+                                                    Name))
 end
 
-# convenience function to be able to call `call!` with an `operand_bundles(call)` argument
-call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value},
+# convenience function to be able to call `call!` with a `call.operand_bundles` argument
+call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
       Bundles::OperandBundleIterator, Name::String="") =
     call!(builder, Ty, Fn, Args, collect(Bundles), Name)
 

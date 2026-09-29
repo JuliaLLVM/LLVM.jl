@@ -63,8 +63,8 @@ bfloat
 ## Function types
 
 Function types are used to create functions, and encode both the return type and the
-argument types, which can be queried using respectively the `return_type` property and
-the `parameters` function.
+argument types, which can be queried using respectively the `return_type` and `parameters`
+properties. Types cannot be changed, so the parameters are a read-only view.
 
 ```jldoctest
 julia> LLVM.FunctionType(LLVM.Int1Type())
@@ -76,7 +76,7 @@ i1 (float)
 julia> ft.return_type
 i1
 
-julia> parameters(ft)
+julia> collect(ft.parameters)
 1-element Vector{LLVMType}:
  float
 ```
@@ -182,7 +182,8 @@ julia> ty
 Structure types support a number of queries:
 
 - `ty.name`: the name of the structure type.
-- `elements`: the element types of the structure type.
+- `ty.elements`: the element types of the structure type, as a read-only view (use
+  `elements!` to set the body of an opaque structure type).
 - `ispacked`: whether the structure is packed.
 - `isopaque`: whether the structure is opaque.
 - `isempty`: whether the structure is empty.
@@ -198,24 +199,24 @@ There are a few other types that do not fit in a specific category:
 - `LLVM.TokenType`: the `token` type.
 
 
-## Type iteration
+## Named types
 
-Although uncommon, it is possible to iterate the types that are registered in a context
-using the iterator returned by the `types` function. This iterator is not actually
-iterable, but it can be used to check whether a type is registered in a context:
+Although uncommon, it is possible to look up the named types that are registered in a
+context using its `types` property. LLVM does not support iterating these types, but the
+property can be used to check whether a type is registered in a context:
 
 ```jldoctest
 julia> ctx = context();
 
-julia> haskey(types(ctx), "Foo")
+julia> haskey(ctx.types, "Foo")
 false
 
 julia> ty = LLVM.StructType("Foo")
 %Foo = type opaque
 
-julia> haskey(types(ctx), "Foo")
+julia> haskey(ctx.types, "Foo")
 true
 
-julia> types(ctx)["Foo"]
+julia> ctx.types["Foo"]
 %Foo = type opaque
 ```

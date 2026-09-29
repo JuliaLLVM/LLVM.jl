@@ -10,7 +10,7 @@ DocTestSetup = quote
 end
 ```
 
-Functions are part of a module, and represent a callable piece of code. They can be looked up in a module using the `functions` iterator, or created from scratch:
+Functions are part of a module, and represent a callable piece of code. They can be looked up in a module using its `functions` property, or created from scratch:
 
 ```jldoctest function
 julia> mod = LLVM.Module("SomeModule");
@@ -81,16 +81,17 @@ declare i32 @llvm.abs.i32(i32, i1 immarg) #0
 ## Attributes
 
 Functions can have attributes associated with them, which can be set and retrieved using the
-iterators returned by the `function_attributes`, `parameter_attributes` and
-`return_attributes` functions to respectively set attributes on the function, its
-parameters, and its return value:
+views returned by the `function_attributes`, `parameter_attributes` and `return_attributes`
+properties, to respectively set attributes on the function, its parameters, and its return
+value. The `parameter_attributes` property is a vector with the attributes of each
+parameter:
 
 ```jldoctest function
-julia> push!(function_attributes(fun), StringAttribute("nounwind"))
+julia> push!(fun.function_attributes, StringAttribute("nounwind"))
 
-julia> push!(parameter_attributes(fun, 1), StringAttribute("nocapture"))
+julia> push!(fun.parameter_attributes[1], StringAttribute("nocapture"))
 
-julia> push!(return_attributes(fun), StringAttribute("sret"))
+julia> push!(fun.return_attributes, StringAttribute("sret"))
 
 julia> mod
 ; ModuleID = 'SomeModule'
@@ -101,7 +102,8 @@ declare "sret" void @SomeFunction(i32 "nocapture") #0
 attributes #0 = { "nounwind" }
 ```
 
-Attributes can be removed from these iterators using the `delete!` function.
+These views can be iterated, and attributes can be removed from them using the `delete!`
+function.
 
 Different kinds of attributes are supported:
 
@@ -165,17 +167,17 @@ MemoryEffects(argmem=:read)
 
 The `memory` attribute itself can be created with `EnumAttribute(effects)`, and decoded
 with `MemoryEffects(attr)`. That also works with a set of attributes, which is how the
-effects of a call site can be accessed: `MemoryEffects(function_attributes(call))` returns
+effects of a call site can be accessed: `MemoryEffects(call.function_attributes)` returns
 its effects (without taking into account those of the called function), and
-`push!(function_attributes(call), EnumAttribute(effects))` changes them.
+`push!(call.function_attributes, EnumAttribute(effects))` changes them.
 
 
 ## Parameters
 
-Parameters are values that represent the arguments to a function, and can be used as operands to other values. They can be queried using the `parameters` function:
+Parameters are values that represent the arguments to a function, and can be used as operands to other values. They are available as the `parameters` property of the function, a read-only view:
 
 ```jldoctest function
-julia> collect(parameters(fun))
+julia> collect(fun.parameters)
 1-element Vector{Argument}:
  i32 %0
 ```
@@ -197,12 +199,13 @@ DocTestSetup = quote
           ret i64 %2
         }"""
     mod = parse(LLVM.Module, ir);
-    fun = only(functions(mod));
+    fun = only(mod.functions);
 end
 ```
 
 Functions are composed of basic blocks, which are sequences of instructions that are
-executed in order. Basic blocks can be iterated using the `blocks` function:
+executed in order. They are available as the `blocks` property of the function, a view that
+always reflects the current body of the function:
 
 ```jldoctest
 julia> fun
@@ -212,7 +215,7 @@ top:
   ret i64 %2
 }
 
-julia> collect(blocks(fun))
+julia> collect(fun.blocks)
 1-element Vector{BasicBlock}:
  BasicBlock("top")
 

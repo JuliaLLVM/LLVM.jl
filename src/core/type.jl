@@ -226,7 +226,7 @@ PPCFP128Type
 
 ## function types
 
-@vocabulary IR isvararg, parameters
+@vocabulary IR isvararg
 
 """
     LLVM.FunctionType <: LLVMType
@@ -238,6 +238,11 @@ A function type, representing a function signature.
     ft.return_type
 
 The return type of the function type.
+
+    ft.parameters
+
+The parameter types of the function type, as a read-only view. Types are uniqued and cannot
+be changed, so create a new function type instead.
 
 The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
@@ -253,12 +258,12 @@ register(FunctionType, API.LLVMFunctionTypeKind)
 Create a function type with the given `rettyp` return type and `params` parameter types.
 The `vararg` argument indicates whether the function is variadic.
 
-See also: [`isvararg`](@ref), the [`return_type`](@ref LLVM.FunctionType) property,
-[`parameters`](@ref).
+See also: [`isvararg`](@ref), and the [`return_type`](@ref LLVM.FunctionType) and
+[`parameters`](@ref LLVM.FunctionType) properties.
 """
-FunctionType(rettyp::LLVMType, params::Vector{<:LLVMType}=LLVMType[];
+FunctionType(rettyp::LLVMType, params::AbstractVector{<:LLVMType}=LLVMType[];
              vararg::Bool=false) =
-    FunctionType(API.LLVMFunctionType(rettyp, params,
+    FunctionType(API.LLVMFunctionType(rettyp, as_vector(params),
                                       length(params), vararg))
 
 """
@@ -272,17 +277,39 @@ return_type(ft::FunctionType) = LLVMType(API.LLVMGetReturnType(ft))
 
 @property FunctionType return_type
 
-"""
-    parameters(ft::LLVM.FunctionType)
-
-Get the parameter types of the given function type.
-"""
-function parameters(ft::FunctionType)
-    nparams = API.LLVMCountParamTypes(ft)
-    params = Vector{API.LLVMTypeRef}(undef, nparams)
-    API.LLVMGetParamTypes(ft, params)
-    return LLVMType[LLVMType(param) for param in params]
+struct FunctionTypeParameterSet <: AbstractVector{LLVMType}
+    typ::FunctionType
 end
+
+parameters(ft::FunctionType) = FunctionTypeParameterSet(ft)
+
+@property FunctionType parameters
+
+Base.size(iter::FunctionTypeParameterSet) = (Int(API.LLVMCountParamTypes(iter.typ)),)
+
+Base.IndexStyle(::FunctionTypeParameterSet) = IndexLinear()
+
+# LLVM only supports fetching all parameter types at once. since types are immutable,
+# fetching them once when iterating does not change the semantics of the view.
+function param_type_refs(ft::FunctionType)
+    refs = Vector{API.LLVMTypeRef}(undef, API.LLVMCountParamTypes(ft))
+    isempty(refs) || API.LLVMGetParamTypes(ft, refs)
+    return refs
+end
+
+function Base.getindex(iter::FunctionTypeParameterSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return LLVMType(param_type_refs(iter.typ)[i])
+end
+
+function Base.iterate(iter::FunctionTypeParameterSet,
+                      (refs, i)=(param_type_refs(iter.typ), 1))
+    i > length(refs) ? nothing : (LLVMType(refs[i]), (refs, i+1))
+end
+
+# NOTE: optimized `collect`
+Base.collect(iter::FunctionTypeParameterSet) =
+    LLVMType[LLVMType(ref) for ref in param_type_refs(iter.typ)]
 
 
 ## pointer types
@@ -440,6 +467,11 @@ A structure type, representing a collection of named fields of potentially diffe
 
 The name of the structure type, or `nothing` if it is a literal (unnamed) structure.
 
+    structtyp.elements
+
+The element types of the structure type, as a read-only view. Use
+[`elements!`](@ref) to set the body of an opaque structure type.
+
 The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct StructType <: LLVMType
@@ -466,10 +498,11 @@ end
 Create a structure type with the given `elements`. The `packed` argument indicates whether
 the structure should be packed, i.e., without padding between fields.
 
-See also: [`ispacked`](@ref), [`elements`](@ref).
+See also: [`ispacked`](@ref), and the [`elements`](@ref LLVM.StructType) property.
 """
-StructType(elems::Vector{<:LLVMType}; packed::Bool=false) =
-    StructType(API.LLVMStructTypeInContext(context(), elems, length(elems), packed))
+StructType(elems::AbstractVector{<:LLVMType}; packed::Bool=false) =
+    StructType(API.LLVMStructTypeInContext(context(), as_vector(elems), length(elems),
+                                           packed))
 
 function name(structtyp::StructType)
     cstr = API.LLVMGetStructName(structtyp)
@@ -493,55 +526,43 @@ Check whether the given structure type is opaque.
 isopaque(structtyp::StructType) = API.LLVMIsOpaqueStruct(structtyp) |> Bool
 
 """
-    elements!(structtyp::LLVM.StructType, elems::LLVMType[]; packed=false)
+    elements!(structtyp::LLVM.StructType, elems::AbstractVector{<:LLVMType}; packed=false)
 
-Set the elements of the given structure type to `elems`. The `packed` argument
-indicates whether the structure should be packed, i.e., without padding between fields.
+Set the body of the given structure type, i.e., its elements `elems` and whether it is
+`packed` (without padding between fields). This is typically used to define an opaque,
+named structure type.
 
-See also: [`elements`](@ref).
+See also the [`elements`](@ref LLVM.StructType) property.
 """
-elements!(structtyp::StructType, elems::Vector{<:LLVMType}, packed::Bool=false) =
-    API.LLVMStructSetBody(structtyp, elems, length(elems), packed)
+elements!(structtyp::StructType, elems::AbstractVector{<:LLVMType}; packed::Bool=false) =
+    API.LLVMStructSetBody(structtyp, as_vector(elems), length(elems), packed)
 
 Base.isempty(@nospecialize(T::StructType)) =
     isempty(elements(T)) || all(isempty, elements(T))
 
 # element iteration
 
-@vocabulary IR elements
-
-struct StructTypeElementSet
+struct StructTypeElementSet <: AbstractVector{LLVMType}
     typ::StructType
 end
 
-"""
-    elements(structtyp::LLVM.StructType)
-
-Get the elements of the given structure type.
-
-See also: [`elements!`](@ref).
-"""
 elements(typ::StructType) = StructTypeElementSet(typ)
 
-Base.eltype(::StructTypeElementSet) = LLVMType
+@property StructType elements
 
-function Base.getindex(iter::StructTypeElementSet, i)
+Base.size(iter::StructTypeElementSet) = (Int(API.LLVMCountStructElementTypes(iter.typ)),)
+
+Base.IndexStyle(::StructTypeElementSet) = IndexLinear()
+
+function Base.getindex(iter::StructTypeElementSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
     return LLVMType(API.LLVMStructGetTypeAtIndex(iter.typ, i-1))
 end
 
-@inline function Base.iterate(iter::StructTypeElementSet, i=1)
-    i >= length(iter) + 1 ? nothing : (iter[i], i+1)
-end
-
-Base.length(iter::StructTypeElementSet) = API.LLVMCountStructElementTypes(iter.typ)
-
-Base.lastindex(iter::StructTypeElementSet) = length(iter)
-
 # NOTE: optimized `collect`
 function Base.collect(iter::StructTypeElementSet)
     elems = Vector{API.LLVMTypeRef}(undef, length(iter))
-    API.LLVMGetStructElementTypes(iter.typ, elems)
+    isempty(elems) || API.LLVMGetStructElementTypes(iter.typ, elems)
     return LLVMType[LLVMType(elem) for elem in elems]
 end
 
@@ -618,18 +639,21 @@ TokenType() = TokenType(API.LLVMTokenTypeInContext(context()))
 
 ## type iteration
 
-@vocabulary IR types
-
 struct ContextTypeDict <: AbstractDict{String,LLVMType}
     ctx::Context
 end
 
-"""
-    types(ctx::LLVM.Context)
-
-Get a dictionary of all types in the given context.
-"""
 types(ctx::Context) = ContextTypeDict(ctx)
+
+@property Context types
+
+Base.iterate(::ContextTypeDict, _...) =
+    error("Iteration of the types in a context is not supported")
+Base.length(::ContextTypeDict) =
+    error("Iteration of the types in a context is not supported")
+
+Base.show(io::IO, iter::ContextTypeDict) = print(io, "ContextTypeDict(", iter.ctx, ")")
+Base.show(io::IO, ::MIME"text/plain", iter::ContextTypeDict) = show(io, iter)
 
 function Base.haskey(iter::ContextTypeDict, name::String)
     @static if version() >= v"12"

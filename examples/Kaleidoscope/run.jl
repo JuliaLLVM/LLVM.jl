@@ -32,10 +32,10 @@ end
 function run(mod::LLVM.Module, entry::String)
     res_jl = 0.0
     LLVM.@dispose engine=LLVM.JIT(mod) begin
-        if !haskey(LLVM.functions(engine), entry)
+        if !haskey(engine.functions, entry)
             error("did not find entry function '$entry' in module")
         end
-        f = LLVM.functions(engine)[entry]
+        f = engine.functions[entry]
         res = LLVM.run(engine, f)
         res_jl = convert(Float64, res, LLVM.DoubleType())
         LLVM.dispose(res)

@@ -1197,7 +1197,7 @@ function decorate_module(mod)
     # This mirrors `jl_decorate_module` in Julia's src/jitlayers.cpp.
     # TODO: check the triple, not the system
     if Sys.iswindows() && Sys.ARCH == :x86_64 &&
-       !contains(inline_asm(mod), "__UnwindData")
+       !contains(String(inline_asm(mod)), "__UnwindData")
         @static if VERSION >= v"1.12.0-DEV.1297"
             # Julia 1.12 (JuliaLang/julia#54841) rewrote the catchjmp asm to use
             # normal relocations and emit a PLT trampoline to __julia_personality.
@@ -1209,7 +1209,7 @@ function decorate_module(mod)
                 section = ".text"
                 offset = ".text"
             end
-            append_inline_asm!(mod, """
+            push!(inline_asm(mod), """
                 .section $section
                 .globl __julia_personality
 
@@ -1236,7 +1236,7 @@ function decorate_module(mod)
                 """)
         else
             # Julia 1.10 and 1.11
-            append_inline_asm!(mod, """
+            push!(inline_asm(mod), """
                 .section .text
                 .type   __UnwindData,@object
                 .p2align        2, 0x90

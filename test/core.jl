@@ -113,8 +113,8 @@ end
 
     @test !isvararg(ft)
     @test ft.return_type == x
-    @test parameters(ft) == y
-    @test_throws BoundsError parameters(ft)[3]
+    @test ft.parameters == y
+    @test_throws BoundsError ft.parameters[3]
 end
 
 # sequential
@@ -169,7 +169,7 @@ end
         @test !isopaque(st)
         @test st.name === nothing
 
-        let elem_it = elements(st)
+        let elem_it = st.elements
             @test eltype(elem_it) == LLVMType
 
             @test length(elem_it) == length(elem)
@@ -192,7 +192,7 @@ end
         @test st.name == "foo"
         @test isopaque(st)
         elements!(st, elem)
-        @test collect(elements(st)) == elem
+        @test collect(st.elements) == elem
         @test !isopaque(st)
     end
 end
@@ -219,7 +219,7 @@ end
 @dispose ctx=Context() begin
     st = LLVM.StructType("SomeType")
 
-    let ts = types(ctx)
+    let ts = ctx.types
         @test keytype(ts) == String
         @test valtype(ts) == LLVMType
 
@@ -259,7 +259,7 @@ end
     @test_throws UndefRefError Value(LLVM.API.LLVMValueRef(C_NULL))
 
     # abstractly-typed values are converted without knowing their concrete type
-    vals = Value[val, fn, parameters(fn)[1], ConstantInt(Int32(1))]
+    vals = Value[val, fn, fn.parameters[1], ConstantInt(Int32(1))]
     @test all(v -> Base.unsafe_convert(LLVM.API.LLVMValueRef, v) === v.ref, vals)
     @test Base.cconvert(Ptr{LLVM.API.LLVMValueRef}, vals) == [v.ref for v in vals]
 
@@ -269,7 +269,7 @@ end
         data::Int
     end
     @test_throws ErrorException LLVM.register(InvalidValue, LLVM.API.LLVMArgumentValueKind)
-    @test typeof(Value(parameters(fn)[1].ref)) == LLVM.Argument
+    @test typeof(Value(fn.parameters[1].ref)) == LLVM.Argument
 
     show(devnull, val)
 
@@ -292,7 +292,7 @@ end
     entry = BasicBlock(fn, "entry")
     position!(builder, entry)
 
-    valueinst1 = add!(builder, parameters(fn)[1],
+    valueinst1 = add!(builder, fn.parameters[1],
                       ConstantInt(Int32(1)))
     @test !isterminator(valueinst1)
 
@@ -300,7 +300,7 @@ end
                     ConstantInt(Int32(1)))
 
     # use iteration
-    let usepairs = uses(valueinst1)
+    let usepairs = valueinst1.uses
         @test eltype(usepairs) == Use
 
         usepair = first(usepairs)
@@ -315,11 +315,11 @@ end
         @test [use.user for use in usepairs] == [userinst]
     end
 
-    valueinst2 = add!(builder, parameters(fn)[1],
+    valueinst2 = add!(builder, fn.parameters[1],
                     ConstantInt(Int32(2)))
 
     replace_uses!(valueinst1, valueinst2)
-    @test [use.user for use in uses(valueinst2)] == [userinst]
+    @test [use.user for use in valueinst2.uses] == [userinst]
 end
 
 # users
@@ -334,14 +334,14 @@ end
         }
 
         declare void @fun2()""")
-    fun = functions(mod)["fun1"]
+    fun = mod.functions["fun1"]
 
-    for (i, instr) in enumerate(instructions(first(blocks(fun))))
-        ops = operands(instr)
+    for (i, instr) in enumerate(first(fun.blocks).instructions)
+        ops = instr.operands
         @test eltype(ops) == Value
         if i == 1
             @test length(ops) == 2
-            @test ops[1] == first(parameters(fun))
+            @test ops[1] == first(fun.parameters)
             @test ops[2] == ConstantInt(LLVM.Int32Type(), 1)
             @test_throws BoundsError ops[3]
         elseif i == 2
@@ -350,11 +350,11 @@ end
         end
     end
 
-    fun = functions(mod)["fun2"]
+    fun = mod.functions["fun2"]
 
-    @test_throws BoundsError first(blocks(fun))
-    @test_throws BoundsError last(blocks(fun))
-    @test_throws BoundsError blocks(fun)[1]
+    @test_throws BoundsError first(fun.blocks)
+    @test_throws BoundsError last(fun.blocks)
+    @test_throws BoundsError fun.blocks[1]
 
     dispose(mod)
 end
@@ -542,7 +542,7 @@ end
     # multidimensional, with rows that aren't stored as packed data
     let
         mod = parse(LLVM.Module, "@g = global [2 x [2 x i32]] [[2 x i32] zeroinitializer, [2 x i32] [i32 1, i32 2]]")
-        ca = globals(mod)["g"].initializer
+        ca = mod.globals["g"].initializer
         @test ca isa ConstantArray
         @test convert.(Int, collect(ca)) == [0 0; 1 2]
         dispose(mod)
@@ -563,7 +563,7 @@ end
         @test !ispacked(constant_struct_type)
         @test !isopaque(constant_struct_type)
 
-        @test collect(elements(constant_struct_type)) ==
+        @test collect(constant_struct_type.elements) ==
             [LLVM.Int1Type(), LLVM.Int64Type(), LLVM.HalfType()]
 
         expected_operands = [
@@ -571,7 +571,7 @@ end
             ConstantInt(LLVM.Int64Type(), -99),
             ConstantFP(LLVM.HalfType(), 1.5)
         ]
-        @test collect(operands(constant_struct)) == expected_operands
+        @test collect(constant_struct.operands) == expected_operands
     end
     let
         test_struct = TestStruct(false, 52, -2.5)
@@ -585,7 +585,7 @@ end
             ConstantInt(LLVM.Int64Type(), 52),
             ConstantFP(LLVM.HalfType(), -2.5)
         ]
-        @test collect(operands(constant_struct)) == expected_operands
+        @test collect(constant_struct.operands) == expected_operands
 
         # re-creating the same type shouldn't fail
         ConstantStruct(TestStruct(true, 42, 0))
@@ -598,7 +598,7 @@ end
         constant_struct = ConstantStruct(test_struct)
         constant_struct_type = constant_struct.value_type
 
-        @test isempty(operands(constant_struct))
+        @test isempty(constant_struct.operands)
     end
     let
         @test_throws ArgumentError ConstantStruct(1)
@@ -803,7 +803,7 @@ end
         else
             @check_ir ce "ptr null"
         end
-        @test isempty(uses(ptr))
+        @test isempty(ptr.uses)
         for f in [const_addrspacecast, const_pointercast]
             ce = f(ptr, LLVM.PointerType(LLVM.Int32Type(), 1))::LLVM.Constant
             if supports_typed_pointers(ctx)
@@ -813,13 +813,13 @@ end
             end
             # deletion of a constant
             if LLVM.version() < v"21"
-                @test !isempty(uses(ptr))
+                @test !isempty(ptr.uses)
             else
                 # LLVM 21+ removed uselist from constants
-                @test isempty(uses(ptr))
+                @test isempty(ptr.uses)
             end
             LLVM.unsafe_destroy!(ce)
-            @test isempty(uses(ptr))
+            @test isempty(ptr.uses)
         end
     end
 
@@ -845,14 +845,14 @@ if LLVM.version() >= v"17"
     ret!(builder, loadinst)
 
     # before: the load's pointer operand is a constant expression
-    @test operands(loadinst)[1] isa LLVM.ConstantExpr
+    @test loadinst.operands[1] isa LLVM.ConstantExpr
 
     @test convert_users_to_instructions!(LLVM.Constant[gv])
 
     # after: the operand is an instruction, and the dead constexpr is gone
-    @test operands(loadinst)[1] isa LLVM.Instruction
-    @check_ir operands(loadinst)[1] "getelementptr"
-    @test all(u -> u.user isa LLVM.Instruction, uses(gv))
+    @test loadinst.operands[1] isa LLVM.Instruction
+    @check_ir loadinst.operands[1] "getelementptr"
+    @test all(u -> u.user isa LLVM.Instruction, gv.uses)
 
     # calling again is a no-op
     @test !convert_users_to_instructions!(LLVM.Constant[gv])
@@ -884,18 +884,18 @@ end
     merge = BasicBlock(fn, "merge")
 
     position!(builder, entry)
-    br!(builder, parameters(fn)[1], left, merge)
+    br!(builder, fn.parameters[1], left, merge)
     position!(builder, left)
     br!(builder, merge)
     position!(builder, merge)
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     phi = phi!(builder, T_ptr)
-    append!(incoming(phi), [(ce, left), (null(T_ptr), entry)])
+    append!(phi.incoming, [(ce, left), (null(T_ptr), entry)])
     ret!(builder, load!(builder, T_i32, phi))
 
     @test convert_users_to_instructions!(LLVM.Constant[gv])
 
-    hasgep(bb) = any(inst -> occursin("getelementptr", string(inst)), instructions(bb))
+    hasgep(bb) = any(inst -> occursin("getelementptr", string(inst)), bb.instructions)
     @test hasgep(left)    # materialized in the incoming block
     @test !hasgep(merge)  # not in the phi's own block
 end
@@ -923,8 +923,8 @@ if LLVM.version() >= v"19"
 
     # (both loads share the same uniqued constant expression)
     @test convert_users_to_instructions!(LLVM.Constant[gv]; func=f1)
-    @test operands(l1)[1] isa LLVM.Instruction   # rewritten in f1
-    @test operands(l2)[1] isa LLVM.ConstantExpr   # untouched in f2
+    @test l1.operands[1] isa LLVM.Instruction   # rewritten in f1
+    @test l2.operands[1] isa LLVM.ConstantExpr   # untouched in f2
 end
 
 # `include_self` also converts the passed constants themselves
@@ -941,11 +941,11 @@ end
 
     # without include_self, only (constant) users of `ce` are considered: none
     @test !convert_users_to_instructions!(LLVM.Constant[ce]; include_self=false)
-    @test operands(loadinst)[1] isa LLVM.ConstantExpr
+    @test loadinst.operands[1] isa LLVM.ConstantExpr
 
     # with include_self, the constant expression itself is materialized
     @test convert_users_to_instructions!(LLVM.Constant[ce]; include_self=true)
-    @test operands(loadinst)[1] isa LLVM.Instruction
+    @test loadinst.operands[1] isa LLVM.Instruction
 end
 
 # `remove_dead_constants=false` keeps the now-dead constant expression around
@@ -961,7 +961,7 @@ end
 
     @test convert_users_to_instructions!(LLVM.Constant[gv]; remove_dead_constants=false)
     # the dead constant expression is retained as a user of `gv`
-    @test any(u -> u.user isa LLVM.ConstantExpr, uses(gv))
+    @test any(u -> u.user isa LLVM.ConstantExpr, gv.uses)
 end
 
 else
@@ -1016,27 +1016,27 @@ end
 
     str = MDString("bar")
     md = MDNode([str])
-    @test isempty(metadata(fn))
-    @test !haskey(metadata(fn), "foo")
-    @test_throws KeyError metadata(fn)["foo"]
-    metadata(fn)["foo"] = md
-    @test !isempty(metadata(fn))
-    @test haskey(metadata(fn), "foo")
-    @test metadata(fn)["foo"] == md
-    @test collect(values(metadata(fn))) == [md]
-    delete!(metadata(fn), "foo")
-    @test isempty(metadata(fn))
-    metadata(fn)["foo"] = md
-    @test !isempty(metadata(fn))
-    empty!(metadata(fn))
-    @test isempty(metadata(fn))
+    @test isempty(fn.metadata)
+    @test !haskey(fn.metadata, "foo")
+    @test_throws KeyError fn.metadata["foo"]
+    fn.metadata["foo"] = md
+    @test !isempty(fn.metadata)
+    @test haskey(fn.metadata, "foo")
+    @test fn.metadata["foo"] == md
+    @test collect(values(fn.metadata)) == [md]
+    delete!(fn.metadata, "foo")
+    @test isempty(fn.metadata)
+    fn.metadata["foo"] = md
+    @test !isempty(fn.metadata)
+    empty!(fn.metadata)
+    @test isempty(fn.metadata)
 end
 
 # global variables
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
-    @test isempty(globals(mod))
+    @test isempty(mod.globals)
     gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
-    @test !isempty(globals(mod))
+    @test !isempty(mod.globals)
 
     show(devnull, gv)
 
@@ -1091,17 +1091,49 @@ end
     gv.threadlocal_mode = LLVM.API.LLVMNotThreadLocal
     @test gv.threadlocal_mode == LLVM.API.LLVMNotThreadLocal
 
-    @test !haskey(globals(mod), "llvm.used")
-    set_used!(mod, gv)
-    @test haskey(globals(mod), "llvm.used")
-    erase!(globals(mod)["llvm.used"])
+    # the used lists are sets of global values, stored in a special global variable
+    for (set, name) in ((mod.used, "llvm.used"), (mod.compiler_used, "llvm.compiler.used"))
+        @test isempty(set)
+        @test !haskey(mod.globals, name)
+        fn = LLVM.Function(mod, "used_function", LLVM.FunctionType(LLVM.VoidType()))
+        @test push!(set, gv) === set
+        @test haskey(mod.globals, name)
+        @test mod.globals[name].linkage == LLVM.API.LLVMAppendingLinkage
+        union!(set, [fn, gv])   # duplicates are ignored
+        @test length(set) == 2
+        @test collect(set) == [gv, fn]
+        @test gv in set && fn in set
+        @test delete!(set, gv) === set
+        @test collect(set) == [fn]
+        @test !(gv in set)
+        delete!(set, gv)        # deleting a value that isn't in the set is a no-op
+        @test length(set) == 1
+        setdiff!(set, [fn])
+        @test isempty(set)
+        @test !haskey(mod.globals, name)
+        push!(set, fn)
+        @test empty!(set) === set
+        @test isempty(set)
+        erase!(fn)
+    end
 
-    @test !haskey(globals(mod), "llvm.compiler.used")
-    set_compiler_used!(mod, gv)
-    @test haskey(globals(mod), "llvm.compiler.used")
-    erase!(globals(mod)["llvm.compiler.used"])
+    # both lists are independent
+    push!(mod.used, gv)
+    @test gv in mod.used && !(gv in mod.compiler_used)
+    empty!(mod.used)
 
-    let gvars = globals(mod)
+    # lists created elsewhere may contain duplicates, which are only reported once
+    list = ConstantArray(gv.value_type, [gv, gv])
+    used = GlobalVariable(mod, list.value_type, "llvm.used")
+    used.initializer = list
+    used.linkage = LLVM.API.LLVMAppendingLinkage
+    @test length(mod.used) == 1
+    @test collect(mod.used) == [gv]
+    delete!(mod.used, gv)
+    @test isempty(mod.used)
+    @test !haskey(mod.globals, "llvm.used")
+
+    let gvars = mod.globals
         @test gv in gvars
         erase!(gv)
         @test isempty(gvars)
@@ -1213,9 +1245,9 @@ end
 
     @test verify(mod) === nothing
 
-    @test ifunc in ifuncs(mod)
+    @test ifunc in mod.ifuncs
     erase!(ifunc)
-    @test isempty(ifuncs(mod))
+    @test isempty(mod.ifuncs)
 end
 
 # aliases and ifuncs are recognized when encountered as operands
@@ -1236,11 +1268,11 @@ end
     call = call!(builder, ft, ifunc)
     ret!(builder, add!(builder, ld, call))
 
-    @test operands(ld)[1] isa GlobalAlias
-    @test operands(ld)[1] == ga
+    @test ld.operands[1] isa GlobalAlias
+    @test ld.operands[1] == ga
     @test call.called_operand isa GlobalIFunc
     @test call.called_operand == ifunc
-    @test ga in [use.user for use in uses(gv)]
+    @test ga in [use.user for use in gv.uses]
 
     @test verify(mod) === nothing
 end
@@ -1286,12 +1318,12 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType())
     f1 = LLVM.Function(mod, "f1", ft)
 
-    push!(metadata(mod)["function"], MDNode([f1]))
-    @test Value(operands(operands(metadata(mod)["function"])[1])[1]) == f1
+    push!(mod.metadata["function"].operands, MDNode([f1]))
+    @test Value(mod.metadata["function"].operands[1].operands[1]) == f1
 
     f2 = LLVM.Function(mod, "f2", ft)
     replace_metadata_uses!(f1, f2)
-    @test Value(operands(operands(metadata(mod)["function"])[1])[1]) == f2
+    @test Value(mod.metadata["function"].operands[1].operands[1]) == f2
 end
 
 # different type; requires a hack
@@ -1299,19 +1331,19 @@ end
     ft1 = LLVM.FunctionType(LLVM.VoidType())
     f1 = LLVM.Function(mod, "f1", ft1)
 
-    push!(metadata(mod)["function"], MDNode([f1]))
-    @test Value(operands(operands(metadata(mod)["function"])[1])[1]) == f1
+    push!(mod.metadata["function"].operands, MDNode([f1]))
+    @test Value(mod.metadata["function"].operands[1].operands[1]) == f1
 
     ft2 = LLVM.FunctionType(LLVM.Int32Type())
     f2 = LLVM.Function(mod, "f2", ft2)
     replace_metadata_uses!(f1, f2)
-    @test Value(operands(operands(metadata(mod)["function"])[1])[1]) == f2
+    @test Value(mod.metadata["function"].operands[1].operands[1]) == f2
 end
 
 @dispose ctx=Context() begin
     str = MDString("foo")
     node = MDNode([str])
-    ops = operands(node)
+    ops = node.operands
     @test length(ops) == 1
     @test ops[1] == str
 end
@@ -1324,10 +1356,10 @@ end
         """
     mod = parse(LLVM.Module, ir)
 
-    foo_md = operands(metadata(mod)["foo"])[1]
-    @test operands(foo_md)[1] !== nothing
-    @test operands(foo_md)[2] === nothing
-    @test operands(foo_md)[3] !== nothing
+    foo_md = mod.metadata["foo"].operands[1]
+    @test foo_md.operands[1] !== nothing
+    @test foo_md.operands[2] === nothing
+    @test foo_md.operands[3] !== nothing
 
     bar_md = MDNode([ConstantInt(Int32(42)), nothing, MDString("string")])
     @test foo_md == bar_md
@@ -1370,12 +1402,12 @@ end
         !18 = !DILocation(line: 326, scope: !19, inlinedAt: !17)
         !19 = distinct !DISubprogram(name: "+;", linkageName: "+", scope: !9, file: !9, type: !6, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !2, retainedNodes: !4)""")
 
-    fun = functions(mod)["test"]
-    bb = first(collect(blocks(fun)))
-    inst = first(collect(instructions(bb)))
+    fun = mod.functions["test"]
+    bb = first(collect(fun.blocks))
+    inst = first(collect(bb.instructions))
 
-    @test haskey(metadata(inst), "dbg")
-    loc = metadata(inst)["dbg"]
+    @test haskey(inst.metadata, "dbg")
+    loc = inst.metadata["dbg"]
 
     @test loc isa DILocation
     @test loc.line == 94
@@ -1439,12 +1471,21 @@ end
 
     show(devnull, mod)
 
-    append_inline_asm!(mod, "nop")
-    @test split(mod.inline_asm) == ["nop"]
-    append_inline_asm!(mod, "nop")
-    @test split(mod.inline_asm) == ["nop", "nop"]
-    mod.inline_asm = "nop"
-    @test split(mod.inline_asm) == ["nop"]
+    asm = mod.inline_asm
+    @test isempty(asm)
+    @test String(asm) == ""
+    @test push!(asm, "nop") === asm
+    @test !isempty(asm)
+    @test String(asm) == "nop\n"   # fragments are terminated by a newline
+    push!(mod.inline_asm, SubString("nop; ret", 1, 3), "ret\n")
+    @test String(asm) == string(asm) == "nop\nnop\nret\n"
+    @test occursin("module asm \"ret\"", string(mod))
+    @test repr(asm) == "ModuleInlineAsm(\"SomeModule\"): \"nop\\nnop\\nret\\n\""
+    @test empty!(asm) === asm
+    @test isempty(asm)
+    # replacing the assembly, by emptying before adding
+    push!(empty!(push!(asm, "nop")), "ret")
+    @test String(asm) == "ret\n"
 
     dummyTriple = "SomeTriple"
     mod.triple = dummyTriple
@@ -1456,7 +1497,7 @@ end
 
     md = Metadata(ConstantInt(42))
 
-    mod_flags = module_flags(mod)
+    mod_flags = mod.flags
     mod_flags["foobar", LLVM.API.LLVMModuleFlagBehaviorError] = md
 
     @test occursin("!llvm.module.flags = !{!0}", string(mod))
@@ -1474,24 +1515,37 @@ end
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     node = MDNode([MDString("SomeMDString")])
 
-    let mds = metadata(mod)
+    let mds = mod.metadata
         @test keytype(mds) == String
         @test valtype(mds) == NamedMDNode
 
         @test !haskey(mds, "SomeMDNode")
-        @test !(node in operands(mds["SomeMDNode"]))
+        @test !(node in mds["SomeMDNode"].operands)
         @test haskey(mds, "SomeMDNode") # getindex is mutating
 
-        push!(mds["SomeMDNode"], node)
-        @test node in operands(mds["SomeMDNode"])
+        ops = mds["SomeMDNode"].operands
+        @test push!(ops, node) === ops
+        @test node in mds["SomeMDNode"].operands
 
-        push!(mds["SomeMDNode"], MDNode([MDString("SomeOtherMDString")]))
-        @test length(operands(mds["SomeMDNode"])) == 2
-        @test empty!(mds["SomeMDNode"]) === mds["SomeMDNode"]
-        @test isempty(operands(mds["SomeMDNode"]))
+        # the operands are a view of the named metadata node
+        other = MDNode([MDString("SomeOtherMDString")])
+        push!(ops, other)
+        @test length(ops) == 2
+        @test ops == [node, other]
+        @test ops[2] == other
+        @test_throws BoundsError ops[3]
 
-        push!(mds["SomeMDNode"], node)
-        @test operands(mds["SomeMDNode"]) == [node]
+        ops[1] = other
+        @test mds["SomeMDNode"].operands == [other, other]
+        @test_throws BoundsError ops[3] = node
+
+        @test empty!(ops) === ops
+        @test isempty(ops)
+        @test isempty(mds["SomeMDNode"].operands)
+
+        push!(ops, node)
+        @test mds["SomeMDNode"].operands == [node]
+        @test collect(ops) == [node]
     end
 end
 
@@ -1499,7 +1553,7 @@ end
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     dummygv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
 
-    let gvs = globals(mod)
+    let gvs = mod.globals
         @test eltype(gvs) == typeof(dummygv)
 
         @test first(gvs) == dummygv
@@ -1524,7 +1578,7 @@ end
     c = GlobalVariable(mod, LLVM.Int32Type(), "c")
     a = GlobalVariable(mod, LLVM.Int32Type(), "a")
     b = GlobalVariable(mod, LLVM.Int32Type(), "b")
-    gvs = globals(mod)
+    gvs = mod.globals
 
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
     move_before(b, c)
@@ -1555,9 +1609,9 @@ end
 
     # names are unique across all global values, so use a different prefix for each kind
     for (iter, T, prevf, nextf, create) in
-        ((aliases(mod), GlobalAlias, prevalias, nextalias,
+        ((mod.aliases, GlobalAlias, prevalias, nextalias,
           name -> GlobalAlias(mod, gv, "alias_$name")),
-         (ifuncs(mod), GlobalIFunc, previfunc, nextifunc,
+         (mod.ifuncs, GlobalIFunc, previfunc, nextifunc,
           name -> GlobalIFunc(mod, LLVM.FunctionType(LLVM.VoidType()), resolver_fn, "ifunc_$name")))
         @test eltype(iter) == T
         @test isempty(iter)
@@ -1583,8 +1637,8 @@ end
     end
 
     # aliases and ifuncs are not global variables or functions
-    @test collect(globals(mod)) == [gv]
-    @test collect(functions(mod)) == [resolver_fn]
+    @test collect(mod.globals) == [gv]
+    @test collect(mod.functions) == [resolver_fn]
 end
 
 # function iteration
@@ -1592,13 +1646,13 @@ end
     st = LLVM.StructType("SomeType")
     elements!(st, [LLVM.Int32Type()])
     ft = LLVM.FunctionType(st, [st])
-    @test isempty(functions(mod))
+    @test isempty(mod.functions)
 
-    @test_throws BoundsError first(functions(mod))
-    @test_throws BoundsError last(functions(mod))
+    @test_throws BoundsError first(mod.functions)
+    @test_throws BoundsError last(mod.functions)
 
     dummyfn = LLVM.Function(mod, "SomeFunction", ft)
-    let fns = functions(mod)
+    let fns = mod.functions
         @test eltype(fns) == LLVM.Function
 
         @test !isempty(fns)
@@ -1620,8 +1674,8 @@ end
     end
 
     anotherfn = LLVM.Function(mod, "SomeOtherFunction", ft)
-    @test first(functions(mod)) == dummyfn
-    @test last(functions(mod)) == anotherfn
+    @test first(mod.functions) == dummyfn
+    @test last(mod.functions) == anotherfn
     @test prevfun(dummyfn) === nothing
     @test nextfun(dummyfn) == anotherfn
     @test prevfun(anotherfn) == dummyfn
@@ -1634,7 +1688,7 @@ end
     c = LLVM.Function(mod, "c", ft)
     a = LLVM.Function(mod, "a", ft)
     b = LLVM.Function(mod, "b", ft)
-    fns = functions(mod)
+    fns = mod.functions
 
     @test [f.name for f in fns] == ["c", "a", "b"]
     move_before(b, c)
@@ -1674,7 +1728,7 @@ end
     let
         mod = parse(LLVM.Module, ir)
         verify(mod)
-        @test haskey(functions(mod), "SomeFunction")
+        @test haskey(mod.functions, "SomeFunction")
         dispose(mod)
     end
 end
@@ -1712,7 +1766,7 @@ end
     @dispose bitcode_buf = convert(MemoryBuffer, source_mod) begin
         @dispose mod=parse(LLVM.Module, bitcode_buf) begin
             verify(mod)
-            @test haskey(functions(mod), "SomeFunction")
+            @test haskey(mod.functions, "SomeFunction")
         end
     end
 
@@ -1720,14 +1774,14 @@ end
     let bitcode = convert(Vector{UInt8}, source_mod)
         @dispose mod = parse(LLVM.Module, bitcode) begin
             verify(mod)
-            @test haskey(functions(mod), "SomeFunction")
+            @test haskey(mod.functions, "SomeFunction")
         end
 
         # lazy parse: module header is read but function bodies stay deferred
         let lazy_bitcode = copy(bitcode)  # kept alive for the module's lifetime
             @dispose mod = parse(LLVM.Module, lazy_bitcode; lazy=true) begin
                 verify(mod)
-                @test haskey(functions(mod), "SomeFunction")
+                @test haskey(mod.functions, "SomeFunction")
             end
         end
 
@@ -1808,7 +1862,7 @@ end
     fn.alignment = 0
     @test fn.alignment == 0
 
-    let fns = functions(mod)
+    let fns = mod.functions
         @test fn in fns
         erase!(fn)
         @test isempty(fns)
@@ -1878,9 +1932,9 @@ end
     caller = LLVM.Function(mod, "CallSomeFunction", ft)
     top = LLVM.BasicBlock(caller, "top")
     position!(builder, top)
-    instr = call!(builder, ft, fn, LLVM.Value[ parameters(fn)... ])
+    instr = call!(builder, ft, fn, LLVM.Value[ fn.parameters... ])
 
-    let attrs = function_attributes(fn), instr_attrs = function_attributes(instr)
+    let attrs = fn.function_attributes, instr_attrs = instr.function_attributes
         @test eltype(attrs) == Attribute
         @test eltype(instr_attrs) == Attribute
 
@@ -1950,32 +2004,32 @@ end
             let attr = ConstantRangeAttribute("range", 32, UInt64[0], UInt64[100])
                 @test attr isa ConstantRangeAttribute
                 @test attr.kind != 0
-                push!(return_attributes(fn), attr)
-                collected = collect(return_attributes(fn))
+                push!(fn.return_attributes, attr)
+                collected = collect(fn.return_attributes)
                 @test any(a -> a isa ConstantRangeAttribute, collected)
-                delete!(return_attributes(fn), attr)
+                delete!(fn.return_attributes, attr)
             end
         end
     end
 
-    for i in 1:length(parameters(fn))
-        let attrs = parameter_attributes(fn, i)
+    for i in 1:length(fn.parameters)
+        let attrs = fn.parameter_attributes[i]
             @test eltype(attrs) == Attribute
             @test length(attrs) == 0
         end
     end
-    for i in 1:length(arguments(instr))
-        let attrs = argument_attributes(instr, i)
+    for i in 1:length(instr.arguments)
+        let attrs = instr.argument_attributes[i]
             @test eltype(attrs) == Attribute
             @test length(attrs) == 0
         end
     end
 
-    let attrs = return_attributes(fn)
+    let attrs = fn.return_attributes
         @test eltype(attrs) == Attribute
         @test length(attrs) == 0
     end
-    let attrs = return_attributes(instr)
+    let attrs = instr.return_attributes
         @test eltype(attrs) == Attribute
         @test length(attrs) == 0
     end
@@ -2043,9 +2097,9 @@ if LLVM.version() >= v"16"
         ir = join(("declare void @f$i() $str" for (i, (str, _)) in enumerate(cases)), "\n")
         mod = parse(LLVM.Module, ir)
         for (i, (str, effects)) in enumerate(cases)
-            f = functions(mod)["f$i"]
+            f = mod.functions["f$i"]
             @test f.memory_effects == effects
-            @test MemoryEffects(only(collect(function_attributes(f)))) == effects
+            @test MemoryEffects(only(collect(f.function_attributes))) == effects
 
             # the attribute we create is printed like the one LLVM parsed
             g = LLVM.Function(mod, "g$i", f.function_type)
@@ -2067,7 +2121,7 @@ if LLVM.version() >= v"16"
         # setting the memory effects again replaces the attribute
         fn.memory_effects = MemoryEffects(argmem=:read)
         @test fn.memory_effects == MemoryEffects(argmem=:read)
-        @test length(function_attributes(fn)) == 1
+        @test length(fn.function_attributes) == 1
 
         # the property is a view of the function's memory effects
         effects = fn.memory_effects
@@ -2089,7 +2143,7 @@ if LLVM.version() >= v"16"
         @test effects.access == :readwrite
         @test occursin("memory(argmem: read, inaccessiblemem: write)", string(fn))
         @test value == MemoryEffects(argmem=:read)  # values don't change
-        @test length(function_attributes(fn)) == 1
+        @test length(fn.function_attributes) == 1
         fn.memory_effects[:argmem] = :none
         @test fn.memory_effects == MemoryEffects(inaccessiblemem=:write)
         @test_throws ArgumentError effects[:globalmem] = :read
@@ -2107,23 +2161,23 @@ if LLVM.version() >= v"16"
         attr = EnumAttribute(MemoryEffects(:none))
         @test MemoryEffects(attr) == MemoryEffects(:none)
         @test_throws ArgumentError MemoryEffects(EnumAttribute("nounwind"))
-        @test MemoryEffects(function_attributes(fn)) == MemoryEffects(argmem=:read)
-        @test_throws ArgumentError MemoryEffects(parameter_attributes(fn, 1))
-        @test_throws ArgumentError MemoryEffects(return_attributes(fn))
+        @test MemoryEffects(fn.function_attributes) == MemoryEffects(argmem=:read)
+        @test_throws ArgumentError MemoryEffects(fn.parameter_attributes[1])
+        @test_throws ArgumentError MemoryEffects(fn.return_attributes)
 
         caller = LLVM.Function(mod, "SomeCaller", ft)
         position!(builder, BasicBlock(caller, "entry"))
-        call = call!(builder, ft, fn, [parameters(caller)[1]])
+        call = call!(builder, ft, fn, [caller.parameters[1]])
         ret!(builder)
 
         # only the attributes of the call site are considered
-        @test MemoryEffects(function_attributes(call)) == MemoryEffects(:readwrite)
-        push!(function_attributes(call), EnumAttribute(MemoryEffects(:read)))
-        push!(function_attributes(call), EnumAttribute(MemoryEffects(:none)))
-        @test MemoryEffects(function_attributes(call)) == MemoryEffects(:none)
-        @test length(function_attributes(call)) == 1
+        @test MemoryEffects(call.function_attributes) == MemoryEffects(:readwrite)
+        push!(call.function_attributes, EnumAttribute(MemoryEffects(:read)))
+        push!(call.function_attributes, EnumAttribute(MemoryEffects(:none)))
+        @test MemoryEffects(call.function_attributes) == MemoryEffects(:none)
+        @test length(call.function_attributes) == 1
         @test occursin("memory(none)", string(mod))     # nothing else has these effects
-        @test_throws ArgumentError MemoryEffects(argument_attributes(call, 1))
+        @test_throws ArgumentError MemoryEffects(call.argument_attributes[1])
 
         @test verify(mod) === nothing
     end
@@ -2136,7 +2190,7 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
-    let params = parameters(fn)
+    let params = fn.parameters
         @test eltype(params) == LLVM.Argument
 
         @test length(params) == 1
@@ -2157,11 +2211,11 @@ end
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
-    @test isempty(blocks(fn))
+    @test isempty(fn.blocks)
 
     entrybb = BasicBlock(fn, "SomeBasicBlock")
     @test fn.entry == entrybb
-    let bbs = blocks(fn)
+    let bbs = fn.blocks
         @test eltype(bbs) == BasicBlock
 
         @test !isempty(bbs)
@@ -2178,7 +2232,7 @@ end
     end
 
     empty!(fn)
-    @test isempty(blocks(fn))
+    @test isempty(fn.blocks)
 end
 
 end
@@ -2190,16 +2244,16 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
-    @test_throws BoundsError first(blocks(fn))
-    @test_throws BoundsError last(blocks(fn))
+    @test_throws BoundsError first(fn.blocks)
+    @test_throws BoundsError last(fn.blocks)
     bb2 = BasicBlock(fn, "SomeOtherBasicBlock")
     @test bb2.parent == fn
-    @test isempty(instructions(bb2))
-    @test isempty(predecessors(bb2))
-    @test_throws ArgumentError successors(bb2)
+    @test isempty(bb2.instructions)
+    @test isempty(bb2.predecessors)
+    @test_throws ArgumentError bb2.successors
 
-    @test_throws BoundsError first(instructions(bb2))
-    @test_throws BoundsError last(instructions(bb2))
+    @test_throws BoundsError first(bb2.instructions)
+    @test_throws BoundsError last(bb2.instructions)
 
     bb1 = BasicBlock(bb2, "SomeBasicBlock")
     @test bb2.parent == fn
@@ -2207,9 +2261,9 @@ end
     brinst = br!(builder, bb2)
     position!(builder, bb2)
     retinst = ret!(builder)
-    @test !isempty(instructions(bb2))
-    @test collect(predecessors(bb2)) == [bb1]
-    @test collect(successors(bb1)) == [bb2]
+    @test !isempty(bb2.instructions)
+    @test collect(bb2.predecessors) == [bb1]
+    @test collect(bb1.successors) == [bb2]
 
     @test bb1.terminator == brinst
     @test bb2.terminator == retinst
@@ -2225,7 +2279,7 @@ end
     # XXX: can we insert this block into the function?
 
     # instruction iteration
-    let insts = instructions(bb1)
+    let insts = bb1.instructions
         @test eltype(insts) == Instruction
 
         @test first(insts) == brinst
@@ -2241,7 +2295,7 @@ end
     erase!(brinst)    # we'll be deleting bb2, so remove uses of it
 
     # basic block iteration
-    let bbs = blocks(fn)
+    let bbs = fn.blocks
         @test collect(bbs) == [bb1, bb2]
 
         @test first(bbs) == bb1
@@ -2269,19 +2323,19 @@ end
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
-    @test isempty(parameters(fn))
+    @test isempty(fn.parameters)
 
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int1Type(), LLVM.Int1Type()])
     fn = LLVM.Function(mod, "SomeOtherFunction", ft)
-    @test !isempty(parameters(fn))
+    @test !isempty(fn.parameters)
 
     bb1 = BasicBlock(fn, "entry")
     bb2 = BasicBlock(fn, "then")
     bb3 = BasicBlock(fn, "else")
 
     position!(builder, bb1)
-    addinst = add!(builder, parameters(fn)[1], parameters(fn)[2])
-    brinst = br!(builder, parameters(fn)[1], bb2, bb3)
+    addinst = add!(builder, fn.parameters[1], fn.parameters[2])
+    brinst = br!(builder, fn.parameters[1], bb2, bb3)
     @test brinst.opcode == LLVM.API.LLVMBr
 
     @test previnst(addinst) === nothing
@@ -2291,11 +2345,11 @@ end
 
     # walking the IR doesn't dispatch dynamically, only allocating a box for every value
     # whose concrete type is determined at run time
-    let walk(bb) = (n = 0; for inst in instructions(bb), op in operands(inst)
+    let walk(bb) = (n = 0; for inst in bb.instructions, op in inst.operands
                                n += op isa LLVM.Argument
                            end; n)
         @test walk(bb1) == 3
-        nvals = sum(inst -> 1 + length(operands(inst)), instructions(bb1))
+        nvals = sum(inst -> 1 + length(inst.operands), bb1.instructions)
         @test @allocated(walk(bb1)) <= 4 * sizeof(Int) * nvals
     end
 
@@ -2309,11 +2363,11 @@ end
 
     @test isterminator(brinst)
     @test isconditional(brinst)
-    @test brinst.condition == parameters(fn)[1]
-    brinst.condition = parameters(fn)[2]
-    @test brinst.condition == parameters(fn)[2]
+    @test brinst.condition == fn.parameters[1]
+    brinst.condition = fn.parameters[2]
+    @test brinst.condition == fn.parameters[2]
 
-    let succ = successors(bb1.terminator)
+    let succ = bb1.terminator.successors
         @test eltype(succ) == BasicBlock
 
         @test length(succ) == 2
@@ -2347,9 +2401,9 @@ end
 
     # metadata
     mdval = MDNode([MDString("whatever")])
-    let md = metadata(brinst)
+    let md = brinst.metadata
         @test keytype(md) == LLVM.MDKind
-        @test valtype(md) == LLVM.MetadataAsValue
+        @test valtype(md) == Metadata
 
         @test isempty(md)
         @test !haskey(md, "dbg")
@@ -2369,14 +2423,14 @@ end
         @test !haskey(md, "dbg")
     end
 
-    @test retinst in instructions(bb3)
+    @test retinst in bb3.instructions
     remove!(retinst)
-    @test !(retinst in instructions(bb3))
+    @test !(retinst in bb3.instructions)
     @test retinst.opcode == LLVM.API.LLVMRet   # make sure retinst is still alive
 
-    @test brinst in instructions(bb1)
+    @test brinst in bb1.instructions
     erase!(brinst)
-    @test !(brinst in instructions(bb1))
+    @test !(brinst in bb1.instructions)
 end
 
 # new freeze instruction (used in 1.7 with JuliaLang/julia#38977)
@@ -2387,11 +2441,161 @@ end
             %1 = freeze i64 undef
             ret i64 %1
         }""")
-    f = first(functions(mod))
-    bb = first(blocks(f))
-    inst = first(instructions(bb))
+    f = first(mod.functions)
+    bb = first(f.blocks)
+    inst = first(bb.instructions)
     @test inst isa LLVM.FreezeInst
     dispose(mod)
+end
+
+end
+
+
+@testset "collection views" begin
+
+# the operands of a metadata node are a mutable view
+@dispose ctx=Context() begin
+    a, b = MDString("a"), MDString("b")
+    node = MDNode([a, nothing])
+    ops = node.operands
+    @test ops == [a, nothing]
+    @test ops[2] === nothing
+    @test_throws BoundsError ops[3]
+
+    ops[2] = b
+    @test node.operands == [a, b]
+    ops[1] = nothing
+    @test ops[1] === nothing
+    @test collect(ops) == [nothing, b]
+    @test_throws BoundsError ops[3] = a
+
+    # LLVM keeps uniqued nodes unique, so a node that becomes identical to another one is
+    # made distinct
+    existing = MDNode([a])
+    other = MDNode([b])
+    other.operands[1] = a
+    @test other.operands == [a]
+    @test other != existing
+    @test occursin("distinct", string(other))
+end
+
+# the parameters of a function type are a read-only view
+@dispose ctx=Context() begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])
+    params = ft.parameters
+    @test params == [LLVM.Int32Type(), LLVM.Int64Type()]
+    @test params[2] == LLVM.Int64Type()
+    @test length(params) == 2
+    @test_throws BoundsError params[3]
+    @test_throws CanonicalIndexError params[1] = LLVM.Int8Type()
+    @test collect(params) isa Vector{LLVMType}
+    @test isempty(LLVM.FunctionType(LLVM.VoidType()).parameters)
+
+    # views can be used to construct new objects
+    @test LLVM.FunctionType(LLVM.VoidType(), params) == ft
+    @test LLVM.StructType(params).elements == params
+    node = MDNode([MDString("a"), nothing])
+    @test MDNode(node.operands) == node
+end
+
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()])
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    x, y = fn.parameters
+
+    # the blocks of a function reflect blocks that are added or removed later
+    bbs = fn.blocks
+    @test isempty(bbs)
+    entry = BasicBlock(fn, "entry")
+    exit = BasicBlock(fn, "exit")
+    @test bbs[2] == exit
+    middle = BasicBlock(exit, "middle")
+    @test bbs == [entry, middle, exit]
+    @test bbs[2] == middle
+    @test bbs[3] == exit
+    @test_throws BoundsError bbs[4]
+    @test_throws CanonicalIndexError bbs[1] = exit
+    erase!(middle)
+    @test bbs[2] == exit
+    @test length(bbs) == 2
+    @test_throws BoundsError bbs[3]
+
+    # the predecessors of a block are a read-only view, derived from its uses
+    preds = exit.predecessors
+    @test isempty(preds)
+    position!(builder, entry)
+    call = call!(builder, ft, fn, [x, y])
+    br = br!(builder, exit)
+    @test collect(preds) == [entry]
+    @test length(preds) == 1
+    @test_throws MethodError push!(preds, entry)
+    position!(builder, exit)
+    ret!(builder)
+
+    # the arguments of a call are a mutable view of its operands
+    args = call.arguments
+    @test args == [x, y]
+    args[1] = y
+    @test call.operands[1] == y
+    @test call.arguments == [y, y]
+    @test call!(builder, ft, fn, args).arguments == [y, y]
+    @test_throws BoundsError args[3]
+    @test_throws BoundsError args[3] = x
+
+    # the successors of a terminator are a mutable view
+    succs = br.successors
+    @test succs == [exit]
+    @test_throws BoundsError succs[2] = entry
+
+    erase!(br)
+    @test isempty(preds)
+
+    # attribute sets can be iterated and appended to
+    attrs = fn.function_attributes
+    append!(attrs, [EnumAttribute("nounwind"), StringAttribute("foo", "bar")])
+    @test length(attrs) == 2
+    @test Set(attr.kind for attr in attrs) ==
+          Set([EnumAttribute("nounwind").kind, "foo"])
+    call_attrs = call.function_attributes
+    append!(call_attrs, [EnumAttribute("nounwind")])
+    @test [attr.kind for attr in call_attrs] == [EnumAttribute("nounwind").kind]
+end
+
+# the elements of a structure type are a read-only view
+@dispose ctx=Context() begin
+    st = LLVM.StructType("SomeStruct")
+    elems = st.elements
+    @test isempty(elems)
+    elements!(st, [LLVM.Int32Type(), LLVM.Int8Type()]; packed=true)
+    @test elems == [LLVM.Int32Type(), LLVM.Int8Type()]
+    @test elems[2] == LLVM.Int8Type()
+    @test ispacked(st)
+    @test_throws BoundsError elems[3]
+    @test_throws CanonicalIndexError elems[1] = LLVM.Int64Type()
+    @test ctx.types["SomeStruct"] == st
+end
+
+# instruction metadata and module flags can be iterated
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    position!(builder, BasicBlock(fn, "entry"))
+    inst = ret!(builder)
+
+    md = inst.metadata
+    @test isempty(md)
+    @test length(md) == 0
+    node = MDNode([MDString("foo")])
+    md["foo"] = node
+    @test collect(md) == [MDKind("foo") => node]
+    @test length(md) == 1
+
+    flags = mod.flags
+    @test isempty(flags)
+    val = Metadata(ConstantInt(Int32(42)))
+    flags["foo", LLVM.API.LLVMModuleFlagBehaviorError] = val
+    @test collect(flags) == ["foo" => val]
+    @test length(flags) == 1
 end
 
 end

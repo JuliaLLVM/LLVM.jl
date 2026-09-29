@@ -15,14 +15,6 @@ move_before(::LLVM.Function, ::LLVM.Function)
 move_after(::LLVM.Function, ::LLVM.Function)
 ```
 
-## Attributes
-
-```@docs
-function_attributes(::LLVM.Function)
-parameter_attributes(::LLVM.Function, ::Integer)
-return_attributes(::LLVM.Function)
-```
-
 ## Memory effects
 
 ```@docs
@@ -31,16 +23,9 @@ FunctionMemoryEffects
 EnumAttribute(::MemoryEffects)
 ```
 
-## Parameters
-
-```@docs
-parameters
-```
-
 ## Basic Blocks
 
 ```@docs
-blocks
 prevblock
 nextblock
 ```

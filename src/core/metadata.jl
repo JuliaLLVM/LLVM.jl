@@ -171,7 +171,7 @@ end
 
 ## nodes
 
-@vocabulary IR MDNode, operands
+@vocabulary IR MDNode
 
 """
     MDNode
@@ -179,24 +179,50 @@ end
 Abstract supertype for metadata nodes that can have operands.
 
 See also: [`MDTuple`](@ref) for a concrete subtype.
+
+# Properties
+
+    md.operands
+
+The operands of the metadata node, as a view of the node that supports indexing and
+iteration. Null operands are represented by `nothing`.
+
+The view is mutable: assigning an operand, `md.operands[i] = new`, replaces it in place.
+LLVM keeps uniqued nodes (i.e., nodes that are neither distinct nor temporary) unique, so if
+the change makes the node identical to an existing one, the node is made distinct instead.
+Nodes that refer to temporary nodes are replaced by that existing node and deleted.
 """
 abstract type MDNode <: Metadata end
 
-"""
-    operands(md::MDNode)
-
-Get the operands of the given metadata node.
-"""
-function operands(md::MDNode)
-    nops = API.LLVMGetMDNodeNumOperands2(md)
-    ops = Vector{API.LLVMMetadataRef}(undef, nops)
-    API.LLVMGetMDNodeOperands2(md, ops)
-    return [op == C_NULL ? nothing : Metadata(op) for op in ops]
+struct MDNodeOperandSet <: AbstractVector{Union{Metadata,Nothing}}
+    md::MDNode
 end
 
-# TODO: setindex?
-function replace_operand(md::MDNode, i, new::Metadata)
-    API.LLVMReplaceMDNodeOperandWith2(md, i-1, new)
+operands(md::MDNode) = MDNodeOperandSet(md)
+
+@property MDNode operands
+
+Base.size(iter::MDNodeOperandSet) = (Int(API.LLVMGetMDNodeNumOperands2(iter.md)),)
+
+Base.IndexStyle(::MDNodeOperandSet) = IndexLinear()
+
+function Base.getindex(iter::MDNodeOperandSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    ref = API.LLVMGetMDNodeOperand2(iter.md, i-1)
+    return ref == C_NULL ? nothing : Metadata(ref)
+end
+
+function Base.setindex!(iter::MDNodeOperandSet, new::Union{Metadata,Nothing}, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    API.LLVMReplaceMDNodeOperandWith2(iter.md, i-1, something(new, MDNull()))
+    return iter
+end
+
+# NOTE: optimized `collect`
+function Base.collect(iter::MDNodeOperandSet)
+    ops = Vector{API.LLVMMetadataRef}(undef, length(iter))
+    API.LLVMGetMDNodeOperands2(iter.md, ops)
+    return Union{Metadata,Nothing}[op == C_NULL ? nothing : Metadata(op) for op in ops]
 end
 
 
@@ -221,7 +247,7 @@ Create a new tuple metadata node from the given operands.
 
 Passing `nothing` as a value will result in a null operand.
 """
-MDNode(vals::Vector) =
+MDNode(vals::AbstractVector) =
     MDNode(convert(Vector{Metadata}, vals))
 MDNode(mds::Vector{<:Metadata}) =
     MDTuple(API.LLVMMDNodeInContext2(context(), mds, length(mds)))
@@ -234,17 +260,7 @@ Base.convert(::Type{Metadata}, ::Nothing) = MDNull()
 
 ## metadata
 
-@vocabulary IR metadata, MDKind
-
-"""
-    metadata(inst::Instruction)
-    metadata(inst::GlobalObject)
-
-Iterate over the metadata of the given instruction or global object.
-
-These iterators are mutable, and implement `setindex!` and `delete!` to modify the metadata.
-"""
-metadata(::Union{Instruction, GlobalObject})
+@vocabulary IR MDKind
 
 @cenum(MDKind, MD_dbg = 0,
                MD_tbaa = 1,
@@ -274,12 +290,13 @@ MDKind(kind::MDKind) = kind
 
 # instructions (using MetadataAsValue values)
 
-# TODO: doesn't actually iterate, since we can't list the available keys
-struct InstructionMetadataDict <: AbstractDict{MDKind,MetadataAsValue}
+struct InstructionMetadataDict <: AbstractDict{MDKind,Metadata}
     val::Instruction
 end
 
 metadata(inst::Instruction) = InstructionMetadataDict(inst)
+
+@property Instruction metadata
 
 Base.isempty(md::InstructionMetadataDict) = !Bool(API.LLVMHasMetadata(md.val))
 
@@ -299,6 +316,28 @@ Base.setindex!(md::InstructionMetadataDict, node::MDNode, key) =
 Base.delete!(md::InstructionMetadataDict, key) =
     API.LLVMSetMetadata(md.val, MDKind(key), C_NULL)
 
+# LLVM only supports fetching all metadata at once. despite its name, the C API function
+# includes the debug location on some versions, so handle it separately.
+function Base.iterate(md::InstructionMetadataDict)
+    entries = Pair{MDKind,Metadata}[]
+    haskey(md, MD_dbg) && push!(entries, MD_dbg => md[MD_dbg])
+    num_entries = Ref{Csize_t}()
+    ptr = API.LLVMInstructionGetAllMetadataOtherThanDebugLoc(md.val, num_entries)
+    for i in 1:num_entries[]
+        kind = MDKind(API.LLVMValueMetadataEntriesGetKind(ptr, i-1))
+        kind == MD_dbg && continue
+        entry = API.LLVMValueMetadataEntriesGetMetadata(ptr, i-1)
+        push!(entries, kind => Metadata(entry))
+    end
+    API.LLVMDisposeValueMetadataEntries(ptr)
+    iterate(md, (entries, 1))
+end
+function Base.iterate(::InstructionMetadataDict, (entries, i))
+    i > length(entries) ? nothing : (entries[i], (entries, i+1))
+end
+
+Base.length(md::InstructionMetadataDict) = count(Returns(true), md)
+
 # global objects (using Metadata values)
 
 struct GlobalMetadataDict <: AbstractDict{MDKind,Metadata}
@@ -306,6 +345,8 @@ struct GlobalMetadataDict <: AbstractDict{MDKind,Metadata}
 end
 
 metadata(val::GlobalObject) = GlobalMetadataDict(val)
+
+@property GlobalObject metadata
 
 function Base.length(md::GlobalMetadataDict)
     num_entries = Ref{Csize_t}()
@@ -365,7 +406,7 @@ Base.delete!(md::GlobalMetadataDict, key) =
 
 ## named metadata
 
-@vocabulary IR NamedMDNode, operands
+@vocabulary IR NamedMDNode
 
 """
     NamedMDNode
@@ -377,6 +418,15 @@ A named metadata node, which is a collection of metadata nodes with a name.
     node.name
 
 The name of the named metadata node.
+
+    node.operands
+
+The operands of the named metadata node, as a view of the node that supports indexing and
+iteration. The view is mutable, and supports:
+
+- `push!(node.operands, md::MDNode)`: append an operand;
+- `node.operands[i] = md::MDNode`: replace an operand;
+- `empty!(node.operands)`: remove all operands.
 """
 struct NamedMDNode
     mod::LLVM.Module # not exposed by the API
@@ -404,55 +454,57 @@ function Base.show(io::IO, mime::MIME"text/plain", node::NamedMDNode)
     return io
 end
 
-"""
-    operands(node::NamedMDNode)
-
-Get the operands of the given named metadata node.
-"""
-function operands(node::NamedMDNode)
-    nops = API.LLVMGetNamedMetadataNumOperands2(node)
-    ops = Vector{API.LLVMMetadataRef}(undef, nops)
-    if nops > 0
-        API.LLVMGetNamedMetadataOperands2(node, ops)
-    end
-    return [Metadata(op) for op in ops]
+struct NamedMDNodeOperandSet <: AbstractVector{MDNode}
+    node::NamedMDNode
 end
 
-"""
-    push!(node::NamedMDNode, val::MDNode)
+operands(node::NamedMDNode) = NamedMDNodeOperandSet(node)
 
-Add a metadata node to the given named metadata node.
-"""
-Base.push!(node::NamedMDNode, val::MDNode) =
-    API.LLVMAddNamedMetadataOperand2(node, val)
+@property NamedMDNode operands
 
-"""
-    empty!(node::NamedMDNode)
+Base.size(iter::NamedMDNodeOperandSet) =
+    (Int(API.LLVMGetNamedMetadataNumOperands2(iter.node)),)
 
-Remove all operands from the given named metadata node.
-"""
-function Base.empty!(node::NamedMDNode)
-    API.LLVMClearNamedMetadataOperands(node)
-    node
+Base.IndexStyle(::NamedMDNodeOperandSet) = IndexLinear()
+
+function Base.getindex(iter::NamedMDNodeOperandSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Metadata(API.LLVMGetNamedMetadataOperand2(iter.node, i-1))::MDNode
+end
+
+function Base.setindex!(iter::NamedMDNodeOperandSet, md::MDNode, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    API.LLVMSetNamedMetadataOperand2(iter.node, i-1, md)
+    return iter
+end
+
+function Base.push!(iter::NamedMDNodeOperandSet, md::MDNode)
+    API.LLVMAddNamedMetadataOperand2(iter.node, md)
+    return iter
+end
+
+function Base.empty!(iter::NamedMDNodeOperandSet)
+    API.LLVMClearNamedMetadataOperands(iter.node)
+    return iter
+end
+
+# NOTE: optimized `collect`
+function Base.collect(iter::NamedMDNodeOperandSet)
+    ops = Vector{API.LLVMMetadataRef}(undef, length(iter))
+    isempty(ops) || API.LLVMGetNamedMetadataOperands2(iter.node, ops)
+    return MDNode[Metadata(op) for op in ops]
 end
 
 
 ## module named metadata
 
-@vocabulary IR metadata
-
 struct ModuleMetadataIterator <: AbstractDict{String,NamedMDNode}
     mod::Module
 end
 
-"""
-    metadata(mod)
-
-Fetch the module-level named metadata. This can be inspected using a Dict-like interface.
-Mutation is different: There is no `setindex!` method, as named metadata is append-only.
-Instead, fetch the named metadata node using `getindex`, and `push!` to it.
-"""
 metadata(mod::Module) = ModuleMetadataIterator(mod)
+
+@property Module metadata
 
 function Base.show(io::IO, mime::MIME"text/plain", iter::ModuleMetadataIterator)
     print(io, "ModuleMetadataIterator for module $(name(iter.mod))")

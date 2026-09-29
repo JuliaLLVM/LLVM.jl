@@ -1,14 +1,14 @@
 # Vocabularies
 #
-# LLVM.jl's API uses many common words (`functions`, `add!`, `lookup`, `Context`, ...) that
+# LLVM.jl's API uses many common words (`verify`, `add!`, `lookup`, `Context`, ...) that
 # would clash with other packages if they were all exported. Instead, `using LLVM` only
 # brings `@dispose` into scope, while the rest of the API is public and can be used
-# qualified (`LLVM.functions(mod)`), or brought into scope per subsystem by opting into one
-# of the vocabularies below (`using LLVM.IR`). The vocabularies are meant to be `using`-ed;
-# for qualified use, `LLVM.functions` is as short as `IR.functions`.
+# qualified (`LLVM.verify(mod)`), or brought into scope per subsystem by opting into one of
+# the vocabularies below (`using LLVM.IR`). The vocabularies are meant to be `using`-ed; for
+# qualified use, `LLVM.verify` is as short as `IR.verify`.
 #
-# The vocabularies re-export bindings that are defined in LLVM, so `LLVM.IR.functions` is
-# `LLVM.functions`. Names are added to them using `@vocabulary` where they are defined.
+# The vocabularies re-export bindings that are defined in LLVM, so `LLVM.IR.verify` is
+# `LLVM.verify`. Names are added to them using `@vocabulary` where they are defined.
 
 @public IR, Build, Passes, ORC
 
@@ -16,17 +16,20 @@
     LLVM.IR
 
 The LLVM IR object model: contexts, modules, values, types, metadata and debug info, along
-with functions to traverse and modify them (`functions`, `blocks`, `instructions`,
-`operands`, `uses`, `erase!`, `replace_uses!`, ...).
+with predicates and operations to inspect and modify them (`isdeclaration`, `erase!`,
+`replace_uses!`, `verify`, ...).
 
     using LLVM, LLVM.IR
 
-    for f in functions(mod), bb in blocks(f), inst in instructions(bb)
-        # ...
+    for f in mod.functions
+        isdeclaration(f) && continue
+        for bb in f.blocks, inst in bb.instructions
+            # ...
+        end
     end
 
-The attributes and relationships of these objects are accessed as properties, like
-`fn.name`, `gv.linkage` or `inst.parent`, rather than using functions.
+The attributes, relationships and contents of these objects are accessed as properties,
+like `fn.name`, `gv.linkage`, `inst.parent` or `f.blocks`, rather than using functions.
 """
 module IR
     import ..LLVM
@@ -44,7 +47,7 @@ Construction of IR: the `IRBuilder` and its instruction-building functions (`add
 
     @dispose builder=IRBuilder() begin
         position!(builder, BasicBlock(f, "entry"))
-        ret!(builder, add!(builder, parameters(f)...))
+        ret!(builder, add!(builder, f.parameters...))
     end
 """
 module Build

@@ -25,7 +25,7 @@ end
         entry = BasicBlock(sum, "entry")
         position!(builder, entry)
 
-        tmp = add!(builder, parameters(sum)[1], parameters(sum)[2], "tmp")
+        tmp = add!(builder, sum.parameters[1], sum.parameters[2], "tmp")
         ret!(builder, tmp)
 
         verify(mod)

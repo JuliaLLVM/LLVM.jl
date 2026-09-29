@@ -20,14 +20,6 @@ position!(::IRBuilder)
 insert!(::IRBuilder, ::Instruction, ::String)
 ```
 
-## Attributes
-
-```@docs
-function_attributes(::LLVM.CallBase)
-argument_attributes(::LLVM.CallBase, ::Integer)
-return_attributes(::LLVM.CallBase)
-```
-
 ## Atomic instructions
 
 ```@docs
@@ -83,32 +75,21 @@ insert_masked_value!
 LLVM.CallBase
 ```
 
-```@docs
-arguments
-```
-
 ### Operand Bundles
 
 ```@docs
 OperandBundle
-operand_bundles
-inputs
 ```
 
 ## Terminator instructions
 
 ```@docs
-isterminator
-isconditional
-case_value
-case_value!
-successors(::Instruction)
+LLVM.TerminatorInst
 ```
 
-## Phi instructions
-
 ```@docs
-incoming
+isterminator
+isconditional
 ```
 
 ## Floating Point instructions

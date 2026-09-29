@@ -198,6 +198,11 @@ end
     GC.@preserve obj unsafe_load(Ptr{R}(ccall(:jl_value_ptr, Ptr{Cvoid}, (Any,), obj)))
 end
 
+# the C API wrappers convert `Vector`s of wrapper objects, so collect other vectors (like
+# the views that represent collections of IR objects) before passing them
+@inline as_vector(x::Vector) = x
+as_vector(x::AbstractVector) = collect(x)
+
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)
     ref==C_NULL && throw(UndefRefError())
@@ -206,14 +211,14 @@ end
 
 ## properties
 
-# Attributes of LLVM objects are exposed as properties, e.g., `gv.linkage` or
-# `mod.triple = "..."`. Each property is backed by an accessor function of the same name
-# (`linkage(gv)`, and `linkage!(gv, val)` for writable properties). These accessors are
-# internal: the property is the only public spelling, so don't mark them `@public` or add
-# them to a vocabulary, and don't give other public functionality the same name (e.g.,
-# `overloaded_name` instead of a `name(intrinsic, types)` method). LLVM.jl itself can keep
-# calling the accessors. Document a property in the docstring of the type it is declared on,
-# in a "Properties" section with signature lines like `gv.linkage` and
+# Attributes of LLVM objects are exposed as properties, e.g., `gv.linkage`,
+# `mod.triple = "..."` or `f.blocks`. Each property is backed by an accessor function of the
+# same name (`linkage(gv)`, and `linkage!(gv, val)` for writable properties). These
+# accessors are internal: the property is the only public spelling, so don't mark them
+# `@public` or add them to a vocabulary, and don't give other public functionality the same
+# name (e.g., `overloaded_name` instead of a `name(intrinsic, types)` method). LLVM.jl
+# itself can keep calling the accessors. Document a property in the docstring of the type it
+# is declared on, in a "Properties" section with signature lines like `gv.linkage` and
 # `gv.linkage = linkage::LLVM.API.LLVMLinkage` and a description of what assignment does,
 # rather than on the accessor, which users do not call. Properties that are declared on a
 # group of instructions are documented on the union type of that group, like `CallBase`, and
@@ -228,20 +233,52 @@ end
 #
 # When to use a property, as documented for users in the "Properties" section of the manual
 # (docs/src/man/essentials.md):
-# - Properties expose named characteristics and distinguished relationships of an object
-#   (`name`, `linkage`, `initializer`, `parent`, `terminator`). Predicates (`isX`, with
-#   their `x!` setters), collections and traversal (`operands`, `blocks`, `nextinst`), keyed
-#   or parameterized lookups (`metadata(inst)[kind]`), and operations are functions.
-# - Reading a property may perform a lookup or convert data, but must not run an analysis,
-#   traverse the IR, or construct a collection of IR objects.
+# - Properties expose what an object has: its characteristics (`name`, `linkage`), its
+#   relationships (`parent`, `terminator`, `initializer`, `next`), and its contents, as
+#   views (`functions`, `blocks`, `operands`, `uses`, `inline_asm`). Functions ask questions
+#   that cannot be assigned (predicates like `isdeclaration` or `isvararg`), compute from
+#   additional arguments (`overloaded_name(intr, types)`, `dominates`), or act (operations
+#   like `erase!` or `elements!`, builders, and constructors).
+# - A collection is a property that returns a view: a live window onto the IR, which
+#   queries the IR object when used, never a copy of its contents (don't cache contents
+#   either, as they go stale when the IR changes). Make the view mutable where LLVM
+#   supports modifying the collection in place (`inst.operands[i] = val`,
+#   `push!(f.function_attributes, attr)`), and read-only otherwise, so that mutation throws
+#   instead of silently doing nothing (e.g., by subtyping `AbstractVector` without defining
+#   `setindex!`). Keyed lookups index the view (`inst.metadata[kind]`,
+#   `mod.functions[name]`), and collections that are indexed by position are vectors of
+#   views (`f.parameter_attributes[i]`). Assigning to a collection property is not
+#   supported. Functions that take a vector of IR objects should accept an `AbstractVector`,
+#   so that views can be passed to them.
+# - Navigating to a sibling in a list is a relationship, exposed as the read-only `next` and
+#   `prev` properties (like C++'s `getNextNode` and `getPrevNode`), which are only declared
+#   on objects that are part of a list.
+# - A flag that can be assigned is a `Bool` property named without an `is` or `has` prefix
+#   (`gv.constant`, `inst.volatile`), not a predicate with an `x!` setter.
+# - Richer state, like a bundle of flags or the memory effects of a function, is exposed as
+#   a property that returns a view object bound to the IR object (`FastMathFlags`,
+#   `FunctionMemoryEffects`). Reading from the view queries the IR object, modifying it
+#   (`inst.fast_math.nnan = true`, `f.memory_effects[:argmem] = :read`) writes through, and
+#   assigning to the property replaces the state wholesale. Make it easy to convert a view
+#   to a value (`NamedTuple(flags)`, `MemoryEffects(effects)`).
+# - For enum-valued state with a common yes/no question, provide both as properties that
+#   are views of the same state, like LLVM's C++ API does (`threadlocal_mode` and
+#   `threadlocal`, `tailcall_kind` and `tailcall`). Assigning the current value to the
+#   `Bool` view should not change the underlying state.
+# - Reading a property may perform a lookup, convert data, or create a (lazy) view, but must
+#   not run an analysis, traverse the IR, or construct a collection of IR objects. Views
+#   that are derived from other IR (like the `predecessors` of a block, from its uses) only
+#   do that work when they are used.
 # - Declare the property on the types that support it, not on a supertype where the
-#   accessor would fail (e.g., `alignment` is only available on memory instructions).
+#   accessor would fail (e.g., `alignment` is only available on memory instructions). When
+#   support depends on the LLVM version, only declare the property on versions that support
+#   it (e.g., `disjoint`), but keep defining its accessor so that it can be documented.
 # - When a relationship can be absent, the accessor returns `nothing` instead of throwing.
 # - When assignment should not simply call `name!(x, v)`, pass an adapter as the setter,
-#   e.g., to replace instead of append (`inline_asm`), or to accept `nothing`
-#   (`debug_location`). If the underlying API cannot implement assignment semantics, keep
-#   the property read-only (`fast_math` can only add flags).
-# - Don't add the backing accessors to a vocabulary: the property is the preferred spelling.
+#   e.g., to accept `nothing` (`debug_location`), or when `name!` is taken by an unrelated
+#   function (`subprogram!` creates a subprogram using a `DIBuilder`). If the underlying API
+#   cannot implement assignment semantics, add the missing functionality to LLVMExtra (as
+#   done to replace fast-math flags), or keep the property read-only.
 
 # the reference of wrapper objects (overridden for hierarchies whose concrete type is only
 # known at run time, to access it without dispatch)

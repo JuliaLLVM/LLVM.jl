@@ -116,12 +116,20 @@ Base.convert(::Type{Ptr{T}}, val::GenericValue) where {T} =
     LLVM.ExecutionEngine
 
 An execution engine that can run functions in a module.
+
+# Properties
+
+    engine.functions
+
+The functions in the modules of the execution engine, as a view that supports looking up
+a function by name (`get`, `haskey` and indexing). The functions cannot be iterated.
 """
 @checked struct ExecutionEngine
     ref::API.LLVMExecutionEngineRef
     mods::Set{Module}
 end
 @public ExecutionEngine
+@properties ExecutionEngine
 
 Base.unsafe_convert(::Type{API.LLVMExecutionEngineRef}, engine::ExecutionEngine) =
     mark_use(engine).ref
@@ -258,21 +266,13 @@ end
 
 # function lookup
 
-@public functions
-
 struct ExecutionEngineFunctionSet
     engine::ExecutionEngine
 end
 
-"""
-    functions(engine::ExecutionEngine)
-
-Get an iterator over the functions in the execution engine.
-
-The iterator object is not actually iterable, but supports `get` and `haskey` queries with
-function names, and `getindex` to get the function object.
-"""
 functions(engine::ExecutionEngine) = ExecutionEngineFunctionSet(engine)
+
+@property ExecutionEngine functions
 
 Base.IteratorSize(::Type{ExecutionEngineFunctionSet}) = Base.SizeUnknown()
 Base.iterate(::ExecutionEngineFunctionSet) =
@@ -280,9 +280,9 @@ Base.iterate(::ExecutionEngineFunctionSet) =
 
 function Base.get(functionset::ExecutionEngineFunctionSet, name::String, default)
     out_ref = Ref{API.LLVMValueRef}()
-    API.LLVMFindFunction(functionset.engine.ref, name, out_ref)
-    status = API.LLVMFindFunction(functionset.engine.ref, name, out_ref) |> Bool
-    return status == 0 ? Function(out_ref[]) : default
+    # returns 0 on success
+    failed = API.LLVMFindFunction(functionset.engine.ref, name, out_ref) |> Bool
+    return failed ? default : Function(out_ref[])
 end
 
 function Base.haskey(functionset::ExecutionEngineFunctionSet, name::String)

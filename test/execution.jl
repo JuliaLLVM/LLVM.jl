@@ -55,7 +55,7 @@ function emit_inc(val)
     @dispose builder=IRBuilder() begin
         position!(builder, entry)
 
-        tmp = add!(builder, parameters(sum)[1], ConstantInt(LLVM.Int32Type(), val))
+        tmp = add!(builder, sum.parameters[1], ConstantInt(LLVM.Int32Type(), val))
         ret!(builder, tmp)
 
         verify(mod)
@@ -81,24 +81,24 @@ function emit_phi()
     @dispose builder=IRBuilder() begin
         position!(builder, entry)
 
-        cond = LLVM.icmp!(builder, LLVM.API.LLVMIntSGT, parameters(fn)[1], parameters(fn)[2], "ifcond")
+        cond = LLVM.icmp!(builder, LLVM.API.LLVMIntSGT, fn.parameters[1], fn.parameters[2], "ifcond")
         br!(builder, cond, then, elsee)
 
         position!(builder, then)
-        thencg = add!(builder, parameters(fn)[1], ConstantInt(LLVM.Int32Type(), 2))
+        thencg = add!(builder, fn.parameters[1], ConstantInt(LLVM.Int32Type(), 2))
         br!(builder, merge)
 
         position!(builder, elsee)
-        elsecg = sub!(builder, parameters(fn)[2], LLVM.ConstantInt(LLVM.Int32Type(), 5))
+        elsecg = sub!(builder, fn.parameters[2], LLVM.ConstantInt(LLVM.Int32Type(), 5))
         br!(builder, merge)
 
         position!(builder, merge)
         phi = phi!(builder, LLVM.Int32Type(), "iftmp")
 
-        append!(incoming(phi), [(thencg, then), (elsecg, elsee)])
+        append!(phi.incoming, [(thencg, then), (elsecg, elsee)])
 
-        @test length(incoming(phi)) == 2
-        @test_throws BoundsError incoming(phi)[3]
+        @test length(phi.incoming) == 2
+        @test_throws BoundsError phi.incoming[3]
 
         ret!(builder, phi)
     end
@@ -122,7 +122,7 @@ end
     end
 
     let mod = copy(mod)
-        fn = functions(mod)["add_1"]
+        fn = mod.functions["add_1"]
         @dispose engine=LLVM.Interpreter(mod) begin
             res = run(engine, fn, args)
             @test convert(Int, res) == 42
@@ -163,7 +163,7 @@ end
 
     for (args, true_res) in ((args1, -3), (args2, 4))
         let mod = emit_phi()
-            fn = functions(mod)["gt"]
+            fn = mod.functions["gt"]
             @dispose engine=LLVM.Interpreter(mod) begin
                 res = run(engine, fn, args)
                 @test convert(Int, res) == true_res
@@ -175,18 +175,18 @@ end
 
     let mod1 = emit_inc(1), mod2 = emit_inc(2)
         @dispose engine=LLVM.JIT(mod1) begin
-            @test_throws ErrorException collect(functions(engine))
-            @test haskey(functions(engine), "add_1")
-            @test functions(engine)["add_1"] isa LLVM.Function
+            @test_throws ErrorException collect(engine.functions)
+            @test haskey(engine.functions, "add_1")
+            @test engine.functions["add_1"] isa LLVM.Function
 
             delete!(engine, mod1)
-            @test_throws KeyError functions(engine)["add_1"]
-            @test !haskey(functions(engine), "add_1")
+            @test_throws KeyError engine.functions["add_1"]
+            @test !haskey(engine.functions, "add_1")
             dispose(mod1)
 
             push!(engine, mod2)
-            @test haskey(functions(engine), "add_2")
-            @test functions(engine)["add_2"] isa LLVM.Function
+            @test haskey(engine.functions, "add_2")
+            @test engine.functions["add_2"] isa LLVM.Function
 
             addr = lookup(engine, "add_2")
             res = ccall(addr, Int32, (Int32,), 40)

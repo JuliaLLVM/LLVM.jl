@@ -11,10 +11,18 @@ and should be disposed of.
 Most types are tied to a context instance. Multiple contexts can exist simultaneously. A
 single context is not thread safe. However, different contexts can execute on different
 threads simultaneously.
+
+# Properties
+
+    ctx.types
+
+The named types of the context, as a dictionary-like view that supports looking up a type
+by its name (`haskey` and indexing). LLVM does not support iterating these types.
 """
 @checked struct Context
     ref::API.LLVMContextRef
 end
+@properties Context
 
 Base.unsafe_convert(::Type{API.LLVMContextRef}, ctx::Context) = mark_use(ctx).ref
 

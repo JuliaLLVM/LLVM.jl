@@ -73,7 +73,7 @@ end
                 entry = BasicBlock(wrapper, "entry")
                 position!(builder, entry)
 
-                tmp = call!(builder, ft, fn, [parameters(wrapper)...])
+                tmp = call!(builder, ft, fn, [wrapper.parameters...])
                 ret!(builder, tmp)
             end
 
@@ -259,7 +259,7 @@ end
                         entry = BasicBlock(fn, "entry")
                         position!(builder, entry)
 
-                        tmp = add!(builder, parameters(fn)...)
+                        tmp = add!(builder, fn.parameters...)
                         ret!(builder, tmp)
                     end
                 end

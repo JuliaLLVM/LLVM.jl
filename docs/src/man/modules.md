@@ -25,12 +25,41 @@ attributes, this can be read and modified using properties:
 - `mod.name`: module name
 - `mod.triple`: target triple string
 - `mod.datalayout`: data layout, which can be assigned a string or `DataLayout` object
-- `mod.inline_asm`: module-level inline assembly (assigning replaces it, while
-  `append_inline_asm!(mod, asm)` appends to it)
 - `mod.sdk_version`: Apple SDK version
 
-In addition, `set_used!` and `set_compiler_used!` can be used to set `@llvm.used` and
-`@llvm.compiler.used`.
+The global values that should be kept even if they appear to be unused, i.e., those in
+`@llvm.used` and `@llvm.compiler.used`, are available as the `used` and `compiler_used`
+properties, which are sets that support `push!` and `delete!`:
+
+```jldoctest used
+julia> mod = LLVM.Module("SomeModule");
+
+julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "kept");
+
+julia> push!(mod.used, gv);
+
+julia> gv in mod.used
+true
+
+julia> mod.globals["llvm.used"]
+@llvm.used = appending global [1 x ptr] [ptr @kept], section "llvm.metadata"
+```
+
+Module-level inline assembly is a collection of assembly fragments, available as the
+`inline_asm` property. Fragments can be added with `push!` and removed with `empty!`, while
+`String` returns the assembly text:
+
+```jldoctest module
+julia> push!(mod.inline_asm, "nop");
+
+julia> String(mod.inline_asm)
+"nop\n"
+
+julia> empty!(mod.inline_asm);
+
+julia> isempty(mod.inline_asm)
+true
+```
 
 
 ## Textual representation
@@ -102,19 +131,20 @@ source_filename = "SomeModule"
 
 ## Contents
 
-To iterate the contents of a module, several iterators are provided (with different levels
-of functionality, based on what the LLVM C API provides).
+The contents of a module are available as properties, which return views of the module
+(with different levels of functionality, based on what the LLVM C API provides). These views
+always reflect the current contents of the module, and can be indexed by name.
 
 ### Global objects
 
-Globals, such as global variables, can be iterated with the `globals` function:
+Globals, such as global variables, are available as the `globals` property:
 
 ```jldoctest
 julia> mod = LLVM.Module("SomeModule");
 
 julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal");
 
-julia> collect(globals(mod))
+julia> collect(mod.globals)
 1-element Vector{GlobalVariable}:
  @SomeGlobal = external global i32
 ```
@@ -122,35 +152,35 @@ julia> collect(globals(mod))
 In addition to the iteration interface, it is possible to move from one global to the
 previous or next one using respectively the `prevglobal` and `nextglobal` functions.
 Global variables can be reordered with `move_before` and `move_after`, or sorted in place
-with `sort!(globals(mod))`. The latter defaults to sorting by name, which is useful for
+with `sort!(mod.globals)`. The latter defaults to sorting by name, which is useful for
 producing deterministic module layouts.
 
 ### Functions
 
-Functions can be iterated with the `functions` function:
+Functions are available as the `functions` property:
 
 ```jldoctest module
 julia> fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()));
 
-julia> collect(functions(mod))
+julia> collect(mod.functions)
 1-element Vector{LLVM.Function}:
  declare void @SomeFunction()
 ```
 
 Again, it is possible to move from one function to the previous or next one using
 respectively the `prevfun` and `nextfun` functions. Functions can be reordered with
-`move_before` and `move_after`, or sorted by name with `sort!(functions(mod))` to produce a
+`move_before` and `move_after`, or sorted by name with `sort!(mod.functions)` to produce a
 deterministic module layout.
 
 ### Aliases and ifuncs
 
-Global aliases and ifuncs are not included when iterating `globals` or `functions`, and
-have their own iterators, `aliases` and `ifuncs`:
+Global aliases and ifuncs are not included in the `globals` or `functions` of a module, and
+are available as the separate `aliases` and `ifuncs` properties:
 
 ```jldoctest module
 julia> ga = GlobalAlias(mod, fun, "SomeAlias");
 
-julia> collect(aliases(mod))
+julia> collect(mod.aliases)
 1-element Vector{GlobalAlias}:
  @SomeAlias = alias void (), ptr @SomeFunction
 ```
@@ -161,12 +191,12 @@ Here too it is possible to move to the previous or next element with `prevalias`
 ### Flags
 
 Modules can also have flags associated with them, which can be set and retrieved using the
-associative iterator returned by the `module_flags` function:
+dictionary-like view returned by the `flags` property:
 
 ```jldoctest module
 julia> mod = LLVM.Module("SomeModule");
 
-julia> module_flags(mod)["SomeFlag", LLVM.API.LLVMModuleFlagBehaviorError] = Metadata(ConstantInt(42))
+julia> mod.flags["SomeFlag", LLVM.API.LLVMModuleFlagBehaviorError] = Metadata(ConstantInt(42))
 i64 42
 
 julia> mod

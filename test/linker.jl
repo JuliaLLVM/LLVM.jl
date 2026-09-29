@@ -28,8 +28,8 @@
     end
 
     link!(mod1, mod2)
-    @test haskey(functions(mod1), "SomeFunction")
-    @test haskey(functions(mod1), "SomeOtherFunction")
+    @test haskey(mod1.functions, "SomeFunction")
+    @test haskey(mod1.functions, "SomeOtherFunction")
     dispose(mod1)
 end
 
@@ -48,12 +48,12 @@ end
 
             link!(dst, src; only_needed=true)
 
-            @test haskey(functions(dst), "caller")
+            @test haskey(dst.functions, "caller")
             # `needed` is referenced from `dst`, so it must be linked in (and defined now).
-            @test haskey(functions(dst), "needed")
-            @test !isempty(blocks(functions(dst)["needed"]))
+            @test haskey(dst.functions, "needed")
+            @test !isempty(dst.functions["needed"].blocks)
             # `extra` is not referenced from `dst`, so it must be skipped.
-            @test !haskey(functions(dst), "extra")
+            @test !haskey(dst.functions, "extra")
         end
     end
 end
@@ -65,7 +65,7 @@ end
 
             link!(dst, src; override_from_src=true)
 
-            glob = globals(dst)["glob"]
+            glob = dst.globals["glob"]
             init = glob.initializer
             @test convert(Int, init) == 2
         end

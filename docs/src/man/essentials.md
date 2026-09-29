@@ -42,15 +42,15 @@ e.g., `LLVM.InitializeAllTargetInfos`, or to initialize the native target, e.g.,
 
 ## Vocabularies
 
-LLVM's API uses many common words, like `functions`, `add!`, `lookup` or `Context`, which
+LLVM's API uses many common words, like `verify`, `add!`, `lookup` or `Context`, which
 would clash with other packages if they were all exported. That's why `using LLVM` only
 brings the `@dispose` macro into scope. The rest of the API is public, and can be used
-qualified, e.g., `LLVM.functions(mod)`, or brought into scope by opting into one or more
+qualified, e.g., `LLVM.isdeclaration(f)`, or brought into scope by opting into one or more
 vocabularies:
 
 | Vocabulary    | Contents                                                                  |
 |:------------- |:------------------------------------------------------------------------- |
-| `LLVM.IR`     | contexts, modules, values, types, metadata and debug info, and functions to traverse and modify them (`functions`, `blocks`, `instructions`, `operands`, `uses`, ...) |
+| `LLVM.IR`     | contexts, modules, values, types, metadata and debug info, and functions to inspect and modify them (`isdeclaration`, `erase!`, `replace_uses!`, `verify`, ...) |
 | `LLVM.Build`  | the `IRBuilder` and its instruction-building functions (`add!`, `load!`, `call!`, `ret!`, ...), constant expressions, and the `DIBuilder` |
 | `LLVM.Passes` | pass builders and managers, passes like `InstCombinePass`, and pipeline callbacks |
 | `LLVM.ORC`    | the ORC just-in-time compiler: `LLJIT`, JIT dylibs, thread-safe modules, ... |
@@ -61,14 +61,17 @@ needs and uses their names unqualified:
 ```julia
 using LLVM, LLVM.IR, LLVM.Build
 
-for f in functions(mod), bb in blocks(f), inst in instructions(bb)
-    # ...
+for f in mod.functions
+    isdeclaration(f) && continue
+    for bb in f.blocks, inst in bb.instructions
+        # ...
+    end
 end
 ```
 
 Code that only occasionally uses LLVM.jl, or that combines it with other packages using
 the same words (e.g., `mul!` from LinearAlgebra), can instead qualify the names,
-`LLVM.mul!(builder, lhs, rhs)`, or import specific ones, `using LLVM: functions, mul!`.
+`LLVM.mul!(builder, lhs, rhs)`, or import specific ones, `using LLVM: isdeclaration, mul!`.
 
 Some functionality is not part of any vocabulary, and is always used qualified: target
 initialization, targets, target machines and data layouts (`LLVM.TargetMachine`), and the
@@ -279,7 +282,8 @@ end
 ```
 
 Attributes of LLVM objects, like the name of a value, the linkage of a global, or the line
-number of a debug location, are available as properties:
+number of a debug location, are available as properties, as are their relationships to other
+objects and their contents:
 
 ```jldoctest properties
 julia> mod = LLVM.Module("SomeModule");
@@ -306,7 +310,7 @@ Properties are the only public way to access these attributes. To pass a propert
 higher-order function, use an anonymous function:
 
 ```jldoctest properties
-julia> map(gv -> gv.name, globals(mod))
+julia> map(gv -> gv.name, mod.globals)
 1-element Vector{String}:
  "counter"
 ```
@@ -316,27 +320,91 @@ signatures like `gv.linkage`, followed by `gv.linkage = linkage` for properties 
 be assigned to. The documentation is available in the REPL too, e.g., using
 `?LLVM.GlobalVariable`.
 
-Properties expose named characteristics and distinguished relationships of an object: its
-name, its linkage, its initializer, the block it is part of, the terminator of a block,
-etc. Functions are used to test conditions, to access and traverse collections, for lookups
-that take a key or other arguments, and for operations that modify the IR:
+Properties expose what an object has: its characteristics (its name, its linkage, whether it
+is constant), its relationships to other objects (the block an instruction is part of, the
+terminator of a block, the next instruction), and its contents (the functions of a module,
+the operands of an instruction). Flags that can be set or cleared are `Bool` properties
+named without an `is` or `has` prefix, like `gv.constant` or `inst.volatile`. Functions are
+used to ask questions that cannot be assigned an answer (predicates), to compute something
+from additional arguments, and to act: operations that modify the IR, builders and
+constructors.
 
-| Kind                         | Examples                                                                 |
-|:---------------------------- |:------------------------------------------------------------------------ |
-| properties                   | `f.name`, `gv.linkage = ...`, `inst.parent.parent`, `bb.terminator`, `f.entry`, `loc.line` |
-| predicates                   | `isdeclaration(f)`, `isvolatile(inst)`, with setters like `volatile!(inst, true)` |
-| collections and traversal    | `functions(mod)`, `blocks(f)`, `operands(inst)`, `uses(val)`, `nextinst(inst)` |
-| keyed and parameterized lookups | `metadata(inst)[kind]`, `module_flags(mod)[key]`, `LLVM.overloaded_name(intrinsic, types)` |
+| Kind            | Examples                                                                 |
+|:--------------- |:------------------------------------------------------------------------ |
+| characteristics | `f.name`, `gv.linkage = ...`, `inst.opcode`, `loc.line`                  |
+| flags           | `gv.constant = true`, `inst.volatile`, `inst.nuw = false`, `call.tailcall` |
+| relationships   | `inst.parent.parent`, `bb.terminator`, `f.entry`, `inst.next`, `bb.prev` |
+| contents        | `mod.functions`, `f.blocks`, `bb.instructions`, `inst.operands`, `val.uses` |
+| views of state  | `inst.fast_math.nnan = true`, `f.memory_effects[:argmem] = :read`        |
+| predicates      | `isdeclaration(f)`, `isvararg(ft)`, `isterminator(inst)`, `isconstant(val)` |
+| computations    | `LLVM.overloaded_name(intrinsic, types)`, `dominates(tree, a, b)`        |
+| operations      | `erase!(inst)`, `replace_uses!(old, new)`, `move_before(f, g)`, `elements!(st, elems)` |
 
 Predicates are functions so that they can be passed to higher-order functions, e.g.,
-`filter(isdeclaration, functions(mod))`.
+`filter(isdeclaration, mod.functions)`. Relationships that can be absent are `nothing`,
+e.g., the `next` instruction of the last instruction in a block, or the `entry` of a
+function without a body.
+
+### Collections
+
+The contents of an object are properties that return a view: a live window onto the IR,
+rather than a copy. Reading from a view queries the IR object, so it reflects changes that
+are made after the view was created:
+
+```jldoctest properties
+julia> fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()));
+
+julia> bbs = fn.blocks;
+
+julia> isempty(bbs)
+true
+
+julia> BasicBlock(fn, "entry");
+
+julia> map(bb -> bb.name, bbs)
+1-element Vector{String}:
+ "entry"
+```
+
+Views support the operations that LLVM supports on the underlying collection. They are
+mutable where the collection can be modified in place, e.g., the operands of an instruction
+or metadata node (`inst.operands[i] = val`), the successors of a terminator, the attributes
+of a function (`push!`, `delete!`), or the module-level inline assembly (`push!`,
+`empty!`). Collections that cannot be modified directly are read-only views, and mutating
+them throws an error: e.g., the parameter types of a function type (types are immutable),
+the predecessors of a block (which are derived from the uses of the block), or the blocks
+of a function and the instructions of a block (which are added by creating them, and
+removed with operations like `erase!`). Assigning to the property itself is not supported.
+
+Keyed lookups are indexing operations on these views, e.g., `mod.functions["name"]`,
+`inst.metadata["tbaa"]` or `mod.flags[key]`, while collections that are indexed by
+position, like the attributes of each parameter, are vectors of views:
+`f.parameter_attributes[i]`. Some views, like the blocks of a function, can be indexed even
+though LLVM stores their elements in a linked list, which makes indexing linear in the
+position of the element; iterate the view instead of indexing it in a loop. To get a copy
+that doesn't change along with the IR, use `collect`.
+
+### Views of richer state
+
+Some state is richer than a single value, like the fast-math flags of an instruction or the
+memory effects of a function. The corresponding properties return a view object that is
+bound to the IR object: reading from the view queries the IR object, while assigning to one
+of its properties or indices modifies it in place. Assigning to the property itself replaces
+the state as a whole, e.g., `inst.fast_math = (; nnan=true)` clears all other flags. When
+enum-valued state has a common yes/no question, both are available as properties that are
+views of the same state, e.g., `gv.threadlocal_mode` and `gv.threadlocal`.
+
+### Cost
 
 Reading a property retrieves information that is attached to the object. It may perform a
-lookup or convert LLVM's representation (e.g., copying a string), but it does not run an
-analysis, traverse the IR, or construct a collection of IR objects.
+lookup, convert LLVM's representation (e.g., copying a string), or create a view, but it
+does not run an analysis, traverse the IR, or construct a collection of IR objects. Such
+work only happens when using the view, e.g., when iterating the predecessors of a block.
 
 This mostly corresponds to LLVM's C++ API, which makes it easy to port code: C++ getters and
-setters like `F->getName()`/`F->setName(...)` and `I->getParent()` become properties,
-`GV->isThreadLocal()`/`GV->setThreadLocal(true)` become `isthreadlocal(gv)` and
-`threadlocal!(gv, true)`, and iteration like `for (auto &I : BB)` becomes
-`for inst in instructions(bb)`.
+setters like `F->getName()`/`F->setName(...)` and `I->getParent()` become properties, as
+do flags like `GV->isThreadLocal()`/`GV->setThreadLocal(true)`, which become
+`gv.threadlocal` and `gv.threadlocal = true`, collections like `M.functions()` and
+`I->operands()` become `mod.functions` and `inst.operands`, navigation like
+`I->getNextNode()` becomes `inst.next`, and iteration like `for (auto &I : BB)` becomes
+`for inst in bb.instructions`.

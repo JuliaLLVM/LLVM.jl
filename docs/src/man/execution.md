@@ -15,7 +15,7 @@ DocTestSetup = quote
         ret i64 %2
       }"""
     mod = parse(LLVM.Module, ir)
-    add = only(functions(mod))
+    add = only(mod.functions)
 end
 ```
 
@@ -152,7 +152,7 @@ julia> ts_mod() do mod
            fn = LLVM.Function(mod, "add", ft)
            @dispose builder=IRBuilder() begin
                position!(builder, BasicBlock(fn, "entry"))
-               ret!(builder, add!(builder, parameters(fn)...))
+               ret!(builder, add!(builder, fn.parameters...))
            end
            return
        end

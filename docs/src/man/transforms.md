@@ -211,7 +211,7 @@ DocTestSetup = quote
                ret i64 %2
              }""";
     mod = parse(LLVM.Module, ir);
-    src = functions(mod)["add"];
+    src = mod.functions["add"];
 end
 ```
 
@@ -226,8 +226,8 @@ top:
 julia> dst = LLVM.Function(mod, "new_add", src.function_type);
 
 julia> value_map = Dict(
-            parameters(src)[1] => parameters(dst)[1],
-            parameters(src)[2] => parameters(dst)[2]
+            src.parameters[1] => dst.parameters[1],
+            src.parameters[2] => dst.parameters[2]
        );
 
 julia> clone_into!(dst, src; value_map);
@@ -249,8 +249,8 @@ julia> dst = LLVM.Function(mod, "new_add", src.function_type);
 
 julia> # let's swap the arguments around
        value_map = Dict(
-            parameters(src)[1] => parameters(dst)[2],
-            parameters(src)[2] => parameters(dst)[1]
+            src.parameters[1] => dst.parameters[2],
+            src.parameters[2] => dst.parameters[1]
        );
 
 julia> clone_into!(dst, src; value_map);
@@ -273,7 +273,7 @@ can be used:
 ```jldoctest
 julia> # let's replace an argument by a constant
        value_map = Dict(
-            parameters(src)[1] => ConstantInt(42)
+            src.parameters[1] => ConstantInt(42)
        );
 
 julia> clone(src; value_map)
@@ -292,7 +292,7 @@ julia> bb = src.entry;
 
 julia> # let's again an argument by a constant
        value_map = Dict(
-            parameters(src)[1] => ConstantInt(42)
+            src.parameters[1] => ConstantInt(42)
        );
 
 julia> clone(bb; value_map);

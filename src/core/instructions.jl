@@ -16,6 +16,25 @@ of a basic block.
 
 The opcode of the instruction, e.g., `LLVM.API.LLVMAdd`.
 
+    inst.metadata
+    gv.metadata
+
+The metadata attached to an instruction or a global object (a function or global variable),
+as a dictionary-like view that maps the kind of metadata to a metadata node. The kind can be
+an `MDKind`, like `LLVM.MD_dbg`, or the name of the kind, like `"tbaa"`. The view can be
+iterated (in the case of an instruction, this includes its debug location), and is mutable:
+assign to a kind to attach metadata, e.g., `inst.metadata["tbaa"] = node`, and use `delete!`
+to remove it.
+
+    inst.debug_records
+
+The debug records attached to the instruction, i.e., the `#dbg_declare`, `#dbg_value`,
+`#dbg_assign` and `#dbg_label` records that are printed right before it, as a read-only view
+that can be iterated. Requires LLVM 19+.
+
+The records can be inspected using their properties, like `record.kind`; see
+`LLVM.DbgRecord` for the full list.
+
     inst.debug_location
     inst.debug_location = loc::Union{DILocation,Nothing}
 
@@ -27,14 +46,11 @@ The debug location attached to the instruction, or `nothing` if it has none. Ass
 The comparison predicate of an integer or floating-point comparison instruction, e.g.,
 `LLVM.API.LLVMIntEQ` or `LLVM.API.LLVMRealOLT`.
 
-    br.condition
-    br.condition = cond::Value
+    phi.incoming
 
-The condition of a conditional branch instruction.
-
-    switch.default_dest
-
-The default destination of a switch instruction.
+The incoming values of the phi node, as a view of `(value, block)` tuples of the incoming
+value and the block it originates from. The view is mutable: incoming values can be added
+using `push!` or `append!`.
 
     or.disjoint
     or.disjoint = flag::Bool
@@ -48,7 +64,7 @@ operands have a bit set in the same position. Requires LLVM 18+.
 Whether an `icmp` instruction has the `samesign` flag, which makes the result poison if the
 operands have different signs. Requires LLVM 20+.
 
-The properties of [`Value`](@ref LLVM.Value) are available too.
+The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 Instruction
 # forward definition of Instruction in src/core/value/constant.jl
@@ -216,8 +232,8 @@ The ordering of an atomic compare-and-exchange instruction when the comparison s
 
 The ordering of an atomic compare-and-exchange instruction when the comparison fails.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const AtomicInst = Union{LoadInst, StoreInst, FenceInst, AtomicRMWInst, AtomicCmpXchgInst}
 
@@ -525,8 +541,8 @@ The group of instructions that access memory: `load`, `store`, `atomicrmw` and `
 Whether a memory access (a `load`, `store`, `atomicrmw` or `cmpxchg` instruction) is
 volatile.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const MemAccessInst = Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst}
 
@@ -629,6 +645,37 @@ function.
 
 The type of the function that is called by a `call`, `invoke` or `callbr` instruction.
 
+    call.arguments
+
+The arguments of a `call`, `invoke` or `callbr` instruction, as a view of the instruction's
+operands (which also include, e.g., the called function). The view is mutable, so an
+argument can be replaced by assigning to it: `call.arguments[i] = val`.
+
+    call.function_attributes
+
+The function attributes of a `call`, `invoke` or `callbr` instruction, as a mutable view
+that can be iterated, and supports `push!`, `append!` and `delete!`. These are the
+attributes of the call site, which do not include those of the called function.
+
+See also the `return_attributes` and `argument_attributes` properties.
+
+    call.argument_attributes
+
+The attributes of the arguments of a `call`, `invoke` or `callbr` instruction, as a vector
+with a view of the attributes of each argument. These views work like the
+`function_attributes` of the call, e.g.,
+`push!(call.argument_attributes[1], EnumAttribute("noundef"))`.
+
+    call.return_attributes
+
+The attributes of the return value of a `call`, `invoke` or `callbr` instruction, as a
+mutable view that works like the `function_attributes` of the call.
+
+    call.operand_bundles
+
+The operand bundles attached to a `call`, `invoke` or `callbr` instruction, as a read-only
+view. The bundles themselves are copies, which do not change along with the instruction.
+
     call.tailcall
     call.tailcall = flag::Bool
 
@@ -644,12 +691,10 @@ The tail call marker of a `call` instruction: `LLVM.API.LLVMTailCallKindNone`,
 `LLVMTailCallKindTail` (`tail`), `LLVMTailCallKindMustTail` (`musttail`) or
 `LLVMTailCallKindNoTail` (`notail`). See also the `tailcall` property.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const CallBase = Union{CallBrInst, CallInst, InvokeInst}
-
-@vocabulary IR arguments
 
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
@@ -690,53 +735,61 @@ end
 @property CallBase called_operand
 @property CallBase called_type
 
-"""
-    arguments(call_inst::Instruction)
+struct CallArgumentSet <: AbstractVector{Value}
+    inst::CallBase
+end
 
-Get the arguments of a callable instruction.
-"""
-function arguments(inst::CallBase)
-    nargs = API.LLVMGetNumArgOperands(inst)
-    operands(inst)[1:nargs]
+arguments(inst::CallBase) = CallArgumentSet(inst)
+
+@property CallBase arguments
+
+Base.size(iter::CallArgumentSet) = (Int(API.LLVMGetNumArgOperands(iter.inst)),)
+
+Base.IndexStyle(::CallArgumentSet) = IndexLinear()
+
+# the arguments are the first operands of a call site
+function Base.getindex(iter::CallArgumentSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Value(API.LLVMGetOperand(iter.inst, i-1))
+end
+
+function Base.setindex!(iter::CallArgumentSet, val::Value, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    API.LLVMSetOperand(iter.inst, i-1, val)
+    return iter
 end
 
 # attributes
-
-@vocabulary IR function_attributes, argument_attributes, return_attributes
 
 struct CallSiteAttrSet
     instr::LLVM.CallBase
     idx::LLVM.API.LLVMAttributeIndex
 end
 
-"""
-    function_attributes(instr::CallBase)
-
-Get the attributes of the given instruction.
-
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
 function_attributes(instr::LLVM.CallBase) =
     CallSiteAttrSet(instr, reinterpret(LLVM.API.LLVMAttributeIndex, LLVM.API.LLVMAttributeFunctionIndex))
 
-"""
-    argument_attributes(instr::CallBase, idx::Integer)
+struct CallSiteArgumentAttrSets <: AbstractVector{CallSiteAttrSet}
+    instr::CallBase
+end
 
-Get the attributes of the given argument of the given instruction.
+argument_attributes(instr::CallBase) = CallSiteArgumentAttrSets(instr)
 
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
-argument_attributes(instr::LLVM.CallBase, idx::Integer) =
-    CallSiteAttrSet(instr, LLVM.API.LLVMAttributeIndex(idx))
+Base.size(iter::CallSiteArgumentAttrSets) =
+    (Int(API.LLVMGetNumArgOperands(iter.instr)),)
 
-"""
-    return_attributes(instr::CallBase)
+Base.IndexStyle(::CallSiteArgumentAttrSets) = IndexLinear()
 
-Get the attributes of the return value of the given instruction.
+function Base.getindex(iter::CallSiteArgumentAttrSets, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return CallSiteAttrSet(iter.instr, API.LLVMAttributeIndex(i))
+end
 
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
 return_attributes(instr::LLVM.CallBase) = CallSiteAttrSet(instr, LLVM.API.LLVMAttributeReturnIndex)
+
+@property CallBase function_attributes
+@property CallBase argument_attributes
+@property CallBase return_attributes
 
 Base.eltype(::CallSiteAttrSet) = Attribute
 
@@ -773,6 +826,24 @@ function Base.length(iter::CallSiteAttrSet)
     return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
 end
 
+# LLVM only supports fetching all attributes at once
+function Base.iterate(iter::CallSiteAttrSet, (attrs, i)=(collect(iter), 1))
+    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
+end
+
+function Base.append!(iter::CallSiteAttrSet, attrs)
+    for attr in attrs
+        push!(iter, attr)
+    end
+    return iter
+end
+
+function Base.show(io::IO, iter::CallSiteAttrSet)
+    print(io, "CallSiteAttrSet(")
+    join(io, collect(iter), ", ")
+    print(io, ")")
+end
+
 function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)
     memory_locations()  # check that the attribute is supported
@@ -783,7 +854,7 @@ end
 
 # operand bundles
 
-@vocabulary IR OperandBundle, operand_bundles, inputs
+@vocabulary IR OperandBundle
 
 # NOTE: OperandBundle objects aren't LLVM IR objects, but created by the C API wrapper,
 #       so we need to free them explicitly when we get or create them.
@@ -798,6 +869,10 @@ An operand bundle attached to a call site.
     bundle.tag
 
 The tag of the operand bundle, e.g., `"deopt"`.
+
+    bundle.inputs
+
+The inputs of the operand bundle, as a read-only view.
 """
 @checked mutable struct OperandBundle
     ref::API.LLVMOperandBundleRef
@@ -812,8 +887,9 @@ Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
 
 Create a new operand bundle with the given tag and arguments.
 """
-function OperandBundle(tag::String, args::Vector{<:Value}=Value[])
-    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, length(tag), args, length(args)))
+function OperandBundle(tag::String, args::AbstractVector{<:Value}=Value[])
+    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, length(tag), as_vector(args),
+                                                       length(args)))
     finalizer(bundle) do obj
         API.LLVMDisposeOperandBundle(obj)
     end
@@ -823,12 +899,9 @@ struct OperandBundleIterator <: AbstractVector{OperandBundle}
     inst::Instruction
 end
 
-"""
-    operand_bundles(call_inst::Instruction)
-
-Get the operand bundles attached to the given call instruction.
-"""
 operand_bundles(inst::CallBase) = OperandBundleIterator(inst)
+
+@property CallBase operand_bundles
 
 Base.size(iter::OperandBundleIterator) = (API.LLVMGetNumOperandBundles(iter.inst),)
 
@@ -854,12 +927,9 @@ struct OperandBundleInputIterator <: AbstractVector{Value}
     bundle::OperandBundle
 end
 
-"""
-    inputs(bundle::OperandBundle)
-
-Get an iterator over the inputs of the given operand bundle.
-"""
 inputs(bundle::OperandBundle) = OperandBundleInputIterator(bundle)
+
+@property OperandBundle inputs
 
 Base.size(iter::OperandBundleInputIterator) = (API.LLVMGetNumOperandBundleArgs(iter.bundle),)
 
@@ -911,50 +981,80 @@ default_dest(switch::SwitchInst) = BasicBlock(API.LLVMGetSwitchDefaultDest(switc
 
 @property SwitchInst default_dest
 
-@vocabulary IR case_value, case_value!
-
-"""
-    case_value(switch::SwitchInst, i::Integer)
-
-Get the value of the `i`th case of a switch instruction, whose destination is
-`successors(switch)[i+1]` (the first successor being the default destination).
-"""
-function case_value(switch::SwitchInst, i::Integer)
-    @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
-    Value(API.LLVMGetSwitchCaseValue(switch, i))
+struct SwitchCaseValueSet <: AbstractVector{ConstantInt}
+    switch::SwitchInst
 end
 
-"""
-    case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
+case_values(switch::SwitchInst) = SwitchCaseValueSet(switch)
 
-Set the value of the `i`th case of a switch instruction. The value needs to have the same
-type as the switch condition.
-"""
-function case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
-    @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
-    cond = Value(API.LLVMGetOperand(switch, 0))
+@property SwitchInst case_values
+
+Base.size(iter::SwitchCaseValueSet) = (length(successors(iter.switch)) - 1,)
+
+Base.IndexStyle(::SwitchCaseValueSet) = IndexLinear()
+
+# the C API indexes cases by the index of their successor
+function Base.getindex(iter::SwitchCaseValueSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Value(API.LLVMGetSwitchCaseValue(iter.switch, i))::ConstantInt
+end
+
+function Base.setindex!(iter::SwitchCaseValueSet, value::ConstantInt, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    cond = Value(API.LLVMGetOperand(iter.switch, 0))
     value_type(value) == value_type(cond) ||
         throw(ArgumentError("Switch case value of type $(value_type(value)) does not match the condition of type $(value_type(cond))"))
-    API.LLVMSetSwitchCaseValue(switch, i, value)
+    API.LLVMSetSwitchCaseValue(iter.switch, i, value)
+    return iter
 end
 
 # successor iteration
 
-@vocabulary IR successors
+@vocabulary IR TerminatorInst
+
+"""
+    LLVM.TerminatorInst
+
+The group of terminators: the instructions that end a basic block, like `ret`, `br` or
+`switch`.
+
+# Properties
+
+    term.successors
+
+The successors of a terminator instruction, as a mutable view: assigning to an element,
+`term.successors[i] = bb`, changes the destination of the terminator.
+
+    br.condition
+    br.condition = cond::Value
+
+The condition of a conditional branch instruction.
+
+    switch.default_dest
+
+The default destination of a switch instruction.
+
+    switch.case_values
+
+The values of the cases of a switch instruction, as a mutable view. The destination of the
+`i`th case is `switch.successors[i+1]`, the first successor being the default destination.
+Assigning to an element changes the value of that case, which needs to have the same type
+as the switch condition.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
+const TerminatorInst = Union{RetInst, BrInst, SwitchInst, IndirectBrInst, InvokeInst,
+                             UnreachableInst, CallBrInst, ResumeInst, CleanupRetInst,
+                             CatchRetInst, CatchSwitchInst}
 
 struct TerminatorSuccessorSet <: AbstractVector{BasicBlock}
     term::Instruction
 end
 
-"""
-    successors(term::Instruction)
-
-Get an iterator over the successors of the given terminator instruction.
-
-This is a mutable iterator, so you can modify the successors of the terminator by
-calling `setindex!`.
-"""
 successors(term::Instruction) = TerminatorSuccessorSet(term)
+
+@property TerminatorInst successors
 
 Base.size(iter::TerminatorSuccessorSet) = (API.LLVMGetNumSuccessors(iter.term),)
 
@@ -965,30 +1065,24 @@ function Base.getindex(iter::TerminatorSuccessorSet, i::Int)
     return BasicBlock(API.LLVMGetSuccessor(iter.term, i-1))
 end
 
-Base.setindex!(iter::TerminatorSuccessorSet, bb::BasicBlock, i::Int) =
+function Base.setindex!(iter::TerminatorSuccessorSet, bb::BasicBlock, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
     API.LLVMSetSuccessor(iter.term, i-1, bb)
+    return iter
+end
 
 
 ## phi nodes
 
 # incoming iteration
 
-@vocabulary IR incoming
-
 struct PhiIncomingSet <: AbstractVector{Tuple{Value,BasicBlock}}
     phi::Instruction
 end
 
-"""
-    incoming(phi::PhiInst)
-
-Get an iterator over the incoming values of the given phi node.
-
-This is a mutable iterator, so you can modify the incoming values of the phi node by
-calling `push!` or `append!`, passing a tuple of the incoming value and the originating
-basic block.
-"""
 incoming(phi::PHIInst) = PhiIncomingSet(phi)
+
+@property PHIInst incoming
 
 Base.size(iter::PhiIncomingSet) = (API.LLVMCountIncoming(iter.phi),)
 
@@ -1035,8 +1129,8 @@ Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has t
 Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has the `nsw`
 (no signed wrap) flag, which makes the result poison if signed overflow occurs.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const NoWrapInst = version() >= v"19" ?
     Union{AddInst, SubInst, MulInst, ShlInst, TruncInst} :
@@ -1057,8 +1151,8 @@ Whether a `udiv`, `sdiv`, `lshr` or `ashr` instruction has the `exact` flag, whi
 the result poison if the division has a remainder, or if the shift shifts out any non-zero
 bits.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const ExactInst = Union{UDivInst, SDivInst, LShrInst, AShrInst}
 @vocabulary IR NonNegInst
@@ -1076,8 +1170,8 @@ The group of instructions that can have the `nneg` flag: `zext` and, on LLVM 19+
 Whether a `zext` or (on LLVM 19+) `uitofp` instruction has the `nneg` (non-negative) flag,
 which makes the result poison if the operand is negative. Requires LLVM 18+.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const NonNegInst = version() >= v"19" ? Union{ZExtInst, UIToFPInst} : ZExtInst
 
@@ -1282,8 +1376,8 @@ ninf=true)`), the flags that are not specified are cleared, while `fast=true` se
 flags that are not specified. The flags can also be copied from another instruction by
 assigning its `FastMathFlags`.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const FPMathInst = Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemInst, FCmpInst,
                          PHIInst, SelectInst, CallInst,
@@ -1311,8 +1405,8 @@ memory.
 The alignment in bytes of an `alloca`, `load`, `store`, `atomicrmw` or `cmpxchg`
 instruction. The assigned alignment must be a positive power of 2.
 
-The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 const AlignedInst = Union{AllocaInst, MemAccessInst}
 

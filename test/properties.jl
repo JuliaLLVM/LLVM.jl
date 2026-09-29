@@ -37,13 +37,13 @@
     # properties are only defined for the objects that support them
     entrybb = BasicBlock(fn, "entry")
     position!(builder, entrybb)
-    ld = load!(builder, LLVM.Int32Type(), parameters(fn)[1])
+    ld = load!(builder, LLVM.Int32Type(), fn.parameters[1])
     ld.alignment = 4
     @test ld.alignment == 4
     val = add!(builder, ld, ld)
     @test !hasproperty(val, :alignment)
     @test_throws "no property `alignment`" val.alignment
-    cmpxchg = atomic_cmpxchg!(builder, parameters(fn)[1], val, val,
+    cmpxchg = atomic_cmpxchg!(builder, fn.parameters[1], val, val,
                               LLVM.API.LLVMAtomicOrderingSequentiallyConsistent,
                               LLVM.API.LLVMAtomicOrderingMonotonic, false)
     @test !hasproperty(cmpxchg, :ordering)
@@ -136,16 +136,11 @@
     @test ga.section == "SomeSection"
     @test_throws "property `section` of GlobalAlias is read-only" ga.section = "OtherSection"
 
-    # module-level inline assembly is replaced, not appended to
-    mod.inline_asm = "nop"
-    mod.inline_asm = "ret"
-    @test split(mod.inline_asm) == ["ret"]
-
     # relationships
     @test ld.parent == entrybb
     @test ld.parent.parent == fn
     @test fn.parent == mod
-    @test parameters(fn)[1].parent == fn
+    @test fn.parameters[1].parent == fn
     @test fn.entry == entrybb
     @test entrybb.terminator === nothing
     retinst = ret!(builder, val)
@@ -165,8 +160,9 @@ end
 # properties are the only public spelling: the accessor functions that back them are
 # internal, except for `context`, which also provides the task-local context
 @static if VERSION >= v"1.11"
-    # functions that are named like a property setter, but that do something else
-    unrelated = (:context!, :binop!, :expression!, :file!, :subprogram!)
+    # functions that are named like a property setter, but that do something else (e.g.,
+    # `elements!` sets the body of a structure type, including whether it is packed)
+    unrelated = (:context!, :binop!, :expression!, :file!, :subprogram!, :elements!)
     for name in unique(last.(LLVM.property_registry))
         name === :context && continue
         @test !Base.ispublic(LLVM, name)
@@ -185,10 +181,10 @@ end
         ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
         fn = LLVM.Function(mod, "SomeFunction", ft)
         position!(builder, BasicBlock(fn, "entry"))
-        inst = add!(builder, parameters(fn)[1], ConstantInt(Int32(1)), "sum")
+        inst = add!(builder, fn.parameters[1], ConstantInt(Int32(1)), "sum")
         ret!(builder, inst)
 
-        vals = Value[inst, parameters(fn)[1], ConstantInt(Int32(42)), fn]
+        vals = Value[inst, fn.parameters[1], ConstantInt(Int32(42)), fn]
         @test all(v -> v.ref === Base.unsafe_convert(LLVM.API.LLVMValueRef, v), vals)
         @test all(v -> v.name == LLVM.name(v), vals)
 
@@ -206,10 +202,10 @@ end
     # the vocabularies re-export LLVM's bindings
     # including the instruction types, and the groups of instructions that have properties
     @test LLVM.IR.CallInst === LLVM.CallInst
-    for name in (:CallBase, :AtomicInst, :MemAccessInst, :AlignedInst, :NoWrapInst, :ExactInst, :NonNegInst, :FPMathInst)
+    for name in (:CallBase, :TerminatorInst, :AtomicInst, :MemAccessInst, :AlignedInst, :NoWrapInst, :ExactInst, :NonNegInst, :FPMathInst)
         @test Base.isexported(LLVM.IR, name)
     end
-    @test LLVM.IR.functions === LLVM.functions
+    @test LLVM.IR.isdeclaration === LLVM.isdeclaration
     @test LLVM.Build.add! === LLVM.Passes.add! === LLVM.ORC.add! === LLVM.add!
     @test !Base.isexported(LLVM, :IR)
     @static if VERSION >= v"1.11"
@@ -219,5 +215,49 @@ end
     # accessors that back properties are not part of any vocabulary
     for vocab in (LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC), name in (:name, :parent, :entry)
         @test !Base.isexported(vocab, name)
+    end
+end
+
+@testset "replaced functions" begin
+    # predicates of flags that can be assigned have been replaced by properties
+    for name in (:isthreadlocal, :isextinit, :isvolatile, :isweak, :istailcall,
+                 :hasnuw, :hasnsw, :isexact, :hasdisjoint, :hasnneg, :hassamesign,
+                 :local_unnamed_addr, :extinit!, :append_inline_asm!)
+        @test !isdefined(LLVM, name)
+    end
+
+    # their setters are the internal accessors of those properties, if at all
+    for name in (:threadlocal!, :constant!, :volatile!, :weak!, :tailcall!, :nuw!, :nsw!,
+                 :exact!, :disjoint!, :nneg!, :samesign!, :fast_math!, :memory_effects!)
+        @test !isdefined(LLVM.IR, name)
+        @static if VERSION >= v"1.11"
+            @test !Base.ispublic(LLVM, name)
+        end
+    end
+
+    # collections are properties, so the functions that returned them are internal
+    # accessors, or have been removed altogether
+    for name in (:functions, :globals, :aliases, :ifuncs, :metadata, :inline_asm, :blocks,
+                 :parameters, :function_attributes, :return_attributes,
+                 :parameter_attributes, :argument_attributes, :instructions, :predecessors,
+                 :successors, :operands, :incoming, :arguments, :operand_bundles, :inputs,
+                 :uses, :debug_records, :location_operands, :elements, :types, :case_values)
+        @test !isdefined(LLVM.IR, name)
+    end
+    for name in (:module_flags, :set_used!, :set_compiler_used!, :case_value, :case_value!, :replace_operand)
+        @test !isdefined(LLVM, name)
+    end
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        # `isconstant` only checks whether a value is a constant
+        gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
+        @test !gv.constant
+        @test isconstant(gv)
+        @test which(isconstant, Tuple{GlobalVariable}).sig ==
+              Tuple{typeof(isconstant), Value}
+
+        # module-level inline assembly is a collection, which cannot be assigned
+        @test mod.inline_asm isa LLVM.ModuleInlineAsm
+        @test_throws "read-only" mod.inline_asm = "nop"
     end
 end

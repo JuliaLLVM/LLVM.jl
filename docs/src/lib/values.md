@@ -14,7 +14,6 @@ isnull
 
 ```@docs
 LLVM.User
-operands(::LLVM.User)
 ```
 
 ## Constant values
@@ -81,6 +80,5 @@ erase!(::GlobalIFunc)
 ```@docs
 replace_uses!
 replace_metadata_uses!
-uses
 Use
 ```

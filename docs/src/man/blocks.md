@@ -11,8 +11,8 @@ end
 ```
 
 Basic blocks are sequences of instructions that are executed in order. They are the building
-blocks of functions, and can be looked up using the `blocks` iterator, or by constructing
-them directly:
+blocks of functions, and can be looked up using the `blocks` property of a function, or by
+constructing them directly:
 
 ```jldoctest
 julia> bb = BasicBlock("SomeBlock")
@@ -35,10 +35,13 @@ Basic blocks support a couple of specific APIs:
 
 ## Control flow
 
-The LLVM C API supports a couple of functions to inspect the control flow of basic blocks:
+The control flow between basic blocks can be inspected using the following properties:
 
-- `predecessors`: get the predecessors of a basic block.
-- `successors`: get the successors of a basic block.
+- `bb.predecessors`: the blocks that branch to the basic block. This is a read-only view,
+  derived from the uses of the block.
+- `bb.successors`: the blocks the basic block branches to, i.e., the successors of its
+  terminator. This view is mutable: `bb.successors[i] = other` changes the destination of
+  the terminator.
 
 
 ## Instructions
@@ -58,13 +61,13 @@ DocTestSetup = quote
           ret i64 %2
         }"""
     mod = parse(LLVM.Module, ir);
-    fun = only(functions(mod));
+    fun = only(mod.functions);
     bb = fun.entry
 end
 ```
 
-The main purpose of basic blocks is to contain instructions, which can be iterated using the
-`instructions` function:
+The main purpose of basic blocks is to contain instructions, which are available as the
+`instructions` property, a view that always reflects the current contents of the block:
 
 ```jldoctest
 julia> bb
@@ -72,7 +75,7 @@ top:
   %2 = add i64 %1, %0
   ret i64 %2
 
-julia> collect(instructions(bb))
+julia> collect(bb.instructions)
 2-element Vector{Instruction}:
  %2 = add i64 %1, %0
  ret i64 %2

@@ -15,7 +15,7 @@
             ptr = const_inttoptr(
                 ConstantInt(0xdeadbeef%UInt),
                 LLVM.PointerType(LLVM.Int32Type()))
-            tmp = add!(builder, parameters(f)[1], parameters(f)[2], "tmp")
+            tmp = add!(builder, f.parameters[1], f.parameters[2], "tmp")
             tmp2 = load!(builder, LLVM.Int32Type(), ptr)
             tmp3 = add!(builder, tmp, tmp2)
             ret!(builder, tmp3)
@@ -27,8 +27,8 @@
         let new_f = clone(f)
             @test new_f != f
             @test new_f.value_type == f.value_type
-            for (bb1, bb2) in zip(blocks(f), blocks(new_f))
-                for (inst1, inst2) in zip(instructions(bb2), instructions(bb2))
+            for (bb1, bb2) in zip(f.blocks, new_f.blocks)
+                for (inst1, inst2) in zip(bb2.instructions, bb2.instructions)
                     @test inst1 == inst2
                 end
             end
@@ -41,15 +41,15 @@
             new_f = LLVM.Function(mod, "new", new_fun_type)
 
             value_map = Dict{LLVM.Value, LLVM.Value}(
-                parameters(f)[1] => parameters(new_f)[2],
-                parameters(f)[2] => parameters(new_f)[3]
+                f.parameters[1] => new_f.parameters[2],
+                f.parameters[2] => new_f.parameters[3]
             )
             clone_into!(new_f, f; value_map)
 
             # operands of the add instruction should have been remapped
-            add = first(instructions(first(blocks(new_f))))
-            @test operands(add)[1] == parameters(new_f)[2]
-            @test operands(add)[2] == parameters(new_f)[3]
+            add = first(first(new_f.blocks).instructions)
+            @test add.operands[1] == new_f.parameters[2]
+            @test add.operands[2] == new_f.parameters[3]
         end
 
         # clone into, testing the type remapper (changing precision)
@@ -62,7 +62,7 @@
             # we always need to map all arguments
             value_map = Dict{LLVM.Value, LLVM.Value}(
                 old_param => new_param for (old_param, new_param) in
-                                            zip(parameters(f), parameters(new_f)))
+                                            zip(f.parameters, new_f.parameters))
 
             function type_mapper(typ)
                 if typ == LLVM.Int32Type()
@@ -82,16 +82,16 @@
             clone_into!(new_f, f; value_map, type_mapper, materializer)
 
             # the add should now be a 64-bit addition
-            add = first(instructions(first(blocks(new_f))))
-            @test operands(add)[1].value_type == LLVM.Int64Type()
-            @test operands(add)[2].value_type == LLVM.Int64Type()
+            add = first(first(new_f.blocks).instructions)
+            @test add.operands[1].value_type == LLVM.Int64Type()
+            @test add.operands[2].value_type == LLVM.Int64Type()
             @test add.value_type == LLVM.Int64Type()
         end
 
         let new_f = LLVM.Function(mod, "type_mapper_error", fun_type)
             value_map = Dict{LLVM.Value, LLVM.Value}(
                 old_param => new_param for (old_param, new_param) in
-                                            zip(parameters(f), parameters(new_f)))
+                                            zip(f.parameters, new_f.parameters))
 
             err = try
                 clone_into!(new_f, f; value_map,
@@ -110,7 +110,7 @@
         let new_f = LLVM.Function(mod, "materializer_error", fun_type)
             value_map = Dict{LLVM.Value, LLVM.Value}(
                 old_param => new_param for (old_param, new_param) in
-                                            zip(parameters(f), parameters(new_f)))
+                                            zip(f.parameters, new_f.parameters))
 
             err = try
                 clone_into!(new_f, f; value_map,
@@ -136,12 +136,12 @@
                 ret i64 %2
             }""";
         @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
-            src = functions(mod)["add"]
+            src = mod.functions["add"]
             value_map = Dict(
-                parameters(src)[1] => ConstantInt(42)
+                src.parameters[1] => ConstantInt(42)
             );
             dst = clone(src; value_map)
-            @test length(parameters(dst)) == 1
+            @test length(dst.parameters) == 1
         end
     end
 end
@@ -168,9 +168,9 @@ end
             declare void @baz(i8 %val)
             """
         mod = parse(LLVM.Module, ir)
-        f = functions(mod)["foo"]
-        bb = blocks(f)[2]
-        add = first(instructions(bb))
+        f = mod.functions["foo"]
+        bb = f.blocks[2]
+        add = first(bb.instructions)
 
         # clone a basic block, providing a suffix
         let bb_clone = clone(bb; suffix="_clone")
@@ -178,25 +178,25 @@ end
             @test bb_clone.name == "doit_clone"
 
             # we should have remapped instructions in the basic block
-            inst_clone = collect(instructions(bb_clone))
+            inst_clone = collect(bb_clone.instructions)
             add_clone = inst_clone[1]
             call_clone = inst_clone[2]
-            @test first(operands(call_clone)) == add_clone
+            @test first(call_clone.operands) == add_clone
         end
 
         # clone, mapping values
-        arg1 = parameters(f)[2]
-        arg2 = parameters(f)[3]
+        arg1 = f.parameters[2]
+        arg2 = f.parameters[3]
         value_map = Dict{Value,Value}(arg1 => arg2)
         let bb_clone = clone(bb; value_map)
             # test that we've remapped the argument
-            add_clone = first(instructions(bb_clone))
-            @test operands(add_clone)[1] == arg2
+            add_clone = first(bb_clone.instructions)
+            @test add_clone.operands[1] == arg2
         end
 
         # clone into a different function
-        f2 = functions(mod)["baz"]
-        value_map = Dict{Value,Value}(arg1 => only(parameters(f2)))
+        f2 = mod.functions["baz"]
+        value_map = Dict{Value,Value}(arg1 => only(f2.parameters))
         let bb_clone = clone(bb; dest=f2, value_map)
             # make sure we don't refer anything from the original function
             verify(f2)

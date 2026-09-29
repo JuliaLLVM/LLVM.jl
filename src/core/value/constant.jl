@@ -223,7 +223,7 @@ can hold it (e.g., `UInt32` for `float`, or `UInt128` for `x86_fp80`).
 
 See also [`ConstantFP`](@ref), which can create a constant from its bit pattern.
 
-The properties of [`Value`](@ref LLVM.Value) are available too.
+The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantFP <: ConstantData
     ref::API.LLVMValueRef
@@ -663,7 +663,7 @@ the LLVM IR instructions: `const_neg`, `const_not`, etc.
 
 The opcode of the constant expression, e.g., `LLVM.API.LLVMAdd`.
 
-The properties of [`Value`](@ref LLVM.Value) are available too.
+The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantExpr <: Constant
     ref::API.LLVMValueRef
@@ -920,7 +920,7 @@ is, `LLVM.API.LLVMLocalUnnamedAddr` if it is insignificant within the module
 altogether (`unnamed_addr`), which allows merging it with other constants that have the
 same initializer.
 
-The properties of [`Value`](@ref LLVM.Value) are available too.
+The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 abstract type GlobalValue <: Constant end
 
@@ -929,6 +929,21 @@ abstract type GlobalValue <: Constant end
 
 Abstract supertype for global values that are backed by an actual object in memory, i.e.,
 functions, global variables and ifuncs, but not aliases.
+
+# Properties
+
+    inst.metadata
+    gv.metadata
+
+The metadata attached to an instruction or a global object (a function or global variable),
+as a dictionary-like view that maps the kind of metadata to a metadata node. The kind can be
+an `MDKind`, like `LLVM.MD_dbg`, or the name of the kind, like `"tbaa"`. The view can be
+iterated (in the case of an instruction, this includes its debug location), and is mutable:
+assign to a kind to attach metadata, e.g., `inst.metadata["tbaa"] = node`, and use `delete!`
+to remove it.
+
+The properties of [`GlobalValue`](@ref LLVM.GlobalValue), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 abstract type GlobalObject <: GlobalValue end
 @vocabulary IR GlobalObject
@@ -1053,8 +1068,9 @@ initializer.
 The alignment of the global variable in bytes, or 0 if it has no explicit alignment. The
 assigned alignment must be a power of 2, or 0 to remove the explicit alignment.
 
-The properties of [`GlobalValue`](@ref LLVM.GlobalValue) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`GlobalObject`](@ref LLVM.GlobalObject), [`GlobalValue`](@ref
+LLVM.GlobalValue), [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available
+too.
 """
 @checked struct GlobalVariable <: GlobalObject
     ref::API.LLVMValueRef
@@ -1178,8 +1194,8 @@ A global alias, i.e., a new symbol for an existing global value or constant expr
 The value that the global alias refers to. The type of an assigned value must match that of
 the alias.
 
-The properties of [`GlobalValue`](@ref LLVM.GlobalValue) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`GlobalValue`](@ref LLVM.GlobalValue), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct GlobalAlias <: GlobalValue
     ref::API.LLVMValueRef
@@ -1248,8 +1264,9 @@ function.
 The resolver of the ifunc. The type of an assigned value must be a pointer in the address
 space of the ifunc.
 
-The properties of [`GlobalValue`](@ref LLVM.GlobalValue) and [`Value`](@ref LLVM.Value) are
-available too.
+The properties of [`GlobalObject`](@ref LLVM.GlobalObject), [`GlobalValue`](@ref
+LLVM.GlobalValue), [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available
+too.
 """
 @checked struct GlobalIFunc <: GlobalObject
     ref::API.LLVMValueRef

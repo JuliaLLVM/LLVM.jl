@@ -94,8 +94,8 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
 
         @dispose mod=LLVM.Module("llvmcall") builder=IRBuilder() begin
             f = LLVM.Function(mod, "entry", LLVM.FunctionType(T_ret, T_args))
-            push!(function_attributes(f), EnumAttribute("alwaysinline", 0))
-            for (param, i) in zip(parameters(f), abi_args)
+            push!(f.function_attributes, EnumAttribute("alwaysinline", 0))
+            for (param, i) in zip(f.parameters, abi_args)
                 values[i] = param
             end
 

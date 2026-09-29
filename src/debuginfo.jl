@@ -94,6 +94,8 @@ a tagged DWARF-like metadata node.
     node.tag
 
 The DWARF tag of the node, or `0` if it has none. Requires LLVM 17+.
+
+The properties of [`MDNode`](@ref LLVM.MDNode) are available too.
 """
 abstract type DINode <: MDNode end
 
@@ -128,7 +130,8 @@ The scope of the variable, or `nothing` if unknown.
 
 The line number at which the variable is declared, or -1 if unknown.
 
-The properties of [`DINode`](@ref LLVM.DINode) are available too.
+The properties of [`DINode`](@ref LLVM.DINode) and [`MDNode`](@ref LLVM.MDNode) are
+available too.
 """
 abstract type DIVariable <: DINode end
 
@@ -195,7 +198,8 @@ The file associated with the scope.
 
 The name of the scope, or `nothing` if it has none.
 
-The properties of [`DINode`](@ref LLVM.DINode) are available too.
+The properties of [`DINode`](@ref LLVM.DINode) and [`MDNode`](@ref LLVM.MDNode) are
+available too.
 """
 abstract type DIScope <: DINode end
 
@@ -241,6 +245,8 @@ The local scope of the debug location.
 
 The location that the code at this debug location has been inlined at, or `nothing` if it
 hasn't been inlined.
+
+The properties of [`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DILocation <: MDNode
     ref::API.LLVMMetadataRef
@@ -307,8 +313,8 @@ The name of the file.
 
 The source code of the file, or `nothing` if it is not available.
 
-The properties of [`DIScope`](@ref LLVM.DIScope) and [`DINode`](@ref LLVM.DINode) are
-available too.
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DIFile <: DIScope
     ref::API.LLVMMetadataRef
@@ -393,8 +399,8 @@ The flags of the type, as an `LLVM.API.LLVMDIFlags` bitmask.
 
 The alignment in bits of the type, or `0` if it has none.
 
-The properties of [`DIScope`](@ref LLVM.DIScope) and [`DINode`](@ref LLVM.DINode) are
-available too.
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available too.
 """
 abstract type DIType <: DIScope end
 
@@ -1195,8 +1201,8 @@ A subprogram in the source code.
 
 The line number of the subprogram, or -1 if unknown.
 
-The properties of [`DIScope`](@ref LLVM.DIScope) and [`DINode`](@ref LLVM.DINode) are
-available too.
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DISubProgram <: DIScope
     ref::API.LLVMMetadataRef
@@ -1418,6 +1424,8 @@ The global variable described by the global variable expression.
 
 The expression of the global variable expression, which describes the location of the
 variable.
+
+The properties of [`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DIGlobalVariableExpression <: MDNode
     ref::API.LLVMMetadataRef
@@ -1660,8 +1668,8 @@ location of a source variable, or `LLVMDbgRecordLabel` for label records.
 Variable records can be further inspected using the following properties:
 - `record.variable`: the source variable that is described;
 - `record.expression`: the expression that computes the variable's location;
-- `record.value`: the IR value used by that expression, or [`LLVM.location_operands`](@ref)
-  for expressions that use several values.
+- `record.value`: the IR value used by that expression, or `record.location_operands` for
+  expressions that use several values.
 
 The source location of every record is available as `record.debug_location`.
 
@@ -1676,13 +1684,21 @@ The source variable described by a variable record.
     record.expression
 
 The expression that computes the location of the variable described by a variable record,
-in terms of its [`LLVM.location_operands`](@ref).
+in terms of its `location_operands`.
+
+    record.location_operands
+
+The IR values that are used to compute the location of the variable described by a
+variable record, as a read-only view. There is usually only one, but records that use a
+`!DIArgList` can refer to several. Entries are `nothing` if the value has been deleted.
+
+See also the `LLVM.DbgRecord` property.
 
     record.value
 
 The IR value used to compute the location of the variable described by a variable record,
 or `nothing` if that value has been deleted. Records that refer to several values need to
-be inspected using [`LLVM.location_operands`](@ref) instead.
+be inspected using their `location_operands` instead.
 """
 @checked struct DbgRecord
     ref::API.LLVMDbgRecordRef
@@ -1701,23 +1717,13 @@ end
 
 # record iteration
 
-@vocabulary IR debug_records
-
 struct DbgRecordIterator
     inst::Instruction
 end
 
-"""
-    debug_records(inst::Instruction)
-
-Get an iterator over the debug records attached to the given instruction, i.e., the
-`#dbg_declare`, `#dbg_value`, `#dbg_assign` and `#dbg_label` records that are printed right
-before it. Requires LLVM 19+.
-
-The records can be inspected using their properties, like `record.kind`; see
-`LLVM.DbgRecord` for the full list.
-"""
 debug_records(inst::Instruction) = DbgRecordIterator(inst)
+
+@property Instruction debug_records
 
 Base.IteratorSize(::Type{DbgRecordIterator}) = Base.SizeUnknown()
 Base.eltype(::Type{DbgRecordIterator}) = DbgRecord
@@ -1737,8 +1743,6 @@ function Base.iterate(::DbgRecordIterator, ref::API.LLVMDbgRecordRef)
 end
 
 # record inspection
-
-@vocabulary IR location_operands
 
 kind(record::DbgRecord) = API.LLVMDbgRecordGetKind(record)
 
@@ -1761,28 +1765,31 @@ function expression(record::DbgRecord)
     Metadata(API.LLVMDbgVariableRecordGetExpression(record))::DIExpression
 end
 
-"""
-    LLVM.location_operands(record::DbgRecord) -> Vector{Union{Value,Nothing}}
+struct DbgRecordLocationOperandSet <: AbstractVector{Union{Value,Nothing}}
+    record::DbgRecord
+end
 
-Get the IR values that are used to compute the location of the variable described by the
-given variable record. There is usually only one, but records that use a `!DIArgList` can
-refer to several. Entries are `nothing` if the value has been deleted.
-
-See also the `LLVM.DbgRecord` property.
-"""
 function location_operands(record::DbgRecord)
     check_variable_record(record)
-    n = API.LLVMExtraDbgVariableRecordGetNumValues(record)
-    Union{Value,Nothing}[let ref = API.LLVMDbgVariableRecordGetValue(record, i)
-                             ref == C_NULL ? nothing : Value(ref)
-                         end for i in 0:n-1]
+    DbgRecordLocationOperandSet(record)
+end
+
+Base.size(iter::DbgRecordLocationOperandSet) =
+    (Int(API.LLVMExtraDbgVariableRecordGetNumValues(iter.record)),)
+
+Base.IndexStyle(::DbgRecordLocationOperandSet) = IndexLinear()
+
+function Base.getindex(iter::DbgRecordLocationOperandSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    ref = API.LLVMDbgVariableRecordGetValue(iter.record, i-1)
+    return ref == C_NULL ? nothing : Value(ref)
 end
 
 function value(record::DbgRecord)
     check_variable_record(record)
     n = API.LLVMExtraDbgVariableRecordGetNumValues(record)
     n == 1 ||
-        throw(ArgumentError("Debug record refers to $n values, use `LLVM.location_operands`"))
+        throw(ArgumentError("Debug record refers to $n values, use its location_operands"))
     ref = API.LLVMDbgVariableRecordGetValue(record, 0)
     return ref == C_NULL ? nothing : Value(ref)
 end
@@ -1792,6 +1799,7 @@ end
 @property DbgRecord variable
 @property DbgRecord expression
 @property DbgRecord value
+@property DbgRecord location_operands
 
 declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
                 expr::DIExpression, debugloc::DILocation, instr::Instruction) =

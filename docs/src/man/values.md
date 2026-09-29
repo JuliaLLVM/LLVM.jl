@@ -31,7 +31,8 @@ A `User` is a value that can have other values as operands. It is the base type 
 instructions, functions, and other values that are composed of other values. It supports
 a few additional APIs:
 
-- `operands`: get the operands of the user.
+- `user.operands`: the operands of the user, as a mutable view: assigning to an element,
+  `user.operands[i] = val`, replaces that operand.
 
 
 ## Constant values
@@ -324,16 +325,16 @@ the ifunc can be removed with `erase!`.
 
 ## Uses
 
-It is possible to inspect the uses of a value using the iterator returned by the `uses`
-function. This iterator returns `Use` objects, whose `user` and `value` properties refer to
-respectively the user and the original value:
+It is possible to inspect the uses of a value using its `uses` property, a read-only view
+of `Use` objects, whose `user` and `value` properties refer to respectively the user and the
+original value:
 
 ```jldoctest
 julia> c1 = ConstantInt(42);
 
 julia> c2 = const_inttoptr(c1, LLVM.PointerType(LLVM.Int1Type()));
 
-julia> use = only(uses(c1));
+julia> use = only(c1.uses);
 
 julia> use.user
 ptr inttoptr (i64 42 to ptr)
@@ -360,7 +361,7 @@ DocTestSetup = quote
           ret i64 %2
         }""")
 
-    inst1, inst2 = instructions(functions(mod)["add"].entry)
+    inst1, inst2 = mod.functions["add"].entry.instructions
 end
 ```
 

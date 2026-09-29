@@ -20,7 +20,7 @@ end
     end
     ld = load!(builder, eltyp, inbounds_gep!(builder, eltyp, ptr, [i]))
     if A != 0
-        metadata(ld)[LLVM.MD_tbaa] = tbaa_addrspace(A)
+        ld.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
     ld.alignment = align
     ld
@@ -41,7 +41,7 @@ end
     end
     st = store!(builder, x, inbounds_gep!(builder, eltyp, ptr, [i]))
     if A != 0
-        metadata(st)[LLVM.MD_tbaa] = tbaa_addrspace(A)
+        st.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
     st.alignment = align
     nothing

@@ -19,6 +19,26 @@ function.
 The terminator instruction of the basic block, or `nothing` if the block does not end with
 a terminator.
 
+    bb.instructions
+
+The instructions of the basic block, in order, as a read-only view that always reflects the
+current contents of the block. Use an `IRBuilder` to add instructions, and operations like
+`remove!` or `erase!` to remove them.
+
+    bb.predecessors
+
+The predecessors of the basic block, i.e., the blocks whose terminator branches to it, as a
+read-only view. A block that branches to it several times (e.g., a `switch` with multiple
+cases) is included once per branch.
+
+The predecessors are derived from the uses of the block, and are only computed while
+iterating the view, so use `collect` to get a vector.
+
+    bb.successors
+
+The successors of the basic block, i.e., the `successors` of its terminator. Throws an
+`ArgumentError` if the block does not have a terminator.
+
 The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct BasicBlock <: Value
@@ -110,18 +130,15 @@ move_after(bb::BasicBlock, pos::BasicBlock) =
 
 ## instruction iteration
 
-@vocabulary IR instructions, previnst, nextinst
+@vocabulary IR previnst, nextinst
 
 struct BasicBlockInstructionSet
     bb::BasicBlock
 end
 
-"""
-    instructions(bb::BasicBlock)
-
-Get an iterator over the instructions in the given basic block.
-"""
 instructions(bb::BasicBlock) = BasicBlockInstructionSet(bb)
+
+@property BasicBlock instructions
 
 Base.eltype(::BasicBlockInstructionSet) = Instruction
 
@@ -174,31 +191,38 @@ end
 
 ## cfg-like operations
 
-@vocabulary IR predecessors, successors
-
-"""
-    predecessors(bb::BasicBlock)
-
-Get the predecessors of the given basic block.
-"""
-function predecessors(bb::BasicBlock)
-    preds = BasicBlock[]
-    for use in uses(bb)
-        inst = user(use)
-        isterminator(inst) || continue
-        push!(preds, parent(inst))
-    end
-    return preds
+struct BasicBlockPredecessorSet
+    bb::BasicBlock
 end
 
-"""
-    successors(bb::BasicBlock)
+predecessors(bb::BasicBlock) = BasicBlockPredecessorSet(bb)
 
-Get the successors of the given basic block.
-"""
+@property BasicBlock predecessors
+
+Base.eltype(::Type{BasicBlockPredecessorSet}) = BasicBlock
+
+Base.IteratorSize(::Type{BasicBlockPredecessorSet}) = Base.SizeUnknown()
+
+function Base.iterate(iter::BasicBlockPredecessorSet, use=API.LLVMGetFirstUse(iter.bb))
+    while use != C_NULL
+        user = API.LLVMGetUser(use)
+        use = API.LLVMGetNextUse(use)
+        # blocks are also used by, e.g., `blockaddress` constants
+        API.LLVMIsATerminatorInst(user) == C_NULL && continue
+        return BasicBlock(API.LLVMGetInstructionParent(user)), use
+    end
+    return nothing
+end
+
+Base.length(iter::BasicBlockPredecessorSet) = count(Returns(true), iter)
+
+Base.isempty(iter::BasicBlockPredecessorSet) = iterate(iter) === nothing
+
 function successors(bb::BasicBlock)
     term = terminator(bb)
     term === nothing &&
         throw(ArgumentError("Cannot query successors of unterminated basic block"))
     successors(term)
 end
+
+@property BasicBlock successors

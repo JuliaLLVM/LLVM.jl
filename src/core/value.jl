@@ -28,6 +28,12 @@ already in use in the same function or module, LLVM makes it unique by adding a 
     val.context
 
 The context in which the value was created.
+
+    val.uses
+
+The uses of the value, as a read-only view that can be iterated. Each [`LLVM.Use`](@ref)
+refers to the `user` that has the value as an operand. Since LLVM 21, constants like
+integers do not keep track of their uses, so their `uses` are always empty.
 """
 abstract type Value end
 @properties Value
@@ -190,7 +196,7 @@ function replace_metadata_uses!(old::Value, new::Value)
         function recurse(md)
             for (i, op) in enumerate(operands(md))
                 if op isa ValueAsMetadata && Value(op) == compat_new
-                    LLVM.replace_operand(md, i, Metadata(new))
+                    operands(md)[i] = Metadata(new)
                 elseif isa(op, MDTuple)
                     recurse(op)
                 end
@@ -233,20 +239,13 @@ value(use::Use) = Value(API.LLVMGetUsedValue(use))
 
 # use iteration
 
-@vocabulary IR uses
-
 struct ValueUseSet
     val::Value
 end
 
-"""
-    uses(val::LLVM.Value)
-
-Get an iterator over the uses of the given value.
-
-See also: [`LLVM.Use`](@ref).
-"""
 uses(val::Value) = ValueUseSet(val)
+
+@property Value uses
 
 Base.eltype(::ValueUseSet) = Use
 

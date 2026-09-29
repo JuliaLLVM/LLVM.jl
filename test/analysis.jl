@@ -29,11 +29,11 @@ end
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
-    @test isempty(parameters(fn))
+    @test isempty(fn.parameters)
 
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int1Type()])
     fn = LLVM.Function(mod, "SomeOtherFunction", ft)
-    @test !isempty(parameters(fn))
+    @test !isempty(fn.parameters)
 
     bb1 = BasicBlock(fn, "entry")
     bb2 = BasicBlock(fn, "then")
@@ -41,7 +41,7 @@ end
 
     position!(builder, bb1)
     allocinst1 = alloca!(builder, LLVM.Int8Type())
-    brinst = br!(builder, parameters(fn)[1], bb2, bb3)
+    brinst = br!(builder, fn.parameters[1], bb2, bb3)
     @test brinst.opcode == LLVM.API.LLVMBr
 
     position!(builder, bb2)

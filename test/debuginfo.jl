@@ -308,8 +308,8 @@ end
                 @test declare_result isa Instruction
             end
 
-            p1 = LLVM.parameters(fn)[1]
-            p2 = LLVM.parameters(fn)[2]
+            p1 = fn.parameters[1]
+            p2 = fn.parameters[2]
             r = add!(builder, p1, p2)
             retinst = ret!(builder, r)
 
@@ -330,10 +330,10 @@ end
             val_result = LLVM.value_before!(dib, r, var, expr, loc, retinst)
             if LLVM.version() >= v"19"
                 @test val_result isa LLVM.DbgRecord
-                @test collect(debug_records(retinst)) == [val_result]
+                @test collect(retinst.debug_records) == [val_result]
                 @test val_result.value == r
                 @test val_result.variable == var
-                @test isempty(debug_records(r))
+                @test isempty(r.debug_records)
             else
                 @test val_result isa Instruction
             end
@@ -384,12 +384,12 @@ end
             !11 = !DILocation(line: 3, column: 5, scope: !5)
             !12 = !DILabel(scope: !5, name: "lbl", file: !1, line: 4)
             """)
-        fn = functions(mod)["f"]
-        alloca, ret = instructions(fn.entry)
-        x, y = parameters(fn)
+        fn = mod.functions["f"]
+        alloca, ret = fn.entry.instructions
+        x, y = fn.parameters
 
-        @test isempty(debug_records(alloca))
-        records = collect(debug_records(ret))
+        @test isempty(alloca.debug_records)
+        records = collect(ret.debug_records)
         @test length(records) == 4
         @test all(r -> r isa DbgRecord, records)
         declare, val, arglist, label = records
@@ -406,8 +406,8 @@ end
 
         @test declare.value == alloca
         @test val.value == x
-        @test LLVM.location_operands(val) == [x]
-        @test LLVM.location_operands(arglist) == [x, y]
+        @test val.location_operands == [x]
+        @test arglist.location_operands == [x, y]
         @test_throws ArgumentError arglist.value
 
         @test val.variable isa LLVM.DILocalVariable
@@ -420,9 +420,14 @@ end
         @test_throws ArgumentError label.expression
         @test_throws ArgumentError label.value
 
+        # the location operands are a read-only view of the record
+        ops = arglist.location_operands
+        @test_throws CanonicalIndexError ops[1] = y
+
         # deleted values
         replace_uses!(y, LLVM.PoisonValue(LLVM.Int32Type()))
-        @test LLVM.location_operands(arglist)[2] isa LLVM.PoisonValue
+        @test arglist.location_operands[2] isa LLVM.PoisonValue
+        @test ops[2] isa LLVM.PoisonValue
 
         dispose(mod)
     end
@@ -587,13 +592,13 @@ end
           !21 = !DILocation(line: 2, column: 9, scope: !15)
           !22 = !DILocation(line: 3, column: 5, scope: !15)""")
 
-    foo = functions(mod)["foo"]
+    foo = mod.functions["foo"]
 
     let sp = foo.subprogram
       @test sp !== nothing
       @test sp.line == 1
 
-      bar = functions(mod)["bar"]
+      bar = mod.functions["bar"]
       @test bar.subprogram === nothing
       bar.subprogram = sp
       @test bar.subprogram == sp
@@ -603,8 +608,8 @@ end
 
     if LLVM.version() < v"19"
       # LLVM 19 switched from debug intrinsics to records
-      let inst = collect(instructions(bb))[2]
-        diloc = metadata(inst)[LLVM.MD_dbg]::LLVM.DILocation
+      let inst = collect(bb.instructions)[2]
+        diloc = inst.metadata[LLVM.MD_dbg]::LLVM.DILocation
         @test diloc.line == 2
         @test diloc.column == 9
         @test diloc.inlined_at === nothing
@@ -617,7 +622,7 @@ end
         @test difile.filename == "test.c"
         @test difile.source == ""
 
-        divar = Metadata(operands(inst)[2])::LLVM.DILocalVariable
+        divar = Metadata(inst.operands[2])::LLVM.DILocalVariable
         @test divar.line == 2
         @test divar.file == difile
         @test divar.scope == discope
@@ -625,10 +630,10 @@ end
       end
     end
 
-    let inst = collect(instructions(bb))[3]
-      @test !isempty(metadata(inst))
+    let inst = collect(bb.instructions)[3]
+      @test !isempty(inst.metadata)
       strip_debuginfo!(mod)
-      @test isempty(metadata(inst))
+      @test isempty(inst.metadata)
     end
 
     dispose(mod)

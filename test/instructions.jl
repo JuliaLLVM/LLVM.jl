@@ -44,7 +44,7 @@
     brinst1 = br!(builder, thenbb)
     @check_ir brinst1 "br label %then"
 
-    cond1 = isnull!(builder, parameters(fn)[1], "cond")
+    cond1 = isnull!(builder, fn.parameters[1], "cond")
     brinst2 = br!(builder, cond1, thenbb, elsebb)
     @check_ir brinst2 "br i1 %cond, label %then, label %else"
 
@@ -54,11 +54,11 @@
     unreachableinst = unreachable!(builder)
     @check_ir unreachableinst "unreachable"
 
-    int1 = parameters(fn)[1]
-    int2 = parameters(fn)[2]
+    int1 = fn.parameters[1]
+    int2 = fn.parameters[2]
 
-    float1 = parameters(fn)[3]
-    float2 = parameters(fn)[4]
+    float1 = fn.parameters[3]
+    float2 = fn.parameters[4]
 
     binopinst = binop!(builder, LLVM.API.LLVMAdd, int1, int2)
     @check_ir binopinst "add i32 %0, %1"
@@ -167,12 +167,12 @@
     mallocinst = malloc!(builder, LLVM.Int32Type())
     if supports_typed_pointers(ctx)
         @check_ir mallocinst r"bitcast i8\* %.+ to i32\*"
-        @check_ir operands(mallocinst)[1] r"call i8\* @malloc\(.+\)"
+        @check_ir mallocinst.operands[1] r"call i8\* @malloc\(.+\)"
     else
         @check_ir mallocinst r"call ptr @malloc\(.+\)"
     end
 
-    ptr = parameters(fn)[6]
+    ptr = fn.parameters[6]
 
     array_mallocinst = array_malloc!(builder, LLVM.Int8Type(), ConstantInt(Int32(42)))
     if LLVM.version() >= v"21"
@@ -204,7 +204,7 @@
         @check_ir memmoveinst r"call void @llvm.memmove.p0.p0.i32\(ptr align 4 %.+, ptr align 8 %.+, i32 32, i1 false\)"
     end
 
-    ptr1 = parameters(fn)[5]
+    ptr1 = fn.parameters[5]
 
     freeinst = free!(builder, ptr1)
     @check_ir freeinst "tail call void @free"
@@ -380,7 +380,7 @@
     fpextinst = fpext!(builder, float1, LLVM.DoubleType())
     @check_ir fpextinst "fpext float %2 to double"
 
-    ptrtointinst = ptrtoint!(builder, parameters(fn)[5], LLVM.Int32Type())
+    ptrtointinst = ptrtoint!(builder, fn.parameters[5], LLVM.Int32Type())
     if supports_typed_pointers(ctx)
         @check_ir ptrtointinst "ptrtoint i32* %4 to i32"
     else
@@ -396,7 +396,7 @@
 
     bitcastinst = bitcast!(builder, int1, LLVM.FloatType())
     @check_ir bitcastinst "bitcast i32 %0 to float"
-    ptr1 = parameters(fn)[5]
+    ptr1 = fn.parameters[5]
     if supports_typed_pointers(ctx)
         typ1 = ptr1.value_type
         ptr2 = LLVM.PointerType(eltype(typ1), 2)
@@ -511,8 +511,8 @@
     isnotnullinst = isnotnull!(builder, int1)
     @check_ir isnotnullinst "icmp ne i32 %0, 0"
 
-    ptr1 = parameters(fn)[5]
-    ptr2 = parameters(fn)[6]
+    ptr1 = fn.parameters[5]
+    ptr2 = fn.parameters[6]
     ptrdiffinst = ptrdiff!(builder, LLVM.Int32Type(), ptr1, ptr2)
     if supports_typed_pointers(ctx)
         @check_ir ptrdiffinst r"sdiv exact i64 %.+, ptrtoint \(i32\* getelementptr \(i32, i32\* null, i32 1\) to i64\)"
@@ -538,7 +538,7 @@ end
             }
             """)
 
-        ptrtoaddr = first(instructions(first(blocks(functions(mod)["ptrtoaddr_test"]))))
+        ptrtoaddr = first(first(mod.functions["ptrtoaddr_test"].blocks).instructions)
         @test ptrtoaddr isa LLVM.PtrToAddrInst
 
         dispose(mod)
@@ -563,17 +563,17 @@ end
             }
             """)
 
-        switch = first(blocks(functions(mod)["switch_test"])).terminator
-        @test convert(Int, case_value(switch, 1)) == 1
-        @test convert(Int, case_value(switch, 2)) == 2
-        @test_throws BoundsError case_value(switch, 3)
+        switch = first(mod.functions["switch_test"].blocks).terminator
+        @test convert(Int, switch.case_values[1]) == 1
+        @test convert(Int, switch.case_values[2]) == 2
+        @test_throws BoundsError switch.case_values[3]
 
-        case_value!(switch, 2, ConstantInt(Int32(3)))
-        @test convert(Int, case_value(switch, 2)) == 3
-        @test successors(switch)[3] == blocks(functions(mod)["switch_test"])[3]
+        switch.case_values[2] = ConstantInt(Int32(3))
+        @test convert(Int, switch.case_values[2]) == 3
+        @test switch.successors[3] == mod.functions["switch_test"].blocks[3]
         @check_ir switch "i32 3, label %two"
-        @test_throws BoundsError case_value!(switch, 0, ConstantInt(Int32(0)))
-        @test_throws ArgumentError case_value!(switch, 1, ConstantInt(Int64(0)))
+        @test_throws BoundsError switch.case_values[0] = ConstantInt(Int32(0))
+        @test_throws ArgumentError switch.case_values[1] = ConstantInt(Int64(0))
 
         dispose(mod)
     end
@@ -584,7 +584,7 @@ end
         ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()])
         fn = LLVM.Function(mod, "SomeFunction", ft)
         position!(builder, BasicBlock(fn, "entry"))
-        a, b = parameters(fn)
+        a, b = fn.parameters
 
         # nuw and nsw
         for inst in [add!(builder, a, b), sub!(builder, a, b), mul!(builder, a, b),
@@ -711,45 +711,45 @@ end
         mod = parse(LLVM.Module, supports_typed_pointers(ctx) ? typed_ir : opaque_ir)
 
         @testset "iteration" begin
-            f = functions(mod)["f"]
-            bb = first(blocks(f))
-            cx, cy, cz = instructions(bb)
+            f = mod.functions["f"]
+            bb = first(f.blocks)
+            cx, cy, cz = bb.instructions
 
             ## operands includes the function, and each operand bundle input separately
-            @test length(operands(cx)) == 1
-            @test length(operands(cy)) == 3
-            @test length(operands(cz)) == 2
+            @test length(cx.operands) == 1
+            @test length(cy.operands) == 3
+            @test length(cz.operands) == 2
 
             ## arguments excludes all those
-            @test length(arguments(cx)) == 0
-            @test length(arguments(cy)) == 0
-            @test length(arguments(cz)) == 0
+            @test length(cx.arguments) == 0
+            @test length(cy.arguments) == 0
+            @test length(cz.arguments) == 0
 
-            let bundles = operand_bundles(cx)
+            let bundles = cx.operand_bundles
                 @test isempty(bundles)
             end
 
-            let bundles = operand_bundles(cy)
+            let bundles = cy.operand_bundles
                 @test length(bundles) == 1
                 bundle = first(bundles)
                 @test bundle.tag == "deopt"
                 @test string(bundle) == "\"deopt\"(i32 1, i64 2)"
 
-                inputs = LLVM.inputs(bundle)
+                inputs = bundle.inputs
                 @test length(inputs) == 2
                 @test inputs[1] == LLVM.ConstantInt(Int32(1))
                 @test inputs[2] == LLVM.ConstantInt(Int64(2))
             end
 
-            let bundles = operand_bundles(cz)
+            let bundles = cz.operand_bundles
                 @test length(bundles) == 2
                 let bundle = bundles[1]
-                    inputs = LLVM.inputs(bundle)
+                    inputs = bundle.inputs
                     @test length(inputs) == 0
                     @test string(bundle) == "\"deopt\"()"
                 end
                 let bundle = bundles[2]
-                    inputs = LLVM.inputs(bundle)
+                    inputs = bundle.inputs
                     @test length(inputs) == 1
                     if supports_typed_pointers(ctx)
                         @test string(bundle) == "\"unknown\"(i8* null)"
@@ -761,25 +761,25 @@ end
         end
 
         @testset "creation" begin
-            g = functions(mod)["g"]
-            bb = first(blocks(g))
-            inst = first(instructions(bb))
+            g = mod.functions["g"]
+            bb = first(g.blocks)
+            inst = first(bb.instructions)
 
             inputs = [LLVM.ConstantInt(Int32(1)), LLVM.ConstantInt(Int64(2))]
             bundle1 = OperandBundle("unknown", inputs)
             @test bundle1 isa OperandBundle
             @test bundle1.tag == "unknown"
-            @test LLVM.inputs(bundle1) == inputs
+            @test bundle1.inputs == inputs
             @test string(bundle1) == "\"unknown\"(i32 1, i64 2)"
 
             # use in a call
-            f = functions(mod)["x"]
+            f = mod.functions["x"]
             ft = f.function_type
             @dispose builder=IRBuilder() begin
                 position!(builder, inst)
                 inst = call!(builder, ft, f, Value[], [bundle1])
 
-                bundles = operand_bundles(inst)
+                bundles = inst.operand_bundles
                 @test length(bundles) == 1
 
                 # test the ability to directly forward `operand_bundles`
@@ -788,7 +788,7 @@ end
                 bundle2 = bundles[1]
                 @test bundle2 isa OperandBundle
                 @test bundle2.tag == "unknown"
-                @test LLVM.inputs(bundle2) == inputs
+                @test bundle2.inputs == inputs
                 @test string(bundle2) == "\"unknown\"(i32 1, i64 2)"
             end
         end
@@ -810,7 +810,7 @@ end
         position!(builder, entry)
         # add and substract 42
 
-        a = fadd!(builder, parameters(fun)[1], LLVM.ConstantFP(Float32(42.)), "a")
+        a = fadd!(builder, fun.parameters[1], LLVM.ConstantFP(Float32(42.)), "a")
         b = fsub!(builder, a, LLVM.ConstantFP(Float32(42.)), "b")
         retinst = ret!(builder, b)
 
@@ -832,9 +832,9 @@ end
     verify(mod)
 
     # ensure we still have our two operations
-    @test length(blocks(fun)) == 1
-    bb = blocks(fun)[1]
-    instns = collect(instructions(bb))
+    @test length(fun.blocks) == 1
+    bb = fun.blocks[1]
+    instns = collect(bb.instructions)
     @test length(instns) == 3
     @test instns[1] isa LLVM.FAddInst
     @test instns[2] isa LLVM.FAddInst
@@ -855,9 +855,9 @@ end
     verify(mod)
 
     # observe there's only a single return now
-    @test length(blocks(fun)) == 1
-    bb = blocks(fun)[1]
-    instns = collect(instructions(bb))
+    @test length(fun.blocks) == 1
+    bb = fun.blocks[1]
+    instns = collect(bb.instructions)
     @test length(instns) == 1
     @test instns[1] isa LLVM.RetInst
 end

@@ -39,7 +39,6 @@ Base.push!(::LLVM.ExecutionEngine, ::LLVM.Module)
 Base.delete!(::LLVM.ExecutionEngine, ::LLVM.Module)
 run(::LLVM.ExecutionEngine, ::LLVM.Function, ::Vector{LLVM.GenericValue})
 lookup(::LLVM.ExecutionEngine, ::String)
-functions(::LLVM.ExecutionEngine)
 ```
 
 ## ORC

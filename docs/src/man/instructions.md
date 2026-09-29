@@ -236,7 +236,8 @@ If the terminator is a branch, it's possible to check if the branch is condition
 `condition!` functions.
 
 If the terminator is a switch, it's possible to get the default destination using the
-`default_dest` function.
+`default_dest` function, and to get or set the value of each case using `case_value` and
+`case_value!`.
 
 
 ## Phi nodes
@@ -248,6 +249,52 @@ the `incoming` function, which supports the following APIs:
 - `getindex`: get the incoming value at a specific index.
 - `push!`: add an incoming value (a value, block tuple) to the phi node.
 - `append!`: append multiple incoming values (an array of value, block tuples).
+
+
+## Poison-generating flags
+
+```@meta
+DocTestSetup = quote
+    using LLVM
+
+    if context(; throw_error=false) === nothing
+        Context()
+    end
+
+    mod = LLVM.Module("SomeModule")
+    fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()]))
+    bb = BasicBlock(fun, "entry")
+    builder = IRBuilder();
+    position!(builder, bb)
+end
+```
+
+Several integer instructions can carry flags that make the result poison when an assumption
+about the operands does not hold, which enables more aggressive optimization. Each flag can
+be queried and set with a pair of functions, which throw an `ArgumentError` when used with
+an instruction that does not support the flag:
+
+- `hasnuw`/`nuw!` and `hasnsw`/`nsw!`: no unsigned or signed wrap, for `add`, `sub`, `mul`,
+  `shl` and (on LLVM 19+) `trunc`;
+- `isexact`/`exact!`: for `udiv`, `sdiv`, `lshr` and `ashr`;
+- `hasdisjoint`/`disjoint!`: for `or` (LLVM 18+);
+- `hasnneg`/`nneg!`: non-negative operand, for `zext` (LLVM 18+) and `uitofp` (LLVM 19+);
+- `hassamesign`/`samesign!`: operands of equal sign, for `icmp` (LLVM 20+).
+
+```jldoctest
+julia> x, y = parameters(fun);
+
+julia> inst = add!(builder, x, y)
+%2 = add i32 %0, %1
+
+julia> nuw!(inst, true)
+
+julia> hasnuw(inst), hasnsw(inst)
+(true, false)
+
+julia> inst
+%2 = add nuw i32 %0, %1
+```
 
 
 ## Fast math flags

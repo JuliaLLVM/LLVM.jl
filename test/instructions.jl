@@ -511,7 +511,18 @@ end
                 %result = ptrtoaddr ptr %p to i64
                 ret i64 %result
             }
+            """)
 
+        ptrtoaddr = first(instructions(first(blocks(functions(mod)["ptrtoaddr_test"]))))
+        @test ptrtoaddr isa LLVM.PtrToAddrInst
+
+        dispose(mod)
+    end
+end
+
+@testset "switch cases" begin
+    @dispose ctx=Context() begin
+        mod = parse(LLVM.Module, """
             define void @switch_test(i32 %value) {
             entry:
                 switch i32 %value, label %default [
@@ -527,9 +538,6 @@ end
             }
             """)
 
-        ptrtoaddr = first(instructions(first(blocks(functions(mod)["ptrtoaddr_test"]))))
-        @test ptrtoaddr isa LLVM.PtrToAddrInst
-
         switch = terminator(first(blocks(functions(mod)["switch_test"])))
         @test convert(Int, case_value(switch, 1)) == 1
         @test convert(Int, case_value(switch, 2)) == 2
@@ -537,12 +545,110 @@ end
 
         case_value!(switch, 2, ConstantInt(Int32(3)))
         @test convert(Int, case_value(switch, 2)) == 3
+        @test successors(switch)[3] == blocks(functions(mod)["switch_test"])[3]
+        @check_ir switch "i32 3, label %two"
         @test_throws BoundsError case_value!(switch, 0, ConstantInt(Int32(0)))
+        @test_throws ArgumentError case_value!(switch, 1, ConstantInt(Int64(0)))
 
         dispose(mod)
     end
 end
 
+@testset "poison-generating flags" begin
+    @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+        ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()])
+        fn = LLVM.Function(mod, "SomeFunction", ft)
+        position!(builder, BasicBlock(fn, "entry"))
+        a, b = parameters(fn)
+
+        # nuw and nsw
+        for inst in [add!(builder, a, b), sub!(builder, a, b), mul!(builder, a, b),
+                     shl!(builder, a, b)]
+            @test !hasnuw(inst) && !hasnsw(inst)
+            nuw!(inst, true)
+            @test hasnuw(inst) && !hasnsw(inst)
+            @check_ir inst " nuw i32"
+            nsw!(inst, true)
+            @test hasnuw(inst) && hasnsw(inst)
+            @check_ir inst " nuw nsw i32"
+            nuw!(inst, false)
+            nsw!(inst, false)
+            @test !hasnuw(inst) && !hasnsw(inst)
+        end
+        @test hasnuw(nuwadd!(builder, a, b))
+        @test hasnsw(nswsub!(builder, a, b))
+        trunc = trunc!(builder, a, LLVM.Int8Type())
+        if LLVM.version() >= v"19"
+            nuw!(trunc, true)
+            nsw!(trunc, true)
+            @check_ir trunc "trunc nuw nsw i32"
+        else
+            @test_throws ArgumentError nuw!(trunc, true)
+        end
+
+        # exact
+        for inst in [udiv!(builder, a, b), sdiv!(builder, a, b), lshr!(builder, a, b),
+                     ashr!(builder, a, b)]
+            @test !isexact(inst)
+            exact!(inst, true)
+            @test isexact(inst)
+            @check_ir inst " exact i32"
+        end
+        @test isexact(exactsdiv!(builder, a, b))
+
+        # disjoint
+        or = or!(builder, a, b)
+        if LLVM.version() >= v"18"
+            @test !hasdisjoint(or)
+            disjoint!(or, true)
+            @test hasdisjoint(or)
+            @check_ir or "or disjoint i32"
+        else
+            @test_throws ArgumentError hasdisjoint(or)
+        end
+
+        # nneg
+        zext = zext!(builder, a, LLVM.Int64Type())
+        uitofp = uitofp!(builder, a, LLVM.DoubleType())
+        if LLVM.version() >= v"18"
+            @test !hasnneg(zext)
+            nneg!(zext, true)
+            @test hasnneg(zext)
+            @check_ir zext "zext nneg i32"
+        else
+            @test_throws ArgumentError nneg!(zext, true)
+        end
+        if LLVM.version() >= v"19"
+            nneg!(uitofp, true)
+            @test hasnneg(uitofp)
+            @check_ir uitofp "uitofp nneg i32"
+        else
+            @test_throws ArgumentError nneg!(uitofp, true)
+        end
+
+        # samesign
+        icmp = icmp!(builder, LLVM.API.LLVMIntULT, a, b)
+        if LLVM.version() >= v"20"
+            @test !hassamesign(icmp)
+            samesign!(icmp, true)
+            @test hassamesign(icmp)
+            @check_ir icmp "icmp samesign ult i32"
+        else
+            @test_throws ArgumentError samesign!(icmp, true)
+        end
+
+        # instructions that don't support a flag
+        xor = xor!(builder, a, b)
+        @test_throws ArgumentError hasnuw(xor)
+        @test_throws ArgumentError nsw!(xor, false)
+        @test_throws ArgumentError isexact(xor)
+        @test_throws ArgumentError hasdisjoint(xor)
+        @test_throws ArgumentError hasnneg(xor)
+        @test_throws ArgumentError hassamesign(xor)
+        @test_throws ArgumentError hasnuw(or)
+        @test_throws ArgumentError exact!(icmp, true)
+    end
+end
 
 @testset "operand bundles" begin
     typed_ir = """

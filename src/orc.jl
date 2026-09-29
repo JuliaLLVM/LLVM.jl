@@ -221,22 +221,80 @@ function Base.show(io::IO, ::MIME"text/plain", jd::JITDylib)
     print(io, output)
 end
 end
+
+## definition generators
+
+"""
+    LLVM.DefinitionGenerator
+
+A generator that ORC consults when a lookup fails to find a symbol in a
+[`JITDylib`](@ref), giving it the opportunity to define that symbol.
+
+Attach a generator to a JITDylib with [`add!`](@ref add!(::JITDylib, ::LLVM.DefinitionGenerator)),
+which transfers ownership to the JITDylib. A generator that is never added should be disposed
+of with [`dispose`](@ref dispose(::LLVM.DefinitionGenerator)).
+
+See also: [`LLVM.DynamicLibrarySearchGenerator`](@ref).
+"""
 @checked struct DefinitionGenerator
     ref::API.LLVMOrcDefinitionGeneratorRef
 end
 Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) = dg.ref
 
+"""
+    dispose(dg::LLVM.DefinitionGenerator)
+
+Dispose of a definition generator that was not added to a JITDylib.
+"""
+function dispose(dg::DefinitionGenerator)
+    mark_dispose(API.LLVMOrcDisposeDefinitionGenerator, dg)
+end
+
+"""
+    add!(jd::JITDylib, dg::LLVM.DefinitionGenerator)
+
+Attach the definition generator `dg` to `jd`. The JITDylib takes ownership of the
+generator, which should not be used or disposed of afterwards.
+"""
 function add!(jd::JITDylib, dg::DefinitionGenerator)
     API.LLVMOrcJITDylibAddGenerator(jd, dg)
+    mark_dispose(dg)
+    return
 end
 
-function CreateDynamicLibrarySearchGeneratorForProcess(prefix)
+"""
+    LLVM.DynamicLibrarySearchGenerator(jit)
+    LLVM.DynamicLibrarySearchGenerator(jit, path::AbstractString)
+
+Create a [`LLVM.DefinitionGenerator`](@ref) that resolves symbols by looking them up in the
+current process, or in the dynamic library at `path`. That library is loaded when creating
+the generator, and stays loaded for the remainder of the process.
+
+The generator is specific to the target of `jit`, whose linker mangling it undoes before
+looking up symbols.
+"""
+DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}) =
+    process_search_generator(get_prefix(jit))
+
+DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}, path::AbstractString) =
+    library_search_generator(path, get_prefix(jit))
+
+function process_search_generator(prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
-    @check API.LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(ref, prefix, C_NULL, C_NULL)
-    DefinitionGenerator(ref[])
+    @check API.LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(ref, prefix, C_NULL,
+                                                                    C_NULL)
+    mark_alloc(DefinitionGenerator(ref[]))
 end
 
-# LLVMOrcCreateCustomCAPIDefinitionGenerator(F, Ctx)
+function library_search_generator(path, prefix)
+    ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
+    @check API.LLVMOrcCreateDynamicLibrarySearchGeneratorForPath(ref, path, prefix, C_NULL,
+                                                                 C_NULL)
+    mark_alloc(DefinitionGenerator(ref[]))
+end
+
+# old name, used by downstream packages
+CreateDynamicLibrarySearchGeneratorForProcess(prefix) = process_search_generator(prefix)
 
 function lookup_dylib(es::ExecutionSession, name)
     ref = API.LLVMOrcExecutionSessionGetJITDylibByName(es, name)

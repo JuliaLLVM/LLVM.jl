@@ -71,12 +71,45 @@ end
 
         jd_main = JITDylib(lljit)
 
-        prefix = LLVM.get_prefix(lljit)
-        dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(prefix)
+        dg = LLVM.DynamicLibrarySearchGenerator(lljit)
         add!(jd_main, dg)
 
         addr = lookup(lljit, "jl_apply_generic")
         @test pointer(addr) != C_NULL
+    end
+end
+
+@testset "DynamicLibrarySearchGenerator" begin
+    # the process generator, under its old name
+    @dispose lljit=LLJIT() begin
+        @test_throws LLVMException lookup(lljit, "jl_apply_generic")
+        dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(LLVM.get_prefix(lljit))
+        add!(JITDylib(lljit), dg)
+        @test pointer(lookup(lljit, "jl_apply_generic")) == cglobal(:jl_apply_generic)
+    end
+
+    # a specific library
+    @dispose lljit=LLJIT() begin
+        path = String(Base.libllvm_path())
+        expected = Libc.Libdl.dlopen(path) do handle
+            Libc.Libdl.dlsym(handle, :LLVMContextCreate)
+        end
+
+        @test_throws LLVMException lookup(lljit, "LLVMContextCreate")
+        dg = LLVM.DynamicLibrarySearchGenerator(lljit, path)
+        add!(JITDylib(lljit), dg)
+        @test pointer(lookup(lljit, "LLVMContextCreate")) == expected
+
+        # the generator only searches the library it was created for
+        @test_throws LLVMException lookup(lljit, "jl_apply_generic")
+    end
+
+    # generators that are not added to a JITDylib need to be disposed of
+    @dispose lljit=LLJIT() begin
+        dg = LLVM.DynamicLibrarySearchGenerator(lljit, String(Base.libllvm_path()))
+        dispose(dg)
+
+        @test_throws LLVMException LLVM.DynamicLibrarySearchGenerator(lljit, "/nonexistent/libfoo.so")
     end
 end
 

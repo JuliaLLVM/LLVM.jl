@@ -68,3 +68,12 @@ ObjectLinkingLayer(::ExecutionSession, ::String)
 ```@docs
 LLVM.define
 ```
+
+### Definition generators
+
+```@docs
+LLVM.DefinitionGenerator
+add!(::JITDylib, ::LLVM.DefinitionGenerator)
+dispose(::LLVM.DefinitionGenerator)
+LLVM.DynamicLibrarySearchGenerator
+```

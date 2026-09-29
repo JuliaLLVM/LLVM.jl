@@ -2,7 +2,7 @@
     LLJITBuilder()
 
 Create a builder to customize the construction of an [`LLJIT`](@ref), e.g., using
-[`targetmachinebuilder!`](@ref) or [`linkinglayercreator!`](@ref). The builder is consumed
+[`target_machine_builder!`](@ref) or [`linking_layer_creator!`](@ref). The builder is consumed
 when constructing the JIT; otherwise, it needs to be disposed of using `dispose`.
 """
 @checked struct LLJITBuilder
@@ -35,16 +35,16 @@ function dispose(builder::LLJITBuilder)
 end
 
 """
-    targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
+    target_machine_builder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
 
 Use `tmb` to create the JIT's target machines, taking ownership of it.
 """
-function targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
+function target_machine_builder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
     API.LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder, tmb)
 end
 
 """
-    linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
+    linking_layer_creator!(builder::LLJITBuilder, callback, ctx)
 
 Install a raw LLVM object-layer-creator callback and context pointer.
 
@@ -54,7 +54,7 @@ Install a raw LLVM object-layer-creator callback and context pointer.
     no exception barrier, and LLVM's callback cannot report an error. Use the
     two-argument overload for a Julia callable.
 """
-function linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
+function linking_layer_creator!(builder::LLJITBuilder, callback, ctx)
     API.LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, callback, ctx)
 end
 
@@ -103,7 +103,7 @@ function LLJIT(; tm::Union{Nothing, TargetMachine} = nothing)
     else
         tmb = TargetMachineBuilder(tm)
     end
-    targetmachinebuilder!(builder, tmb)
+    target_machine_builder!(builder, tmb)
     LLJIT(builder)
 end
 

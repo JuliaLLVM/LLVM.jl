@@ -1064,9 +1064,9 @@ end
     alignment!(gv, 0)
     @test alignment(gv) == 0
 
-    @test threadlocalmode(gv) == LLVM.API.LLVMGeneralDynamicTLSModel
-    threadlocalmode!(gv, LLVM.API.LLVMNotThreadLocal)
-    @test threadlocalmode(gv) == LLVM.API.LLVMNotThreadLocal
+    @test threadlocal_mode(gv) == LLVM.API.LLVMGeneralDynamicTLSModel
+    threadlocal_mode!(gv, LLVM.API.LLVMNotThreadLocal)
+    @test threadlocal_mode(gv) == LLVM.API.LLVMNotThreadLocal
 
     @test !haskey(globals(mod), "llvm.used")
     set_used!(mod, gv)
@@ -2334,4 +2334,12 @@ end
 
 end
 
+end
+
+@testset "renamed functions" begin
+    for name in (:is_opaque, :is_atomic, :available,
+                 :set_transform!, :linkinglayercreator!, :targetmachinebuilder!,
+                 :debuglocation, :debuglocation!, :threadlocalmode, :threadlocalmode!)
+        @test !isdefined(LLVM, name)
+    end
 end

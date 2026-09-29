@@ -14,7 +14,7 @@
     position!(builder, entrybb)
     @test position(builder) == entrybb
 
-    @test debuglocation(builder) === nothing
+    @test debug_location(builder) === nothing
     LLVM.DIBuilder(mod) do dib
         difile = LLVM.file!(dib, "test.jl", "/tmp")
         LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
@@ -22,15 +22,15 @@
         sp = LLVM.subprogram!(dib, difile, "SomeFunction", difile, 1,
                              LLVM.subroutine_type!(dib, difile, nothing))
         loc = DILocation(1, 1, sp)
-        debuglocation!(builder, loc)
-        @test debuglocation(builder) == loc
-        debuglocation!(builder)
-        @test debuglocation(builder) === nothing
+        debug_location!(builder, loc)
+        @test debug_location(builder) == loc
+        debug_location!(builder)
+        @test debug_location(builder) === nothing
     end
 
     retinst1 = ret!(builder)
     @check_ir retinst1 "ret void"
-    debuglocation!(builder, retinst1)
+    debug_location!(builder, retinst1)
 
     retinst2 = ret!(builder, ConstantInt(LLVM.Int32Type(), 0))
     @check_ir retinst2 "ret i32 0"
@@ -216,9 +216,9 @@
     alignment!(loadinst, 4)
     @test alignment(loadinst) == 4
 
-    @test !is_atomic(loadinst)
+    @test !isatomic(loadinst)
     ordering!(loadinst, LLVM.API.LLVMAtomicOrderingSequentiallyConsistent)
-    @test is_atomic(loadinst)
+    @test isatomic(loadinst)
     if supports_typed_pointers(ctx)
         @check_ir loadinst "load atomic i32, i32* %4 seq_cst"
     else
@@ -331,7 +331,7 @@
     # operations that are newer than the C API of some LLVM versions
     for op in (LLVM.API.LLVMAtomicRMWBinOpUIncWrap, LLVM.API.LLVMAtomicRMWBinOpUDecWrap,
                LLVM.API.LLVMAtomicRMWBinOpUSubCond, LLVM.API.LLVMAtomicRMWBinOpUSubSat)
-        if LLVM.available(op)
+        if LLVM.isavailable(op)
             for scope in (true, SyncScope("agent"))
                 inst = atomic_rmw!(builder, op, ptr1, int1,
                                    LLVM.API.LLVMAtomicOrderingMonotonic, scope)
@@ -342,11 +342,11 @@
                                                    LLVM.API.LLVMAtomicOrderingMonotonic, false)
         end
     end
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpAdd)
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
-    @test !LLVM.available(LLVM.API.LLVMAtomicRMWBinOp(1000))
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpAdd)
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
+    @test !LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOp(1000))
 
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"

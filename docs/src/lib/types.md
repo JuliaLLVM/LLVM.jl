@@ -41,7 +41,7 @@ parameters(::LLVM.FunctionType)
 ```@docs
 LLVM.PointerType
 addrspace
-is_opaque
+isopaque(::LLVM.PointerType)
 ```
 
 ## Array types
@@ -65,7 +65,7 @@ length(::LLVM.VectorType)
 LLVM.StructType
 name(::LLVM.StructType)
 ispacked
-isopaque
+isopaque(::LLVM.StructType)
 elements!
 elements
 ```

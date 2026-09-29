@@ -1011,7 +1011,7 @@ local_unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(va
 export GlobalVariable, erase!,
        initializer, initializer!,
        isthreadlocal, threadlocal!,
-       threadlocalmode, threadlocalmode!,
+       threadlocal_mode, threadlocal_mode!,
        isconstant, constant!,
        isextinit, extinit!,
        alignment, alignment!
@@ -1116,18 +1116,18 @@ Set the constant flag of the global variable.
 constant!(gv::GlobalVariable, bool) = API.LLVMSetGlobalConstant(gv, bool)
 
 """
-    threadlocalmode(gv::GlobalVariable)
+    threadlocal_mode(gv::GlobalVariable)
 
 Get the thread-local mode of the global variable.
 """
-threadlocalmode(gv::GlobalVariable) = API.LLVMGetThreadLocalMode(gv)
+threadlocal_mode(gv::GlobalVariable) = API.LLVMGetThreadLocalMode(gv)
 
 """
-    threadlocalmode!(gv::GlobalVariable, mode::LLVM.LLVMThreadLocalMode)
+    threadlocal_mode!(gv::GlobalVariable, mode::LLVM.LLVMThreadLocalMode)
 
 Set the thread-local mode of the global variable.
 """
-threadlocalmode!(gv::GlobalVariable, mode) = API.LLVMSetThreadLocalMode(gv, mode)
+threadlocal_mode!(gv::GlobalVariable, mode) = API.LLVMSetThreadLocalMode(gv, mode)
 
 """
     isextinit(gv::GlobalVariable)

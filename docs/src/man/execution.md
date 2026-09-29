@@ -337,7 +337,7 @@ Finally, to process all modules before they are compiled, e.g., to optimize them
 transformation on the JIT's IR transform layer:
 
 ```julia
-LLVM.set_transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
+LLVM.transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
     tsm() do mod
         run!("default<O2>", mod)
     end

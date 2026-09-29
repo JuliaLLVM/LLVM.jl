@@ -266,7 +266,7 @@ end
 
 ## pointer types
 
-export addrspace, is_opaque
+export addrspace, isopaque
 
 """
     LLVM.PointerType <: LLVMType
@@ -295,29 +295,29 @@ end
 
 Create an opaque pointer type in the given `addrspace`.
 
-See also: [`addrspace`](@ref), [`is_opaque`](@ref).
+See also: [`addrspace`](@ref), [`isopaque`](@ref).
 """
 function PointerType(addrspace=0)
     return PointerType(API.LLVMPointerTypeInContext(context(), addrspace))
 end
 
 if version() >= v"13"
-    is_opaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool
+    isopaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool
 
     function Base.eltype(typ::PointerType)
-        is_opaque(typ) && throw(error("Taking the type of an opaque pointer is illegal"))
+        isopaque(typ) && throw(error("Taking the type of an opaque pointer is illegal"))
         invoke(eltype, Tuple{LLVMType}, typ)
     end
 else
-    is_opaque(ptrtyp::PointerType) = false
+    isopaque(ptrtyp::PointerType) = false
 end
 
 """
-    is_opaque(ptrtyp::LLVM.PointerType)
+    isopaque(ptrtyp::LLVM.PointerType)
 
 Check whether the given pointer type is opaque.
 """
-is_opaque
+isopaque(::PointerType)
 
 """
     addrspace(ptrtyp::LLVM.PointerType)

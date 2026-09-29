@@ -63,8 +63,8 @@ dispose(::ThreadSafeModule)
 ```@docs
 LLJIT
 LLJITBuilder
-targetmachinebuilder!
-linkinglayercreator!
+target_machine_builder!
+linking_layer_creator!
 TargetMachineBuilder
 ObjectLinkingLayer
 ObjectLinkingLayer(::ExecutionSession, ::String)
@@ -128,7 +128,7 @@ LLVM.MaterializationResponsibility
 LLVM.requested_symbols
 LLVM.emit(::LLVM.IRTransformLayer, ::LLVM.MaterializationResponsibility, ::ThreadSafeModule)
 LLVM.IRTransformLayer
-LLVM.set_transform!
+LLVM.transform!
 LLVM.IRCompileLayer
 LLVM.lazy_reexports
 LLVM.LocalLazyCallThroughManager

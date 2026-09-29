@@ -83,8 +83,8 @@ initializer
 initializer!
 isthreadlocal
 threadlocal!
-threadlocalmode
-threadlocalmode!
+threadlocal_mode
+threadlocal_mode!
 isconstant(::GlobalVariable)
 constant!
 isextinit

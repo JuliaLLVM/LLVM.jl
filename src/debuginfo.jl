@@ -1679,7 +1679,7 @@ Variable records can be further inspected using:
   that expression.
 
 The source location of every record is available through
-[`debuglocation(::DbgRecord)`](@ref).
+[`debug_location(::DbgRecord)`](@ref).
 """
 kind(record::DbgRecord) = API.LLVMDbgRecordGetKind(record)
 
@@ -1690,11 +1690,11 @@ function check_variable_record(record::DbgRecord)
 end
 
 """
-    debuglocation(record::DbgRecord) -> DILocation
+    debug_location(record::DbgRecord) -> DILocation
 
 Get the source location of the given debug record.
 """
-debuglocation(record::DbgRecord) =
+debug_location(record::DbgRecord) =
     Metadata(API.LLVMDbgRecordGetDebugLoc(record))::DILocation
 
 """
@@ -1987,32 +1987,32 @@ temp_macro_file!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing
 
 ## instruction debug location
 
-# re-uses the existing `debuglocation` / `debuglocation!` exports on IRBuilder.
+# re-uses the existing `debug_location` / `debug_location!` exports on IRBuilder.
 
 """
-    debuglocation(inst::Instruction) -> Union{DILocation,Nothing}
+    debug_location(inst::Instruction) -> Union{DILocation,Nothing}
 
 Get the debug location attached to the given instruction, or `nothing`.
 """
-function debuglocation(inst::Instruction)
+function debug_location(inst::Instruction)
     ref = API.LLVMInstructionGetDebugLoc(inst)
     ref == C_NULL ? nothing : Metadata(ref)::DILocation
 end
 
 """
-    debuglocation!(inst::Instruction, loc::DILocation)
+    debug_location!(inst::Instruction, loc::DILocation)
 
 Set the debug location of the given instruction.
 """
-debuglocation!(inst::Instruction, loc::DILocation) =
+debug_location!(inst::Instruction, loc::DILocation) =
     API.LLVMInstructionSetDebugLoc(inst, loc)
 
 """
-    debuglocation!(inst::Instruction)
+    debug_location!(inst::Instruction)
 
 Clear the debug location of the given instruction.
 """
-debuglocation!(inst::Instruction) =
+debug_location!(inst::Instruction) =
     API.LLVMInstructionSetDebugLoc(inst, C_NULL)
 
 

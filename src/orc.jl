@@ -1,11 +1,11 @@
 export LLJITBuilder, LLJIT, ExecutionSession, JITDylib, OrcTargetAddress
-export TargetMachineBuilder, targetmachinebuilder!, linkinglayercreator!
+export TargetMachineBuilder, target_machine_builder!, linking_layer_creator!
 export mangle, lookup, intern
 export ObjectLinkingLayer, register!
 
 @public define, absolute_symbols, symbol_flags,
         DynamicLibrarySearchGenerator, CustomDefinitionGenerator,
-        ResourceTracker, IRTransformLayer, set_transform!, check_callback_error
+        ResourceTracker, IRTransformLayer, transform!, check_callback_error
 
 include("executionengine/utils.jl")
 
@@ -62,7 +62,7 @@ end
     ObjectLinkingLayer
 
 An object linking layer, based on RuntimeDyld, for use with
-[`linkinglayercreator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
+[`linking_layer_creator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
 """
 @checked struct ObjectLinkingLayer
     ref::API.LLVMOrcObjectLayerRef
@@ -84,11 +84,11 @@ targets the layer uses the symbol flags from the IR instead of from the object f
 generation introduced (`auto_claim_object_symbols`). Pass `true` or `false` to either
 keyword argument to override the default.
 
-The triple defaults to the host's. In a [`linkinglayercreator!`](@ref) callback, pass the
+The triple defaults to the host's. In a [`linking_layer_creator!`](@ref) callback, pass the
 triple the callback receives:
 
 ```julia
-linkinglayercreator!(builder) do es, triple
+linking_layer_creator!(builder) do es, triple
     ObjectLinkingLayer(es, triple)
 end
 ```
@@ -141,28 +141,28 @@ function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, trip
 end
 
 """
-    linkinglayercreator!(builder::LLJITBuilder, creator)
+    linking_layer_creator!(builder::LLJITBuilder, creator)
 
 Install a Julia object-layer creator, called with the execution session and
 target triple. The builder keeps it rooted until it is consumed by
 [`LLJIT`](@ref). If it throws, the exception is rethrown as a
 [`CallbackException`](@ref) after LLJIT construction returns through LLVM.
 """
-function linkinglayercreator!(builder::LLJITBuilder, creator)
-    linkinglayercreator!(builder, ObjectLinkingLayerCreator(creator))
+function linking_layer_creator!(builder::LLJITBuilder, creator)
+    linking_layer_creator!(builder, ObjectLinkingLayerCreator(creator))
 end
 
-function linkinglayercreator!(builder::LLJITBuilder, state::ObjectLinkingLayerCreator)
+function linking_layer_creator!(builder::LLJITBuilder, state::ObjectLinkingLayerCreator)
     state.exception = nothing
     push!(builder.roots, state)
     cb = @cfunction(ollc_callback,
                     API.LLVMOrcObjectLayerRef,
                     (Ptr{Cvoid}, API.LLVMOrcExecutionSessionRef, Ptr{Cchar}))
-    linkinglayercreator!(builder, cb, Base.pointer_from_objref(state))
+    linking_layer_creator!(builder, cb, Base.pointer_from_objref(state))
 end
 
-linkinglayercreator!(creator::Core.Function, builder::LLJITBuilder) =
-    linkinglayercreator!(builder, creator)
+linking_layer_creator!(creator::Core.Function, builder::LLJITBuilder) =
+    linking_layer_creator!(builder, creator)
 
 include("executionengine/ts_module.jl")
 
@@ -742,7 +742,7 @@ end
 Get the layer of `lljit` that transforms IR modules before they are compiled. Modules added
 with `add!` pass through this layer, as can modules emitted by a materialization unit
 with [`LLVM.emit`](@ref). By default, it does not change modules; use
-[`LLVM.set_transform!`](@ref) to install a transformation.
+[`LLVM.transform!`](@ref) to install a transformation.
 """
 @checked struct IRTransformLayer
     ref::API.LLVMOrcIRTransformLayerRef
@@ -783,7 +783,7 @@ function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModul
 end
 
 """
-    LLVM.set_transform!(f, layer::LLVM.IRTransformLayer)
+    LLVM.transform!(f, layer::LLVM.IRTransformLayer)
 
 Install `f(tsm::ThreadSafeModule, mr::LLVM.MaterializationResponsibility)` as the
 transformation that `layer` applies to IR modules before they are compiled, replacing any
@@ -791,7 +791,7 @@ previous one. `f` should modify the module in place, e.g., by running an optimiz
 pipeline on it:
 
 ```julia
-LLVM.set_transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
+LLVM.transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
     tsm() do mod
         run!("default<O2>", mod)
     end
@@ -805,7 +805,7 @@ before any code is added to it. It may be called on whichever thread materialize
 If `f` throws, materialization of the module fails, and the original exception can be
 retrieved by calling [`LLVM.check_callback_error`](@ref) on the layer.
 """
-function set_transform!(f, il::IRTransformLayer)
+function transform!(f, il::IRTransformLayer)
     state = IRTransform(f)
     # LLVM only holds a raw pointer to the transformation. Earlier transformations may
     # still be in use, so keep all of them alive until the JIT is disposed of.

@@ -126,7 +126,7 @@ predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
 
 ## atomics
 
-export is_atomic, ordering, ordering!, SyncScope, syncscope, syncscope!, binop,
+export isatomic, ordering, ordering!, SyncScope, syncscope, syncscope!, binop,
        isweak, weak!, isvolatile, volatile!,
        success_ordering, success_ordering!, failure_ordering, failure_ordering!,
        is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
@@ -135,13 +135,13 @@ export is_atomic, ordering, ordering!, SyncScope, syncscope, syncscope!, binop,
 const AtomicInst = Union{LoadInst, StoreInst, FenceInst, AtomicRMWInst, AtomicCmpXchgInst}
 
 """
-    is_atomic(inst::Instruction)
+    isatomic(inst::Instruction)
 
 Check if the given instruction is atomic. This includes atomic operations such as
 `atomicrmw` or `fence`, but also loads and stores that have been made atomic by setting an
 atomic ordering.
 """
-is_atomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
+isatomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
 
 """
     ordering(atomic_inst::Instruction)
@@ -150,7 +150,7 @@ Get the atomic ordering of the given atomic instruction. For `cmpxchg` instructi
 [`success_ordering`](@ref) and [`failure_ordering`](@ref), or [`merged_ordering`](@ref).
 """
 function ordering(inst::AtomicInst)
-    is_atomic(inst) || throw(ArgumentError("Instruction is not atomic"))
+    isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     @static if version() < v"18"
         API.LLVMExtraGetOrdering(inst)
     else
@@ -231,8 +231,8 @@ const RMW_BINOP_NAMES = Dict(
     parse(API.LLVMAtomicRMWBinOp, name::AbstractString)
 
 Get the `atomicrmw` operation with the given name, as used in LLVM IR (e.g. `"uinc_wrap"`).
-This works for every operation, whether or not it is [`available`](@ref) with the version
-of LLVM in use.
+This works for every operation, whether or not the version of LLVM in use supports it (see
+[`LLVM.isavailable`](@ref)).
 """
 function Base.parse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString)
     op = get(RMW_BINOP_NAMES, name, nothing)
@@ -384,7 +384,7 @@ end
 Get the synchronization scope of the given atomic instruction.
 """
 function syncscope(inst::AtomicInst)
-    is_atomic(inst) || throw(ArgumentError("Instruction is not atomic"))
+    isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     SyncScope(API.LLVMGetAtomicSyncScopeID(inst))
 end
 
@@ -394,7 +394,7 @@ end
 Set the synchronization scope of the given atomic instruction.
 """
 function syncscope!(inst::AtomicInst, scope::SyncScope)
-    is_atomic(inst) || throw(ArgumentError("Instruction is not atomic"))
+    isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     API.LLVMSetAtomicSyncScopeID(inst, scope)
 end
 
@@ -421,13 +421,13 @@ const ATOMIC_RMW_BINOP_SINCE = (
 )
 
 """
-    available(op::API.LLVMAtomicRMWBinOp)
+    isavailable(op::API.LLVMAtomicRMWBinOp)
 
 Check whether the atomic read-modify-write operation `op` is supported by the version of
 LLVM in use. All operations can be named on every LLVM version, but instructions can only
 be created with the ones that are available.
 """
-function available(op::API.LLVMAtomicRMWBinOp)
+function isavailable(op::API.LLVMAtomicRMWBinOp)
     since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)
     since !== nothing && version() >= since
 end
@@ -502,8 +502,8 @@ metadata that describes the value, like `!range`. Metadata of `src` that `dest` 
 has is overwritten.
 """
 function copy_atomic_metadata!(dest::Instruction, src::Instruction)
-    loc = debuglocation(src)
-    loc === nothing || debuglocation!(dest, loc)
+    loc = debug_location(src)
+    loc === nothing || debug_location!(dest, loc)
     src_md, dest_md = metadata(src), metadata(dest)
     for kind in ATOMIC_METADATA
         haskey(src_md, kind) && (dest_md[kind] = src_md[kind])

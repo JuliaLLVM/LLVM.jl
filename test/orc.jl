@@ -494,7 +494,7 @@ end
 
         # transformations can modify modules in place
         transformed = String[]
-        LLVM.set_transform!(il) do tsm, mr
+        LLVM.transform!(il) do tsm, mr
             tsm() do mod
                 for fn in functions(mod)
                     push!(transformed, LLVM.name(fn))
@@ -508,7 +508,7 @@ end
         @test transformed == ["transformed"]
 
         # exceptions fail materialization
-        LLVM.set_transform!(il) do tsm, mr
+        LLVM.transform!(il) do tsm, mr
             throw(ArgumentError("transform error"))
         end
         add!(lljit, jd, constant_module("failing", 1))
@@ -615,8 +615,8 @@ end
     # JIT a simple function and return the symbol flags ORC recorded for it.
     function jit_symbol_flags(creator=nothing; tm=nothing)
         builder = LLJITBuilder()
-        tm === nothing || targetmachinebuilder!(builder, TargetMachineBuilder(tm()))
-        creator === nothing || linkinglayercreator!(creator, builder)
+        tm === nothing || target_machine_builder!(builder, TargetMachineBuilder(tm()))
+        creator === nothing || linking_layer_creator!(creator, builder)
         @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
             jd = JITDylib(lljit)
 
@@ -689,7 +689,7 @@ end
     end
 
     builder = LLJITBuilder()
-    linkinglayercreator!(builder) do es, triple
+    linking_layer_creator!(builder) do es, triple
         throw(ArgumentError("object layer creator error"))
     end
     GC.gc()

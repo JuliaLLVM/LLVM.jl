@@ -67,7 +67,7 @@ include(inline_wrapper, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 @specialize
 
 # atomicrmw operations that older C APIs lack, numbered as in newer ones, so that they can be
-# named on every LLVM version (use `LLVM.available` to check whether LLVM supports them)
+# named on every LLVM version (use `LLVM.isavailable` to check whether LLVM supports them)
 for (name, val) in ((:LLVMAtomicRMWBinOpUIncWrap, 15), (:LLVMAtomicRMWBinOpUDecWrap, 16),
                     (:LLVMAtomicRMWBinOpUSubCond, 17), (:LLVMAtomicRMWBinOpUSubSat, 18),
                     (:LLVMAtomicRMWBinOpFMaximum, 19), (:LLVMAtomicRMWBinOpFMinimum, 20),

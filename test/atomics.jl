@@ -46,7 +46,7 @@ end
     @test occursin(Regex("load atomic volatile i32, $ptr_str syncscope\\(\"agent\"\\) acquire, align 8"),
                    string(ld))
     @test ordering(ld) == AC && name(syncscope(ld)) == "agent" && isvolatile(ld)
-    @test !is_atomic(load!(builder, T_int, ptr))
+    @test !isatomic(load!(builder, T_int, ptr))
 
     st = store!(builder, int, ptr; ordering=RE, align=4)
     @test occursin(Regex("store atomic i32 %1, $ptr_str release, align 4"), string(st))
@@ -142,7 +142,7 @@ end
     f, ptr, val = newfun("fvalue", T_float)
     ret!(builder, atomic_rmw_value!(builder, O.LLVMAtomicRMWBinOpFMax, val, val))
     @test occursin("llvm.maxnum", string(f))
-    if LLVM.available(O.LLVMAtomicRMWBinOpUIncWrap)
+    if LLVM.isavailable(O.LLVMAtomicRMWBinOpUIncWrap)
         f, ptr, val = newfun("uinc", T_i32)
         ret!(builder, atomic_rmw_value!(builder, O.LLVMAtomicRMWBinOpUIncWrap, val, val))
     end

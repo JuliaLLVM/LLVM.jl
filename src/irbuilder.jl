@@ -7,7 +7,7 @@
 
 export IRBuilder,
        position!,
-       debuglocation, debuglocation!
+       debug_location, debug_location!
 
 """
     IRBuilder
@@ -95,43 +95,43 @@ Base.insert!(builder::IRBuilder, inst::Instruction, name::String="") =
     API.LLVMInsertIntoBuilderWithName(builder, inst, name)
 
 """
-    debuglocation(builder::IRBuilder)
+    debug_location(builder::IRBuilder)
 
 Get the current debug location of the instruction builder, or `nothing` if no location is
 set.
 """
-function debuglocation(builder::IRBuilder)
+function debug_location(builder::IRBuilder)
     ref = API.LLVMGetCurrentDebugLocation2(builder)
     ref == C_NULL ? nothing : Metadata(ref)
 end
 
 """
-    debuglocation!(builder::IRBuilder)
+    debug_location!(builder::IRBuilder)
 
 Clear the current debug location of the instruction builder.
 """
-debuglocation!(builder::IRBuilder) =
+debug_location!(builder::IRBuilder) =
     API.LLVMSetCurrentDebugLocation2(builder, C_NULL)
 
 """
-    debuglocation!(builder::IRBuilder, loc)
+    debug_location!(builder::IRBuilder, loc)
 
 Set the current debug location of the instruction builder to `loc`, which can be a
 `Metadata` or `MetadataAsValue`.
 """
-debuglocation!(builder::IRBuilder, loc::Union{Metadata,MetadataAsValue})
-debuglocation!(builder::IRBuilder, loc::Metadata) =
+debug_location!(builder::IRBuilder, loc::Union{Metadata,MetadataAsValue})
+debug_location!(builder::IRBuilder, loc::Metadata) =
     API.LLVMSetCurrentDebugLocation2(builder, loc)
-debuglocation!(builder::IRBuilder, loc::MetadataAsValue) =
+debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
     API.LLVMSetCurrentDebugLocation2(builder, Metadata(loc))
 
 """
-    debuglocation!(builder::IRBuilder, inst::Instruction)
+    debug_location!(builder::IRBuilder, inst::Instruction)
 
 Set the current debug location of the instruction builder to the location of the given
 instruction.
 """
-debuglocation!(builder::IRBuilder, inst::Instruction) =
+debug_location!(builder::IRBuilder, inst::Instruction) =
     API.LLVMSetInstDebugLocation(builder, inst)
 
 
@@ -470,7 +470,7 @@ function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope:
 end
 
 check_available(op::API.LLVMAtomicRMWBinOp) =
-    available(op) ||
+    isavailable(op) ||
         throw(ArgumentError("atomicrmw operation $(Integer(op)) is not supported by LLVM $(version())"))
 
 function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
@@ -502,9 +502,10 @@ end
                 ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing, volatile=false)
 
 Atomically apply the operation `op` to the value at `ptr` and `val`, returning the old
-value. The operation must be [`available`](@ref) with the version of LLVM in use, and the
-ordering at least `monotonic`. See [`load!`](@ref) for the meaning of the other keyword
-arguments; by default, the operation is aligned to the size of the value.
+value. The operation must be supported by the version of LLVM in use (see
+[`LLVM.isavailable`](@ref)), and the ordering at least `monotonic`. See [`load!`](@ref)
+for the meaning of the other keyword arguments; by default, the operation is aligned to the
+size of the value.
 """
 function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                      ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing,

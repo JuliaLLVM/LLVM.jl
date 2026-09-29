@@ -307,17 +307,17 @@ end
             retinst = ret!(builder, r)
 
             # instruction-level debug location read/write
-            @test LLVM.debuglocation(retinst) === nothing
-            LLVM.debuglocation!(retinst, loc)
-            got = LLVM.debuglocation(retinst)
+            @test LLVM.debug_location(retinst) === nothing
+            LLVM.debug_location!(retinst, loc)
+            got = LLVM.debug_location(retinst)
             @test got !== nothing
             @test LLVM.line(got) == 2
             @test LLVM.column(got) == 1
 
             # clearing the debug location
-            LLVM.debuglocation!(retinst)
-            @test LLVM.debuglocation(retinst) === nothing
-            LLVM.debuglocation!(retinst, loc)
+            LLVM.debug_location!(retinst)
+            @test LLVM.debug_location(retinst) === nothing
+            LLVM.debug_location!(retinst, loc)
 
             # value_before!
             val_result = LLVM.value_before!(dib, r, var, expr, loc, retinst)
@@ -393,9 +393,9 @@ end
         @test kind(label) == LLVM.API.LLVMDbgRecordLabel
         @test occursin("#dbg_declare(ptr %p", string(declare))
 
-        @test LLVM.line(debuglocation(declare)) == 2
-        @test LLVM.line(debuglocation(label)) == 3
-        @test LLVM.column(debuglocation(label)) == 5
+        @test LLVM.line(debug_location(declare)) == 2
+        @test LLVM.line(debug_location(label)) == 3
+        @test LLVM.column(debug_location(label)) == 5
 
         @test value(declare) == alloca
         @test value(val) == x

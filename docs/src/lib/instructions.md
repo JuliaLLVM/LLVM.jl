@@ -20,8 +20,8 @@ position!(::IRBuilder, ::Instruction)
 position!(::IRBuilder, ::BasicBlock)
 position!(::IRBuilder)
 insert!(::IRBuilder, ::Instruction, ::String)
-debuglocation
-debuglocation!
+debug_location
+debug_location!
 ```
 
 ## Attributes
@@ -41,7 +41,7 @@ predicate
 ## Atomic instructions
 
 ```@docs
-is_atomic
+isatomic
 ordering
 ordering!
 SyncScope
@@ -49,7 +49,7 @@ name(::SyncScope)
 syncscope
 syncscope!
 binop
-LLVM.available
+LLVM.isavailable
 isweak
 weak!
 isvolatile

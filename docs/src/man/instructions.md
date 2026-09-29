@@ -125,11 +125,11 @@ attributes #0 = { "nounwind" }
 ### Debug location
 
 When creating instructions with an `IRBuilder`, it is possible to set a debug location for
-the instruction. This is done by calling the `debuglocation!` function on the builder:
+the instruction. This is done by calling the `debug_location!` function on the builder:
 
-- `debuglocation!(builder)`: clear the debug location.
-- `debuglocation!(builder, ::Metadata)`: set the debug location to a specific metadata.
-- `debuglocation!(builder, ::Instruction)`: set the debug location to the same as another
+- `debug_location!(builder)`: clear the debug location.
+- `debug_location!(builder, ::Metadata)`: set the debug location to a specific metadata.
+- `debug_location!(builder, ::Instruction)`: set the debug location to the same as another
   instruction.
 
 
@@ -174,7 +174,7 @@ Memory accesses can also be marked volatile, using `isvolatile`/`volatile!` or t
 
 Atomic instructions support a few additional APIs:
 
-- `is_atomic`: check if the instruction is atomic.
+- `isatomic`: check if the instruction is atomic.
 - `isweak`/`weak!`: check if the instruction is weak, or set it to be weak.
 - `syncscope`/`syncscope!`: get or set the synchronization scope of the instruction to
   a specific `SyncScope`

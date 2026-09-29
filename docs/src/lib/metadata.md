@@ -253,9 +253,9 @@ LLVM.declare_before!
 LLVM.declare_at_end!
 LLVM.value_before!
 LLVM.value_at_end!
-LLVM.debuglocation(::Instruction)
-LLVM.debuglocation!(::Instruction, ::DILocation)
-LLVM.debuglocation!(::Instruction)
+LLVM.debug_location(::Instruction)
+LLVM.debug_location!(::Instruction, ::DILocation)
+LLVM.debug_location!(::Instruction)
 ```
 
 ### Compile Unit

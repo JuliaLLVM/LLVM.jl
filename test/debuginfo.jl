@@ -42,13 +42,13 @@ end
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
             @test file isa DIFile
-            @test LLVM.filename(file) == "test.jl"
-            @test LLVM.directory(file) == "/tmp"
+            @test file.filename == "test.jl"
+            @test file.directory == "/tmp"
 
             # non-ASCII strings should pass their full byte length
             ufile = LLVM.file!(dib, "tëst-∇.jl", "/tmp/∂ir")
-            @test LLVM.filename(ufile) == "tëst-∇.jl"
-            @test LLVM.directory(ufile) == "/tmp/∂ir"
+            @test ufile.filename == "tëst-∇.jl"
+            @test ufile.directory == "/tmp/∂ir"
 
             cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
@@ -56,11 +56,11 @@ end
 
             ns = LLVM.namespace!(dib, cu, "MyNamespace")
             @test ns isa DINamespace
-            @test LLVM.name(ns) == "MyNamespace"
+            @test ns.name == "MyNamespace"
 
             dm = LLVM.dimodule!(dib, cu, "MyModule")
             @test dm isa DIModule
-            @test LLVM.name(dm) == "MyModule"
+            @test dm.name == "MyModule"
         end
 
         # emitted DWARF should round-trip as text IR (compile unit is retained)
@@ -92,17 +92,17 @@ end
 
             # DILocation with lexical block scope
             loc = DILocation(10, 20, lb)
-            @test LLVM.line(loc) == 10
-            @test LLVM.column(loc) == 20
-            @test LLVM.scope(loc) == lb
+            @test loc.line == 10
+            @test loc.column == 20
+            @test loc.scope == lb
 
             # inlined_at chain
             outer = DILocation(5, 1, sp)
             inner = DILocation(10, 20, lb, outer)
-            @test LLVM.inlined_at(inner) == outer
+            @test inner.inlined_at == outer
 
             # Julia emits -1 for an unknown line
-            @test LLVM.line(DILocation(typemax(UInt32), 0, sp)) == -1
+            @test DILocation(typemax(UInt32), 0, sp).line == -1
 
             # DILocation requires a scope
             @test_throws ArgumentError DILocation(1, 2, nothing)
@@ -125,14 +125,17 @@ end
             # basic types
             i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
             @test i64 isa LLVM.DIBasicType
-            @test LLVM.name(i64) == "Int64"
+            @test i64.name == "Int64"
 
             # non-ASCII type names should round-trip
             ut = LLVM.basic_type!(dib, "∇f", 64, DW_ATE_signed)
-            @test LLVM.name(ut) == "∇f"
-            @test LLVM.align(i64) == 0
+            @test ut.name == "∇f"
+            @test i64.size_in_bits == 64
+            @test parentmodule(which(sizeof, Tuple{LLVM.DIType})) !== LLVM
+            @test i64.offset_in_bits == 0
+            @test i64.align_in_bits == 0
             if LLVM.version() >= v"17"
-                @test LLVM.tag(i64) != 0
+                @test i64.tag != 0
             end
 
             @test LLVM.unspecified_type!(dib, "unspec") isa LLVM.DIBasicType
@@ -166,10 +169,14 @@ end
             # composite types
             mem = LLVM.member_type!(dib, cu, "x", file, 2, 64, 64, 0, i64)
             @test mem isa LLVM.DIDerivedType
+            mem2 = LLVM.member_type!(dib, cu, "y", file, 3, 32, 32, 64, i64)
+            @test mem2.size_in_bits == 32
+            @test mem2.align_in_bits == 32
+            @test mem2.offset_in_bits == 64
 
             st = LLVM.struct_type!(dib, cu, "Point", file, 1, 64, 64, LLVM.Metadata[mem])
             @test st isa LLVM.DICompositeType
-            @test LLVM.name(st) == "Point"
+            @test st.name == "Point"
 
             un = LLVM.union_type!(dib, cu, "U", file, 1, 64, 64, LLVM.Metadata[mem])
             @test un isa LLVM.DICompositeType
@@ -230,15 +237,15 @@ end
             # subprogram
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
             @test sp isa DISubProgram
-            @test LLVM.line(sp) == 1
-            @test LLVM.line(LLVM.subprogram!(dib, file, "unknown", file, typemax(UInt32), stype)) == -1
+            @test sp.line == 1
+            @test LLVM.subprogram!(dib, file, "unknown", file, typemax(UInt32), stype).line == -1
 
             # variables
             v = LLVM.auto_variable!(dib, sp, "x", file, 2, i64)
             @test v isa LLVM.DILocalVariable
-            @test LLVM.line(v) == 2
-            @test LLVM.file(v) == file
-            @test LLVM.scope(v) == sp
+            @test v.line == 2
+            @test v.file == file
+            @test v.scope == sp
 
             p = LLVM.parameter_variable!(dib, sp, "a", 1, file, 1, i64)
             @test p isa LLVM.DILocalVariable
@@ -254,10 +261,10 @@ end
             gve = LLVM.global_variable_expression!(dib, cu, "g", "g",
                                                   file, 1, i64, false, e)
             @test gve isa LLVM.DIGlobalVariableExpression
-            gv = LLVM.variable(gve)
+            gv = gve.variable
             @test gv isa LLVM.DIGlobalVariable
-            @test LLVM.line(gv) == 1
-            @test LLVM.expression(gve) isa LLVM.DIExpression
+            @test gv.line == 1
+            @test gve.expression isa LLVM.DIExpression
 
             # temp global forward decl
             tgv = LLVM.temp_global_variable_fwd_decl!(dib, cu, "tg", "tg",
@@ -283,7 +290,7 @@ end
 
             ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
             fn = LLVM.Function(mod, "add", ft)
-            LLVM.subprogram!(fn, sp)
+            fn.subprogram = sp
 
             bb = BasicBlock(fn, "entry")
             position!(builder, bb)
@@ -307,25 +314,25 @@ end
             retinst = ret!(builder, r)
 
             # instruction-level debug location read/write
-            @test LLVM.debug_location(retinst) === nothing
-            LLVM.debug_location!(retinst, loc)
-            got = LLVM.debug_location(retinst)
+            @test retinst.debug_location === nothing
+            retinst.debug_location = loc
+            got = retinst.debug_location
             @test got !== nothing
-            @test LLVM.line(got) == 2
-            @test LLVM.column(got) == 1
+            @test got.line == 2
+            @test got.column == 1
 
             # clearing the debug location
-            LLVM.debug_location!(retinst)
-            @test LLVM.debug_location(retinst) === nothing
-            LLVM.debug_location!(retinst, loc)
+            retinst.debug_location = nothing
+            @test retinst.debug_location === nothing
+            retinst.debug_location = loc
 
             # value_before!
             val_result = LLVM.value_before!(dib, r, var, expr, loc, retinst)
             if LLVM.version() >= v"19"
                 @test val_result isa LLVM.DbgRecord
                 @test collect(debug_records(retinst)) == [val_result]
-                @test value(val_result) == r
-                @test variable(val_result) == var
+                @test val_result.value == r
+                @test val_result.variable == var
                 @test isempty(debug_records(r))
             else
                 @test val_result isa Instruction
@@ -378,7 +385,7 @@ end
             !12 = !DILabel(scope: !5, name: "lbl", file: !1, line: 4)
             """)
         fn = functions(mod)["f"]
-        alloca, ret = instructions(entry(fn))
+        alloca, ret = instructions(fn.entry)
         x, y = parameters(fn)
 
         @test isempty(debug_records(alloca))
@@ -387,31 +394,31 @@ end
         @test all(r -> r isa DbgRecord, records)
         declare, val, arglist, label = records
 
-        @test kind(declare) == LLVM.API.LLVMDbgRecordDeclare
-        @test kind(val) == LLVM.API.LLVMDbgRecordValue
-        @test kind(arglist) == LLVM.API.LLVMDbgRecordValue
-        @test kind(label) == LLVM.API.LLVMDbgRecordLabel
+        @test declare.kind == LLVM.API.LLVMDbgRecordDeclare
+        @test val.kind == LLVM.API.LLVMDbgRecordValue
+        @test arglist.kind == LLVM.API.LLVMDbgRecordValue
+        @test label.kind == LLVM.API.LLVMDbgRecordLabel
         @test occursin("#dbg_declare(ptr %p", string(declare))
 
-        @test LLVM.line(debug_location(declare)) == 2
-        @test LLVM.line(debug_location(label)) == 3
-        @test LLVM.column(debug_location(label)) == 5
+        @test declare.debug_location.line == 2
+        @test label.debug_location.line == 3
+        @test label.debug_location.column == 5
 
-        @test value(declare) == alloca
-        @test value(val) == x
+        @test declare.value == alloca
+        @test val.value == x
         @test LLVM.location_operands(val) == [x]
         @test LLVM.location_operands(arglist) == [x, y]
-        @test_throws ArgumentError value(arglist)
+        @test_throws ArgumentError arglist.value
 
-        @test variable(val) isa LLVM.DILocalVariable
-        @test LLVM.line(variable(val)) == 2
-        @test variable(val) == variable(arglist)
-        @test expression(val) isa LLVM.DIExpression
-        @test occursin("DW_OP_plus", string(expression(arglist)))
+        @test val.variable isa LLVM.DILocalVariable
+        @test val.variable.line == 2
+        @test val.variable == arglist.variable
+        @test val.expression isa LLVM.DIExpression
+        @test occursin("DW_OP_plus", string(arglist.expression))
 
-        @test_throws ArgumentError variable(label)
-        @test_throws ArgumentError expression(label)
-        @test_throws ArgumentError value(label)
+        @test_throws ArgumentError label.variable
+        @test_throws ArgumentError label.expression
+        @test_throws ArgumentError label.value
 
         # deleted values
         replace_uses!(y, LLVM.PoisonValue(LLVM.Int32Type()))
@@ -533,7 +540,7 @@ end
         end
 
         # module-level debug version accessor (returns 0 when no flag set)
-        @test LLVM.debug_metadata_version(mod) isa Int
+        @test mod.debug_metadata_version isa Int
     end
 end
 
@@ -582,38 +589,38 @@ end
 
     foo = functions(mod)["foo"]
 
-    let sp = subprogram(foo)
+    let sp = foo.subprogram
       @test sp !== nothing
-      @test LLVM.line(sp) == 1
+      @test sp.line == 1
 
       bar = functions(mod)["bar"]
-      @test subprogram(bar) === nothing
-      subprogram!(bar, sp)
-      @test subprogram(bar) == sp
+      @test bar.subprogram === nothing
+      bar.subprogram = sp
+      @test bar.subprogram == sp
     end
 
-    bb = entry(foo)
+    bb = foo.entry
 
     if LLVM.version() < v"19"
       # LLVM 19 switched from debug intrinsics to records
       let inst = collect(instructions(bb))[2]
         diloc = metadata(inst)[LLVM.MD_dbg]::LLVM.DILocation
-        @test LLVM.line(diloc) == 2
-        @test LLVM.column(diloc) == 9
-        @test LLVM.inlined_at(diloc) === nothing
+        @test diloc.line == 2
+        @test diloc.column == 9
+        @test diloc.inlined_at === nothing
 
-        discope = LLVM.scope(diloc)::LLVM.DIScope
-        @test LLVM.name(discope) == "foo"
+        discope = diloc.scope::LLVM.DIScope
+        @test discope.name == "foo"
 
-        difile = LLVM.file(discope)::LLVM.DIFile
-        @test LLVM.directory(difile) == "/tmp"
-        @test LLVM.filename(difile) == "test.c"
-        @test LLVM.source(difile) == ""
+        difile = discope.file::LLVM.DIFile
+        @test difile.directory == "/tmp"
+        @test difile.filename == "test.c"
+        @test difile.source == ""
 
         divar = Metadata(operands(inst)[2])::LLVM.DILocalVariable
-        @test LLVM.line(divar) == 2
-        @test LLVM.file(divar) == difile
-        @test LLVM.scope(divar) == discope
+        @test divar.line == 2
+        @test divar.file == difile
+        @test divar.scope == discope
         # TODO: get type and test DIType
       end
     end

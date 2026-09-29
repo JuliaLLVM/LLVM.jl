@@ -151,6 +151,90 @@ end
 end
 
 
+## properties
+
+# Attributes of LLVM objects are exposed as properties, e.g., `gv.linkage` or
+# `mod.triple = "..."`. Each property is backed by an accessor function of the same name
+# (`linkage(gv)`, and `linkage!(gv, val)` for writable properties). These accessors are
+# internal: the property is the only public spelling, so don't mark them `@public` or add
+# them to a vocabulary, and don't give other public functionality the same name (e.g.,
+# `overloaded_name` instead of a `name(intrinsic, types)` method). LLVM.jl itself can keep
+# calling the accessors. Document a property in the docstring of the type it is declared on,
+# in a "Properties" section with signature lines like `gv.linkage` and
+# `gv.linkage = linkage::LLVM.API.LLVMLinkage` and a description of what assignment does,
+# rather than on the accessor, which users do not call. Properties that are declared on a
+# group of instructions are documented on the union type of that group, like `CallBase`, and
+# those of individual instruction types on the group they belong to, or on `Instruction`.
+#
+# The one exception is `context`, which is public because of `context()`, the task-local
+# context, and `context(::ThreadSafeContext)`. The `context` property is documented on the
+# types that have it, like other properties.
+#
+# The root of a type hierarchy opts in using `@properties`, after which `@property`
+# declares individual properties for that type or any of its subtypes.
+
+# (type, name) pairs, to implement `propertynames`
+const property_registry = Tuple{Type,Symbol}[]
+
+# fall back to the object's fields, or error with a list of the available properties
+@inline function getprop(x, ::Val{S}) where {S}
+    hasfield(typeof(x), S) || property_error(x, S)
+    getfield(x, S)
+end
+@inline function setprop!(x, ::Val{S}, v) where {S}
+    hasfield(typeof(x), S) || property_error(x, S, v)
+    setfield!(x, S, v)
+end
+@noinline function property_error(x, s::Symbol, v...)
+    names = property_names(x, false)
+    if s in names
+        # the property exists, but its setter does not support this value
+        throw(ArgumentError("cannot set property `$s` of $(typeof(x)) to a value of type $(typeof(only(v)))"))
+    end
+    error(typeof(x), " has no property `", s, "`; available properties are: ",
+          join(names, ", "))
+end
+
+function property_names(x, private::Bool)
+    names = Symbol[name for (T, name) in property_registry if x isa T]
+    private && append!(names, fieldnames(typeof(x)))
+    return Tuple(unique!(names))
+end
+
+macro properties(T)
+    quote
+        # `ref` is accessed all over the place, so give it a direct path
+        @inline Base.getproperty(x::$T, s::Symbol) =
+            s === :ref ? getfield(x, :ref) : getprop(x, Val(s))
+        @inline Base.setproperty!(x::$T, s::Symbol, v) = setprop!(x, Val(s), v)
+        Base.propertynames(x::$T, private::Bool=false) = property_names(x, private)
+    end |> esc
+end
+
+# `@property T name` declares a read-only property backed by `name(x)`, while
+# `@property T name setter` makes it writable by calling `setter(x, v)`. For setters that
+# need to adapt the value, `setter` can be an anonymous function `(x, v) -> ...`, which
+# becomes the body of the setter method (so that its arguments can be typed).
+macro property(T, name::Symbol, setter=nothing)
+    sym = QuoteNode(name)
+    setter_method = if setter === nothing
+        :(setprop!(x::$T, ::Val{$sym}, v) =
+            error("property `", $sym, "` of ", typeof(x), " is read-only"))
+    elseif Meta.isexpr(setter, :->)
+        x, v = setter.args[1].args
+        vname = Meta.isexpr(v, :(::)) ? v.args[1] : v
+        :(setprop!($x::$T, ::Val{$sym}, $v) = ($(setter.args[2]); $vname))
+    else
+        :(setprop!(x::$T, ::Val{$sym}, v) = ($setter(x, v); v))
+    end
+    quote
+        getprop(x::$T, ::Val{$sym}) = $name(x)
+        $setter_method
+        push!(property_registry, ($T, $sym))
+    end |> esc
+end
+
+
 ## helper macro for disposing resources without do-block syntax
 
 export @dispose

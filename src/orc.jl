@@ -70,7 +70,7 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) = oll.ref
 
 """
-    ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.triple();
+    ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
                        override_object_flags=nothing, auto_claim_object_symbols=nothing)
 
 Create a RuntimeDyld-based object linking layer that allocates memory using a
@@ -97,7 +97,7 @@ On LLVM 21 and newer, that is the triple of the process executing the code rathe
 that of the target machine, so pass the target's triple explicitly when JIT-compiling for
 a different object format.
 """
-function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.triple();
+function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
                             override_object_flags::Union{Nothing,Bool}=nothing,
                             auto_claim_object_symbols::Union{Nothing,Bool}=nothing)
     ref = API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
@@ -1209,7 +1209,7 @@ function decorate_module(mod)
                 section = ".text"
                 offset = ".text"
             end
-            inline_asm!(mod, """
+            append_inline_asm!(mod, """
                 .section $section
                 .globl __julia_personality
 
@@ -1236,7 +1236,7 @@ function decorate_module(mod)
                 """)
         else
             # Julia 1.10 and 1.11
-            inline_asm!(mod, """
+            append_inline_asm!(mod, """
                 .section .text
                 .type   __UnwindData,@object
                 .p2align        2, 0x90

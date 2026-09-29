@@ -3,25 +3,16 @@
 ```@docs
 LLVM.Function
 LLVM.Function(::LLVM.Module, ::String, ::LLVM.FunctionType)
+Argument
 ```
 
-## Properties and operations
+## Operations
 
 ```@docs
-function_type
 empty!
 erase!(::LLVM.Function)
 move_before(::LLVM.Function, ::LLVM.Function)
 move_after(::LLVM.Function, ::LLVM.Function)
-personality
-personality!
-callconv
-callconv!
-gc
-gc!
-alignment(::LLVM.Function)
-alignment!(::LLVM.Function, ::Integer)
-entry
 ```
 
 ## Attributes
@@ -36,10 +27,7 @@ return_attributes(::LLVM.Function)
 
 ```@docs
 MemoryEffects
-access
 EnumAttribute(::MemoryEffects)
-memory_effects
-memory_effects!
 ```
 
 ## Parameters
@@ -59,10 +47,10 @@ nextblock
 ## Intrinsics
 
 ```@docs
+Intrinsic
 isintrinsic
 isoverloaded
-name(::Intrinsic)
-name(::Intrinsic, ::Vector{<:LLVMType})
+LLVM.overloaded_name
 LLVM.Function(::LLVM.Module, ::Intrinsic, ::Vector{<:LLVMType})
 LLVM.FunctionType(::Intrinsic, ::Vector{<:LLVMType})
 ```

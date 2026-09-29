@@ -145,7 +145,7 @@ julia> lljit = LLJIT();
 julia> ts_mod = ThreadSafeModule("jit");
 
 julia> ts_mod() do mod
-           triple!(mod, triple(lljit))
+           mod.triple = lljit.triple
            ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
            fn = LLVM.Function(mod, "add", ft)
            @dispose builder=IRBuilder() begin

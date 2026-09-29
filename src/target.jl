@@ -1,17 +1,27 @@
 ## target
 
 export Target,
-       name, description,
        hasjit, hastargetmachine, hasasmparser
 
 """
     Target
 
 A structure exposing target-specific information.
+
+# Properties
+
+    target.name
+
+The name of the target, e.g., `"x86-64"`.
+
+    target.description
+
+A short description of the target.
 """
 @checked struct Target
     ref::API.LLVMTargetRef
 end
+@properties Target
 
 Base.unsafe_convert(::Type{API.LLVMTargetRef}, target::Target) = target.ref
 
@@ -45,19 +55,12 @@ function Target(; name=nothing, triple=nothing)
     end
 end
 
-"""
-    name(target::Target)
-
-Get the name of the given target.
-"""
 name(t::Target) = unsafe_string(API.LLVMGetTargetName(t))
 
-"""
-    description(target::Target)
-
-Get a short description of the given target.
-"""
 description(t::Target) = unsafe_string(API.LLVMGetTargetDescription(t))
+
+@property Target name
+@property Target description
 
 """
     hasjit(target::Target)

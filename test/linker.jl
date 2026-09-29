@@ -66,7 +66,7 @@ end
             link!(dst, src; override_from_src=true)
 
             glob = globals(dst)["glob"]
-            init = LLVM.initializer(glob)
+            init = glob.initializer
             @test convert(Int, init) == 2
         end
     end

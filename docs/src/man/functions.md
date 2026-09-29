@@ -24,11 +24,14 @@ declare void @SomeFunction(i32)
 
 Several APIs can be used to interact with functions:
 
-- `function_type`: get the function type of the function (this differs from `value_type`, which will return a pointer to the function type).
-- `personality`/`personality!`: get or set the personality function of the function (pass `nothing` to remove the personality function).
-- `callconv`/`callconv!`: get or set the calling convention of the function.
-- `gc`/`gc!`: get or set the garbage collector for the function.
-- `alignment`/`alignment!`: get or set the alignment of the function's code.
+- `fun.function_type`: the function type of the function (this differs from `value_type`,
+  which is the type of the function pointer).
+- `fun.personality`: the personality function of the function (assign `nothing` to remove
+  the personality function).
+- `fun.callconv`: the calling convention of the function.
+- `fun.gc`: the garbage collector for the function.
+- `fun.alignment`: the alignment of the function's code.
+- `fun.entry`: the entry block of the function, or `nothing` if it has no body.
 - `isintrinsic`: check if the function is an intrinsic.
 - `erase!`: delete the function from its parent module, and delete the object.
 
@@ -53,7 +56,8 @@ true
 
 However, the `Intrinsic` type supports additional APIs:
 
-- `name`: get the base name of the intrinsic, or a specific overloaded name by passing additional argument types.
+- `intr.name`: the base name of the intrinsic. A specific overloaded name can be
+  obtained using `LLVM.overloaded_name(intr, argument_types)`.
 - `isoverloaded`: check if the intrinsic is overloaded.
 
 It can also be useful to construct a function from a well-known intrinsic, to make sure the
@@ -125,26 +129,29 @@ attribute, which replaces the `readnone`, `readonly`, `writeonly`, `argmemonly`,
 `inaccessiblememonly` and `inaccessiblemem_or_argmemonly` function attributes. Rather than
 encoding this attribute by hand, use `MemoryEffects` to describe which kind of access
 (`:none`, `:read`, `:write` or `:readwrite`) is possible for each location of memory, and
-`memory_effects`/`memory_effects!` to get or set the effects of a function or call:
+the `memory_effects` property to get or set the effects of a function:
 
 ```jldoctest function
-julia> memory_effects(fun)
+julia> fun.memory_effects
 MemoryEffects(:readwrite)
 
-julia> memory_effects!(fun, MemoryEffects(argmem=:read))
+julia> fun.memory_effects = MemoryEffects(argmem=:read);
 
-julia> effects = memory_effects(fun)
+julia> effects = fun.memory_effects
 MemoryEffects(argmem=:read)
 
 julia> effects[:argmem], effects[:other]
 (:read, :none)
 
-julia> access(effects)
+julia> effects.access
 :read
 ```
 
-The `memory` attribute itself can be created with `EnumAttribute(effects)`, and decoded with
-`MemoryEffects(attr)`.
+The `memory` attribute itself can be created with `EnumAttribute(effects)`, and decoded
+with `MemoryEffects(attr)`. That also works with a set of attributes, which is how the
+effects of a call site can be accessed: `MemoryEffects(function_attributes(call))` returns
+its effects (without taking into account those of the called function), and
+`push!(function_attributes(call), EnumAttribute(effects))` changes them.
 
 
 ## Parameters
@@ -194,7 +201,7 @@ julia> collect(blocks(fun))
  BasicBlock("top")
 
 julia> # to simply get the first block
-       entry(fun)
+       fun.entry
 top:
   %2 = add i64 %1, %0
   ret i64 %2

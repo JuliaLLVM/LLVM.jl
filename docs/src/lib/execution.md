@@ -11,7 +11,6 @@ dispose(::GenericValue)
 
 ```@docs
 GenericValue(::LLVM.IntegerType, ::Integer)
-intwidth
 convert(::Type{T}, val::GenericValue) where {T <: Integer}
 ```
 
@@ -70,7 +69,6 @@ ObjectLinkingLayer
 ObjectLinkingLayer(::ExecutionSession, ::String)
 JuliaOJIT
 ExecutionSession
-triple(::LLJIT)
 LLVM.global_prefix
 ```
 

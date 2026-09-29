@@ -2,11 +2,11 @@
     @test_throws ArgumentError Target(triple="invalid")
     @test_throws ArgumentError Target(name="invalid")
 
-    host_triple = triple()
+    host_triple = LLVM.default_triple()
     host_t = Target(triple=host_triple)
 
-    host_name = name(host_t)
-    description(host_t)
+    host_name = host_t.name
+    host_t.description
 
     @test hasjit(host_t)
     @test hastargetmachine(host_t)

@@ -23,7 +23,7 @@ function create_entry_block_allocation(cg::CodeGen, fn::LLVM.Function, varname::
     local alloc
     LLVM.@dispose builder=LLVM.IRBuilder() begin
         # Set the builder at the start of the function
-        entry_block = LLVM.entry(fn)
+        entry_block = fn.entry
         if isempty(LLVM.instructions(entry_block))
             LLVM.position!(builder, entry_block)
         else
@@ -92,7 +92,7 @@ function codegen(cg::CodeGen, expr::CallExprAST)
     for v in expr.args
         push!(args, codegen(cg, v))
     end
-    ft = LLVM.function_type(func)
+    ft = func.function_type
     return LLVM.call!(cg.builder, ft, func, args, "calltmp")
 end
 
@@ -103,10 +103,10 @@ function codegen(cg::CodeGen, expr::PrototypeAST)
     args = [LLVM.DoubleType() for i in 1:length(expr.args)]
     func_type = LLVM.FunctionType(LLVM.DoubleType(), args)
     func = LLVM.Function(cg.mod, expr.name, func_type)
-    LLVM.linkage!(func, LLVM.API.LLVMExternalLinkage)
+    func.linkage = LLVM.API.LLVMExternalLinkage
 
     for (i, param) in enumerate(LLVM.parameters(func))
-        LLVM.name!(param, expr.args[i])
+        param.name = expr.args[i]
     end
     return func
 end
@@ -134,7 +134,7 @@ function codegen(cg::CodeGen, expr::FunctionAST)
 end
 
 function codegen(cg::CodeGen, expr::IfExprAST)
-    func = LLVM.parent(LLVM.position(cg.builder))
+    func = LLVM.position(cg.builder).parent
     then = LLVM.BasicBlock(func, "then")
     elsee = LLVM.BasicBlock(func, "else")
     merge = LLVM.BasicBlock(func, "ifcont")
@@ -172,7 +172,7 @@ function codegen(cg::CodeGen, expr::ForExprAST)
     new_scope(cg) do
         # Allocate loop variable
         startblock = position(cg.builder)
-        func = LLVM.parent(startblock)
+        func = startblock.parent
         alloc = create_entry_block_allocation(cg, func, expr.varname)
         current_scope(cg)[expr.varname] = alloc
         start = codegen(cg, expr.start)
@@ -213,9 +213,9 @@ function codegen(cg::CodeGen, expr::VarExprAST)
         local V
         if isglobalscope(current_scope(cg))
             V = LLVM.GlobalVariable(cg.mod, LLVM.DoubleType(), varname)
-            LLVM.initializer!(V, initval)
+            V.initializer = initval
         else
-            func = LLVM.parent(LLVM.position(cg.builder))
+            func = LLVM.position(cg.builder).parent
             V = create_entry_block_allocation(cg, func, varname)
             LLVM.store!(cg.builder, initval, V)
         end

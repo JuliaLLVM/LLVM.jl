@@ -4,10 +4,6 @@
 
 ```@docs
 LLVM.Value
-value_type
-context(::Value)
-name(::Value)
-name!(::Value, ::String)
 isconstant(::Value)
 isundef
 ispoison
@@ -34,7 +30,6 @@ ConstantInt
 convert(::Type, val::ConstantInt)
 ConstantFP
 convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat}
-LLVM.bitpattern
 ConstantStruct
 ConstantDataArray
 ConstantDataArray(::LLVMType, ::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
@@ -53,21 +48,8 @@ convert_users_to_instructions!
 
 ```@docs
 LLVM.GlobalValue
-global_value_type
-LLVM.parent(::LLVM.GlobalValue)
+LLVM.GlobalObject
 isdeclaration
-linkage
-linkage!
-section
-section!
-visibility
-visibility!
-dllstorage
-dllstorage!
-unnamed_addr
-unnamed_addr!
-local_unnamed_addr
-local_unnamed_addr!
 ```
 
 ### Global variables
@@ -79,36 +61,25 @@ GlobalVariable
 erase!(::GlobalVariable)
 move_before(::GlobalVariable, ::GlobalVariable)
 move_after(::GlobalVariable, ::GlobalVariable)
-initializer
-initializer!
 isthreadlocal
 threadlocal!
-threadlocal_mode
-threadlocal_mode!
 isconstant(::GlobalVariable)
 constant!
 isextinit
 extinit!
-alignment(::GlobalVariable)
-alignment!(::GlobalVariable, ::Integer)
 ```
 
 ### Global aliases
 
 ```@docs
 GlobalAlias
-aliasee
-aliasee!
 ```
 
 ### Global ifuncs
 
 ```@docs
-LLVM.GlobalObject
 GlobalIFunc
 erase!(::GlobalIFunc)
-resolver
-resolver!
 ```
 
 ## Uses
@@ -118,6 +89,4 @@ replace_uses!
 replace_metadata_uses!
 uses
 Use
-user
-value
 ```

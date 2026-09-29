@@ -92,7 +92,7 @@ DocTestSetup = quote
         }"""
     mod = parse(LLVM.Module, ir)
     add = only(functions(mod))
-    bb = entry(add)
+    bb = add.entry
     inst = first(instructions(bb))
 end
 ```
@@ -141,15 +141,17 @@ This information can be used by debuggers to provide a better debugging experien
     mostly focussed on the ability to inspect or copy existing information.
 
 LLVM represents debug information as a variety of `DI`-prefixed structures, which are
-subtypes of the above metadata types. In LLVM.jl, various functions are provided to inspect
-properties of these structures:
+subtypes of the above metadata types. In LLVM.jl, these structures expose their contents
+as properties:
 
+- `DINode`: `tag`
 - `DILocation`: `line`, `column`, `scope`, `inlined_at`
 - `DIVariable`: `file`, `scope`, `line`
 - `DIScope`: `file`, `name`
 - `DIFile`: `directory`, `filename`, `source`
-- `DIType`: `name`, `sizeof`, `offset`, `line`, `flags`
-- `DISubProgram`: `line` (and methods inherited from `DIScope`)
+- `DIType`: `name`, `size_in_bits`, `offset_in_bits`, `align_in_bits`, `line`, `flags`
+- `DISubProgram`: `line` (and properties inherited from `DIScope`)
+- `DIGlobalVariableExpression`: `variable`, `expression`
 
 To query the debug info attached to an instruction, one queries the `!dbg` metadata using
 `metadata(inst)["dbg"]`.
@@ -184,7 +186,7 @@ DocTestSetup = quote
         !15 = !DILocation(line: 87, scope: !5)"""
     mod = parse(LLVM.Module, ir)
     add = only(functions(mod))
-    bb = entry(add)
+    bb = add.entry
     inst = first(instructions(bb))
 end
 ```
@@ -196,17 +198,17 @@ julia> inst
 julia> dbg = metadata(inst)["dbg"]
 !DILocation(line: 87, scope: <0x6000056c5dd0>) = !DILocation(line: 87, scope: <0x6000056c5dd0>)
 
-julia> line(dbg)
+julia> dbg.line
 87
 
-julia> file(scope(dbg))
+julia> dbg.scope.file
 <0x6000000beb80> = !DIFile(filename: "int.jl", directory: ".")
 ```
 
-Debug info can also be attached to functions, which can be queried and modified using
-respectively `subprogram` and `subprogram!`:
+Debug info can also be attached to functions, which can be queried and modified using the
+`subprogram` property:
 
 ```jldoctest
-julia> sp = subprogram(add)
+julia> sp = add.subprogram
 <0x600003edfad0> = distinct !DISubprogram(name: "+", linkageName: "julia_+", scope: null, file: <0x600003ba6fe0>, line: 87, type: <0x600003494c90>, scopeLine: 87, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: <0x6000021d8428>, retainedNodes: <0x6000010f09d0>)
 ```

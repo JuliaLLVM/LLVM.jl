@@ -12,7 +12,6 @@ LLVM.InitializeAllAsmPrinters
 LLVM.InitializeAllDisassemblers
 ```
 
-
 ## Contexts
 
 ```@docs
@@ -38,20 +37,17 @@ deactivate(::ThreadSafeContext)
 ts_context!
 ```
 
-
 ## Resources
 
 ```@docs
 @dispose
 ```
 
-
 ## Exceptions
 
 ```@docs
 LLVMException
 ```
-
 
 ## Memory buffers
 
@@ -61,7 +57,6 @@ MemoryBuffer(::Vector{T}, ::String, ::Bool) where {T<:Union{UInt8,Int8}}
 MemoryBufferFile
 dispose(::MemoryBuffer)
 ```
-
 
 ## Other
 

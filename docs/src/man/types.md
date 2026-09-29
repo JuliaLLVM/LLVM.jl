@@ -38,10 +38,10 @@ julia> LLVM.IntType(32)
 i32
 ```
 
-It is possible to query the bit-width of an integer type using the `width` function:
+It is possible to query the bit-width of an integer type using the `width` property:
 
 ```jldoctest
-julia> width(LLVM.Int32Type())
+julia> LLVM.Int32Type().width
 32
 ```
 
@@ -63,8 +63,8 @@ bfloat
 ## Function types
 
 Function types are used to create functions, and encode both the return type and the
-argument types, which can be queried using respectively the `return_type` and `parameters`
-functions.
+argument types, which can be queried using respectively the `return_type` property and
+the `parameters` function.
 
 ```jldoctest
 julia> LLVM.FunctionType(LLVM.Int1Type())
@@ -73,7 +73,7 @@ i1 ()
 julia> ft = LLVM.FunctionType(LLVM.Int1Type(), [LLVM.FloatType()])
 i1 (float)
 
-julia> return_type(ft)
+julia> ft.return_type
 i1
 
 julia> parameters(ft)
@@ -113,13 +113,13 @@ ERROR: Taking the type of an opaque pointer is illegal
 ```
 
 When constructing a pointer type, you can also set the address space, and query it back
-using the `addrspace` function:
+using the `addrspace` property:
 
 ```jldoctest
 julia> ty = LLVM.PointerType(LLVM.Int1Type(), 1)
 ptr addrspace(1)
 
-julia> addrspace(ty)
+julia> ty.addrspace
 1
 ```
 
@@ -181,7 +181,7 @@ julia> ty
 
 Structure types support a number of queries:
 
-- `name`: the name of the structure type.
+- `ty.name`: the name of the structure type.
 - `elements`: the element types of the structure type.
 - `ispacked`: whether the structure is packed.
 - `isopaque`: whether the structure is opaque.

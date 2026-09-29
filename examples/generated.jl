@@ -30,7 +30,7 @@ end
             position!(builder, entry)
 
             ptr = parameters(llvmf)[1]
-            if value_type(ptr) isa LLVM.IntegerType
+            if ptr.value_type isa LLVM.IntegerType
                 ptr = inttoptr!(builder, ptr, T_ptr)
             end
 

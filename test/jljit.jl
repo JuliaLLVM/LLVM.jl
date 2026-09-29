@@ -65,7 +65,7 @@ end
             T_Int32 = LLVM.Int32Type()
             ft = LLVM.FunctionType(T_Int32, [T_Int32, T_Int32])
             fn = LLVM.Function(mod, "mysum", ft)
-            linkage!(fn, LLVM.API.LLVMExternalLinkage)
+            fn.linkage = LLVM.API.LLVMExternalLinkage
 
             wrapper = LLVM.Function(mod, fname, ft)
             # generate IR
@@ -77,10 +77,10 @@ end
                 ret!(builder, tmp)
             end
 
-            triple!(mod, triple(jljit))
+            mod.triple = jljit.triple
             @dispose pm=ModulePassManager() tm=JITTargetMachine() begin
                 # TODO: Get TM from jljit?
-                add_library_info!(pm, triple(mod))
+                add_library_info!(pm, mod.triple)
                 add_transform_info!(pm, tm)
                 run!(pm, mod)
             end
@@ -208,8 +208,8 @@ end
         jd = JITDylib(jljit, "lazy")
         es = ExecutionSession(jljit)
 
-        lctm = LLVM.LocalLazyCallThroughManager(triple(jljit), es)
-        ism = LLVM.LocalIndirectStubsManager(triple(jljit))
+        lctm = LLVM.LocalLazyCallThroughManager(jljit.triple, es)
+        ism = LLVM.LocalIndirectStubsManager(jljit.triple)
         try
             # 1. define entry symbol
             entry_sym = "foo_entry"
@@ -240,14 +240,14 @@ end
 
                 ts_mod = ThreadSafeModule("jit")
                 ts_mod() do mod
-                    dl = datalayout(jljit)
+                    dl = jljit.datalayout
                     if LLVM.version() >= v"20"
                         # XXX: LLVM 20 removed the ability to replace a data layout,
                         #      resulting in Julia's JIT having a different DL from the TM's.
                         #      https://github.com/llvm/llvm-project/pull/102993#issuecomment-2886101618
                         dl = replace(dl, r"-ni.*" => "")
                     end
-                    datalayout!(mod, dl)
+                    mod.datalayout = dl
 
                     T_Int32 = LLVM.Int32Type()
                     ft = LLVM.FunctionType(T_Int32, [T_Int32, T_Int32])

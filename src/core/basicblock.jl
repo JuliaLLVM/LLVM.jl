@@ -1,5 +1,4 @@
 export BasicBlock, remove!, erase!,
-       terminator, name,
        move_before, move_after
 
 """
@@ -7,6 +6,20 @@ export BasicBlock, remove!, erase!,
 
 A basic block in the IR. A basic block is a sequence of instructions that
 always ends in a terminator instruction.
+
+# Properties
+
+    bb.parent
+
+The function that contains the basic block, or `nothing` if the block is not part of a
+function.
+
+    bb.terminator
+
+The terminator instruction of the basic block, or `nothing` if the block does not end with
+a terminator.
+
+The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct BasicBlock <: Value
     ref::API.LLVMValueRef
@@ -60,34 +73,22 @@ Remove the given basic block from its parent function and free the object.
 """
 erase!(bb::BasicBlock) = API.LLVMDeleteBasicBlock(bb)
 
-"""
-    parent(bb::BasicBlock) -> LLVM.Function
-
-Get the function that contains the given basic block, or `nothing` if the block is not part
-of a function.
-"""
 function parent(bb::BasicBlock)
     ref = API.LLVMGetBasicBlockParent(bb)
     ref == C_NULL && return nothing
     Function(ref)
 end
 
-"""
-    terminator(bb::BasicBlock) -> LLVM.Instruction
+@property BasicBlock parent
 
-Get the terminator instruction of the given basic block.
-"""
 function terminator(bb::BasicBlock)
     ref = API.LLVMGetBasicBlockTerminator(bb)
     ref == C_NULL && return nothing
     Instruction(ref)
 end
 
-"""
-    name(bb::BasicBlock) -> String
+@property BasicBlock terminator
 
-Get the name of the given basic block.
-"""
 name(bb::BasicBlock) = unsafe_string(API.LLVMGetBasicBlockName(bb))
 
 """

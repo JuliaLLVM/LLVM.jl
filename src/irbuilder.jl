@@ -6,17 +6,32 @@
 @nospecialize
 
 export IRBuilder,
-       position!,
-       debug_location, debug_location!
+       position!
 
 """
     IRBuilder
 
 An instruction builder, which is used to build instructions within a basic block.
+
+# Properties
+
+    builder.context
+
+The context of the instruction builder.
+
+    builder.debug_location
+    builder.debug_location = loc::Union{Metadata,MetadataAsValue,Nothing}
+
+The debug location that the instruction builder attaches to the instructions it creates,
+or `nothing` if no location is set. Assigning `nothing` clears the location.
+
+To give an existing instruction the builder's location, assign it to the instruction
+instead: `inst.debug_location = builder.debug_location`.
 """
 @checked struct IRBuilder
     ref::API.LLVMBuilderRef
 end
+@properties IRBuilder
 
 Base.unsafe_convert(::Type{API.LLVMBuilderRef}, builder::IRBuilder) =
     mark_use(builder).ref
@@ -37,12 +52,9 @@ Dispose of an instruction builder.
 """
 dispose(builder::IRBuilder) = mark_dispose(API.LLVMDisposeBuilder, builder)
 
-"""
-    context(builder::IRBuilder)
-
-Get the context associated with an instruction builder.
-"""
 context(builder::IRBuilder) = Context(API.LLVMGetBuilderContext(builder))
+
+@property IRBuilder context
 
 function IRBuilder(@specialize(f::Core.Function), args...; kwargs...)
     builder = IRBuilder(args...; kwargs...)
@@ -94,45 +106,20 @@ giving it a name.
 Base.insert!(builder::IRBuilder, inst::Instruction, name::String="") =
     API.LLVMInsertIntoBuilderWithName(builder, inst, name)
 
-"""
-    debug_location(builder::IRBuilder)
-
-Get the current debug location of the instruction builder, or `nothing` if no location is
-set.
-"""
 function debug_location(builder::IRBuilder)
     ref = API.LLVMGetCurrentDebugLocation2(builder)
     ref == C_NULL ? nothing : Metadata(ref)
 end
 
-"""
-    debug_location!(builder::IRBuilder)
-
-Clear the current debug location of the instruction builder.
-"""
 debug_location!(builder::IRBuilder) =
     API.LLVMSetCurrentDebugLocation2(builder, C_NULL)
-
-"""
-    debug_location!(builder::IRBuilder, loc)
-
-Set the current debug location of the instruction builder to `loc`, which can be a
-`Metadata` or `MetadataAsValue`.
-"""
-debug_location!(builder::IRBuilder, loc::Union{Metadata,MetadataAsValue})
 debug_location!(builder::IRBuilder, loc::Metadata) =
     API.LLVMSetCurrentDebugLocation2(builder, loc)
 debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
     API.LLVMSetCurrentDebugLocation2(builder, Metadata(loc))
 
-"""
-    debug_location!(builder::IRBuilder, inst::Instruction)
-
-Set the current debug location of the instruction builder to the location of the given
-instruction.
-"""
-debug_location!(builder::IRBuilder, inst::Instruction) =
-    API.LLVMSetInstDebugLocation(builder, inst)
+@property IRBuilder debug_location (builder, loc::Union{Metadata,MetadataAsValue,Nothing}) ->
+    loc === nothing ? debug_location!(builder) : debug_location!(builder, loc)
 
 
 ## build methods

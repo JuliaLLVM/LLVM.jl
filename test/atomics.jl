@@ -45,7 +45,7 @@ end
     ld = load!(builder, T_int, ptr; ordering=AC, scope="agent", align=8, volatile=true)
     @test occursin(Regex("load atomic volatile i32, $ptr_str syncscope\\(\"agent\"\\) acquire, align 8"),
                    string(ld))
-    @test ordering(ld) == AC && name(syncscope(ld)) == "agent" && isvolatile(ld)
+    @test ld.ordering == AC && ld.syncscope.name == "agent" && isvolatile(ld)
     @test !isatomic(load!(builder, T_int, ptr))
 
     st = store!(builder, int, ptr; ordering=RE, align=4)
@@ -53,26 +53,26 @@ end
 
     fn = fence!(builder, AR; scope="workgroup")
     @test occursin("fence syncscope(\"workgroup\") acq_rel", string(fn))
-    @test ordering(fn) == AR
-    ordering!(fn, SC)
-    @test ordering(fn) == SC
+    @test fn.ordering == AR
+    fn.ordering = SC
+    @test fn.ordering == SC
 
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, int, MO; align=16, volatile=true)
     @test occursin(Regex("atomicrmw volatile add $ptr_str, i32 %1 monotonic, align 16"), string(rmw))
-    ordering!(rmw, AC)
-    @test ordering(rmw) == AC
-    @test_throws "at least monotonic" ordering!(rmw, UN)
-    @test_throws "Fences must have" ordering!(fn, MO)
+    rmw.ordering = AC
+    @test rmw.ordering == AC
+    @test_throws "at least monotonic" rmw.ordering = UN
+    @test_throws "Fences must have" fn.ordering = MO
 
     cx = atomic_cmpxchg!(builder, ptr, int, int, AR; scope="agent", weak=true)
     @test occursin(Regex("cmpxchg weak $ptr_str, i32 %1, i32 %1 syncscope\\(\"agent\"\\) acq_rel acquire"),
                    string(cx))
     @test merged_ordering(cx) == AR
-    @test_throws ArgumentError ordering(cx)
-    @test_throws ArgumentError ordering!(cx, SC)
+    @test_throws "no property `ordering`" cx.ordering
+    @test_throws "no property `ordering`" cx.ordering = SC
     cx2 = atomic_cmpxchg!(builder, ptr, int, int, RE, AC)
-    @test success_ordering(cx2) == RE && failure_ordering(cx2) == AC
-    @test failure_ordering(atomic_cmpxchg!(builder, ptr, int, int, SC)) == SC
+    @test cx2.success_ordering == RE && cx2.failure_ordering == AC
+    @test atomic_cmpxchg!(builder, ptr, int, int, SC).failure_ordering == SC
 
     ret!(builder)
     @test verify(mod) === nothing
@@ -148,7 +148,7 @@ end
     end
     f, ptr, val = newfun("cas", T_i32)
     loaded, success = atomic_cmpxchg_value!(builder, ptr, val, val; align=4)
-    @test value_type(success) == LLVM.Int1Type()
+    @test success.value_type == LLVM.Int1Type()
     ret!(builder, loaded)
     @test occursin("select", string(f))
 
@@ -248,11 +248,11 @@ end
     xchg = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpXchg, ptr, val, MO)
     ret!(builder, fadd!(builder, ld, xchg))
     new_ld = cast_atomic_to_integer!(ld)
-    @test value_type(new_ld) == T_i32 && ordering(new_ld) == AC
+    @test new_ld.value_type == T_i32 && new_ld.ordering == AC
     new_st = cast_atomic_to_integer!(st)
-    @test isvolatile(new_st) && ordering(new_st) == RE
+    @test isvolatile(new_st) && new_st.ordering == RE
     new_xchg = cast_atomic_to_integer!(xchg)
-    @test value_type(new_xchg) == T_i32
+    @test new_xchg.value_type == T_i32
     @test cast_atomic_to_integer!(new_ld) == new_ld
 
     @test verify(mod) === nothing

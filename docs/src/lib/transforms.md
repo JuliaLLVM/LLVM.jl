@@ -14,11 +14,6 @@ LLVM.NewPMPassManager
 add!
 ```
 
-## Alias analyses
-
-```@docs
-```
-
 ## Custom passes
 
 ```@docs

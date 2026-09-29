@@ -15,7 +15,7 @@ function codegen!(mod::LLVM.Module, name, tm)
     param_types = [LLVM.Int32Type(), LLVM.Int32Type()]
     ret_type = LLVM.Int32Type()
 
-    triple!(mod, triple(tm))
+    mod.triple = tm.triple
 
     ft = LLVM.FunctionType(ret_type, param_types)
     sum = LLVM.Function(mod, name, ft)
@@ -32,7 +32,7 @@ function codegen!(mod::LLVM.Module, name, tm)
     verify(mod)
 
     @dispose pm=ModulePassManager() begin
-        add_library_info!(pm, triple(mod))
+        add_library_info!(pm, mod.triple)
         add_transform_info!(pm, tm)
         run!(pm, mod)
     end

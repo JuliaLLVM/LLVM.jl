@@ -210,6 +210,17 @@ Base.convert(::Type{Bool}, val::ConstantInt) = convert(Int, val) != 0
     ConstantFP <: LLVM.ConstantData
 
 A constant floating point value.
+
+# Properties
+
+    val.bitpattern
+
+The bit pattern of a constant floating point value, as the smallest unsigned integer that
+can hold it (e.g., `UInt32` for `float`, or `UInt128` for `x86_fp80`).
+
+See also [`ConstantFP`](@ref), which can create a constant from its bit pattern.
+
+The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantFP <: ConstantData
     ref::API.LLVMValueRef
@@ -245,8 +256,6 @@ Base.convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat} =
 
 # bit patterns
 
-@public bitpattern
-
 fp_width(::LLVMHalf) = 16
 fp_width(::LLVMBFloat) = 16
 fp_width(::LLVMFloat) = 32
@@ -266,7 +275,8 @@ Create a constant floating point value of the given type from its bit pattern. A
 to passing a `Real` value, which is converted to `Float64` first, this can represent every
 value of wider types like `fp128` or `x86_fp80`, as well as the payload of NaN values.
 
-Use [`LLVM.bitpattern`](@ref) to get the bit pattern of an existing constant.
+Use the [`bitpattern`](@ref LLVM.ConstantFP) property to get the bit pattern of an existing
+constant.
 
 # Examples
 
@@ -285,14 +295,6 @@ function ConstantFP(typ::FloatingPointType; bits::Unsigned)
     ConstantFP(API.LLVMConstFPFromBits(typ, words))
 end
 
-"""
-    LLVM.bitpattern(val::ConstantFP)
-
-Get the bit pattern of a constant floating point value, as the smallest unsigned integer
-that can hold it (e.g., `UInt32` for `float`, or `UInt128` for `x86_fp80`).
-
-See also [`ConstantFP`](@ref), which can create a constant from its bit pattern.
-"""
 function bitpattern(val::ConstantFP)
     typ = value_type(val)
     width = fp_width(typ isa VectorType ? eltype(typ) : typ)
@@ -304,6 +306,8 @@ function bitpattern(val::ConstantFP)
     end
     return bits % fp_container(width)
 end
+
+@property ConstantFP bitpattern
 
 
 # sequential data
@@ -651,6 +655,14 @@ A constant value that is initialized with an expression using other constant val
 
 Constant expressions are created using `const_`-prefixed functions, which correspond to
 the LLVM IR instructions: `const_neg`, `const_not`, etc.
+
+# Properties
+
+    ce.opcode
+
+The opcode of the constant expression, e.g., `LLVM.API.LLVMAdd`.
+
+The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantExpr <: Constant
     ref::API.LLVMValueRef
@@ -658,6 +670,8 @@ end
 register(ConstantExpr, API.LLVMConstantExprValueKind)
 
 opcode(ce::ConstantExpr) = API.LLVMGetConstOpcode(ce)
+
+@property ConstantExpr opcode
 
 const_neg(val::Constant) =
     Value(API.LLVMConstNeg(val))
@@ -860,6 +874,57 @@ InlineAsm(typ::FunctionType, asm::String, constraints::String,
     LLVM.GlobalValue <: LLVM.Constant
 
 Abstract supertype for all global values.
+
+# Properties
+
+    gv.parent
+
+The module that contains the global value.
+
+    gv.global_value_type
+
+The type of the global value.
+
+This differs from the `value_type` property in that it is the type of the contained value,
+not the type of the global value itself, which is always a pointer type.
+
+    gv.linkage
+    gv.linkage = linkage::LLVM.API.LLVMLinkage
+
+The linkage of the global value.
+
+    gv.section
+    gv.section = section::String
+
+The section of the global value, or an empty string if it isn't placed in a specific
+section. Only global objects (functions, global variables and ifuncs) can be assigned a
+section: the section of an alias is that of its aliasee, and cannot be changed.
+
+    gv.visibility
+    gv.visibility = visibility::LLVM.API.LLVMVisibility
+
+The visibility of the global value.
+
+    gv.dllstorage
+    gv.dllstorage = storage::LLVM.API.LLVMDLLStorageClass
+
+The DLL storage class of the global value.
+
+    gv.unnamed_addr
+    gv.unnamed_addr = flag::Bool
+
+Whether the global value has the `unnamed_addr` flag set, i.e., whether its address is
+insignificant. Assigning `true` replaces a `local_unnamed_addr` flag, while assigning
+`false` removes either flag.
+
+    gv.local_unnamed_addr
+    gv.local_unnamed_addr = flag::Bool
+
+Whether the global value has the `local_unnamed_addr` flag set, i.e., whether its address
+is insignificant within the module. Assigning `true` replaces an `unnamed_addr` flag,
+while assigning `false` removes either flag.
+
+The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 abstract type GlobalValue <: Constant end
 
@@ -871,31 +936,15 @@ functions, global variables and ifuncs, but not aliases.
 """
 abstract type GlobalObject <: GlobalValue end
 
-export GlobalValue, global_value_type,
-       isdeclaration,
-       linkage, linkage!,
-       section, section!,
-       visibility, visibility!,
-       dllstorage, dllstorage!,
-       unnamed_addr, unnamed_addr!,
-       local_unnamed_addr, local_unnamed_addr!
+export GlobalValue, isdeclaration
 
-"""
-    parent(val::LLVM.GlobalValue)
-
-Get the parent module of the global value.
-"""
 parent(val::GlobalValue) = Module(API.LLVMGetGlobalParent(val))
 
-"""
-    global_value_type(val::LLVM.GlobalValue)
+@property GlobalValue parent
 
-Get the type of the global value.
-
-This differs from [`value_type`](@ref) in that it returns the type of the contained value,
-not the type of the global value itself which is always a pointer type.
-"""
 global_value_type(val::GlobalValue) = LLVMType(API.LLVMGetGlobalValueType(val))
+
+@property GlobalValue global_value_type
 
 """
     isdeclaration(val::LLVM.GlobalValue)
@@ -904,26 +953,13 @@ Check if the global value is a declaration, i.e. it does not have a definition.
 """
 isdeclaration(val::GlobalValue) = API.LLVMIsDeclaration(val) |> Bool
 
-"""
-    linkage(val::LLVM.GlobalValue)
-
-Get the linkage of the global value.
-"""
 linkage(val::GlobalValue) = API.LLVMGetLinkage(val)
 
-"""
-    linkage!(val::LLVM.GlobalValue, linkage::LLVM.LLVMLinkage)
-
-Set the linkage of the global value.
-"""
 linkage!(val::GlobalValue, linkage::API.LLVMLinkage) =
     API.LLVMSetLinkage(val, linkage)
 
-"""
-    section(val::LLVM.GlobalValue)
+@property GlobalValue linkage linkage!
 
-Get the section of the global value.
-"""
 function section(val::GlobalValue)
   #=
   The following started to fail on LLVM 4.0:
@@ -940,86 +976,70 @@ function section(val::GlobalValue)
   return section_ptr != C_NULL ? unsafe_string(section_ptr) : ""
 end
 
-"""
-    section!(val::LLVM.GlobalObject, sec::String)
-
-Set the section of the global object.
-"""
 section!(val::GlobalObject, sec::String) = API.LLVMSetSection(val, sec)
 
-"""
-    visibility(val::LLVM.GlobalValue)
+@property GlobalObject section section!
 
-Get the visibility of the global value.
-"""
 visibility(val::GlobalValue) = API.LLVMGetVisibility(val)
 
-"""
-    visibility!(val::LLVM.GlobalValue, viz::LLVM.LLVMVisibility)
-
-Set the visibility of the global value.
-"""
 visibility!(val::GlobalValue, viz::API.LLVMVisibility) =
     API.LLVMSetVisibility(val, viz)
 
-"""
-    dllstorage(val::LLVM.GlobalValue)
+@property GlobalValue visibility visibility!
 
-Get the DLL storage class of the global value.
-"""
 dllstorage(val::GlobalValue) = API.LLVMGetDLLStorageClass(val)
 
-"""
-    dllstorage!(val::LLVM.GlobalValue, storage::LLVM.LLVMDLLStorageClass)
-
-Set the DLL storage class of the global value.
-"""
 dllstorage!(val::GlobalValue, storage::API.LLVMDLLStorageClass) =
     API.LLVMSetDLLStorageClass(val, storage)
 
-"""
-    unnamed_addr(val::LLVM.GlobalValue)
+@property GlobalValue dllstorage dllstorage!
 
-Check if the global value has the unnamed address flag set.
-"""
 unnamed_addr(val::GlobalValue) = API.LLVMGetUnnamedAddress(val) === API.LLVMGlobalUnnamedAddr
 
-"""
-    unnamed_addr!(val::LLVM.GlobalValue, flag::Bool)
-
-Set the unnamed address flag of the global value.
-"""
 unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(val, flag ? API.LLVMGlobalUnnamedAddr : API.LLVMNoUnnamedAddr)
 
-"""
-    local_unnamed_addr(val::LLVM.GlobalValue)
+@property GlobalValue unnamed_addr unnamed_addr!
 
-Check if the global value has the local unnamed address flag set.
-"""
 local_unnamed_addr(val::GlobalValue) = API.LLVMGetUnnamedAddress(val) === API.LLVMLocalUnnamedAddr
 
-"""
-    local_unnamed_addr!(val::LLVM.GlobalValue, flag::Bool)
-
-Set the local unnamed address flag of the global value.
-"""
 local_unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(val, flag ? API.LLVMLocalUnnamedAddr : API.LLVMNoUnnamedAddr)
+
+@property GlobalValue local_unnamed_addr local_unnamed_addr!
 
 
 ## global variables
 
 export GlobalVariable, erase!,
-       initializer, initializer!,
        isthreadlocal, threadlocal!,
-       threadlocal_mode, threadlocal_mode!,
        isconstant, constant!,
-       isextinit, extinit!,
-       alignment, alignment!
+       isextinit, extinit!
 
 """
     GlobalVariable <: LLVM.GlobalObject
 
 A global variable.
+
+# Properties
+
+    gv.initializer
+    gv.initializer = val::Union{LLVM.Constant,Nothing}
+
+The initializer of the global variable, or `nothing` if it has none (i.e., if it is a
+declaration). Assigning `nothing` removes the current initializer.
+
+    gv.threadlocal_mode
+    gv.threadlocal_mode = mode::LLVM.API.LLVMThreadLocalMode
+
+The thread-local mode of the global variable.
+
+    gv.alignment
+    gv.alignment = bytes::Integer
+
+The alignment of the global variable in bytes, or 0 if it has no explicit alignment. The
+assigned alignment must be a power of 2, or 0 to remove the explicit alignment.
+
+The properties of [`GlobalValue`](@ref LLVM.GlobalValue) and [`Value`](@ref LLVM.Value) are
+available too.
 """
 @checked struct GlobalVariable <: GlobalObject
     ref::API.LLVMValueRef
@@ -1064,26 +1084,17 @@ containing module. Both global variables must reside in the same module.
 """
 move_after(gv::GlobalVariable, pos::GlobalVariable) = API.LLVMMoveGlobalAfter(gv, pos)
 
-"""
-    initializer(gv::GlobalVariable)
-
-Get the initializer of the global variable.
-"""
 function initializer(gv::GlobalVariable)
     init = API.LLVMGetInitializer(gv)
     init == C_NULL ? nothing : Value(init)
 end
 
-"""
-    initializer!(gv::GlobalVariable, val::Constant)
-
-Set the initializer of the global variable. Setting the value to `nothing` removes the
-current initializer.
-"""
 function initializer!(gv::GlobalVariable, val::Union{Constant,Nothing})
     api = version() >= v"20" ? API.LLVMSetInitializer : API.LLVMSetInitializer2
     api(gv, something(val, C_NULL))
 end
+
+@property GlobalVariable initializer initializer!
 
 """
     isthreadlocal(gv::GlobalVariable)
@@ -1115,19 +1126,11 @@ Set the constant flag of the global variable.
 """
 constant!(gv::GlobalVariable, bool) = API.LLVMSetGlobalConstant(gv, bool)
 
-"""
-    threadlocal_mode(gv::GlobalVariable)
-
-Get the thread-local mode of the global variable.
-"""
 threadlocal_mode(gv::GlobalVariable) = API.LLVMGetThreadLocalMode(gv)
 
-"""
-    threadlocal_mode!(gv::GlobalVariable, mode::LLVM.LLVMThreadLocalMode)
-
-Set the thread-local mode of the global variable.
-"""
 threadlocal_mode!(gv::GlobalVariable, mode) = API.LLVMSetThreadLocalMode(gv, mode)
+
+@property GlobalVariable threadlocal_mode threadlocal_mode!
 
 """
     isextinit(gv::GlobalVariable)
@@ -1152,33 +1155,35 @@ function check_alignment(align; allow_zero::Bool=false)
                             (allow_zero ? ", or 0 to remove it" : "") * ", got $align"))
 end
 
-"""
-    alignment(gv::GlobalVariable)
-
-Get the alignment of the global variable in bytes, or 0 if it has no explicit alignment.
-"""
 alignment(gv::GlobalVariable) = API.LLVMGetAlignment(gv)
 
-"""
-    alignment!(gv::GlobalVariable, bytes::Integer)
-
-Set the alignment of the global variable to `bytes`, which must be a power of 2. Passing 0
-removes the explicit alignment.
-"""
 function alignment!(gv::GlobalVariable, bytes::Integer)
     check_alignment(bytes; allow_zero=true)
     API.LLVMSetAlignment(gv, bytes)
 end
 
+@property GlobalVariable alignment alignment!
+
 
 ## global aliases
 
-export GlobalAlias, aliasee, aliasee!
+export GlobalAlias
 
 """
     GlobalAlias <: LLVM.GlobalValue
 
 A global alias, i.e., a new symbol for an existing global value or constant expression.
+
+# Properties
+
+    alias.aliasee
+    alias.aliasee = val::LLVM.Constant
+
+The value that the global alias refers to. The type of an assigned value must match that of
+the alias.
+
+The properties of [`GlobalValue`](@ref LLVM.GlobalValue) and [`Value`](@ref LLVM.Value) are
+available too.
 """
 @checked struct GlobalAlias <: GlobalValue
     ref::API.LLVMValueRef
@@ -1191,7 +1196,7 @@ register(GlobalAlias, API.LLVMGlobalAliasValueKind)
 Create a global alias in the given module, with the given value type and name, referring to
 the pointer constant `aliasee`. The address space of the alias is that of `aliasee`.
 
-See also: [`aliasee`](@ref), [`aliasee!`](@ref).
+See also the `aliasee` property.
 """
 function GlobalAlias(mod::Module, typ::LLVMType, aliasee::Constant, name::String)
     ptrtyp = value_type(aliasee)
@@ -1214,19 +1219,8 @@ value `aliasee`. The value type and address space of the alias are taken from `a
 GlobalAlias(mod::Module, aliasee::GlobalValue, name::String) =
     GlobalAlias(mod, global_value_type(aliasee), aliasee, name)
 
-"""
-    aliasee(alias::GlobalAlias)
-
-Get the value that the global alias refers to.
-"""
 aliasee(alias::GlobalAlias) = Value(API.LLVMAliasGetAliasee(alias))
 
-"""
-    aliasee!(alias::GlobalAlias, val::LLVM.Constant)
-
-Set the value that the global alias refers to. The type of `val` must match that of the
-alias.
-"""
 function aliasee!(alias::GlobalAlias, val::Constant)
     if value_type(val) != value_type(alias)
         throw(ArgumentError("Aliasee of type $(value_type(val)) does not match alias type $(value_type(alias))"))
@@ -1234,16 +1228,32 @@ function aliasee!(alias::GlobalAlias, val::Constant)
     API.LLVMAliasSetAliasee(alias, val)
 end
 
+@property GlobalAlias aliasee aliasee!
+
+# LLVM does not support setting the section of an alias
+@property GlobalAlias section
+
 
 ## global ifuncs
 
-export GlobalIFunc, resolver, resolver!
+export GlobalIFunc
 
 """
     GlobalIFunc <: LLVM.GlobalObject
 
 An indirect function, whose address is determined at load time by calling a resolver
 function.
+
+# Properties
+
+    ifunc.resolver
+    ifunc.resolver = val::LLVM.Constant
+
+The resolver of the ifunc. The type of an assigned value must be a pointer in the address
+space of the ifunc.
+
+The properties of [`GlobalValue`](@ref LLVM.GlobalValue) and [`Value`](@ref LLVM.Value) are
+available too.
 """
 @checked struct GlobalIFunc <: GlobalObject
     ref::API.LLVMValueRef
@@ -1262,7 +1272,7 @@ resolved function, not that of the resolver. The address space of the ifunc is t
 The resolver should be (or refer to) a function definition that returns a pointer; this is
 not checked here, but by the IR verifier.
 
-See also: [`resolver`](@ref), [`resolver!`](@ref).
+See also the `resolver` property.
 """
 function GlobalIFunc(mod::Module, typ::FunctionType, resolver::Constant, name::String)
     ptrtyp = value_type(resolver)
@@ -1284,19 +1294,8 @@ Remove the ifunc from its parent module and delete it.
 """
 erase!(ifunc::GlobalIFunc) = API.LLVMEraseGlobalIFunc(ifunc)
 
-"""
-    resolver(ifunc::GlobalIFunc)
-
-Get the resolver of the ifunc.
-"""
 resolver(ifunc::GlobalIFunc) = Value(API.LLVMGetGlobalIFuncResolver(ifunc))
 
-"""
-    resolver!(ifunc::GlobalIFunc, val::LLVM.Constant)
-
-Set the resolver of the ifunc. The type of `val` must be a pointer in the address space of
-the ifunc.
-"""
 function resolver!(ifunc::GlobalIFunc, val::Constant)
     ptrtyp = value_type(val)
     if !(ptrtyp isa PointerType) || addrspace(ptrtyp) != addrspace(value_type(ifunc))
@@ -1304,3 +1303,5 @@ function resolver!(ifunc::GlobalIFunc, val::Constant)
     end
     API.LLVMSetGlobalIFuncResolver(ifunc, val)
 end
+
+@property GlobalIFunc resolver resolver!

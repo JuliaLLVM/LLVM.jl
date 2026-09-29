@@ -22,7 +22,7 @@ end
     if A != 0
         metadata(ld)[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
-    alignment!(ld, align)
+    ld.alignment = align
     ld
 end
 
@@ -43,7 +43,7 @@ end
     if A != 0
         metadata(st)[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
-    alignment!(st, align)
+    st.alignment = align
     nothing
 end
 
@@ -81,7 +81,7 @@ Base.:(==)(x::LLVMPtr, y::LLVMPtr) = false
 Base.:(-)(x::LLVMPtr{<:Any,A},  y::LLVMPtr{<:Any,A}) where {A} = UInt(x) - UInt(y)
 
 @llvmgenerated builder function add_ptr(x::LLVMPtr{T,A}, y::I)::LLVMPtr{T,A} where {T,A,I}
-    T_ptr = value_type(x)
+    T_ptr = x.value_type
     T_byteptr = convert(LLVMType, Core.LLVMPtr{Int8,A})
     if T_ptr == T_byteptr
         # when LLVMPtr is i8* (the default), or when using opaque pointers
@@ -167,7 +167,7 @@ end
                     elseif const_arg !== nothing
                         intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
                         const_inttoptr(intptr, actual_typ)
-                    elseif value_type(arg) isa LLVM.PointerType
+                    elseif arg.value_type isa LLVM.PointerType
                         # passed as i8* or ptr
                         bitcast!(builder, arg, actual_typ)
                     else

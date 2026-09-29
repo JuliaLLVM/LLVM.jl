@@ -77,7 +77,7 @@ end
         end
 
         # target machines
-        host_triple = triple()
+        host_triple = LLVM.default_triple()
         host_t = Target(triple=host_triple)
         @dispose tm=TargetMachine(host_t, host_triple) mod=test_module() begin
             @test run!(NoOpModulePass(), mod, tm) === nothing
@@ -617,7 +617,7 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
                         ret!(builder)
                     end
                 end
-                linkage!(functions(mod)["dead_func"], LLVM.API.LLVMInternalLinkage)
+                functions(mod)["dead_func"].linkage = LLVM.API.LLVMInternalLinkage
 
                 custom_pass!(fn::LLVM.Function) = false
                 CustomPass() = NewPMFunctionPass("custom-pass", custom_pass!)

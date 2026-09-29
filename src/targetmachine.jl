@@ -1,7 +1,7 @@
 ## target machine
 
 export TargetMachine, dispose,
-       target, triple, cpu, features, asm_verbosity!, normalize,
+       asm_verbosity!, normalize, default_triple,
        emit, add_transform_info!, add_library_info!
 export JITTargetMachine
 
@@ -11,10 +11,29 @@ export JITTargetMachine
 Primary interface to the complete machine description for the target machine.
 
 All target-specific information should be accessible through this interface.
+
+# Properties
+
+    tm.target
+
+The target of the target machine.
+
+    tm.triple
+
+The target triple of the target machine.
+
+    tm.cpu
+
+The CPU of the target machine.
+
+    tm.features
+
+The feature string of the target machine.
 """
 @checked struct TargetMachine
     ref::API.LLVMTargetMachineRef
 end
+@properties TargetMachine
 
 Base.unsafe_convert(::Type{API.LLVMTargetMachineRef}, tm::TargetMachine) = mark_use(tm).ref
 
@@ -56,26 +75,16 @@ function TargetMachine(f::Core.Function, args...; kwargs...)
     end
 end
 
-"""
-    target(tm::TargetMachine)
-
-Get the target of the given target machine.
-"""
 target(tm::TargetMachine) = Target(API.LLVMGetTargetMachineTarget(tm))
 
-"""
-    triple(tm::TargetMachine)
-
-Get the triple of the given target machine.
-"""
 triple(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineTriple(tm))
 
 """
-    triple()
+    LLVM.default_triple()
 
-Get the default target triple.
+Get the default target triple, i.e., the triple of the host that LLVM was configured for.
 """
-triple() = unsafe_message(API.LLVMGetDefaultTargetTriple())
+default_triple() = unsafe_message(API.LLVMGetDefaultTargetTriple())
 
 """
     normalize(triple::String)
@@ -84,19 +93,14 @@ Normalize the given target triple.
 """
 normalize(triple::String) = unsafe_message(API.LLVMNormalizeTargetTriple(triple))
 
-"""
-    cpu(tm::TargetMachine)
-
-Get the CPU of the given target machine.
-"""
 cpu(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineCPU(tm))
 
-"""
-    features(tm::TargetMachine)
-
-Get the feature string of the given target machine.
-"""
 features(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineFeatureString(tm))
+
+@property TargetMachine target
+@property TargetMachine triple
+@property TargetMachine cpu
+@property TargetMachine features
 
 """
     asm_verbosity!(tm::TargetMachine, verbose::Bool)
@@ -170,12 +174,12 @@ add_library_info!(pm::PassManager, triple::String) =
     API.LLVMAddTargetLibraryInfoByTriple(triple, pm)
 
 """
-    JITTargetMachine(; triple=LLVM.triple(), cpu="", features="",
+    JITTargetMachine(; triple=LLVM.default_triple(), cpu="", features="",
                      optlevel=API.LLVMCodeGenLevelDefault)
 
 Create a target machine suitable for JIT compilation with the ORC JIT.
 """
-function JITTargetMachine(triple = LLVM.triple(),
+function JITTargetMachine(triple = LLVM.default_triple(),
                           cpu = "", features = "";
                           optlevel = API.LLVMCodeGenLevelDefault)
 

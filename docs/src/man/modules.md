@@ -19,15 +19,18 @@ julia> mod = LLVM.Module("SomeModule")
 source_filename = "SomeModule"
 ```
 
-The only argument to the constructor is the module's name. Along with some other properties,
-this can be read and modified using dedicated functions:
+The only argument to the constructor is the module's name. Along with some other
+attributes, this can be read and modified using properties:
 
-- `name`/`name!`: module name
-- `triple`/`triple!`: target triple string
-- `datalayout`/`datalayout!`: a data layout string or `DataLayout` object
-- `inline_asm`/`inline_asm!`: module-level inline assembly
-- `sdk_version`/`sdk_version!`: Apple SDK version
-- `set_used!` and `set_compiler_used!`: to set `@llvm.used` and `@llvm.compiler.used`
+- `mod.name`: module name
+- `mod.triple`: target triple string
+- `mod.datalayout`: data layout, which can be assigned a string or `DataLayout` object
+- `mod.inline_asm`: module-level inline assembly (assigning replaces it, while
+  `append_inline_asm!(mod, asm)` appends to it)
+- `mod.sdk_version`: Apple SDK version
+
+In addition, `set_used!` and `set_compiler_used!` can be used to set `@llvm.used` and
+`@llvm.compiler.used`.
 
 
 ## Textual representation
@@ -158,12 +161,12 @@ Here too it is possible to move to the previous or next element with `prevalias`
 ### Flags
 
 Modules can also have flags associated with them, which can be set and retrieved using the
-associative iterator returned by the `flags` function:
+associative iterator returned by the `module_flags` function:
 
 ```jldoctest module
 julia> mod = LLVM.Module("SomeModule");
 
-julia> flags(mod)["SomeFlag", LLVM.API.LLVMModuleFlagBehaviorError] = Metadata(ConstantInt(42))
+julia> module_flags(mod)["SomeFlag", LLVM.API.LLVMModuleFlagBehaviorError] = Metadata(ConstantInt(42))
 i64 42
 
 julia> mod

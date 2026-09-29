@@ -128,7 +128,7 @@ end
 # Bool arguments and return values lower to i8
 @llvmgenerated builder function lg_iszero(x::Int)::Bool
     cmp = icmp!(builder, LLVM.API.LLVMIntEQ, x, ConstantInt(0))
-    zext!(builder, cmp, value_type(ConstantInt(Int8(0))))
+    zext!(builder, cmp, ConstantInt(Int8(0)).value_type)
 end
 @test lg_iszero(0) === true
 @test lg_iszero(1) === false
@@ -136,7 +136,7 @@ end
 # returning nothing
 @llvmgenerated builder function lg_store(ptr::Ptr{Int}, val::Int)::Nothing
     T_ptr = LLVM.PointerType(convert(LLVMType, Int))
-    if !(value_type(ptr) isa LLVM.PointerType)
+    if !(ptr.value_type isa LLVM.PointerType)
         ptr = inttoptr!(builder, ptr, T_ptr)
     elseif supports_typed_pointers(context())
         ptr = bitcast!(builder, ptr, T_ptr)

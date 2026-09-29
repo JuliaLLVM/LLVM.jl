@@ -17,12 +17,25 @@ Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) =
 LLVM's standard ORC-based JIT, which compiles and links code on demand, i.e., when it is
 looked up. It needs to be disposed of using `dispose`, or by using the do-block form of its
 constructors.
+
+# Properties
+
+    jit.triple
+
+The target triple that the JIT compiles code for. Modules added to the JIT should use it.
+
+    jit.datalayout
+
+The data layout that the JIT compiles code for, as a string. Modules added to the JIT
+should use it.
 """
 @checked mutable struct LLJIT
     ref::API.LLVMOrcLLJITRef
     roots::Vector{Any}  # Julia objects that LLVM holds on to, e.g., for callbacks
 end
 LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, Any[])
+@properties LLJIT
+
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
 
 function LLJITBuilder()
@@ -116,13 +129,6 @@ function LLJIT(f::Core.Function, args...; kwargs...)
     end
 end
 
-"""
-    triple(jit)
-    datalayout(jit)
-
-Get the target triple, or the data layout string, that the JIT compiles code for. Modules
-added to the JIT should use these.
-"""
 function triple(lljit::LLJIT)
     cstr = API.LLVMOrcLLJITGetTripleString(lljit)
     Base.unsafe_string(cstr)
@@ -131,6 +137,9 @@ end
 function datalayout(lljit::LLJIT)
     Base.unsafe_string(API.LLVMOrcLLJITGetDataLayoutStr(lljit))
 end
+
+@property LLJIT triple
+@property LLJIT datalayout
 
 """
     LLVM.global_prefix(jit)
@@ -155,6 +164,7 @@ code. The JIT is not owned by LLVM.jl, so disposing of the handle is a no-op.
 @checked mutable struct JuliaOJIT
     ref::API.JuliaOJITRef
 end
+@properties JuliaOJIT
 
 Base.unsafe_convert(::Type{API.JuliaOJITRef}, jljit::JuliaOJIT) = jljit.ref
 
@@ -170,6 +180,9 @@ end
 function datalayout(jljit::JuliaOJIT)
     Base.unsafe_string(API.JLJITGetDataLayoutString(jljit))
 end
+
+@property JuliaOJIT triple
+@property JuliaOJIT datalayout
 
 function global_prefix(jljit::JuliaOJIT)
     return API.JLJITGetGlobalPrefix(jljit)

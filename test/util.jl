@@ -26,7 +26,7 @@
         # basic clone
         let new_f = clone(f)
             @test new_f != f
-            @test value_type(new_f) == value_type(f)
+            @test new_f.value_type == f.value_type
             for (bb1, bb2) in zip(blocks(f), blocks(new_f))
                 for (inst1, inst2) in zip(instructions(bb2), instructions(bb2))
                     @test inst1 == inst2
@@ -83,9 +83,9 @@
 
             # the add should now be a 64-bit addition
             add = first(instructions(first(blocks(new_f))))
-            @test value_type(operands(add)[1]) == LLVM.Int64Type()
-            @test value_type(operands(add)[2]) == LLVM.Int64Type()
-            @test value_type(add) == LLVM.Int64Type()
+            @test operands(add)[1].value_type == LLVM.Int64Type()
+            @test operands(add)[2].value_type == LLVM.Int64Type()
+            @test add.value_type == LLVM.Int64Type()
         end
 
         let new_f = LLVM.Function(mod, "type_mapper_error", fun_type)
@@ -174,8 +174,8 @@ end
 
         # clone a basic block, providing a suffix
         let bb_clone = clone(bb; suffix="_clone")
-            @test LLVM.parent(bb_clone) == f
-            @test LLVM.name(bb_clone) == "doit_clone"
+            @test bb_clone.parent == f
+            @test bb_clone.name == "doit_clone"
 
             # we should have remapped instructions in the basic block
             inst_clone = collect(instructions(bb_clone))

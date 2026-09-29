@@ -8,6 +8,7 @@ export Metadata
 Abstract supertype for all metadata types.
 """
 abstract type Metadata end
+@properties Metadata
 
 # subtypes must be immutable structs with a single `ref::API.LLVMMetadataRef` field (see
 # `check_layout`), except for the field-less `MDNull`
@@ -366,24 +367,28 @@ export NamedMDNode, operands
     NamedMDNode
 
 A named metadata node, which is a collection of metadata nodes with a name.
+
+# Properties
+
+    node.name
+
+The name of the named metadata node.
 """
 struct NamedMDNode
     mod::LLVM.Module # not exposed by the API
     ref::API.LLVMNamedMDNodeRef
 end
+@properties NamedMDNode
 
 Base.unsafe_convert(::Type{API.LLVMNamedMDNodeRef}, node::NamedMDNode) = node.ref
 
-"""
-    name(node::NamedMDNode)
-
-Get the name of the given named metadata node.
-"""
 function name(node::NamedMDNode)
     len = Ref{Csize_t}()
     data = API.LLVMGetNamedMetadataName(node, len)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
+
+@property NamedMDNode name
 
 function Base.show(io::IO, mime::MIME"text/plain", node::NamedMDNode)
     print(io, "!$(name(node)) = !{")

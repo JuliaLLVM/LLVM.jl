@@ -6,21 +6,10 @@ copy(::LLVM.Module)
 dispose(::LLVM.Module)
 ```
 
-
-## Properties and operations
+## Operations
 
 ```@docs
-context(::LLVM.Module)
-name(::LLVM.Module)
-name!(::LLVM.Module, ::String)
-triple(::LLVM.Module)
-triple!(::LLVM.Module, ::String)
-datalayout
-datalayout!
-inline_asm!
-inline_asm
-sdk_version
-sdk_version!
+append_inline_asm!
 set_used!
 set_compiler_used!
 ```
@@ -59,7 +48,7 @@ nextalias
 ifuncs
 previfunc
 nextifunc
-flags(::LLVM.Module)
+module_flags
 ```
 
 ## Linking

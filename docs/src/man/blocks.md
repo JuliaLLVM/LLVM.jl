@@ -25,9 +25,9 @@ constructor you can instead append to a function, or insert before another block
 
 Basic blocks support a couple of specific APIs:
 
-- `name`: the name of the basic block.
-- `parent`: the parent function of the basic block, or `nothing` if it is detached.
-- `terminator`: get the terminator instruction of the block.
+- `bb.name`: the name of the basic block.
+- `bb.parent`: the parent function of the basic block, or `nothing` if it is detached.
+- `bb.terminator`: the terminator instruction of the block, or `nothing` if it has none.
 - `move_before`/`move_after`: move the block before or after another block.
 - `remove!`/`erase!`: delete the basic block from its parent function, or additionally also
   delete the block itself.
@@ -59,7 +59,7 @@ DocTestSetup = quote
         }"""
     mod = parse(LLVM.Module, ir);
     fun = only(functions(mod));
-    bb = entry(fun)
+    bb = fun.entry
 end
 ```
 

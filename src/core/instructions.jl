@@ -1,9 +1,49 @@
-export Instruction, remove!, erase!, opcode
+export Instruction, remove!, erase!
 
 """
     Instruction
 
 An instruction in the LLVM IR.
+
+# Properties
+
+    inst.parent
+
+The basic block that contains the instruction, or `nothing` if the instruction is not part
+of a basic block.
+
+    inst.opcode
+
+The opcode of the instruction, e.g., `LLVM.API.LLVMAdd`.
+
+    inst.fast_math
+
+The fast-math flags of a floating-point instruction, as a named tuple of booleans
+(`nnan`, `ninf`, `nsz`, `arcp`, `contract`, `afn` and `reassoc`; see [`fast_math!`](@ref)
+for their meaning). This property is read-only: LLVM only supports adding flags, using
+`fast_math!`.
+
+    inst.debug_location
+    inst.debug_location = loc::Union{DILocation,Nothing}
+
+The debug location attached to the instruction, or `nothing` if it has none. Assigning
+`nothing` removes the debug location.
+
+    cmp.predicate
+
+The comparison predicate of an integer or floating-point comparison instruction, e.g.,
+`LLVM.API.LLVMIntEQ` or `LLVM.API.LLVMRealOLT`.
+
+    br.condition
+    br.condition = cond::Value
+
+The condition of a conditional branch instruction.
+
+    switch.default_dest
+
+The default destination of a switch instruction.
+
+The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 Instruction
 # forward definition of Instruction in src/core/value/constant.jl
@@ -64,14 +104,17 @@ Remove the given instruction from the containing basic block and delete the obje
 """
 erase!(inst::Instruction) = API.LLVMInstructionEraseFromParent(inst)
 
-"""
-    parent(inst::Instruction)
+function parent(inst::Instruction)
+    ref = API.LLVMGetInstructionParent(inst)
+    ref == C_NULL && return nothing
+    BasicBlock(ref)
+end
 
-Get the basic block that contains the given instruction.
-"""
-parent(inst::Instruction) = BasicBlock(API.LLVMGetInstructionParent(inst))
+@property Instruction parent
 
 opcode(inst::Instruction) = API.LLVMGetInstructionOpcode(inst)
+
+@property Instruction opcode
 
 # strip unnecessary whitespace
 Base.show(io::IO, ::MIME"text/plain", inst::Instruction) = print(io, lstrip(string(inst)))
@@ -110,28 +153,59 @@ end
 
 ## comparisons
 
-export predicate
-
-"""
-    predicate(inst::ICmpInst)
-    predicate(inst::FCmpInst)
-
-Get the comparison predicate of the given integer or floating-point comparison instruction.
-"""
-predicate
-
 predicate(inst::ICmpInst) = API.LLVMGetICmpPredicate(inst)
 predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
+
+@property Union{ICmpInst,FCmpInst} predicate
 
 
 ## atomics
 
-export isatomic, ordering, ordering!, SyncScope, syncscope, syncscope!, binop,
+export isatomic, SyncScope,
        isweak, weak!, isvolatile, volatile!,
-       success_ordering, success_ordering!, failure_ordering, failure_ordering!,
        is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
        strongest_failure_ordering, mmra!, copy_atomic_metadata!
 
+"""
+    LLVM.AtomicInst
+
+The group of instructions that can be atomic: `load`, `store`, `fence`, `atomicrmw` and
+`cmpxchg`.
+
+# Properties
+
+    inst.ordering
+    inst.ordering = ordering::LLVM.API.LLVMAtomicOrdering
+
+The atomic ordering of a load, store, fence or `atomicrmw` instruction. Reading it
+requires the instruction to be atomic, while assigning an ordering to a load or store makes
+it atomic. `cmpxchg` instructions have separate `success_ordering` and `failure_ordering`
+properties instead, which can be combined using [`merged_ordering`](@ref).
+
+    inst.syncscope
+    inst.syncscope = scope::SyncScope
+
+The synchronization scope of an atomic load, store, fence, `atomicrmw` or `cmpxchg`
+instruction.
+
+    rmw.binop
+
+The binary operation of an atomic read-modify-write instruction, e.g.,
+`LLVM.API.LLVMAtomicRMWBinOpAdd`.
+
+    cmpxchg.success_ordering
+    cmpxchg.success_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+
+The ordering of an atomic compare-and-exchange instruction when the comparison succeeds.
+
+    cmpxchg.failure_ordering
+    cmpxchg.failure_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+
+The ordering of an atomic compare-and-exchange instruction when the comparison fails.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
+"""
 const AtomicInst = Union{LoadInst, StoreInst, FenceInst, AtomicRMWInst, AtomicCmpXchgInst}
 
 """
@@ -143,12 +217,6 @@ atomic ordering.
 """
 isatomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
 
-"""
-    ordering(atomic_inst::Instruction)
-
-Get the atomic ordering of the given atomic instruction. For `cmpxchg` instructions, use
-[`success_ordering`](@ref) and [`failure_ordering`](@ref), or [`merged_ordering`](@ref).
-"""
 function ordering(inst::AtomicInst)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     @static if version() < v"18"
@@ -160,12 +228,6 @@ end
 ordering(::AtomicCmpXchgInst) =
     throw(ArgumentError("cmpxchg instructions have a success and a failure ordering"))
 
-"""
-    ordering!(inst::Instruction, ordering::LLVM.AtomicOrdering)
-
-Set the atomic ordering of the given instruction. For `cmpxchg` instructions, use
-[`success_ordering!`](@ref) and [`failure_ordering!`](@ref).
-"""
 function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
     # loads and stores can be made atomic by setting an ordering, but LLVM asserts when
     # setting an invalid ordering on other instructions
@@ -183,6 +245,9 @@ function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
 end
 ordering!(::AtomicCmpXchgInst, ::API.LLVMAtomicOrdering) =
     throw(ArgumentError("cmpxchg instructions have a success and a failure ordering"))
+
+# cmpxchg instructions have separate success and failure orderings
+@property Union{LoadInst,StoreInst,FenceInst,AtomicRMWInst} ordering ordering!
 
 check_fence_ordering(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingAcquire || is_release_or_stronger(o) ||
@@ -324,10 +389,17 @@ end
     SyncScope
 
 A synchronization scope for atomic operations.
+
+# Properties
+
+    scope.name
+
+The name of the synchronization scope, as known by the current context.
 """
 struct SyncScope
     id::Cuint
 end
+@properties SyncScope
 
 """
     SyncScope(name::String)
@@ -355,16 +427,13 @@ function _name(scope::SyncScope)
     return unsafe_string(ptr, len[])
 end
 
-"""
-    name(scope::SyncScope)
-
-Get the name of the given synchronization scope, as known by the current context.
-"""
 function name(scope::SyncScope)
     str = _name(scope)
     str === nothing && throw(ArgumentError("Unknown synchronization scope $(scope.id)"))
     return str
 end
+
+@property SyncScope name
 
 function Base.show(io::IO, scope::SyncScope)
     str = if scope.id <= 1 ||
@@ -378,31 +447,18 @@ function Base.show(io::IO, scope::SyncScope)
     end
 end
 
-"""
-    syncscope(inst::AtomicInst)
-
-Get the synchronization scope of the given atomic instruction.
-"""
 function syncscope(inst::AtomicInst)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     SyncScope(API.LLVMGetAtomicSyncScopeID(inst))
 end
 
-"""
-    syncscope!(inst::AtomicInst, scope::SyncScope)
-
-Set the synchronization scope of the given atomic instruction.
-"""
 function syncscope!(inst::AtomicInst, scope::SyncScope)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     API.LLVMSetAtomicSyncScopeID(inst, scope)
 end
 
-"""
-    binop(inst::AtomicRMWInst)
+@property AtomicInst syncscope syncscope!
 
-Get the binary operation of the given atomic read-modify-write instruction.
-"""
 function binop(inst::AtomicRMWInst)
     @static if v"16" <= version() < v"19"
         API.LLVMAtomicRMWBinOp(API.LLVMExtraGetAtomicRMWBinOp(inst))
@@ -410,6 +466,8 @@ function binop(inst::AtomicRMWInst)
         API.LLVMGetAtomicRMWBinOp(inst)
     end
 end
+
+@property AtomicRMWInst binop
 
 # the LLVM version that introduced each atomicrmw operation, indexed by its C API value
 const ATOMIC_RMW_BINOP_SINCE = (
@@ -511,66 +569,65 @@ function copy_atomic_metadata!(dest::Instruction, src::Instruction)
     return dest
 end
 
-"""
-    success_ordering(inst::AtomicCmpXchgInst)
-
-Get the success ordering of the given atomic compare-and-exchange instruction.
-"""
 function success_ordering(inst::AtomicCmpXchgInst)
     API.LLVMGetCmpXchgSuccessOrdering(inst)
 end
 
-"""
-    success_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
-
-Set the success ordering of the given atomic compare-and-exchange instruction.
-"""
 function success_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
     API.LLVMSetCmpXchgSuccessOrdering(inst, ord)
 end
 
-"""
-    failure_ordering(inst::AtomicCmpXchgInst)
+@property AtomicCmpXchgInst success_ordering success_ordering!
 
-Get the failure ordering of the given atomic compare-and-exchange instruction.
-"""
 function failure_ordering(inst::AtomicCmpXchgInst)
     API.LLVMGetCmpXchgFailureOrdering(inst)
 end
 
-"""
-    failure_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
-
-Set the failure ordering of the given atomic compare-and-exchange instruction.
-"""
 function failure_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
     API.LLVMSetCmpXchgFailureOrdering(inst, ord)
 end
+
+@property AtomicCmpXchgInst failure_ordering failure_ordering!
 
 
 ## call sites and invocations
 
 # TODO: add this to the actual type hierarchy
+"""
+    LLVM.CallBase
+
+The group of call sites: `call`, `invoke` and `callbr` instructions, like LLVM's `CallBase`.
+
+# Properties
+
+    call.callconv
+    call.callconv = cc
+
+The calling convention of a `call`, `invoke` or `callbr` instruction, e.g.,
+`LLVM.API.LLVMFastCallConv`.
+
+    call.called_operand
+
+The operand of a `call`, `invoke` or `callbr` instruction that represents the called
+function.
+
+    call.called_type
+
+The type of the function that is called by a `call`, `invoke` or `callbr` instruction.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
+"""
 const CallBase = Union{CallBrInst, CallInst, InvokeInst}
 
-export callconv, callconv!,
-       istailcall, tailcall!,
-       called_operand, arguments, called_type
+export istailcall, tailcall!, arguments
 
-"""
-    callconv(call_inst::Instruction)
-
-Get the calling convention of the given callable instruction.
-"""
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
-"""
-    callconv!(call_inst::Instruction, cc)
-
-Set the calling convention of the given callable instruction.
-"""
 callconv!(inst::CallBase, cc) =
     API.LLVMSetInstructionCallConv(inst, cc)
+
+@property CallBase callconv callconv!
 
 """
     istailcall(call_inst::Instruction)
@@ -586,18 +643,8 @@ Sets whether this call site must be tail call optimized.
 """
 tailcall!(inst::CallBase, bool) = API.LLVMSetTailCall(inst, bool)
 
-"""
-    called_operand(call_inst::Instruction)
-
-Get the operand of a callable instruction that represents the called function.
-"""
 called_operand(inst::CallBase) = Value(API.LLVMGetCalledValue(inst))
 
-"""
-    called_type(call_inst::Instruction)
-
-Get the type of the function being called by the given callable instruction.
-"""
 function called_type(inst::CallBase)
     @static if version() >= v"11"
         LLVMType(API.LLVMGetCalledFunctionType(inst))
@@ -605,6 +652,9 @@ function called_type(inst::CallBase)
         value_type(called_operand(inst))
     end
 end
+
+@property CallBase called_operand
+@property CallBase called_type
 
 """
     arguments(call_inst::Instruction)
@@ -689,7 +739,7 @@ function Base.length(iter::CallSiteAttrSet)
     return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
 end
 
-function memory_effects(iter::CallSiteAttrSet)
+function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)
     memory_locations()  # check that the attribute is supported
     ref = API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, memory_kind())
@@ -697,15 +747,9 @@ function memory_effects(iter::CallSiteAttrSet)
     return MemoryEffects(EnumAttribute(ref))
 end
 
-function memory_effects!(iter::CallSiteAttrSet, effects::MemoryEffects)
-    check_memory_effects_index(iter.idx)
-    push!(iter, EnumAttribute(effects))
-    return
-end
-
 # operand bundles
 
-export OperandBundle, operand_bundles, tag, inputs
+export OperandBundle, operand_bundles, inputs
 
 # NOTE: OperandBundle objects aren't LLVM IR objects, but created by the C API wrapper,
 #       so we need to free them explicitly when we get or create them.
@@ -714,10 +758,18 @@ export OperandBundle, operand_bundles, tag, inputs
     OperandBundle
 
 An operand bundle attached to a call site.
+
+# Properties
+
+    bundle.tag
+
+The tag of the operand bundle, e.g., `"deopt"`.
 """
 @checked mutable struct OperandBundle
     ref::API.LLVMOperandBundleRef
 end
+@properties OperandBundle
+
 Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
@@ -756,16 +808,13 @@ function Base.getindex(iter::OperandBundleIterator, i::Int)
     end
 end
 
-"""
-    tag(bundle::OperandBundle)
-
-Get the tag of the given operand bundle.
-"""
 function tag(bundle::OperandBundle)
     len = Ref{Csize_t}()
     data = API.LLVMGetOperandBundleTag(bundle, len)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
+
+@property OperandBundle tag
 
 struct OperandBundleInputIterator <: AbstractVector{Value}
     bundle::OperandBundle
@@ -802,7 +851,7 @@ Base.show(io::IO, bundle::OperandBundle) =
 
 ## terminators
 
-export isterminator, isconditional, condition, condition!, default_dest
+export isterminator, isconditional
 
 """
     isterminator(inst::Instruction)
@@ -818,26 +867,15 @@ Check if the given branch instruction is conditional.
 """
 isconditional(br::BrInst) = API.LLVMIsConditional(br) |> Bool
 
-"""
-    condition(br::BrInst)
-
-Get the condition of the given branch instruction.
-"""
 condition(br::BrInst) = Value(API.LLVMGetCondition(br))
 
-"""
-    condition!(br::BrInst, cond::Value)
-
-Set the condition of the given branch instruction.
-"""
 condition!(br::BrInst, cond::Value) = API.LLVMSetCondition(br, cond)
 
-"""
-    default_dest(switch::SwitchInst)
+@property BrInst condition condition!
 
-Get the default destination of the given switch instruction.
-"""
 default_dest(switch::SwitchInst) = BasicBlock(API.LLVMGetSwitchDefaultDest(switch))
+
+@property SwitchInst default_dest
 
 export case_value, case_value!
 
@@ -1094,13 +1132,8 @@ end
 
 ## floating point operations
 
-export fast_math, fast_math!
+export fast_math!
 
-"""
-    fast_math(inst::Instruction)
-
-Get the fast math flags on an instruction.
-"""
 function fast_math(inst::Instruction)
     if !Bool(API.LLVMCanValueUseFastMathFlags(inst))
         throw(ArgumentError("Instruction cannot use fast math flags"))
@@ -1120,7 +1153,8 @@ end
 """
     fast_math!(inst::Instruction; [flag=...], [all=...])
 
-Set the fast math flags on an instruction. If `all` is `true`, then all flags are set.
+Add fast math flags to an instruction. Flags that are already set remain set. If `all` is
+`true`, then all flags are set.
 
 The following flags are supported:
  - `nnan`: assume arguments and results are not NaN
@@ -1151,26 +1185,37 @@ function fast_math!(inst::Instruction; nnan=false, ninf=false, nsz=false, arcp=f
     end
 end
 
+# read-only, because LLVM's `setFastMathFlags` adds to the existing flags
+@property Instruction fast_math
+
 
 ## alignment
 
+"""
+    LLVM.AlignedInst
+
+The group of instructions that have an alignment: `alloca` and the instructions that access
+memory.
+
+# Properties
+
+    inst.alignment
+    inst.alignment = bytes::Integer
+
+The alignment in bytes of an `alloca`, `load`, `store`, `atomicrmw` or `cmpxchg`
+instruction. The assigned alignment must be a positive power of 2.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
+"""
 const AlignedInst = Union{AllocaInst, MemAccessInst}
 
-"""
-    alignment(inst::Union{AllocaInst, LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst})
-
-Get the alignment of the given stack allocation or memory access, in bytes.
-"""
 alignment(inst::AlignedInst) = API.LLVMGetAlignment(inst)
 
-"""
-    alignment!(inst::Union{AllocaInst, LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst},
-               bytes::Integer)
-
-Set the alignment of the given stack allocation or memory access to `bytes`, which must be
-a positive power of 2.
-"""
 function alignment!(inst::AlignedInst, bytes::Integer)
     check_alignment(bytes)
     API.LLVMSetAlignment(inst, bytes)
 end
+
+# LLVM only supports querying the alignment of memory instructions
+@property AlignedInst alignment alignment!

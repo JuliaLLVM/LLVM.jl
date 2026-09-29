@@ -17,8 +17,11 @@ an instruction builder is used.
 The abstract `LLVM.Instruction` type supports a few additional APIs on top of the
 functionality from `User` and `Value`:
 
-- `parent`: get the parent basic block of the instruction.
-- `opcode`: get the opcode of the instruction.
+- `inst.parent`: the parent basic block of the instruction, or `nothing` if it is detached.
+- `inst.opcode`: the opcode of the instruction.
+- `inst.debug_location`: the debug location of the instruction, or `nothing`.
+- `inst.alignment`: the alignment of memory instructions (`alloca`, `load`, `store`,
+  `atomicrmw` and `cmpxchg`).
 - `remove!`/`erase!`: delete the instruction from its parent basic block, or additionally
   also delete the instruction itself.
 - `copy(inst)`: clone an instruction
@@ -87,7 +90,7 @@ DocTestSetup = quote
     push!(function_attributes(fun), StringAttribute("nounwind"))
     push!(parameter_attributes(fun, 1), StringAttribute("nocapture"))
     push!(return_attributes(fun), StringAttribute("sret"))
-    caller = LLVM.Function(mod, "CallSomeFunction", function_type(fun))
+    caller = LLVM.Function(mod, "CallSomeFunction", fun.function_type)
     top = BasicBlock(caller, "top")
     builder = LLVM.IRBuilder();
     position!(builder, top)
@@ -100,7 +103,7 @@ They can be set and retrieved using the iterators returned by the
 to respectively set attributes on the instructions, its arguments and its return value:
 
 ```jldoctest function
-julia> instr = call!(builder, function_type(fun), fun, LLVM.Value[ parameters(fun)... ]);
+julia> instr = call!(builder, fun.function_type, fun, LLVM.Value[ parameters(fun)... ]);
 
 julia> push!(function_attributes(instr), StringAttribute("nounwind"))
 
@@ -125,12 +128,10 @@ attributes #0 = { "nounwind" }
 ### Debug location
 
 When creating instructions with an `IRBuilder`, it is possible to set a debug location for
-the instruction. This is done by calling the `debug_location!` function on the builder:
-
-- `debug_location!(builder)`: clear the debug location.
-- `debug_location!(builder, ::Metadata)`: set the debug location to a specific metadata.
-- `debug_location!(builder, ::Instruction)`: set the debug location to the same as another
-  instruction.
+the instructions it creates by assigning to the `debug_location` property of the builder
+(assign `nothing` to clear it). Instructions have a `debug_location` property too, so an
+existing instruction can be given the builder's current debug location using
+`inst.debug_location = builder.debug_location`.
 
 
 ## Memory instructions
@@ -154,15 +155,15 @@ end
 Stack allocations and memory accesses (loads, stores, and atomic read-modify-write and
 compare-and-exchange instructions) have an alignment, which can be specified using the
 `align` keyword argument when building the instruction, and inspected or changed afterwards
-using `alignment`/`alignment!`:
+using the `alignment` property:
 
 ```jldoctest
 julia> slot = alloca!(builder, LLVM.Int64Type(); align=16)
 %0 = alloca i64, align 16
 
-julia> alignment!(slot, 32)
+julia> slot.alignment = 32;
 
-julia> Int(alignment(slot))
+julia> Int(slot.alignment)
 32
 ```
 
@@ -176,13 +177,13 @@ Atomic instructions support a few additional APIs:
 
 - `isatomic`: check if the instruction is atomic.
 - `isweak`/`weak!`: check if the instruction is weak, or set it to be weak.
-- `syncscope`/`syncscope!`: get or set the synchronization scope of the instruction to
-  a specific `SyncScope`
-- `ordering`/`ordering!`: get or set the ordering of the instruction.
-- `success_ordering`/`success_ordering!`: get or set the success ordering of an atomic
-  compare-and-swap instruction.
-- `failure_ordering`/`failure_ordering!`: get or set the failure ordering of an atomic
-- `binop`: to get the binary operation of an atomic read-modify-write instruction.
+- `inst.syncscope`: the synchronization scope of the instruction, a `SyncScope`.
+- `inst.ordering`: the ordering of the instruction.
+- `inst.success_ordering`, `inst.failure_ordering`: the success and failure orderings of an
+  atomic compare-and-swap instruction.
+- `inst.binop`: the binary operation of an atomic read-modify-write instruction.
+
+All of these properties, except for `binop`, can also be assigned to.
 
 
 ## Call sites instructions
@@ -190,10 +191,10 @@ Atomic instructions support a few additional APIs:
 Call site instructions include calls, invokes, and `callbr` instructions. These instruction
 types support a few additional APIs:
 
-- `callconv`/`callconv!`: get or set the calling convention of the call site.
-- `istailcall`/`istailcall!`: get or set whether the call site is a tail call.
-- `called_type`: get the function type of the called value of the call site.
-- `called_operand`: get the called value of the call site.
+- `call.callconv`: the calling convention of the call site.
+- `istailcall`/`tailcall!`: get or set whether the call site is a tail call.
+- `call.called_type`: the function type of the called value of the call site.
+- `call.called_operand`: the called value of the call site.
 - `arguments`: get the arguments of the call site.
 
 ### Operand bundles
@@ -205,7 +206,7 @@ To inspect the operand bundle of a call site, use the iterator returned by the
 `operand_bundles` function on a call site instruction. This iterator returns objects
 that support the following APIs:
 
-- `tag`: get the tag of the operand bundle.
+- `bundle.tag`: the tag of the operand bundle.
 - `inputs`: get the inputs of the operand bundle, which itself is an iterator that can be
   indexed.
 
@@ -232,11 +233,10 @@ the flow of execution. They support a few additional APIs:
 - `successors`: get the successors of the terminator.
 
 If the terminator is a branch, it's possible to check if the branch is conditional using the
-`isconditional` function, and get or set the condition using the `condition` and
-`condition!` functions.
+`isconditional` function, and get or set the condition using the `condition` property.
 
 If the terminator is a switch, it's possible to get the default destination using the
-`default_dest` function, and to get or set the value of each case using `case_value` and
+`default_dest` property, and to get or set the value of each case using `case_value` and
 `case_value!`.
 
 
@@ -316,14 +316,14 @@ end
 ```
 
 Arithmetic instructions can be configured with different fast math flags, affecting
-optimizations that can be performed on the instruction. These flags can be queried and
-set using respectively the `fast_math` and `fast_math!` functions:
+optimizations that can be performed on the instruction. These flags can be queried using
+the `fast_math` property, and added using the `fast_math!` function:
 
 ```jldoctest
 julia> inst = fadd!(builder, parameters(fun)[1], ConstantFP(1f0))
 %1 = fadd float %0, 1.000000e+00
 
-julia> fast_math(inst)
+julia> inst.fast_math
 (nnan = false, ninf = false, nsz = false, arcp = false, contract = false, afn = false, reassoc = false)
 
 julia> fast_math!(inst; nnan=true)

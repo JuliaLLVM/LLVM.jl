@@ -1,11 +1,7 @@
 # Modules represent the top-level structure in an LLVM program.
 
 export dispose, context,
-       name, name!,
-       triple, triple!,
-       datalayout, datalayout!,
-       inline_asm, inline_asm!,
-       set_used!, set_compiler_used!
+       set_used!, set_compiler_used!, append_inline_asm!
 
 """
     LLVM.Module
@@ -14,9 +10,47 @@ Modules are the top level container of all other LLVM IR objects. Each module di
 contains a list of globals variables, a list of functions, a list of libraries (or other
 modules) this module depends on, a symbol table, and various data about the target's
 characteristics.
+
+# Properties
+
+    mod.name
+    mod.name = name::String
+
+The name (module identifier) of the module.
+
+    mod.triple
+    mod.triple = triple::String
+
+The target triple of the module, or an empty string if it has none.
+
+    mod.datalayout
+    mod.datalayout = layout::Union{String,DataLayout}
+
+The data layout of the module. Either a string or a `DataLayout` object can be assigned.
+
+    mod.inline_asm
+    mod.inline_asm = asm::String
+
+The module-level inline assembly of the module. Assigning replaces the existing inline
+assembly; use [`append_inline_asm!`](@ref) to append to it instead.
+
+    mod.context
+
+The context in which the module was created.
+
+    mod.sdk_version
+    mod.sdk_version = version::VersionNumber
+
+The Apple SDK version of the module, or `nothing` if it hasn't been set. The version is
+stored in the `SDK Version` module flag, dropping any prerelease or build metadata.
+
+    mod.debug_metadata_version
+
+The debug info version number emitted in the module, or `0` if none is attached.
 """
 Module
 # forward definition of Module in src/core/value/constant.jl
+@properties Module
 
 Base.unsafe_convert(::Type{API.LLVMModuleRef}, mod::Module) = mark_use(mod).ref
 
@@ -26,6 +60,7 @@ Base.:(==)(x::Module, y::Module) = (x.ref === y.ref)
 @checked struct DataLayout
     ref::API.LLVMTargetDataRef
 end
+@properties DataLayout
 @checked struct Function <: GlobalObject
     ref::API.LLVMValueRef
 end
@@ -75,88 +110,53 @@ function Base.show(io::IO, ::MIME"text/plain", mod::Module)
     print(io, output)
 end
 
-"""
-    name(mod::LLVM.Module)
-
-Get the name of the given module.
-"""
 function name(mod::Module)
     out_len = Ref{Csize_t}()
     ptr = convert(Ptr{UInt8}, API.LLVMGetModuleIdentifier(mod, out_len))
     return unsafe_string(ptr, out_len[])
 end
 
-"""
-    name!(mod::LLVM.Module, name::String)
-
-Set the name of the given module.
-"""
 name!(mod::Module, str::String) =
     API.LLVMSetModuleIdentifier(mod, str, Csize_t(length(str)))
 
-"""
-    triple(mod::LLVM.Module)
+@property Module name name!
 
-Get the target triple of the given module.
-"""
 triple(mod::Module) = unsafe_string(API.LLVMGetTarget(mod))
 
-"""
-    triple!(mod::LLVM.Module, triple::String)
-
-Set the target triple of the given module.
-"""
 triple!(mod::Module, triple) = API.LLVMSetTarget(mod, triple)
 
-"""
-    datalayout(mod::LLVM.Module)
+@property Module triple triple!
 
-Get the data layout of the given module.
-"""
 datalayout(mod::Module) = DataLayout(API.LLVMGetModuleDataLayout(mod))
 
-"""
-    datalayout!(mod::LLVM.Module, layout)
-
-Set the data layout of the given module. The layout can be a string or a `DataLayout`
-object.
-"""
-datalayout!(mod::Module, layout)
 datalayout!(mod::Module, layout::String) = API.LLVMSetDataLayout(mod, layout)
 datalayout!(mod::Module, layout::DataLayout) =
     API.LLVMSetModuleDataLayout(mod, layout)
 
-"""
-    inline_asm!(mod::LLVM.Module, asm::String; overwrite::Bool=false)
+@property Module datalayout datalayout!
 
-Add module-level inline assembly to the given module. If `overwrite` is `true`, the
-existing inline assembly is replaced, otherwise the new assembly is appended.
-"""
-function inline_asm!(mod::Module, asm::String; overwrite::Bool=false)
-    if overwrite
-        API.LLVMSetModuleInlineAsm2(mod, asm, length(asm))
-    else
-        API.LLVMAppendModuleInlineAsm(mod, asm, length(asm))
-    end
-end
-
-"""
-    inline_asm(mod::LLVM.Module) -> String
-
-Get the module-level inline assembly of the given module.
-"""
 function inline_asm(mod::Module)
     out_len = Ref{Csize_t}()
     ptr = convert(Ptr{UInt8}, API.LLVMGetModuleInlineAsm(mod, out_len))
     return unsafe_string(ptr, out_len[])
 end
 
-"""
-    context(mod::LLVM.Module)
+# assigning replaces the existing inline assembly, while `append_inline_asm!` appends to it
+@property Module inline_asm (mod, asm::String) ->
+    API.LLVMSetModuleInlineAsm2(mod, asm, ncodeunits(asm))
 
-Get the context in which the given module was created.
 """
+    append_inline_asm!(mod::LLVM.Module, asm::String)
+
+Append module-level inline assembly to the given module. Use the `inline_asm` property to
+get or replace all of the module's inline assembly instead.
+"""
+append_inline_asm!(mod::Module, asm::String) =
+    API.LLVMAppendModuleInlineAsm(mod, asm, ncodeunits(asm))
+
 context(mod::Module) = Context(API.LLVMGetModuleContext(mod))
+
+@property Module context
 
 """
     set_used!(mod::LLVM.Module, values::GlobalVariable...)
@@ -631,20 +631,20 @@ end
 ## module flag iteration
 # TODO: doesn't actually iterate, since we can't list the available keys
 
-export flags
+export module_flags
 
 struct ModuleFlagDict <: AbstractDict{String,Metadata}
     mod::Module
 end
 
 """
-    flags(mod::LLVM.Module)
+    module_flags(mod::LLVM.Module)
 
 Get a dictionary-like object representing the module flags of the given module.
 
 This object can be used to get and set module flags, by calling `getindex` and `setindex!`.
 """
-flags(mod::Module) = ModuleFlagDict(mod)
+module_flags(mod::Module) = ModuleFlagDict(mod)
 
 Base.haskey(iter::ModuleFlagDict, name::String) =
     API.LLVMGetModuleFlag(iter.mod, name, length(name)) != C_NULL
@@ -663,13 +663,6 @@ end
 
 ## sdk version
 
-export sdk_version, sdk_version!
-
-"""
-    sdk_version(mod::LLVM.Module)
-
-Get the SDK version of the given module, if it has been set.
-"""
 function sdk_version!(mod::Module, version::VersionNumber)
     entries = Int32[version.major]
     if version.minor != 0 || version.patch != 0
@@ -683,20 +676,17 @@ function sdk_version!(mod::Module, version::VersionNumber)
         Metadata(ConstantDataArray(entries))
     end
 
-    flags(mod)["SDK Version", LLVM.API.LLVMModuleFlagBehaviorWarning] = md
+    module_flags(mod)["SDK Version", LLVM.API.LLVMModuleFlagBehaviorWarning] = md
 end
 
-"""
-    sdk_version!(mod::LLVM.Module, version::VersionNumber)
-
-Set the SDK version of the given module.
-"""
 function sdk_version(mod::Module)
-    haskey(flags(mod), "SDK Version") || return nothing
-    md = flags(mod)["SDK Version"]
+    haskey(module_flags(mod), "SDK Version") || return nothing
+    md = module_flags(mod)["SDK Version"]
     c = context!(context(mod)) do
         Value(md)
     end
     entries = collect(c)
     VersionNumber(map(val->convert(Int, val), entries)...)
 end
+
+@property Module sdk_version sdk_version!

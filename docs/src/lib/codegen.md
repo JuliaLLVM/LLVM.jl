@@ -4,8 +4,6 @@
 
 ```@docs
 Target
-name(::Target)
-description(::Target)
 hasjit(::Target)
 hastargetmachine(::Target)
 hasasmparser(::Target)
@@ -17,12 +15,8 @@ targets
 ```@docs
 TargetMachine
 dispose(::TargetMachine)
-target(::TargetMachine)
-triple(::TargetMachine)
-triple()
+default_triple
 normalize(::String)
-cpu(::TargetMachine)
-features(::TargetMachine)
 asm_verbosity!
 emit
 add_transform_info!
@@ -35,10 +29,8 @@ JITTargetMachine
 ```@docs
 DataLayout
 dispose(::DataLayout)
-byteorder
 pointersize
 intptr
-globals_addrspace
 sizeof(::DataLayout, ::LLVMType)
 storage_size
 abi_size

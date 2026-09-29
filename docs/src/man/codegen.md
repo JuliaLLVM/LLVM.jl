@@ -54,8 +54,8 @@ LLVM.Target(wasm64): WebAssembly 64-bit
 
 With these objects, a number of APIs are available:
 
-- `name`: the target's name
-- `description`: a textual description of the target
+- `target.name`: the target's name
+- `target.description`: a textual description of the target
 - `hasjit`: whether the target has a JIT
 - `hastargetmachine`: whether the target has a target machine
 - `hasasmparser`: whether the target has an assembly parser
@@ -84,8 +84,9 @@ The target machine constructor takes various additional options too:
 
 Various APIs are available to manipulate `TargetMachine` objects:
 
-- `target` and `triple`: the target and triple that was used to create the target machine
-- `cpu` and `features`: the CPU and features string that were (optionally) set
+- `tm.target` and `tm.triple`: the target and triple that was used to create the target
+  machine
+- `tm.cpu` and `tm.features`: the CPU and features string that were (optionally) set
 - `asm_verbosity!`: enable or disable verbose assembly emission
 
 The most important function however is the `emit` function, which converts an IR module to
@@ -134,7 +135,7 @@ julia> dl = DataLayout("e-m:e-p:64:64-i64:64-n32:64-S128");
 An IR module can now be configured with this data layout:
 
 ```jldoctest target
-julia> datalayout!(mod, dl);
+julia> mod.datalayout = dl;
 
 julia> mod
 ; ModuleID = 'SomeModule'
@@ -148,12 +149,12 @@ target datalayout = "e-m:e-p:64:64-i64:64-n32:64-S128"
 ```
 
 The data layout object can be used to query various properties that are relevant for
-generating IR:
+generating IR. The byte order and the address space of globals are available as the
+`byteorder` and `globals_addrspace` properties, while other queries are functions, most of
+which take a type or an address space:
 
-- `byteorder`
 - `pointersize`
 - `intptr`
-- `globals_addrspace`
 - `sizeof`
 - `storage_size`
 - `abi_alignment`

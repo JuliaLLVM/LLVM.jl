@@ -26,7 +26,6 @@ Value(::Metadata)
 metadata(::Union{Instruction, LLVM.GlobalObject})
 NamedMDNode
 metadata(::LLVM.Module)
-name(::NamedMDNode)
 operands(::NamedMDNode)
 push!(::NamedMDNode, ::MDNode)
 empty!(::NamedMDNode)
@@ -36,7 +35,6 @@ empty!(::NamedMDNode)
 
 ```@docs
 DINode
-tag(::DINode)
 ```
 
 ### Builder
@@ -53,10 +51,6 @@ LLVM.finalize_subprogram!
 
 ```@docs
 DILocation
-line(::DILocation)
-column
-scope(::DILocation)
-inlined_at
 ```
 
 ### Variables
@@ -65,26 +59,18 @@ inlined_at
 DIVariable
 LLVM.DILocalVariable
 LLVM.DIGlobalVariable
-file(::DIVariable)
-scope(::DIVariable)
-line(::DIVariable)
 ```
 
 ### Scopes
 
 ```@docs
 DIScope
-file(::DIScope)
-name(::DIScope)
 ```
 
 ### File
 
 ```@docs
 DIFile
-directory
-filename
-source
 LLVM.file!
 ```
 
@@ -119,15 +105,11 @@ LLVM.DIBasicType
 LLVM.DIDerivedType
 LLVM.DICompositeType
 LLVM.DISubroutineType
-name(::DIType)
-Base.sizeof(::DIType)
-offset(::DIType)
-line(::DIType)
-flags(::DIType)
-LLVM.align
 LLVM.DIEnumerator
 LLVM.DISubrange
 ```
+
+#### Properties
 
 Built-in factories for primitive types:
 
@@ -197,8 +179,7 @@ LLVM.objc_property!
 
 ```@docs
 DISubProgram
-line(::DISubProgram)
-LLVM.subprogram!(::DIBuilder, ::DIScope, ::AbstractString, ::DIFile, ::Integer, ::LLVM.DISubroutineType)
+LLVM.subprogram!
 ```
 
 ### Variables
@@ -217,8 +198,6 @@ LLVM.DIExpression
 LLVM.DIGlobalVariableExpression
 LLVM.expression!
 LLVM.constant_value_expression!
-LLVM.variable
-LLVM.expression
 LLVM.global_variable_expression!
 LLVM.temp_global_variable_fwd_decl!
 ```
@@ -253,10 +232,10 @@ LLVM.declare_before!
 LLVM.declare_at_end!
 LLVM.value_before!
 LLVM.value_at_end!
-LLVM.debug_location(::Instruction)
-LLVM.debug_location!(::Instruction, ::DILocation)
-LLVM.debug_location!(::Instruction)
 ```
+
+The debug location of an instruction is available as its `debug_location` property (see
+[`inst.debug_location`](@ref LLVM.Instruction)).
 
 ### Compile Unit
 
@@ -277,8 +256,9 @@ LLVM.replace_uses!(::LLVM.Metadata, ::LLVM.Metadata)
 
 ```@docs
 DEBUG_METADATA_VERSION
-LLVM.debug_metadata_version
 strip_debuginfo!
-subprogram(::LLVM.Function)
-subprogram!
 ```
+
+The debug info of modules and functions is available as their `debug_metadata_version`
+and `subprogram` properties (see [`mod.debug_metadata_version`](@ref LLVM.Module) and
+[`f.subprogram`](@ref LLVM.Function)).

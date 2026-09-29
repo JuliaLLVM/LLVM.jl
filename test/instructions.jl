@@ -14,7 +14,7 @@
     position!(builder, entrybb)
     @test position(builder) == entrybb
 
-    @test debug_location(builder) === nothing
+    @test builder.debug_location === nothing
     LLVM.DIBuilder(mod) do dib
         difile = LLVM.file!(dib, "test.jl", "/tmp")
         LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
@@ -22,15 +22,16 @@
         sp = LLVM.subprogram!(dib, difile, "SomeFunction", difile, 1,
                              LLVM.subroutine_type!(dib, difile, nothing))
         loc = DILocation(1, 1, sp)
-        debug_location!(builder, loc)
-        @test debug_location(builder) == loc
-        debug_location!(builder)
-        @test debug_location(builder) === nothing
+        builder.debug_location = loc
+        @test builder.debug_location == loc
+        builder.debug_location = nothing
+        @test builder.debug_location === nothing
     end
 
     retinst1 = ret!(builder)
     @check_ir retinst1 "ret void"
-    debug_location!(builder, retinst1)
+    retinst1.debug_location = builder.debug_location
+    @test retinst1.debug_location === nothing
 
     retinst2 = ret!(builder, ConstantInt(LLVM.Int32Type(), 0))
     @check_ir retinst2 "ret i32 0"
@@ -139,18 +140,19 @@
 
     allocainst = alloca!(builder, LLVM.Int32Type())
     @check_ir allocainst "alloca i32"
-    @test alignment(allocainst) == 4
-    alignment!(allocainst, 16)
-    @test alignment(allocainst) == 16
+    @test allocainst.alignment == 4
+    allocainst.alignment = 16
+    @test allocainst.alignment == 16
     @check_ir allocainst "alloca i32, align 16"
-    @test_throws ArgumentError alignment!(allocainst, 0)
-    @test_throws ArgumentError alignment!(allocainst, 3)
-    @test_throws ArgumentError alignment!(allocainst, 2^32)
-    @test alignment(allocainst) == 16
+    @test_throws ArgumentError allocainst.alignment = 0
+    @test_throws ArgumentError allocainst.alignment = 3
+    @test_throws ArgumentError allocainst.alignment = 2^32
+    @test allocainst.alignment == 16
 
     # only stack allocations and memory accesses have an alignment
-    @test_throws MethodError alignment(xorinst)
-    @test_throws MethodError alignment!(xorinst, 4)
+    @test !hasproperty(xorinst, :alignment)
+    @test_throws "no property `alignment`" xorinst.alignment
+    @test_throws "no property `alignment`" xorinst.alignment = 4
 
     aligned_allocainst = alloca!(builder, LLVM.Int32Type(); align=32)
     @check_ir aligned_allocainst "alloca i32, align 32"
@@ -213,22 +215,22 @@
     else
         @check_ir loadinst "load i32, ptr %4"
     end
-    alignment!(loadinst, 4)
-    @test alignment(loadinst) == 4
+    loadinst.alignment = 4
+    @test loadinst.alignment == 4
 
     @test !isatomic(loadinst)
-    ordering!(loadinst, LLVM.API.LLVMAtomicOrderingSequentiallyConsistent)
+    loadinst.ordering = LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
     @test isatomic(loadinst)
     if supports_typed_pointers(ctx)
         @check_ir loadinst "load atomic i32, i32* %4 seq_cst"
     else
         @check_ir loadinst "load atomic i32, ptr %4 seq_cst"
     end
-    @test ordering(loadinst) == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
+    @test loadinst.ordering == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
 
-    @test syncscope(loadinst) == SyncScope("system")
-    syncscope!(loadinst, SyncScope("singlethread"))
-    @test syncscope(loadinst) == SyncScope("singlethread")
+    @test loadinst.syncscope == SyncScope("system")
+    loadinst.syncscope = SyncScope("singlethread")
+    @test loadinst.syncscope == SyncScope("singlethread")
 
     storeinst = store!(builder, int1, ptr1)
     if supports_typed_pointers(ctx)
@@ -263,16 +265,16 @@
     else
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 seq_cst"
     end
-    @test binop(atomic_rmw_inst) == LLVM.API.LLVMAtomicRMWBinOpAdd
-    @test syncscope(atomic_rmw_inst) == SyncScope("system")
-    syncscope!(atomic_rmw_inst, SyncScope("agent"))
-    @test syncscope(atomic_rmw_inst) == SyncScope("agent")
-    @test name(syncscope(atomic_rmw_inst)) == "agent"
-    @test sprint(show, syncscope(atomic_rmw_inst)) == "SyncScope(\"agent\")"
+    @test atomic_rmw_inst.binop == LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test atomic_rmw_inst.syncscope == SyncScope("system")
+    atomic_rmw_inst.syncscope = SyncScope("agent")
+    @test atomic_rmw_inst.syncscope == SyncScope("agent")
+    @test atomic_rmw_inst.syncscope.name == "agent"
+    @test sprint(show, atomic_rmw_inst.syncscope) == "SyncScope(\"agent\")"
     for str in ("singlethread", "system", "agent")
-        @test name(SyncScope(str)) == str
+        @test SyncScope(str).name == str
     end
-    @test_throws ArgumentError name(SyncScope(1000))
+    @test_throws ArgumentError SyncScope(1000).name
     @test sprint(show, SyncScope(1000)) == "SyncScope(target-specific scope 1000)"
 
     atomic_cmpxchg_inst = atomic_cmpxchg!(builder, ptr1, int1, int2,
@@ -282,12 +284,12 @@
     else
         @check_ir atomic_cmpxchg_inst "cmpxchg ptr %4, i32 %0, i32 %1 seq_cst acquire"
     end
-    @test success_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
-    success_ordering!(atomic_cmpxchg_inst, LLVM.API.LLVMAtomicOrderingAcquireRelease)
-    @test success_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingAcquireRelease
-    @test failure_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingAcquire
-    failure_ordering!(atomic_cmpxchg_inst, LLVM.API.LLVMAtomicOrderingMonotonic)
-    @test failure_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingMonotonic
+    @test atomic_cmpxchg_inst.success_ordering == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
+    atomic_cmpxchg_inst.success_ordering = LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test atomic_cmpxchg_inst.success_ordering == LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingAcquire
+    atomic_cmpxchg_inst.failure_ordering = LLVM.API.LLVMAtomicOrderingMonotonic
+    @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingMonotonic
     @test !isweak(atomic_cmpxchg_inst)
     weak!(atomic_cmpxchg_inst, true)
     @test isweak(atomic_cmpxchg_inst)
@@ -335,7 +337,7 @@
             for scope in (true, SyncScope("agent"))
                 inst = atomic_rmw!(builder, op, ptr1, int1,
                                    LLVM.API.LLVMAtomicOrderingMonotonic, scope)
-                @test binop(inst) == op
+                @test inst.binop == op
             end
         else
             @test_throws ArgumentError atomic_rmw!(builder, op, ptr1, int1,
@@ -393,7 +395,7 @@
     @check_ir bitcastinst "bitcast i32 %0 to float"
     ptr1 = parameters(fn)[5]
     if supports_typed_pointers(ctx)
-        typ1 = value_type(ptr1)
+        typ1 = ptr1.value_type
         ptr2 = LLVM.PointerType(eltype(typ1), 2)
         addrspacecastinst = addrspacecast!(builder, ptr1, ptr2)
         @check_ir addrspacecastinst "addrspacecast i32* %4 to i32 addrspace(2)*"
@@ -431,11 +433,11 @@
 
     icmpinst = icmp!(builder, LLVM.API.LLVMIntEQ, int1, int2)
     @check_ir icmpinst "icmp eq i32 %0, %1"
-    @test predicate(icmpinst) == LLVM.API.LLVMIntEQ
+    @test icmpinst.predicate == LLVM.API.LLVMIntEQ
 
     fcmpinst = fcmp!(builder, LLVM.API.LLVMRealOEQ, float1, float2)
     @check_ir fcmpinst "fcmp oeq float %2, %3"
-    @test predicate(fcmpinst) == LLVM.API.LLVMRealOEQ
+    @test fcmpinst.predicate == LLVM.API.LLVMRealOEQ
 
     phiinst = phi!(builder, LLVM.Int32Type())
     @check_ir phiinst "phi i32 "
@@ -448,8 +450,8 @@
     callinst = call!(builder, LLVM.FunctionType(LLVM.VoidType()), trap)
 
     @check_ir callinst "call void @llvm.trap()"
-    @test called_operand(callinst) == trap
-    @test called_type(callinst) == LLVM.FunctionType(LLVM.VoidType())
+    @test callinst.called_operand == trap
+    @test callinst.called_type == LLVM.FunctionType(LLVM.VoidType())
 
     neginst = neg!(builder, int1)
     @check_ir neginst "sub i32 0, %0"
@@ -535,7 +537,7 @@ end
             }
             """)
 
-        switch = terminator(first(blocks(functions(mod)["switch_test"])))
+        switch = first(blocks(functions(mod)["switch_test"])).terminator
         @test convert(Int, case_value(switch, 1)) == 1
         @test convert(Int, case_value(switch, 2)) == 2
         @test_throws BoundsError case_value(switch, 3)
@@ -703,7 +705,7 @@ end
             let bundles = operand_bundles(cy)
                 @test length(bundles) == 1
                 bundle = first(bundles)
-                @test LLVM.tag(bundle) == "deopt"
+                @test bundle.tag == "deopt"
                 @test string(bundle) == "\"deopt\"(i32 1, i64 2)"
 
                 inputs = LLVM.inputs(bundle)
@@ -739,13 +741,13 @@ end
             inputs = [LLVM.ConstantInt(Int32(1)), LLVM.ConstantInt(Int64(2))]
             bundle1 = OperandBundle("unknown", inputs)
             @test bundle1 isa OperandBundle
-            @test LLVM.tag(bundle1) == "unknown"
+            @test bundle1.tag == "unknown"
             @test LLVM.inputs(bundle1) == inputs
             @test string(bundle1) == "\"unknown\"(i32 1, i64 2)"
 
             # use in a call
             f = functions(mod)["x"]
-            ft = function_type(f)
+            ft = f.function_type
             @dispose builder=IRBuilder() begin
                 position!(builder, inst)
                 inst = call!(builder, ft, f, Value[], [bundle1])
@@ -758,7 +760,7 @@ end
 
                 bundle2 = bundles[1]
                 @test bundle2 isa OperandBundle
-                @test LLVM.tag(bundle2) == "unknown"
+                @test bundle2.tag == "unknown"
                 @test LLVM.inputs(bundle2) == inputs
                 @test string(bundle2) == "\"unknown\"(i32 1, i64 2)"
             end
@@ -793,7 +795,7 @@ end
 
     # optimize
     function optimize(mod)
-        host_triple = triple()
+        host_triple = LLVM.default_triple()
         host_t = Target(triple=host_triple)
         @dispose tm=TargetMachine(host_t, host_triple) begin
             run!("default<O3>", mod, tm)
@@ -812,12 +814,12 @@ end
     @test instns[3] isa LLVM.RetInst
 
     # make them fast math
-    @test !fast_math(instns[1]).contract
-    fast_math!(instns[1]; all=true)
-    @test fast_math(instns[1]).contract
-    fast_math!(instns[2]; all=true)
-    @test_throws ArgumentError fast_math(instns[3])
-    @test_throws ArgumentError fast_math!(instns[3]; all=true)
+    @test !instns[1].fast_math.contract
+    LLVM.fast_math!(instns[1]; all=true)
+    @test instns[1].fast_math.contract
+    LLVM.fast_math!(instns[2]; all=true)
+    @test_throws ArgumentError instns[3].fast_math
+    @test_throws ArgumentError LLVM.fast_math!(instns[3]; all=true)
 
     # optimize again
     optimize(mod)

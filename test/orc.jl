@@ -161,8 +161,8 @@ end
             ts_mod = ThreadSafeModule("jit")
             ts_mod() do mod
                 weak = GlobalVariable(mod, LLVM.Int32Type(), "weak")
-                linkage!(weak, LLVM.API.LLVMExternalWeakLinkage)
-                get_weak = LLVM.Function(mod, "get_weak", LLVM.FunctionType(value_type(weak)))
+                weak.linkage = LLVM.API.LLVMExternalWeakLinkage
+                get_weak = LLVM.Function(mod, "get_weak", LLVM.FunctionType(weak.value_type))
                 @dispose builder=IRBuilder() begin
                     position!(builder, BasicBlock(get_weak, "entry"))
                     ret!(builder, weak)
@@ -229,7 +229,7 @@ end
             T_Int32 = LLVM.Int32Type()
             ft = LLVM.FunctionType(T_Int32, [T_Int32, T_Int32])
             fn = LLVM.Function(mod, "mysum", ft)
-            linkage!(fn, LLVM.API.LLVMExternalLinkage)
+            fn.linkage = LLVM.API.LLVMExternalLinkage
 
             wrapper = LLVM.Function(mod, fname, ft)
             # generate IR
@@ -241,10 +241,10 @@ end
                 ret!(builder, tmp)
             end
 
-            triple!(mod, triple(lljit))
+            mod.triple = lljit.triple
             @dispose pm=ModulePassManager() tm=JITTargetMachine() begin
                 # TODO: Get TM from lljit?
-                add_library_info!(pm, triple(mod))
+                add_library_info!(pm, mod.triple)
                 add_transform_info!(pm, tm)
                 run!(pm, mod)
             end
@@ -297,8 +297,8 @@ end
             ts_mod = ThreadSafeModule("jit")
             ts_mod() do mod
                 # emitting directly to a layer bypasses LLJIT's module set-up
-                triple!(mod, triple(lljit))
-                datalayout!(mod, datalayout(lljit))
+                mod.triple = lljit.triple
+                mod.datalayout = lljit.datalayout
                 fn = LLVM.Function(mod, "emitted", LLVM.FunctionType(LLVM.Int32Type()))
                 @dispose builder=IRBuilder() begin
                     position!(builder, BasicBlock(fn, "entry"))
@@ -497,8 +497,8 @@ end
         LLVM.transform!(il) do tsm, mr
             tsm() do mod
                 for fn in functions(mod)
-                    push!(transformed, LLVM.name(fn))
-                    ret = terminator(entry(fn))
+                    push!(transformed, fn.name)
+                    ret = fn.entry.terminator
                     operands(ret)[1] = ConstantInt(Int32(2))
                 end
             end
@@ -709,8 +709,8 @@ end
         jd = JITDylib(lljit)
         es = ExecutionSession(lljit)
 
-        lctm = LLVM.LocalLazyCallThroughManager(triple(lljit), es)
-        ism = LLVM.LocalIndirectStubsManager(triple(lljit))
+        lctm = LLVM.LocalLazyCallThroughManager(lljit.triple, es)
+        ism = LLVM.LocalIndirectStubsManager(lljit.triple)
         try
             # 1. define entry symbol
             entry_sym = "foo_entry"
@@ -732,14 +732,14 @@ end
 
                 ts_mod = ThreadSafeModule("jit")
                 ts_mod() do mod
-                    dl = datalayout(lljit)
+                    dl = lljit.datalayout
                     if LLVM.version() >= v"20"
                         # XXX: LLVM 20 removed the ability to replace a data layout,
                         #      resulting in Julia's JIT having a different DL from the TM's.
                         #      https://github.com/llvm/llvm-project/pull/102993#issuecomment-2886101618
                         dl = replace(dl, r"-ni.*" => "")
                     end
-                    datalayout!(mod, dl)
+                    mod.datalayout = dl
 
                     T_Int32 = LLVM.Int32Type()
                     ft = LLVM.FunctionType(T_Int32, [T_Int32, T_Int32])

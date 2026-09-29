@@ -85,7 +85,7 @@ end
     @test typeof(LLVMType(typ.ref)) == LLVM.IntegerType           # type reconstructed
     @test_throws UndefRefError LLVMType(LLVM.API.LLVMTypeRef(C_NULL))
 
-    @test width(LLVM.IntType(8)) == 8
+    @test LLVM.IntType(8).width == 8
 
     @test issized(LLVM.Int1Type())
     @test !issized(LLVM.VoidType())
@@ -112,7 +112,7 @@ end
     @test context(ft) == ctx
 
     @test !isvararg(ft)
-    @test return_type(ft) == x
+    @test ft.return_type == x
     @test parameters(ft) == y
     @test_throws BoundsError parameters(ft)[3]
 end
@@ -128,10 +128,10 @@ end
 
     @test context(ptrtyp) == context(eltyp)
 
-    @test addrspace(ptrtyp) == 0
+    @test ptrtyp.addrspace == 0
 
     ptrtyp = LLVM.PointerType(eltyp, 1)
-    @test addrspace(ptrtyp) == 1
+    @test ptrtyp.addrspace == 1
 end
 @dispose ctx=Context() begin
     eltyp = LLVM.Int32Type()
@@ -167,7 +167,7 @@ end
         @test context(st) == ctx
         @test !ispacked(st)
         @test !isopaque(st)
-        @test name(st) === nothing
+        @test st.name === nothing
 
         let elem_it = elements(st)
             @test eltype(elem_it) == LLVMType
@@ -189,7 +189,7 @@ end
     end
 
     let st = LLVM.StructType("foo")
-        @test name(st) == "foo"
+        @test st.name == "foo"
         @test isopaque(st)
         elements!(st, elem)
         @test collect(elements(st)) == elem
@@ -242,7 +242,7 @@ end
 
     entry = BasicBlock(fn, "entry")
     position!(builder, entry)
-    @test name(entry) == "entry"
+    @test entry.name == "entry"
 
     typ = LLVM.Int32Type()
     val = alloca!(builder, typ, "foo")
@@ -273,14 +273,14 @@ end
 
     show(devnull, val)
 
-    @test value_type(val) == LLVM.PointerType(typ)
+    @test val.value_type == LLVM.PointerType(typ)
     @test_throws ErrorException sizeof(val)
-    @test name(val) == "foo"
+    @test val.name == "foo"
     @test !isconstant(val)
     @test !isundef(val)
 
-    name!(val, "bar")
-    @test name(val) == "bar"
+    val.name = "bar"
+    @test val.name == "bar"
 end
 
 # usage
@@ -304,22 +304,22 @@ end
         @test eltype(usepairs) == Use
 
         usepair = first(usepairs)
-        @test value(usepair) == valueinst1
-        @test user(usepair) == userinst
+        @test usepair.value == valueinst1
+        @test usepair.user == userinst
 
         for _usepair in usepairs
             @test usepair == _usepair
         end
 
-        @test value.(collect(usepairs)) == [valueinst1]
-        @test user.(collect(usepairs)) == [userinst]
+        @test [use.value for use in usepairs] == [valueinst1]
+        @test [use.user for use in usepairs] == [userinst]
     end
 
     valueinst2 = add!(builder, parameters(fn)[1],
                     ConstantInt(Int32(2)))
 
     replace_uses!(valueinst1, valueinst2)
-    @test user.(collect(uses(valueinst2))) == [userinst]
+    @test [use.user for use in uses(valueinst2)] == [userinst]
 end
 
 # users
@@ -418,7 +418,7 @@ end
     end
     let
         constval = ConstantInt(false)
-        @test value_type(constval) == LLVM.Int1Type()
+        @test constval.value_type == LLVM.Int1Type()
         @test !convert(Bool, constval)
 
         constval = ConstantInt(true)
@@ -477,26 +477,26 @@ end
                         (LLVM.FP128Type(), UInt128(0x3fff) << 112),
                         (LLVM.PPCFP128Type(), UInt128(0x3ff0000000000000))]
         c = ConstantFP(typ; bits)
-        @test value_type(c) == typ
+        @test c.value_type == typ
         @test convert(Float64, c) == 1.0
-        @test LLVM.bitpattern(c) === bits
-        @test LLVM.bitpattern(ConstantFP(typ, 1.0)) === bits
+        @test c.bitpattern === bits
+        @test ConstantFP(typ, 1.0).bitpattern === bits
         # patterns can be passed using wider integers
-        @test LLVM.bitpattern(ConstantFP(typ; bits=UInt128(bits))) === bits
+        @test ConstantFP(typ; bits=UInt128(bits)).bitpattern === bits
     end
     let
         # full-precision constants of wider types
         bits = 0x3ffb999999999999999999999999999a  # 0.1
         c = ConstantFP(LLVM.FP128Type(); bits)
-        @test LLVM.bitpattern(c) == bits
-        @test LLVM.bitpattern(ConstantFP(LLVM.FP128Type(), 0.1)) != bits
+        @test c.bitpattern == bits
+        @test ConstantFP(LLVM.FP128Type(), 0.1).bitpattern != bits
         @check_ir c "fp128 0xL999999999999999A3FFB999999999999"
     end
     let
         # NaN payloads
         c = ConstantFP(LLVM.FloatType(); bits=0x7fa00001)
         @test isnan(convert(Float32, c))
-        @test LLVM.bitpattern(c) === 0x7fa00001
+        @test c.bitpattern === 0x7fa00001
     end
     @test_throws ArgumentError ConstantFP(LLVM.HalfType(); bits=0x10000)
     @test_throws ArgumentError ConstantFP(LLVM.X86FP80Type(); bits=UInt128(1) << 80)
@@ -542,7 +542,7 @@ end
     # multidimensional, with rows that aren't stored as packed data
     let
         mod = parse(LLVM.Module, "@g = global [2 x [2 x i32]] [[2 x i32] zeroinitializer, [2 x i32] [i32 1, i32 2]]")
-        ca = initializer(globals(mod)["g"])
+        ca = globals(mod)["g"].initializer
         @test ca isa ConstantArray
         @test convert.(Int, collect(ca)) == [0 0; 1 2]
         dispose(mod)
@@ -556,7 +556,7 @@ end
     let
         test_struct = TestStruct(true, -99, 1.5)
         constant_struct = ConstantStruct(test_struct, anonymous=true)
-        constant_struct_type = value_type(constant_struct)
+        constant_struct_type = constant_struct.value_type
 
         @test constant_struct_type isa LLVM.StructType
         @test context(constant_struct) == ctx
@@ -576,7 +576,7 @@ end
     let
         test_struct = TestStruct(false, 52, -2.5)
         constant_struct = ConstantStruct(test_struct)
-        constant_struct_type = value_type(constant_struct)
+        constant_struct_type = constant_struct.value_type
 
         @test constant_struct_type isa LLVM.StructType
 
@@ -596,7 +596,7 @@ end
     let
         test_struct = TestSingleton()
         constant_struct = ConstantStruct(test_struct)
-        constant_struct_type = value_type(constant_struct)
+        constant_struct_type = constant_struct.value_type
 
         @test isempty(operands(constant_struct))
     end
@@ -614,7 +614,7 @@ end
         eltyp = LLVM.Int32Type()
         cda = ConstantDataArray(eltyp, vec)
         @test cda isa ConstantDataArray
-        @test value_type(cda) == LLVM.ArrayType(eltyp, 4)
+        @test cda.value_type == LLVM.ArrayType(eltyp, 4)
         @test collect(cda) == ConstantInt.(vec)
     end
 
@@ -797,7 +797,7 @@ end
         ce = const_ptrtoint(ptr, LLVM.Int32Type())::LLVM.Constant
         @check_ir ce "i32 0"
 
-        ce = const_inttoptr(ce, value_type(ptr))::LLVM.Constant
+        ce = const_inttoptr(ce, ptr.value_type)::LLVM.Constant
         if supports_typed_pointers(ctx)
             @check_ir ce "i32* null"
         else
@@ -852,7 +852,7 @@ if LLVM.version() >= v"17"
     # after: the operand is an instruction, and the dead constexpr is gone
     @test operands(loadinst)[1] isa LLVM.Instruction
     @check_ir operands(loadinst)[1] "getelementptr"
-    @test all(u -> user(u) isa LLVM.Instruction, uses(gv))
+    @test all(u -> u.user isa LLVM.Instruction, uses(gv))
 
     # calling again is a no-op
     @test !convert_users_to_instructions!(LLVM.Constant[gv])
@@ -961,7 +961,7 @@ end
 
     @test convert_users_to_instructions!(LLVM.Constant[gv]; remove_dead_constants=false)
     # the dead constant expression is retained as a user of `gv`
-    @test any(u -> user(u) isa LLVM.ConstantExpr, uses(gv))
+    @test any(u -> u.user isa LLVM.ConstantExpr, uses(gv))
 end
 
 else
@@ -987,30 +987,30 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     @test isdeclaration(fn)
-    @test linkage(fn) == LLVM.API.LLVMExternalLinkage
-    linkage!(fn, LLVM.API.LLVMAvailableExternallyLinkage)
-    @test linkage(fn) == LLVM.API.LLVMAvailableExternallyLinkage
+    @test fn.linkage == LLVM.API.LLVMExternalLinkage
+    fn.linkage = LLVM.API.LLVMAvailableExternallyLinkage
+    @test fn.linkage == LLVM.API.LLVMAvailableExternallyLinkage
 
-    @test section(fn) == ""
-    section!(fn, "SomeSection")
-    @test section(fn) == "SomeSection"
+    @test fn.section == ""
+    fn.section = "SomeSection"
+    @test fn.section == "SomeSection"
 
-    @test visibility(fn) == LLVM.API.LLVMDefaultVisibility
-    visibility!(fn, LLVM.API.LLVMHiddenVisibility)
-    @test visibility(fn) == LLVM.API.LLVMHiddenVisibility
+    @test fn.visibility == LLVM.API.LLVMDefaultVisibility
+    fn.visibility = LLVM.API.LLVMHiddenVisibility
+    @test fn.visibility == LLVM.API.LLVMHiddenVisibility
 
-    @test dllstorage(fn) == LLVM.API.LLVMDefaultStorageClass
-    dllstorage!(fn, LLVM.API.LLVMDLLImportStorageClass)
-    @test dllstorage(fn) == LLVM.API.LLVMDLLImportStorageClass
+    @test fn.dllstorage == LLVM.API.LLVMDefaultStorageClass
+    fn.dllstorage = LLVM.API.LLVMDLLImportStorageClass
+    @test fn.dllstorage == LLVM.API.LLVMDLLImportStorageClass
 
-    @test !unnamed_addr(fn)
-    @test !local_unnamed_addr(fn)
-    unnamed_addr!(fn, true)
-    @test unnamed_addr(fn)
-    @test !local_unnamed_addr(fn)
-    local_unnamed_addr!(fn, true)
-    @test !unnamed_addr(fn)
-    @test local_unnamed_addr(fn)
+    @test !fn.unnamed_addr
+    @test !fn.local_unnamed_addr
+    fn.unnamed_addr = true
+    @test fn.unnamed_addr
+    @test !fn.local_unnamed_addr
+    fn.local_unnamed_addr = true
+    @test !fn.unnamed_addr
+    @test fn.local_unnamed_addr
 
     str = MDString("bar")
     md = MDNode([str])
@@ -1038,12 +1038,12 @@ end
 
     show(devnull, gv)
 
-    @test initializer(gv) === nothing
+    @test gv.initializer === nothing
     init = ConstantInt(Int32(0))
-    initializer!(gv, init)
-    @test initializer(gv) == init
-    initializer!(gv, nothing)
-    @test initializer(gv) === nothing
+    gv.initializer = init
+    @test gv.initializer == init
+    gv.initializer = nothing
+    @test gv.initializer === nothing
 
     @test !isthreadlocal(gv)
     threadlocal!(gv, true)
@@ -1057,16 +1057,16 @@ end
     extinit!(gv, true)
     @test isextinit(gv)
 
-    @test alignment(gv) == 0
-    alignment!(gv, 4)
-    @test alignment(gv) == 4
-    @test_throws ArgumentError alignment!(gv, 3)
-    alignment!(gv, 0)
-    @test alignment(gv) == 0
+    @test gv.alignment == 0
+    gv.alignment = 4
+    @test gv.alignment == 4
+    @test_throws ArgumentError gv.alignment = 3
+    gv.alignment = 0
+    @test gv.alignment == 0
 
-    @test threadlocal_mode(gv) == LLVM.API.LLVMGeneralDynamicTLSModel
-    threadlocal_mode!(gv, LLVM.API.LLVMNotThreadLocal)
-    @test threadlocal_mode(gv) == LLVM.API.LLVMNotThreadLocal
+    @test gv.threadlocal_mode == LLVM.API.LLVMGeneralDynamicTLSModel
+    gv.threadlocal_mode = LLVM.API.LLVMNotThreadLocal
+    @test gv.threadlocal_mode == LLVM.API.LLVMNotThreadLocal
 
     @test !haskey(globals(mod), "llvm.used")
     set_used!(mod, gv)
@@ -1090,23 +1090,23 @@ end
     gv = GlobalVariable(mod, st, "SomeGlobal")
 
     init = null(st)
-    initializer!(gv, init)
-    @test initializer(gv) == init
+    gv.initializer = init
+    @test gv.initializer == init
 end
 
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal", 1)
 
-    @test value_type(gv) isa LLVM.PointerType
-    @test addrspace(value_type(gv)) == 1
+    @test gv.value_type isa LLVM.PointerType
+    @test gv.value_type.addrspace == 1
 
-    @test global_value_type(gv) == LLVM.Int32Type()
+    @test gv.global_value_type == LLVM.Int32Type()
 end
 
 # global aliases
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
-    initializer!(gv, ConstantInt(Int32(42)))
+    gv.initializer = ConstantInt(Int32(42))
 
     ga = GlobalAlias(mod, LLVM.Int32Type(), gv, "SomeAlias")
     @test ga isa GlobalAlias
@@ -1114,12 +1114,12 @@ end
     @test !(ga isa LLVM.GlobalObject)
     show(devnull, ga)
 
-    @test name(ga) == "SomeAlias"
-    @test LLVM.parent(ga) == mod
-    @test global_value_type(ga) == LLVM.Int32Type()
-    @test value_type(ga) == value_type(gv)
-    @test linkage(ga) == LLVM.API.LLVMExternalLinkage
-    @test aliasee(ga) == gv
+    @test ga.name == "SomeAlias"
+    @test ga.parent == mod
+    @test ga.global_value_type == LLVM.Int32Type()
+    @test ga.value_type == gv.value_type
+    @test ga.linkage == LLVM.API.LLVMExternalLinkage
+    @test ga.aliasee == gv
 
     # the type-inferring constructor
     ft = LLVM.FunctionType(LLVM.VoidType())
@@ -1129,30 +1129,30 @@ end
         ret!(builder)
     end
     fa = GlobalAlias(mod, fn, "SomeFunctionAlias")
-    @test global_value_type(fa) == ft
-    @test aliasee(fa) == fn
+    @test fa.global_value_type == ft
+    @test fa.aliasee == fn
 
     # aliasee can be changed, but only to a value of the same type
     other_gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeOtherGlobal")
-    initializer!(other_gv, ConstantInt(Int32(0)))
-    aliasee!(ga, other_gv)
-    @test aliasee(ga) == other_gv
+    other_gv.initializer = ConstantInt(Int32(0))
+    ga.aliasee = other_gv
+    @test ga.aliasee == other_gv
     as1_gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeAS1Global", 1)
-    @test_throws ArgumentError aliasee!(ga, as1_gv)
+    @test_throws ArgumentError ga.aliasee = as1_gv
     @test_throws ArgumentError GlobalAlias(mod, LLVM.Int32Type(), ConstantInt(Int32(0)), "BadAlias")
     if supports_typed_pointers(ctx)
         @test_throws ArgumentError GlobalAlias(mod, LLVM.Int64Type(), gv, "BadAlias")
     end
 
     # the address space is taken from the aliasee
-    initializer!(as1_gv, ConstantInt(Int32(0)))
+    as1_gv.initializer = ConstantInt(Int32(0))
     as1_ga = GlobalAlias(mod, as1_gv, "SomeAS1Alias")
-    @test addrspace(value_type(as1_ga)) == 1
+    @test as1_ga.value_type.addrspace == 1
     as0_ga = GlobalAlias(mod, LLVM.Int32Type(),
                          const_addrspacecast(as1_gv, LLVM.PointerType(LLVM.Int32Type())),
                          "SomeAS0Alias")
-    @test addrspace(value_type(as0_ga)) == 0
-    @test aliasee(as0_ga) isa ConstantExpr
+    @test as0_ga.value_type.addrspace == 0
+    @test as0_ga.aliasee isa ConstantExpr
 
     @test verify(mod) === nothing
 end
@@ -1162,7 +1162,7 @@ end
     ft = LLVM.FunctionType(LLVM.Int32Type())
     impl = LLVM.Function(mod, "impl", ft)
     other_impl = LLVM.Function(mod, "other_impl", ft)
-    resolver_ft = LLVM.FunctionType(value_type(impl))
+    resolver_ft = LLVM.FunctionType(impl.value_type)
     resolver_fn = LLVM.Function(mod, "resolver", resolver_ft)
     other_resolver_fn = LLVM.Function(mod, "other_resolver", resolver_ft)
     @dispose builder=IRBuilder() begin
@@ -1178,14 +1178,14 @@ end
     @test ifunc isa LLVM.GlobalObject
     show(devnull, ifunc)
 
-    @test name(ifunc) == "SomeIFunc"
-    @test global_value_type(ifunc) == ft
-    @test resolver(ifunc) == resolver_fn
+    @test ifunc.name == "SomeIFunc"
+    @test ifunc.global_value_type == ft
+    @test ifunc.resolver == resolver_fn
 
-    resolver!(ifunc, other_resolver_fn)
-    @test resolver(ifunc) == other_resolver_fn
+    ifunc.resolver = other_resolver_fn
+    @test ifunc.resolver == other_resolver_fn
     as1_gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeAS1Global", 1)
-    @test_throws ArgumentError resolver!(ifunc, as1_gv)
+    @test_throws ArgumentError ifunc.resolver = as1_gv
     @test_throws ArgumentError GlobalIFunc(mod, ft, ConstantInt(Int32(0)), "BadIFunc")
 
     @test verify(mod) === nothing
@@ -1198,12 +1198,12 @@ end
 # aliases and ifuncs are recognized when encountered as operands
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
-    initializer!(gv, ConstantInt(Int32(42)))
+    gv.initializer = ConstantInt(Int32(42))
     ga = GlobalAlias(mod, gv, "SomeAlias")
 
     ft = LLVM.FunctionType(LLVM.Int32Type())
     fn = LLVM.Function(mod, "SomeFunction", ft)
-    resolver_fn = LLVM.Function(mod, "resolver", LLVM.FunctionType(value_type(fn)))
+    resolver_fn = LLVM.Function(mod, "resolver", LLVM.FunctionType(fn.value_type))
     position!(builder, BasicBlock(resolver_fn, "entry"))
     ret!(builder, fn)
     ifunc = GlobalIFunc(mod, ft, resolver_fn, "SomeIFunc")
@@ -1215,9 +1215,9 @@ end
 
     @test operands(ld)[1] isa GlobalAlias
     @test operands(ld)[1] == ga
-    @test called_operand(call) isa GlobalIFunc
-    @test called_operand(call) == ifunc
-    @test ga in user.(collect(uses(gv)))
+    @test call.called_operand isa GlobalIFunc
+    @test call.called_operand == ifunc
+    @test ga in [use.user for use in uses(gv)]
 
     @test verify(mod) === nothing
 end
@@ -1355,34 +1355,34 @@ end
     loc = metadata(inst)["dbg"]
 
     @test loc isa DILocation
-    @test LLVM.line(loc) == 94
-    @test LLVM.column(loc) == 0
+    @test loc.line == 94
+    @test loc.column == 0
 
-    scope = LLVM.scope(loc)
+    scope = loc.scope
     @test scope isa DISubProgram
-    @test LLVM.line(scope) == 0
-    @test LLVM.name(scope) == "Float64;"
+    @test scope.line == 0
+    @test scope.name == "Float64;"
 
-    file = LLVM.file(scope)
+    file = scope.file
     @test file isa DIFile
-    @test LLVM.filename(file) == "float.jl"
-    @test LLVM.directory(file) == "."
-    @test LLVM.source(file) == ""
+    @test file.filename == "float.jl"
+    @test file.directory == "."
+    @test file.source == ""
 
-    loc = LLVM.inlined_at(loc)
+    loc = loc.inlined_at
     @test loc isa DILocation
-    @test LLVM.line(loc) == 7
+    @test loc.line == 7
 
-    loc = LLVM.inlined_at(loc)
-    @test loc isa DILocation
-
-    loc = LLVM.inlined_at(loc)
+    loc = loc.inlined_at
     @test loc isa DILocation
 
-    loc = LLVM.inlined_at(loc)
+    loc = loc.inlined_at
     @test loc isa DILocation
 
-    loc = LLVM.inlined_at(loc)
+    loc = loc.inlined_at
+    @test loc isa DILocation
+
+    loc = loc.inlined_at
     @test loc === nothing
 
     dispose(mod)
@@ -1399,9 +1399,9 @@ end
     @dispose mod=LLVM.Module("SomeModule") begin
         @test context(mod) == ctx
 
-        @test name(mod) == "SomeModule"
-        name!(mod, "SomeOtherName")
-        @test name(mod) == "SomeOtherName"
+        @test mod.name == "SomeModule"
+        mod.name = "SomeOtherName"
+        @test mod.name == "SomeOtherName"
     end
 
     LLVM.Module("SomeModule") do mod
@@ -1416,24 +1416,24 @@ end
 
     show(devnull, mod)
 
-    inline_asm!(mod, "nop")
-    @test split(inline_asm(mod)) == ["nop"]
-    inline_asm!(mod, "nop")
-    @test split(inline_asm(mod)) == ["nop", "nop"]
-    inline_asm!(mod, "nop"; overwrite=true)
-    @test split(inline_asm(mod)) == ["nop"]
+    append_inline_asm!(mod, "nop")
+    @test split(mod.inline_asm) == ["nop"]
+    append_inline_asm!(mod, "nop")
+    @test split(mod.inline_asm) == ["nop", "nop"]
+    mod.inline_asm = "nop"
+    @test split(mod.inline_asm) == ["nop"]
 
     dummyTriple = "SomeTriple"
-    triple!(mod, dummyTriple)
-    @test triple(mod) == dummyTriple
+    mod.triple = dummyTriple
+    @test mod.triple == dummyTriple
 
     dummyLayout = "e-p:64:64:64"
-    datalayout!(mod, dummyLayout)
-    @test string(datalayout(mod)) == dummyLayout
+    mod.datalayout = dummyLayout
+    @test string(mod.datalayout) == dummyLayout
 
     md = Metadata(ConstantInt(42))
 
-    mod_flags = flags(mod)
+    mod_flags = module_flags(mod)
     mod_flags["foobar", LLVM.API.LLVMModuleFlagBehaviorError] = md
 
     @test occursin("!llvm.module.flags = !{!0}", string(mod))
@@ -1442,9 +1442,9 @@ end
     @test mod_flags["foobar"] == md
     @test_throws KeyError mod_flags["foobaz"]
 
-    @test sdk_version(mod) === nothing
-    sdk_version!(mod, v"1.2.3")
-    @test sdk_version(mod) == v"1.2.3"
+    @test mod.sdk_version === nothing
+    mod.sdk_version = v"1.2.3"
+    @test mod.sdk_version == v"1.2.3"
 end
 
 # metadata iteration
@@ -1503,19 +1503,19 @@ end
     b = GlobalVariable(mod, LLVM.Int32Type(), "b")
     gvs = globals(mod)
 
-    @test name.(collect(gvs)) == ["c", "a", "b"]
+    @test [gv.name for gv in gvs] == ["c", "a", "b"]
     move_before(b, c)
-    @test name.(collect(gvs)) == ["b", "c", "a"]
+    @test [gv.name for gv in gvs] == ["b", "c", "a"]
     move_after(b, a)
-    @test name.(collect(gvs)) == ["c", "a", "b"]
+    @test [gv.name for gv in gvs] == ["c", "a", "b"]
     move_before(a, a)
-    @test name.(collect(gvs)) == ["c", "a", "b"]
+    @test [gv.name for gv in gvs] == ["c", "a", "b"]
     @test length(collect(gvs)) == 3
 
     @test sort!(gvs) === gvs
-    @test name.(collect(gvs)) == ["a", "b", "c"]
+    @test [gv.name for gv in gvs] == ["a", "b", "c"]
     @test sort!(gvs; rev=true) === gvs
-    @test name.(collect(gvs)) == ["c", "b", "a"]
+    @test [gv.name for gv in gvs] == ["c", "b", "a"]
     @test all(haskey(gvs, name) for name in ("a", "b", "c"))
     @test occursin(r"(?s)@c.*@b.*@a", string(mod))
 end
@@ -1523,11 +1523,11 @@ end
 # global alias and ifunc iteration
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
-    ft = LLVM.FunctionType(value_type(gv))
+    ft = LLVM.FunctionType(gv.value_type)
     resolver_fn = LLVM.Function(mod, "resolver", ft)
     @dispose builder=IRBuilder() begin
         position!(builder, BasicBlock(resolver_fn, "entry"))
-        ret!(builder, null(value_type(gv)))
+        ret!(builder, null(gv.value_type))
     end
 
     # names are unique across all global values, so use a different prefix for each kind
@@ -1543,7 +1543,7 @@ end
 
         x = create("x")
         y = create("ÿ")
-        @test endswith(name(y), "_ÿ")
+        @test endswith(y.name, "_ÿ")
         @test !isempty(iter)
         @test collect(iter) == [x, y]
         @test first(iter) == x
@@ -1553,8 +1553,8 @@ end
         @test prevf(y) == x
         @test prevf(x) === nothing
 
-        @test haskey(iter, name(y))
-        @test iter[name(y)] == y
+        @test haskey(iter, y.name)
+        @test iter[y.name] == y
         @test !haskey(iter, "z")
         @test_throws KeyError iter["z"]
     end
@@ -1613,19 +1613,19 @@ end
     b = LLVM.Function(mod, "b", ft)
     fns = functions(mod)
 
-    @test name.(collect(fns)) == ["c", "a", "b"]
+    @test [f.name for f in fns] == ["c", "a", "b"]
     move_before(b, c)
-    @test name.(collect(fns)) == ["b", "c", "a"]
+    @test [f.name for f in fns] == ["b", "c", "a"]
     move_after(b, a)
-    @test name.(collect(fns)) == ["c", "a", "b"]
+    @test [f.name for f in fns] == ["c", "a", "b"]
     move_after(a, a)
-    @test name.(collect(fns)) == ["c", "a", "b"]
+    @test [f.name for f in fns] == ["c", "a", "b"]
     @test length(collect(fns)) == 3
 
     @test sort!(fns) === fns
-    @test name.(collect(fns)) == ["a", "b", "c"]
+    @test [f.name for f in fns] == ["a", "b", "c"]
     @test sort!(fns; rev=true) === fns
-    @test name.(collect(fns)) == ["c", "b", "a"]
+    @test [f.name for f in fns] == ["c", "b", "a"]
     @test all(haskey(fns, name) for name in ("a", "b", "c"))
     @test occursin(r"(?s)@c.*@b.*@a", string(mod))
 end
@@ -1740,15 +1740,15 @@ end
                             LLVM.FunctionType(LLVM.Int32Type(); vararg=true))
 
     pers_alias = GlobalAlias(mod, pers_fn, "PersonalityAlias")
-    personality!(fn, pers_alias)
-    @test personality(fn) == pers_alias
-    @test personality(fn) isa GlobalAlias
+    fn.personality = pers_alias
+    @test fn.personality == pers_alias
+    @test fn.personality isa GlobalAlias
 
     pers_cast = const_bitcast(pers_fn, LLVM.PointerType(LLVM.Int8Type()))
-    personality!(fn, pers_cast)
-    @test personality(fn) == pers_cast
+    fn.personality = pers_cast
+    @test fn.personality == pers_cast
     if supports_typed_pointers(ctx)
-        @test personality(fn) isa ConstantExpr
+        @test fn.personality isa ConstantExpr
     end
 end
 
@@ -1758,32 +1758,32 @@ end
 
     show(devnull, fn)
 
-    @test personality(fn) === nothing
+    @test fn.personality === nothing
     pers_ft = LLVM.FunctionType(LLVM.Int32Type(); vararg=true)
     pers_fn = LLVM.Function(mod, "PersonalityFunction", ft)
-    personality!(fn, pers_fn)
-    @test personality(fn) == pers_fn
-    personality!(fn, nothing)
-    @test personality(fn) === nothing
+    fn.personality = pers_fn
+    @test fn.personality == pers_fn
+    fn.personality = nothing
+    @test fn.personality === nothing
     erase!(pers_fn)
 
     @test !isintrinsic(fn)
 
-    @test callconv(fn) == LLVM.API.LLVMCCallConv
-    callconv!(fn, LLVM.API.LLVMFastCallConv)
-    @test callconv(fn) == LLVM.API.LLVMFastCallConv
+    @test fn.callconv == LLVM.API.LLVMCCallConv
+    fn.callconv = LLVM.API.LLVMFastCallConv
+    @test fn.callconv == LLVM.API.LLVMFastCallConv
 
-    @test LLVM.gc(fn) == ""
-    gc!(fn, "SomeGC")
-    @test LLVM.gc(fn) == "SomeGC"
+    @test fn.gc == ""
+    fn.gc = "SomeGC"
+    @test fn.gc == "SomeGC"
 
-    @test alignment(fn) == 0
-    alignment!(fn, 16)
-    @test alignment(fn) == 16
+    @test fn.alignment == 0
+    fn.alignment = 16
+    @test fn.alignment == 16
     @check_ir fn "align 16"
-    @test_throws ArgumentError alignment!(fn, 3)
-    alignment!(fn, 0)
-    @test alignment(fn) == 0
+    @test_throws ArgumentError fn.alignment = 3
+    fn.alignment = 0
+    @test fn.alignment == 0
 
     let fns = functions(mod)
         @test fn in fns
@@ -1803,17 +1803,17 @@ end
 
     @test !isoverloaded(intr)
 
-    @test name(intr) == "llvm.trap"
+    @test intr.name == "llvm.trap"
 
     ft = LLVM.FunctionType(intr)
     @test ft isa LLVM.FunctionType
-    @test return_type(ft) == LLVM.VoidType()
+    @test ft.return_type == LLVM.VoidType()
 
     fn = LLVM.Function(mod, intr)
     @test fn isa LLVM.Function
 
     if supports_typed_pointers(ctx)
-        @test eltype(value_type(fn)) == ft
+        @test eltype(fn.value_type) == ft
     end
     @test isintrinsic(fn)
 
@@ -1831,16 +1831,17 @@ end
 
     @test isoverloaded(intr)
 
-    @test name(intr, [LLVM.DoubleType()]) == "llvm.sin.f64"
+    @test intr.name == "llvm.sin"
+    @test LLVM.overloaded_name(intr, [LLVM.DoubleType()]) == "llvm.sin.f64"
 
     ft = LLVM.FunctionType(intr, [LLVM.DoubleType()])
     @test ft isa LLVM.FunctionType
-    @test return_type(ft) == LLVM.DoubleType()
+    @test ft.return_type == LLVM.DoubleType()
 
     fn = LLVM.Function(mod, intr, [LLVM.DoubleType()])
     @test fn isa LLVM.Function
     if supports_typed_pointers(ctx)
-        @test eltype(value_type(fn)) == ft
+        @test eltype(fn.value_type) == ft
     end
     @test isintrinsic(fn)
 
@@ -1864,8 +1865,8 @@ end
         @test length(instr_attrs) == 0
 
         let attr = EnumAttribute("sspreq", 0)
-            @test kind(attr) != 0
-            @test value(attr) == 0
+            @test attr.kind != 0
+            @test attr.value == 0
             push!(attrs, attr)
             @test collect(attrs) == [attr]
 
@@ -1873,8 +1874,8 @@ end
             @test length(attrs) == 0
         end
         let instr_attr = EnumAttribute("sspreq", 0)
-            @test kind(instr_attr) != 0
-            @test value(instr_attr) == 0
+            @test instr_attr.kind != 0
+            @test instr_attr.value == 0
             push!(instr_attrs, instr_attr)
             @test collect(instr_attrs) == [instr_attr]
 
@@ -1883,8 +1884,8 @@ end
         end
 
         let attr = StringAttribute("nounwind", "")
-            @test kind(attr) == "nounwind"
-            @test value(attr) == ""
+            @test attr.kind == "nounwind"
+            @test attr.value == ""
             push!(attrs, attr)
             @test collect(attrs) == [attr]
 
@@ -1892,8 +1893,8 @@ end
             @test length(attrs) == 0
         end
         let instr_attr = StringAttribute("nounwind", "")
-            @test kind(instr_attr) == "nounwind"
-            @test value(instr_attr) == ""
+            @test instr_attr.kind == "nounwind"
+            @test instr_attr.value == ""
             push!(instr_attrs, instr_attr)
             @test collect(instr_attrs) == [instr_attr]
 
@@ -1902,8 +1903,8 @@ end
         end
 
         let attr = TypeAttribute("sret", LLVM.Int32Type())
-            @test kind(attr) != 0
-            @test value(attr) ==  LLVM.Int32Type()
+            @test attr.kind != 0
+            @test attr.value ==  LLVM.Int32Type()
 
             push!(attrs, attr)
             @test collect(attrs) == [attr]
@@ -1912,8 +1913,8 @@ end
             @test length(attrs) == 0
         end
         let instr_attr = TypeAttribute("sret", LLVM.Int32Type())
-            @test kind(instr_attr) != 0
-            @test value(instr_attr) ==  LLVM.Int32Type()
+            @test instr_attr.kind != 0
+            @test instr_attr.value ==  LLVM.Int32Type()
 
             push!(instr_attrs, instr_attr)
             @test collect(instr_attrs) == [instr_attr]
@@ -1925,7 +1926,7 @@ end
         if LLVM.version() >= v"19"
             let attr = ConstantRangeAttribute("range", 32, UInt64[0], UInt64[100])
                 @test attr isa ConstantRangeAttribute
-                @test kind(attr) != 0
+                @test attr.kind != 0
                 push!(return_attributes(fn), attr)
                 collected = collect(return_attributes(fn))
                 @test any(a -> a isa ConstantRangeAttribute, collected)
@@ -1968,12 +1969,12 @@ if LLVM.version() >= v"16"
         @test effects[:argmem] == :readwrite
         @test effects[:inaccessiblemem] == :read
         @test effects[:other] == :read
-        @test access(effects) == :readwrite
+        @test effects.access == :readwrite
     end
     @test MemoryEffects() == MemoryEffects(:none)
     @test all(loc -> MemoryEffects(:write)[loc] == :write, locations)
-    @test access(MemoryEffects(:none)) == :none
-    @test access(MemoryEffects(argmem=:read, inaccessiblemem=:write)) == :readwrite
+    @test MemoryEffects(:none).access == :none
+    @test MemoryEffects(argmem=:read, inaccessiblemem=:write).access == :readwrite
     @test MemoryEffects(argmem=:read) | MemoryEffects(argmem=:write, other=:read) ==
           MemoryEffects(argmem=:readwrite, other=:read)
     @test MemoryEffects(:read) & MemoryEffects(argmem=:readwrite) == MemoryEffects(argmem=:read)
@@ -2020,12 +2021,12 @@ if LLVM.version() >= v"16"
         mod = parse(LLVM.Module, ir)
         for (i, (str, effects)) in enumerate(cases)
             f = functions(mod)["f$i"]
-            @test memory_effects(f) == effects
+            @test f.memory_effects == effects
             @test MemoryEffects(only(collect(function_attributes(f)))) == effects
 
             # the attribute we create is printed like the one LLVM parsed
-            g = LLVM.Function(mod, "g$i", function_type(f))
-            memory_effects!(g, effects)
+            g = LLVM.Function(mod, "g$i", f.function_type)
+            g.memory_effects = effects
             @test occursin(str, string(g))
         end
         @test verify(mod) === nothing
@@ -2036,20 +2037,21 @@ if LLVM.version() >= v"16"
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
         ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
         fn = LLVM.Function(mod, "SomeFunction", ft)
-        @test memory_effects(fn) == MemoryEffects(:readwrite)
+        @test fn.memory_effects == MemoryEffects(:readwrite)
 
-        memory_effects!(fn, MemoryEffects(:read))
-        @test memory_effects(fn) == MemoryEffects(:read)
+        fn.memory_effects = MemoryEffects(:read)
+        @test fn.memory_effects == MemoryEffects(:read)
         # setting the memory effects again replaces the attribute
-        memory_effects!(fn, MemoryEffects(argmem=:read))
-        @test memory_effects(fn) == MemoryEffects(argmem=:read)
+        fn.memory_effects = MemoryEffects(argmem=:read)
+        @test fn.memory_effects == MemoryEffects(argmem=:read)
         @test length(function_attributes(fn)) == 1
 
         attr = EnumAttribute(MemoryEffects(:none))
         @test MemoryEffects(attr) == MemoryEffects(:none)
         @test_throws ArgumentError MemoryEffects(EnumAttribute("nounwind"))
-        @test_throws ArgumentError memory_effects(parameter_attributes(fn, 1))
-        @test_throws ArgumentError memory_effects!(return_attributes(fn), MemoryEffects())
+        @test MemoryEffects(function_attributes(fn)) == MemoryEffects(argmem=:read)
+        @test_throws ArgumentError MemoryEffects(parameter_attributes(fn, 1))
+        @test_throws ArgumentError MemoryEffects(return_attributes(fn))
 
         caller = LLVM.Function(mod, "SomeCaller", ft)
         position!(builder, BasicBlock(caller, "entry"))
@@ -2057,11 +2059,13 @@ if LLVM.version() >= v"16"
         ret!(builder)
 
         # only the attributes of the call site are considered
-        @test memory_effects(function_attributes(call)) == MemoryEffects(:readwrite)
-        memory_effects!(function_attributes(call), MemoryEffects(:none))
-        @test memory_effects(function_attributes(call)) == MemoryEffects(:none)
+        @test MemoryEffects(function_attributes(call)) == MemoryEffects(:readwrite)
+        push!(function_attributes(call), EnumAttribute(MemoryEffects(:read)))
+        push!(function_attributes(call), EnumAttribute(MemoryEffects(:none)))
+        @test MemoryEffects(function_attributes(call)) == MemoryEffects(:none)
+        @test length(function_attributes(call)) == 1
         @test occursin("memory(none)", string(mod))     # nothing else has these effects
-        @test_throws ArgumentError memory_effects(argument_attributes(call, 1))
+        @test_throws ArgumentError MemoryEffects(argument_attributes(call, 1))
 
         @test verify(mod) === nothing
     end
@@ -2098,7 +2102,7 @@ end
     @test isempty(blocks(fn))
 
     entrybb = BasicBlock(fn, "SomeBasicBlock")
-    @test entry(fn) == entrybb
+    @test fn.entry == entrybb
     let bbs = blocks(fn)
         @test eltype(bbs) == BasicBlock
 
@@ -2131,7 +2135,7 @@ end
     @test_throws BoundsError first(blocks(fn))
     @test_throws BoundsError last(blocks(fn))
     bb2 = BasicBlock(fn, "SomeOtherBasicBlock")
-    @test LLVM.parent(bb2) == fn
+    @test bb2.parent == fn
     @test isempty(instructions(bb2))
     @test isempty(predecessors(bb2))
     @test_throws ArgumentError successors(bb2)
@@ -2140,7 +2144,7 @@ end
     @test_throws BoundsError last(instructions(bb2))
 
     bb1 = BasicBlock(bb2, "SomeBasicBlock")
-    @test LLVM.parent(bb2) == fn
+    @test bb2.parent == fn
     position!(builder, bb1)
     brinst = br!(builder, bb2)
     position!(builder, bb2)
@@ -2149,8 +2153,8 @@ end
     @test collect(predecessors(bb2)) == [bb1]
     @test collect(successors(bb1)) == [bb2]
 
-    @test terminator(bb1) == brinst
-    @test terminator(bb2) == retinst
+    @test bb1.terminator == brinst
+    @test bb2.terminator == retinst
 
     @test prevblock(bb1) === nothing
     @test nextblock(bb1) == bb2
@@ -2158,8 +2162,8 @@ end
     @test nextblock(bb2) === nothing
 
     bb3 = BasicBlock("YetAnotherBasicBlock")
-    @test LLVM.parent(bb3) == nothing
-    @test terminator(bb3) == nothing
+    @test bb3.parent == nothing
+    @test bb3.terminator == nothing
     # XXX: can we insert this block into the function?
 
     # instruction iteration
@@ -2220,7 +2224,7 @@ end
     position!(builder, bb1)
     addinst = add!(builder, parameters(fn)[1], parameters(fn)[2])
     brinst = br!(builder, parameters(fn)[1], bb2, bb3)
-    @test opcode(brinst) == LLVM.API.LLVMBr
+    @test brinst.opcode == LLVM.API.LLVMBr
 
     @test previnst(addinst) === nothing
     @test nextinst(addinst) == brinst
@@ -2247,11 +2251,11 @@ end
 
     @test isterminator(brinst)
     @test isconditional(brinst)
-    @test condition(brinst) == parameters(fn)[1]
-    condition!(brinst, parameters(fn)[2])
-    @test condition(brinst) == parameters(fn)[2]
+    @test brinst.condition == parameters(fn)[1]
+    brinst.condition = parameters(fn)[2]
+    @test brinst.condition == parameters(fn)[2]
 
-    let succ = successors(terminator(bb1))
+    let succ = successors(bb1.terminator)
         @test eltype(succ) == BasicBlock
 
         @test length(succ) == 2
@@ -2281,7 +2285,7 @@ end
 
     # general stuff
 
-    @test LLVM.parent(brinst) == bb1
+    @test brinst.parent == bb1
 
     # metadata
     mdval = MDNode([MDString("whatever")])
@@ -2310,7 +2314,7 @@ end
     @test retinst in instructions(bb3)
     remove!(retinst)
     @test !(retinst in instructions(bb3))
-    @test opcode(retinst) == LLVM.API.LLVMRet   # make sure retinst is still alive
+    @test retinst.opcode == LLVM.API.LLVMRet   # make sure retinst is still alive
 
     @test brinst in instructions(bb1)
     erase!(brinst)

@@ -3,8 +3,7 @@
 # TODO: this is a _very_ ugly wrapper, but hard to improve since we can't deduce the type
 #       of a GenericValue, and need to pass concrete LLVM type objects to the API
 
-export GenericValue, dispose,
-       intwidth
+export GenericValue, dispose
 
 """
     GenericValue
@@ -15,12 +14,20 @@ Note that only simple types are supported, and for most use cases it is recommen
 to look up the address of the compiled function and `ccall` it directly.
 
 This object needs to be disposed of using [`dispose`](@ref).
+
+# Properties
+
+    val.intwidth
+
+The bit width of the integer value stored in the generic value.
 """
 @checked struct GenericValue
     ref::API.LLVMGenericValueRef
 end
 
 Base.unsafe_convert(::Type{API.LLVMGenericValueRef}, val::GenericValue) = mark_use(val).ref
+
+@properties GenericValue
 
 """
     dispose(val::GenericValue)
@@ -46,12 +53,9 @@ GenericValue(typ::IntegerType, N::Unsigned) =
         API.LLVMCreateGenericValueOfInt(typ,
                                         reinterpret(Culonglong, convert(UInt64, N)), false)))
 
-"""
-    intwidth(val::GenericValue)
+intwidth(val::GenericValue) = Int(API.LLVMGenericValueIntWidth(val))
 
-Get the bit width of the integer value stored in the generic value.
-"""
-intwidth(val::GenericValue) = API.LLVMGenericValueIntWidth(val)
+@property GenericValue intwidth
 
 """
     convert(::Type{<:Integer}, val::GenericValue)

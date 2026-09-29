@@ -15,7 +15,7 @@ end
 
     @test occursin(dlstr, sprint(io->show(io,dl)))
 
-    @test byteorder(dl) == LLVM.API.LLVMBigEndian
+    @test dl.byteorder == LLVM.API.LLVMBigEndian
     @test pointersize(dl) == pointersize(dl, 0) == 4
 
     @test intptr(dl) == intptr(dl, 0) == LLVM.Int32Type()
@@ -28,8 +28,8 @@ end
         gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
         @test preferred_alignment(dl, gv) == 4
 
-        datalayout!(mod, dl)
-        @test string(datalayout(mod)) == string(dl)
+        mod.datalayout = dl
+        @test string(mod.datalayout) == string(dl)
     end
 
     elem = [LLVM.Int32Type(), LLVM.FloatType()]
@@ -38,9 +38,9 @@ end
         @test offsetof(dl, st, 1) == 4
     end
 
-    @test globals_addrspace(dl) == 0
+    @test dl.globals_addrspace == 0
     @dispose dl2=DataLayout(dlstr*"-G1") begin
-        @test globals_addrspace(dl2) == 1
+        @test dl2.globals_addrspace == 1
     end
 end
 

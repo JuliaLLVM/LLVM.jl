@@ -5,7 +5,6 @@ Instruction
 copy(::Instruction)
 remove!(::Instruction)
 erase!(::Instruction)
-LLVM.parent(::Instruction)
 ```
 
 ## Creating instructions
@@ -14,14 +13,11 @@ LLVM.parent(::Instruction)
 IRBuilder
 IRBuilder()
 dispose(::IRBuilder)
-context(::IRBuilder)
 position
 position!(::IRBuilder, ::Instruction)
 position!(::IRBuilder, ::BasicBlock)
 position!(::IRBuilder)
 insert!(::IRBuilder, ::Instruction, ::String)
-debug_location
-debug_location!
 ```
 
 ## Attributes
@@ -32,32 +28,20 @@ argument_attributes(::LLVM.CallBase, ::Integer)
 return_attributes(::LLVM.CallBase)
 ```
 
-## Comparison instructions
-
-```@docs
-predicate
-```
-
 ## Atomic instructions
 
 ```@docs
+LLVM.AtomicInst
+```
+
+```@docs
 isatomic
-ordering
-ordering!
 SyncScope
-name(::SyncScope)
-syncscope
-syncscope!
-binop
 LLVM.isavailable
 isweak
 weak!
 isvolatile
 volatile!
-success_ordering
-success_ordering!
-failure_ordering
-failure_ordering!
 merged_ordering
 strongest_failure_ordering
 is_stronger
@@ -99,13 +83,13 @@ insert_masked_value!
 ## Call instructions
 
 ```@docs
-callconv(::LLVM.CallBase)
-callconv!(::LLVM.CallBase, ::Any)
+LLVM.CallBase
+```
+
+```@docs
 istailcall
 tailcall!
-called_operand
 arguments
-called_type
 ```
 
 ### Operand Bundles
@@ -113,7 +97,6 @@ called_type
 ```@docs
 OperandBundle
 operand_bundles
-tag(::LLVM.OperandBundle)
 inputs
 ```
 
@@ -122,9 +105,6 @@ inputs
 ```@docs
 isterminator
 isconditional
-condition
-condition!
-default_dest
 case_value
 case_value!
 successors(::Instruction)
@@ -156,13 +136,11 @@ samesign!
 ## Floating Point instructions
 
 ```@docs
-fast_math
 fast_math!
 ```
 
 ## Alignment
 
 ```@docs
-alignment(::LLVM.AlignedInst)
-alignment!(::LLVM.AlignedInst, ::Integer)
+LLVM.AlignedInst
 ```

@@ -221,3 +221,79 @@ julia> ctx = Context();
 julia> exit()
 WARNING: An instance of Context was not properly disposed of.
 ```
+
+
+## Properties
+
+```@meta
+DocTestSetup = quote
+    using LLVM
+
+    if context(; throw_error=false) === nothing
+        Context()
+    end
+end
+```
+
+Attributes of LLVM objects, like the name of a value, the linkage of a global, or the line
+number of a debug location, are available as properties:
+
+```jldoctest properties
+julia> mod = LLVM.Module("SomeModule");
+
+julia> mod.triple = "x86_64-unknown-linux-gnu";
+
+julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "counter");
+
+julia> gv.initializer = ConstantInt(Int32(0));
+
+julia> gv.linkage = LLVM.API.LLVMInternalLinkage;
+
+julia> gv.name, gv.linkage
+("counter", LLVM.API.LLVMInternalLinkage)
+
+julia> gv
+@counter = internal global i32 0
+```
+
+Use `propertynames`, or tab completion in the REPL, to discover which properties an object
+has. Properties that cannot be changed, like `value_type`, throw an error when assigned to.
+
+Properties are the only public way to access these attributes. To pass a property to a
+higher-order function, use an anonymous function:
+
+```jldoctest properties
+julia> map(gv -> gv.name, globals(mod))
+1-element Vector{String}:
+ "counter"
+```
+
+The docstring of each type lists its properties in a "Properties" section, with
+signatures like `gv.linkage`, followed by `gv.linkage = linkage` for properties that can
+be assigned to. The documentation is available in the REPL too, e.g., using
+`?LLVM.GlobalVariable`.
+
+Properties expose named characteristics and distinguished relationships of an object: its
+name, its linkage, its initializer, the block it is part of, the terminator of a block,
+etc. Functions are used to test conditions, to access and traverse collections, for lookups
+that take a key or other arguments, and for operations that modify the IR:
+
+| Kind                         | Examples                                                                 |
+|:---------------------------- |:------------------------------------------------------------------------ |
+| properties                   | `f.name`, `gv.linkage = ...`, `inst.parent.parent`, `bb.terminator`, `f.entry`, `loc.line` |
+| predicates                   | `isdeclaration(f)`, `isvolatile(inst)`, with setters like `volatile!(inst, true)` |
+| collections and traversal    | `functions(mod)`, `blocks(f)`, `operands(inst)`, `uses(val)`, `nextinst(inst)` |
+| keyed and parameterized lookups | `metadata(inst)[kind]`, `module_flags(mod)[key]`, `LLVM.overloaded_name(intrinsic, types)` |
+
+Predicates are functions so that they can be passed to higher-order functions, e.g.,
+`filter(isdeclaration, functions(mod))`.
+
+Reading a property retrieves information that is attached to the object. It may perform a
+lookup or convert LLVM's representation (e.g., copying a string), but it does not run an
+analysis, traverse the IR, or construct a collection of IR objects.
+
+This mostly corresponds to LLVM's C++ API, which makes it easy to port code: C++ getters and
+setters like `F->getName()`/`F->setName(...)` and `I->getParent()` become properties,
+`GV->isThreadLocal()`/`GV->setThreadLocal(true)` become `isthreadlocal(gv)` and
+`threadlocal!(gv, true)`, and iteration like `for (auto &I : BB)` becomes
+`for inst in instructions(bb)`.

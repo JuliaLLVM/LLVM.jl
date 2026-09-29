@@ -223,7 +223,7 @@ top:
   ret i64 %2
 }
 
-julia> dst = LLVM.Function(mod, "new_add", function_type(src));
+julia> dst = LLVM.Function(mod, "new_add", src.function_type);
 
 julia> value_map = Dict(
             parameters(src)[1] => parameters(dst)[1],
@@ -245,7 +245,7 @@ arguments of the new destination function. This is a powerful tool, which makes 
 to splice IR into functions that have different signatures:
 
 ```jldoctest
-julia> dst = LLVM.Function(mod, "new_add", function_type(src));
+julia> dst = LLVM.Function(mod, "new_add", src.function_type);
 
 julia> # let's swap the arguments around
        value_map = Dict(
@@ -288,7 +288,7 @@ Finally, it is also possible to clone just a basic block, inserting it at the en
 a function. This differs from a simple call to `copy` in that it also accepts a value map:
 
 ```jldoctest
-julia> bb = entry(src);
+julia> bb = src.entry;
 
 julia> # let's again an argument by a constant
        value_map = Dict(

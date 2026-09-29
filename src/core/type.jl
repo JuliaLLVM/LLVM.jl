@@ -4,8 +4,15 @@ export LLVMType, issized, context
     LLVMType
 
 Abstract supertype for all LLVM types.
+
+# Properties
+
+    typ.context
+
+The context in which the type was created.
 """
 abstract type LLVMType end
+@properties LLVMType
 
 # subtypes must be immutable structs with a single `ref::API.LLVMTypeRef` field
 # (see `check_layout`)
@@ -76,12 +83,9 @@ See also: [`sizeof(::DataLayout, ::LLVMType)`](@ref).
 """
 issized(typ::LLVMType) = API.LLVMTypeIsSized(typ) |> Bool
 
-"""
-    context(typ::LLVMType)
-
-Returns the context in which the given type was created.
-"""
 context(typ::LLVMType) = Context(API.LLVMGetTypeContext(typ))
+
+@property LLVMType context
 
 Base.string(typ::LLVMType) = unsafe_message(API.LLVMPrintTypeToString(typ))
 
@@ -98,12 +102,18 @@ Base.isempty(@nospecialize(T::LLVMType)) = false
 
 ## integer
 
-export width
-
 """
     LLVM.IntegerType <: LLVMType
 
 Type representing arbitrary bit width integers.
+
+# Properties
+
+    inttyp.width
+
+The bit width of the integer type.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct IntegerType <: LLVMType
     ref::API.LLVMTypeRef
@@ -129,12 +139,9 @@ for T in [:Int1, :Int8, :Int16, :Int32, :Int64, :Int128]
     end
 end
 
-"""
-    width(inttyp::LLVM.IntegerType)
-
-Get the bit width of the given integer type.
-"""
 width(inttyp::IntegerType) = Int(API.LLVMGetIntTypeWidth(inttyp))
+
+@property IntegerType width
 
 
 ## floating-point
@@ -212,12 +219,20 @@ PPCFP128Type
 
 ## function types
 
-export isvararg, return_type, parameters
+export isvararg, parameters
 
 """
     LLVM.FunctionType <: LLVMType
 
 A function type, representing a function signature.
+
+# Properties
+
+    ft.return_type
+
+The return type of the function type.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct FunctionType <: LLVMType
     ref::API.LLVMTypeRef
@@ -230,7 +245,8 @@ register(FunctionType, API.LLVMFunctionTypeKind)
 Create a function type with the given `rettyp` return type and `params` parameter types.
 The `vararg` argument indicates whether the function is variadic.
 
-See also: [`isvararg`](@ref), [`return_type`](@ref), [`parameters`](@ref).
+See also: [`isvararg`](@ref), the [`return_type`](@ref LLVM.FunctionType) property,
+[`parameters`](@ref).
 """
 FunctionType(rettyp::LLVMType, params::Vector{<:LLVMType}=LLVMType[];
              vararg::Bool=false) =
@@ -244,12 +260,9 @@ Check whether the given function type is variadic.
 """
 isvararg(ft::FunctionType) = API.LLVMIsFunctionVarArg(ft) |> Bool
 
-"""
-    return_type(ft::LLVM.FunctionType)
-
-Get the return type of the given function type.
-"""
 return_type(ft::FunctionType) = LLVMType(API.LLVMGetReturnType(ft))
+
+@property FunctionType return_type
 
 """
     parameters(ft::LLVM.FunctionType)
@@ -266,12 +279,20 @@ end
 
 ## pointer types
 
-export addrspace, isopaque
+export isopaque
 
 """
     LLVM.PointerType <: LLVMType
 
 A pointer type.
+
+# Properties
+
+    ptrtyp.addrspace
+
+The address space of the pointer type.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct PointerType <: LLVMType
     ref::API.LLVMTypeRef
@@ -284,7 +305,8 @@ register(PointerType, API.LLVMPointerTypeKind)
 Create a typed pointer type with the given `eltyp` and `addrspace`. This is only supported
 when the context still supports typed pointers.
 
-See also: [`addrspace`](@ref), [`supports_typed_pointers`](@ref).
+See also: the [`addrspace`](@ref LLVM.PointerType) property,
+[`supports_typed_pointers`](@ref).
 """
 function PointerType(eltyp::LLVMType, addrspace=0)
     return PointerType(API.LLVMPointerType(eltyp, addrspace))
@@ -295,7 +317,7 @@ end
 
 Create an opaque pointer type in the given `addrspace`.
 
-See also: [`addrspace`](@ref), [`isopaque`](@ref).
+See also: the [`addrspace`](@ref LLVM.PointerType) property, [`isopaque`](@ref).
 """
 function PointerType(addrspace=0)
     return PointerType(API.LLVMPointerTypeInContext(context(), addrspace))
@@ -319,12 +341,9 @@ Check whether the given pointer type is opaque.
 """
 isopaque(::PointerType)
 
-"""
-    addrspace(ptrtyp::LLVM.PointerType)
-
-Get the address space of the given pointer type.
-"""
 addrspace(ptrtyp::PointerType) = Int(API.LLVMGetPointerAddressSpace(ptrtyp))
+
+@property PointerType addrspace
 
 
 ## array types
@@ -399,12 +418,20 @@ Base.length(vectyp::VectorType) = Int(API.LLVMGetVectorSize(vectyp))
 
 ## structure types
 
-export name, ispacked, isopaque, elements!
+export ispacked, isopaque, elements!
 
 """
     LLVM.StructType <: LLVMType
 
 A structure type, representing a collection of named fields of potentially different types.
+
+# Properties
+
+    structtyp.name
+
+The name of the structure type, or `nothing` if it is a literal (unnamed) structure.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct StructType <: LLVMType
     ref::API.LLVMTypeRef
@@ -417,7 +444,7 @@ register(StructType, API.LLVMStructTypeKind)
 Create an opaque structure type with the given `name`. The structure can be later defined
 with [`elements!`](@ref).
 
-See also: [`name`](@ref).
+See also the [`name`](@ref LLVM.StructType) property.
 """
 function StructType(name::String)
     return StructType(API.LLVMStructCreateNamed(context(), name))
@@ -434,15 +461,12 @@ See also: [`ispacked`](@ref), [`elements`](@ref).
 StructType(elems::Vector{<:LLVMType}; packed::Bool=false) =
     StructType(API.LLVMStructTypeInContext(context(), elems, length(elems), packed))
 
-"""
-    name(structtyp::StructType)
-
-Get the name of the given structure type.
-"""
 function name(structtyp::StructType)
     cstr = API.LLVMGetStructName(structtyp)
     cstr == C_NULL ? nothing : unsafe_string(cstr)
 end
+
+@property StructType name
 
 """
     ispacked(structtyp::LLVM.StructType)

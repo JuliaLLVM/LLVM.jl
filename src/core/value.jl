@@ -7,8 +7,30 @@ export Value
     LLVM.Value
 
 Abstract type representing an LLVM value.
+
+# Properties
+
+    bb.name
+    bb.name = name::String
+
+The name of the basic block, like that of other values.
+
+    val.value_type
+
+The type of the value.
+
+    val.name
+    val.name = name::String
+
+The name of the value, or an empty string if it is unnamed. When assigning a name that is
+already in use in the same function or module, LLVM makes it unique by adding a suffix.
+
+    val.context
+
+The context in which the value was created.
 """
 abstract type Value end
+@properties Value
 
 # subtypes must be immutable structs with a single `ref::API.LLVMValueRef` field
 # (see `check_layout`)
@@ -61,31 +83,19 @@ end
 
 ## general APIs
 
-export value_type, name, name!, isconstant, isundef, ispoison, context
+export isconstant, isundef, ispoison, context
 
-"""
-    value_type(val::Value)
-
-Get the type of the given value.
-"""
 value_type(val::Value) = LLVMType(API.LLVMTypeOf(val))
 
 # defer size queries to the LLVM type (where we'll error)
 Base.sizeof(val::Value) = sizeof(value_type(val))
 
-"""
-    name(val::Value)
-
-Get the name of the given value.
-"""
 name(val::Value) = unsafe_string(API.LLVMGetValueName(val))
 
-"""
-    name!(val::Value, name::String)
-
-Set the name of the given value.
-"""
 name!(val::Value, name::String) = API.LLVMSetValueName(val, name)
+
+@property Value value_type
+@property Value name name!
 
 Base.string(val::Value) = unsafe_message(API.LLVMPrintValueToString(val))
 
@@ -124,12 +134,9 @@ Check if the given value is a poison value.
 """
 ispoison(val::Value) = API.LLVMIsPoison(val) |> Bool
 
-"""
-    context(val::LLVM.Value)
-
-Return the context in which the given value was created.
-"""
 context(val::Value) = Context(API.LLVMGetValueContext(val))
+
+@property Value context
 
 
 ## user values
@@ -144,7 +151,7 @@ include("value/constant.jl")
 
 ## usage
 
-export replace_uses!, replace_metadata_uses!, Use, user, value
+export replace_uses!, replace_metadata_uses!, Use
 
 """
     replace_uses!(old::LLVM.Value, new::LLVM.Value)
@@ -196,29 +203,31 @@ end
 """
     LLVM.Use
 
-A use of a value in the IR. Knows both the user and the used value.
+A use of a value in the IR, with properties for both the `user` and the used `value`.
 
-See also: [`user`](@ref), [`value`](@ref).
+# Properties
+
+    use.user
+
+The user of the use, i.e., the value that has the used value as an operand.
+
+    use.value
+
+The used value of the use.
 """
 @checked struct Use
     ref::API.LLVMUseRef
 end
+@properties Use
 
 Base.unsafe_convert(::Type{API.LLVMUseRef}, use::Use) = use.ref
 
-"""
-    user(use::LLVM.Use)
-
-Get the user of the given use.
-"""
 user(use::Use) =  Value(API.LLVMGetUser(     use))
 
-"""
-    value(use::LLVM.Use)
-
-Get the used value of the given use.
-"""
 value(use::Use) = Value(API.LLVMGetUsedValue(use))
+
+@property Use user
+@property Use value
 
 # use iteration
 

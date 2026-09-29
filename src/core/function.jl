@@ -1,13 +1,62 @@
-export erase!,
-       personality, personality!,
-       callconv, callconv!,
-       gc, gc!,
-       entry, function_type
+export erase!
 
 """
     LLVM.Function
 
 A function in the IR.
+
+# Properties
+
+    f.function_type
+
+The function type of the function, as opposed to the `value_type` property, which is the
+pointer type of the function constant.
+
+    f.personality
+    f.personality = persfn::Union{LLVM.Constant,Nothing}
+
+The personality function of the function, or `nothing` if it has none. Assigning `nothing`
+removes the personality function.
+
+The personality is usually a `Function`, but can be any constant referring to one, such as
+a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed pointers).
+
+    f.callconv
+    f.callconv = cc
+
+The calling convention of the function, e.g., `LLVM.API.LLVMFastCallConv`.
+
+    f.gc
+    f.gc = name::String
+
+The name of the garbage collector of the function, or an empty string if it has none.
+
+    f.alignment
+    f.alignment = bytes::Integer
+
+The alignment of the code of the function in bytes, or 0 if it has no explicit alignment.
+The assigned alignment must be a power of 2, or 0 to remove the explicit alignment.
+
+    f.entry
+
+The entry basic block of the function, or `nothing` if the function has no body.
+
+    f.memory_effects
+    f.memory_effects = effects::MemoryEffects
+
+The memory effects of the function, as described by its `memory` attribute, or
+`MemoryEffects(:readwrite)` if it doesn't have one. Assigning adds a `memory` attribute,
+replacing any existing one.
+
+See also: [`MemoryEffects`](@ref)
+
+    f.subprogram
+    f.subprogram = sp::DISubProgram
+
+The subprogram that describes the function, or `nothing` if it has none.
+
+The properties of [`GlobalValue`](@ref LLVM.GlobalValue) and [`Value`](@ref LLVM.Value) are
+available too.
 """
 Function
 # forward declaration of Function in src/core/basicblock.jl
@@ -22,13 +71,9 @@ Create a new function in the given module with the given name and function type.
 Function(mod::Module, name::String, ft::FunctionType) =
     Function(API.LLVMAddFunction(mod, name, ft))
 
-"""
-    function_type(f::Function) -> LLVM.FunctionType
-
-Get the function type of the given function. This returns a function type, as opposed to
-[`value_type`](@ref) which returns the pointer type of the function constant.
-"""
 function_type(Fn::Function) = FunctionType(API.LLVMGetFunctionType(Fn))
+
+@property Function function_type
 
 """
     empty!(f::Function)
@@ -64,86 +109,49 @@ module. Both functions must reside in the same module.
 """
 move_after(f::Function, pos::Function) = API.LLVMMoveFunctionAfter(f, pos)
 
-"""
-    personality(f::Function)
-
-Get the personality function of the given function, or `nothing` if it has none.
-
-The personality is usually a `Function`, but can be any constant referring to one, such as
-a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed pointers).
-"""
 function personality(f::Function)
     has_personality = API.LLVMHasPersonalityFn(f) |> Bool
     return has_personality ? Value(API.LLVMGetPersonalityFn(f)) : nothing
 end
 
-"""
-    personality!(f::Function, persfn::Constant)
-
-Set the personality function of the given function, which can be a `Function` or any other
-constant referring to one. Pass `nothing` to remove the personality function.
-"""
 function personality!(f::Function, persfn::Union{Nothing,Constant})
     api = version() >= v"20" ? API.LLVMSetPersonalityFn : API.LLVMSetPersonalityFn2
     api(f, something(persfn, C_NULL))
 end
 
-"""
-    callconv(f::Function)
+@property Function personality personality!
 
-Get the calling convention of the given function.
-"""
 callconv(f::Function) = API.LLVMGetFunctionCallConv(f)
 
-"""
-    callconv!(f::Function, cc)
-
-Set the calling convention of the given function.
-"""
 callconv!(f::Function, cc) = API.LLVMSetFunctionCallConv(f, cc)
 
-"""
-    gc(f::Function)
+@property Function callconv callconv!
 
-Get the garbage collector name of the given function, or an empty string if it has none.
-"""
 function gc(f::Function)
   ptr = API.LLVMGetGC(f)
   return ptr==C_NULL ? "" : unsafe_string(ptr)
 end
 
-"""
-    gc!(f::Function, name::String)
-
-Set the garbage collector name of the given function.
-"""
 gc!(f::Function, name::String) = API.LLVMSetGC(f, name)
 
-"""
-    alignment(f::Function)
+@property Function gc gc!
 
-Get the alignment of the code of the given function in bytes, or 0 if it has no explicit
-alignment.
-"""
 alignment(f::Function) = API.LLVMGetAlignment(f)
 
-"""
-    alignment!(f::Function, bytes::Integer)
-
-Set the alignment of the code of the given function to `bytes`, which must be a power of 2.
-Passing 0 removes the explicit alignment.
-"""
 function alignment!(f::Function, bytes::Integer)
     check_alignment(bytes; allow_zero=true)
     API.LLVMSetAlignment(f, bytes)
 end
 
-"""
-    entry(f::Function) -> BasicBlock
+@property Function alignment alignment!
 
-Get the entry basic block of the given function.
-"""
-entry(f::Function) = BasicBlock(API.LLVMGetEntryBasicBlock(f))
+function entry(f::Function)
+    # LLVM does not check whether the function has a body
+    API.LLVMCountBasicBlocks(f) == 0 && return nothing
+    BasicBlock(API.LLVMGetEntryBasicBlock(f))
+end
+
+@property Function entry
 
 
 # attributes
@@ -219,22 +227,20 @@ function Base.length(iter::FunctionAttrSet)
     API.LLVMGetAttributeCountAtIndex(iter.f, iter.idx)
 end
 
-export memory_effects, memory_effects!
-
 """
-    memory_effects(f::Function) -> MemoryEffects
-    memory_effects(attrs) -> MemoryEffects
+    MemoryEffects(attrs)
 
-Get the memory effects of a function, as described by its `memory` attribute, or
-`MemoryEffects(:readwrite)` if it doesn't have one. This also works on the function
-attributes of a call, `function_attributes(call)`, in which case only the attributes of the
-call site are considered (and not, e.g., those of the called function).
+Get the memory effects described by the `memory` attribute in the given function
+attributes, or `MemoryEffects(:readwrite)` if there is no such attribute. `attrs` can be
+the attributes of a function, `function_attributes(f)`, or of a call,
+`function_attributes(call)`. In the latter case, only the attributes of the call site are
+considered, and not, e.g., those of the called function. To set the memory effects, push
+the corresponding attribute: `push!(attrs, EnumAttribute(effects))`, which replaces any
+existing one.
 
-See also: [`MemoryEffects`](@ref), [`memory_effects!`](@ref)
+See also the `memory_effects` property of functions.
 """
-memory_effects(f::Function) = memory_effects(function_attributes(f))
-
-function memory_effects(iter::FunctionAttrSet)
+function MemoryEffects(iter::FunctionAttrSet)
     check_memory_effects_index(iter.idx)
     memory_locations()  # check that the attribute is supported
     ref = API.LLVMGetEnumAttributeAtIndex(iter.f, iter.idx, memory_kind())
@@ -242,23 +248,14 @@ function memory_effects(iter::FunctionAttrSet)
     return MemoryEffects(EnumAttribute(ref))
 end
 
-"""
-    memory_effects!(f::Function, effects::MemoryEffects)
-    memory_effects!(attrs, effects::MemoryEffects)
+memory_effects(f::Function) = MemoryEffects(function_attributes(f))
 
-Set the memory effects of a function, or of a call when passing `function_attributes(call)`,
-by adding a `memory` attribute (replacing any existing one).
-
-See also: [`MemoryEffects`](@ref), [`memory_effects`](@ref)
-"""
-memory_effects!(f::Function, effects::MemoryEffects) =
-    memory_effects!(function_attributes(f), effects)
-
-function memory_effects!(iter::FunctionAttrSet, effects::MemoryEffects)
-    check_memory_effects_index(iter.idx)
-    push!(iter, EnumAttribute(effects))
+function memory_effects!(f::Function, effects::MemoryEffects)
+    push!(function_attributes(f), EnumAttribute(effects))
     return
 end
+
+@property Function memory_effects memory_effects!
 
 check_memory_effects_index(idx::API.LLVMAttributeIndex) =
     idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex) ||
@@ -269,6 +266,19 @@ check_memory_effects_index(idx::API.LLVMAttributeIndex) =
 
 export Argument, parameters
 
+"""
+    LLVM.Argument
+
+A parameter of a function, as a value that can be used in its body.
+
+# Properties
+
+    arg.parent
+
+The function that the parameter belongs to.
+
+The properties of [`Value`](@ref LLVM.Value) are available too.
+"""
 @checked struct Argument <: Value
     ref::API.LLVMValueRef
 end
@@ -317,6 +327,10 @@ function Base.collect(iter::FunctionParameterSet)
     API.LLVMGetParams(iter.f, elems)
     return map(el->Argument(el), elems)
 end
+
+parent(arg::Argument) = Function(API.LLVMGetParamParent(arg))
+
+@property Argument parent
 
 
 # basic block iteration
@@ -404,6 +418,7 @@ end
 # intrinsics
 
 export isintrinsic, Intrinsic, isoverloaded
+@public overloaded_name
 
 """
     isintrinsic(f::Function)
@@ -412,6 +427,18 @@ Check if the given function is an intrinsic.
 """
 isintrinsic(f::Function) = API.LLVMGetIntrinsicID(f) != 0
 
+"""
+    LLVM.Intrinsic
+
+An LLVM intrinsic function, identified by its ID.
+
+# Properties
+
+    intr.name
+
+The name of the intrinsic. For overloaded intrinsics, this is the base name, e.g.,
+`llvm.sin`; see [`LLVM.overloaded_name`](@ref) to get the name of a specific overload.
+"""
 struct Intrinsic
     id::UInt32
 
@@ -425,26 +452,28 @@ struct Intrinsic
         new(API.LLVMLookupIntrinsicID(name, length(name)))
     end
 end
+@properties Intrinsic
 
 Base.convert(::Type{UInt32}, intr::Intrinsic) = intr.id
 
-"""
-    name(intr::LLVM.Intrinsic)
-
-Get the name of the given intrinsic.
-"""
 function name(intr::Intrinsic)
+    # LLVMIntrinsicGetName asserts that the intrinsic is not overloaded, but the name of an
+    # overload without any types is the base name
+    isoverloaded(intr) && return overloaded_name(intr, LLVMType[])
     len = Ref{Csize_t}()
     str = API.LLVMIntrinsicGetName(intr, len)
     unsafe_string(convert(Ptr{Cchar}, str), len[])
 end
 
-"""
-    name(intr::LLVM.Intrinsic, params::Vector{<:LLVMType})
+@property Intrinsic name
 
-Get the name of the given overloaded intrinsic with the given parameter types.
 """
-function name(intr::Intrinsic, params::Vector{<:LLVMType})
+    LLVM.overloaded_name(intr::LLVM.Intrinsic, params::Vector{<:LLVMType})
+
+Get the name of the given overloaded intrinsic with the given parameter types, e.g.,
+`llvm.sin.f64`.
+"""
+function overloaded_name(intr::Intrinsic, params::Vector{<:LLVMType})
     len = Ref{Csize_t}()
     str = API.LLVMIntrinsicCopyOverloadedName(intr, params, length(params), len)
     unsafe_message(convert(Ptr{Cchar}, str), len[])

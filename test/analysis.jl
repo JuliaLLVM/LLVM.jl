@@ -42,7 +42,7 @@ end
     position!(builder, bb1)
     allocinst1 = alloca!(builder, LLVM.Int8Type())
     brinst = br!(builder, parameters(fn)[1], bb2, bb3)
-    @test opcode(brinst) == LLVM.API.LLVMBr
+    @test brinst.opcode == LLVM.API.LLVMBr
 
     position!(builder, bb2)
     retinst2 = ret!(builder)

@@ -147,6 +147,22 @@ julia> effects.access
 :read
 ```
 
+The effects returned by the `memory_effects` property are a view of the function's
+`memory` attribute, so the access kind of a single location can be changed in place. Use
+`MemoryEffects(effects)` to get a value that doesn't change along with the function:
+
+```jldoctest function
+julia> saved = MemoryEffects(fun.memory_effects);
+
+julia> fun.memory_effects[:inaccessiblemem] = :write;
+
+julia> fun.memory_effects
+MemoryEffects(argmem=:read, inaccessiblemem=:write)
+
+julia> saved
+MemoryEffects(argmem=:read)
+```
+
 The `memory` attribute itself can be created with `EnumAttribute(effects)`, and decoded
 with `MemoryEffects(attr)`. That also works with a set of attributes, which is how the
 effects of a call site can be accessed: `MemoryEffects(function_attributes(call))` returns

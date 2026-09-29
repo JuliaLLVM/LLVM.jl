@@ -318,19 +318,40 @@ DocTestSetup = quote
 end
 ```
 
-Arithmetic instructions can be configured with different fast math flags, affecting
-optimizations that can be performed on the instruction. These flags can be queried using
-the `fast_math` property, and added using the `fast_math!` function:
+Floating-point instructions can be configured with different fast math flags, affecting
+optimizations that can be performed on the instruction. The `fast_math` property returns
+a `FastMathFlags` view of these flags, with a `Bool` property per flag that can be read and
+assigned to:
 
 ```jldoctest
 julia> inst = fadd!(builder, parameters(fun)[1], ConstantFP(1f0))
 %1 = fadd float %0, 1.000000e+00
 
 julia> inst.fast_math
-(nnan = false, ninf = false, nsz = false, arcp = false, contract = false, afn = false, reassoc = false)
+FastMathFlags()
 
-julia> fast_math!(inst; nnan=true)
+julia> inst.fast_math.nnan = true;
 
 julia> inst
 %1 = fadd nnan float %0, 1.000000e+00
+```
+
+Assigning to the `fast_math` property replaces all flags, clearing the ones that are not
+specified. The `fast` pseudo-flag stands for all flags:
+
+```jldoctest
+julia> inst = fadd!(builder, parameters(fun)[1], ConstantFP(1f0));
+
+julia> inst.fast_math = (; ninf=true, nsz=true);
+
+julia> inst.fast_math
+FastMathFlags(ninf=true, nsz=true)
+
+julia> inst.fast_math.fast = true;
+
+julia> inst
+%1 = fadd fast float %0, 1.000000e+00
+
+julia> NamedTuple(inst.fast_math)
+(nnan = true, ninf = true, nsz = true, arcp = true, contract = true, afn = true, reassoc = true)
 ```

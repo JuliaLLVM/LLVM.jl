@@ -842,11 +842,13 @@ end
 
     # make them fast math
     @test !instns[1].fast_math.contract
-    LLVM.fast_math!(instns[1]; all=true)
+    instns[1].fast_math.fast = true
     @test instns[1].fast_math.contract
-    LLVM.fast_math!(instns[2]; all=true)
-    @test_throws ArgumentError instns[3].fast_math
-    @test_throws ArgumentError LLVM.fast_math!(instns[3]; all=true)
+    instns[2].fast_math = instns[1].fast_math
+    @test instns[2].fast_math.fast
+    @test !hasproperty(instns[3], :fast_math)
+    @test_throws "has no property `fast_math`" instns[3].fast_math
+    @test_throws "has no property `fast_math`" instns[3].fast_math = (; fast=true)
 
     # optimize again
     optimize(mod)

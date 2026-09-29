@@ -42,11 +42,13 @@ The assigned alignment must be a power of 2, or 0 to remove the explicit alignme
 The entry basic block of the function, or `nothing` if the function has no body.
 
     f.memory_effects
-    f.memory_effects = effects::MemoryEffects
+    f.memory_effects = effects::Union{MemoryEffects,FunctionMemoryEffects}
 
 The memory effects of the function, as described by its `memory` attribute, or
-`MemoryEffects(:readwrite)` if it doesn't have one. Assigning adds a `memory` attribute,
-replacing any existing one.
+`MemoryEffects(:readwrite)` if it doesn't have one. The effects are returned as a
+[`FunctionMemoryEffects`](@ref) view, which can be used to change the access kind of a
+single location, e.g., `f.memory_effects[:argmem] = :read`. Assigning adds a `memory`
+attribute, replacing any existing one.
 
 See also: [`MemoryEffects`](@ref)
 
@@ -251,10 +253,59 @@ function MemoryEffects(iter::FunctionAttrSet)
     return MemoryEffects(EnumAttribute(ref))
 end
 
-memory_effects(f::Function) = MemoryEffects(function_attributes(f))
+@vocabulary IR FunctionMemoryEffects
 
-function memory_effects!(f::Function, effects::MemoryEffects)
-    push!(function_attributes(f), EnumAttribute(effects))
+"""
+    FunctionMemoryEffects
+
+The memory effects of a function, as returned by its `memory_effects` property. This is a
+view of the function's `memory` attribute, which supports the same operations as a
+[`MemoryEffects`](@ref) value: indexing (`effects[:argmem]`), the `access` property, `|`
+and `&`, and comparing to other effects. In addition, the access kind of a single location
+can be changed in place, which replaces the `memory` attribute of the function:
+
+```julia
+f.memory_effects[:argmem] = :read
+```
+
+Use `MemoryEffects(effects)` to get the current effects as a value, which doesn't change
+along with the function.
+"""
+struct FunctionMemoryEffects
+    f::Function
+end
+@properties FunctionMemoryEffects
+
+MemoryEffects(effects::FunctionMemoryEffects) =
+    MemoryEffects(function_attributes(getfield(effects, :f)))
+
+Base.getindex(effects::FunctionMemoryEffects, loc::Symbol) = MemoryEffects(effects)[loc]
+
+function Base.setindex!(effects::FunctionMemoryEffects, kind::Symbol, loc::Symbol)
+    pos = memory_location_pos(loc)
+    data = MemoryEffects(effects).data & ~(UInt32(0x3) << pos)
+    data |= memory_access_value(kind) << pos
+    memory_effects!(getfield(effects, :f), MemoryEffects(data))
+    return effects
+end
+
+access(effects::FunctionMemoryEffects) = access(MemoryEffects(effects))
+@property FunctionMemoryEffects access
+
+EnumAttribute(effects::FunctionMemoryEffects) = EnumAttribute(MemoryEffects(effects))
+
+# the view behaves like the effects it currently describes
+const AnyMemoryEffects = Union{MemoryEffects, FunctionMemoryEffects}
+Base.:(|)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) | MemoryEffects(b)
+Base.:(&)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) & MemoryEffects(b)
+Base.:(==)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) === MemoryEffects(b)
+Base.hash(effects::FunctionMemoryEffects, h::UInt) = hash(MemoryEffects(effects), h)
+Base.show(io::IO, effects::FunctionMemoryEffects) = show(io, MemoryEffects(effects))
+
+memory_effects(f::Function) = FunctionMemoryEffects(f)
+
+function memory_effects!(f::Function, effects::AnyMemoryEffects)
+    push!(function_attributes(f), EnumAttribute(MemoryEffects(effects)))
     return
 end
 

@@ -49,13 +49,55 @@
     @test !hasproperty(cmpxchg, :ordering)
     @test cmpxchg.success_ordering == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
 
-    # fast-math flags can only be added to, so they are a read-only property
+    # fast-math flags are a view of the instruction's flags, which can be modified in place
     flt = uitofp!(builder, val, LLVM.FloatType())
     fp = fadd!(builder, flt, flt)
-    fast_math!(fp; nnan=true)
-    fast_math!(fp; ninf=true)
-    @test fp.fast_math.nnan && fp.fast_math.ninf && !fp.fast_math.nsz
-    @test_throws "read-only" fp.fast_math = (; nsz=true)
+    flags = fp.fast_math
+    @test flags isa FastMathFlags
+    @test !flags.nnan && !flags.fast
+    @test repr(flags) == "FastMathFlags()"
+    @test (flags.nnan = true) === true
+    fp.fast_math.ninf = true
+    @test flags.nnan && flags.ninf && !flags.nsz
+    @check_ir fp "fadd nnan ninf float"
+    @test repr(flags) == "FastMathFlags(nnan=true, ninf=true)"
+    fp.fast_math.nnan = false
+    @test !fp.fast_math.nnan && fp.fast_math.ninf
+    @check_ir fp "fadd ninf float"
+    @test NamedTuple(fp.fast_math) == (nnan=false, ninf=true, nsz=false, arcp=false,
+                                       contract=false, afn=false, reassoc=false)
+    @test :nnan in propertynames(flags) && :fast in propertynames(flags)
+    @test_throws "cannot set property `nnan`" flags.nnan = 1
+    @test_throws "no property `foo`" flags.foo
+
+    # assigning replaces all flags
+    fp.fast_math = (; nsz=true, arcp=true)
+    @test NamedTuple(fp.fast_math) == (nnan=false, ninf=false, nsz=true, arcp=true,
+                                       contract=false, afn=false, reassoc=false)
+    @check_ir fp "fadd nsz arcp float"
+    fp.fast_math = (;)
+    @check_ir fp "fadd float"
+    fp.fast_math = (; fast=true)
+    @test fp.fast_math.fast && all(values(NamedTuple(fp.fast_math)))
+    @check_ir fp "fadd fast float"
+    @test repr(fp.fast_math) == "FastMathFlags(fast=true)"
+    fp.fast_math = (; fast=true, reassoc=false)
+    @test !fp.fast_math.fast && fp.fast_math.nnan && !fp.fast_math.reassoc
+    fp.fast_math.fast = false
+    @test fp.fast_math == FastMathFlags(fadd!(builder, flt, flt))
+    @test_throws ArgumentError fp.fast_math = (; foo=true)
+    @test_throws ArgumentError fp.fast_math = (; nnan=1)
+
+    # ... also with the flags of another instruction
+    other = fmul!(builder, flt, flt)
+    other.fast_math = (; afn=true, contract=true)
+    fp.fast_math = other.fast_math
+    @test fp.fast_math == other.fast_math
+    @test hash(fp.fast_math) == hash(other.fast_math)
+    @test flags == other.fast_math  # a view, so it reflects the new flags
+    @check_ir fp "fadd contract afn float"
+    @test !hasproperty(val, :fast_math)  # an integer operation
+    @test_throws "has no property `fast_math`" val.fast_math
 
     # debug locations can be cleared by assigning `nothing`
     LLVM.DIBuilder(mod) do dib
@@ -124,7 +166,7 @@ end
 # internal, except for `context`, which also provides the task-local context
 @static if VERSION >= v"1.11"
     # functions that are named like a property setter, but that do something else
-    unrelated = (:context!, :fast_math!, :binop!, :expression!, :file!, :subprogram!)
+    unrelated = (:context!, :binop!, :expression!, :file!, :subprogram!)
     for name in unique(last.(LLVM.property_registry))
         name === :context && continue
         @test !Base.ispublic(LLVM, name)
@@ -164,7 +206,7 @@ end
     # the vocabularies re-export LLVM's bindings
     # including the instruction types, and the groups of instructions that have properties
     @test LLVM.IR.CallInst === LLVM.CallInst
-    for name in (:CallBase, :AtomicInst, :MemAccessInst, :AlignedInst, :NoWrapInst, :ExactInst, :NonNegInst)
+    for name in (:CallBase, :AtomicInst, :MemAccessInst, :AlignedInst, :NoWrapInst, :ExactInst, :NonNegInst, :FPMathInst)
         @test Base.isexported(LLVM.IR, name)
     end
     @test LLVM.IR.functions === LLVM.functions

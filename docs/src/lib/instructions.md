@@ -114,7 +114,11 @@ incoming
 ## Floating Point instructions
 
 ```@docs
-fast_math!
+LLVM.FPMathInst
+```
+
+```@docs
+FastMathFlags
 ```
 
 ## Alignment

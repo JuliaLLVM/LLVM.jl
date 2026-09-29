@@ -137,7 +137,8 @@ replaces the `readnone`, `readonly`, `writeonly`, `argmemonly`, `inaccessiblemem
 `inaccessiblemem_or_argmemonly` function attributes. Use `EnumAttribute(effects)` to create
 that attribute and `MemoryEffects(attrs)` to decode it from a set of function or call
 attributes, or the [`memory_effects`](@ref LLVM.Function) property of a function to
-get and set it directly.
+get and set it directly. That property returns a [`FunctionMemoryEffects`](@ref) view,
+which `MemoryEffects(effects)` converts to a value.
 
 The access kind of every location is one of `:none`, `:read`, `:write` or `:readwrite`, and
 defaults to `default`. The locations are:
@@ -181,6 +182,8 @@ struct MemoryEffects
     MemoryEffects(data::UInt32) = new(data)
 end
 @properties MemoryEffects
+
+MemoryEffects(effects::MemoryEffects) = effects
 
 # The memory locations of the LLVM version in use, in the order of LLVM's `IRMemLocation`.
 # This needs to be kept in sync with `llvm/Support/ModRef.h` when adding a new LLVM version.

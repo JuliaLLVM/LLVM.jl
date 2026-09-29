@@ -16,13 +16,6 @@ of a basic block.
 
 The opcode of the instruction, e.g., `LLVM.API.LLVMAdd`.
 
-    inst.fast_math
-
-The fast-math flags of a floating-point instruction, as a named tuple of booleans
-(`nnan`, `ninf`, `nsz`, `arcp`, `contract`, `afn` and `reassoc`; see [`fast_math!`](@ref)
-for their meaning). This property is read-only: LLVM only supports adding flags, using
-`fast_math!`.
-
     inst.debug_location
     inst.debug_location = loc::Union{DILocation,Nothing}
 
@@ -1045,8 +1038,9 @@ Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has t
 The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
 available too.
 """
-const NoWrapInst = version() >= v"19" ? Union{AddInst, SubInst, MulInst, ShlInst, TruncInst} :
-                                        Union{AddInst, SubInst, MulInst, ShlInst}
+const NoWrapInst = version() >= v"19" ?
+    Union{AddInst, SubInst, MulInst, ShlInst, TruncInst} :
+    Union{AddInst, SubInst, MulInst, ShlInst}
 @vocabulary IR ExactInst
 
 """
@@ -1131,31 +1125,27 @@ end
 
 ## floating point operations
 
-@vocabulary IR fast_math!
+@vocabulary IR FastMathFlags
 
-function fast_math(inst::Instruction)
-    if !Bool(API.LLVMCanValueUseFastMathFlags(inst))
-        throw(ArgumentError("Instruction cannot use fast math flags"))
-    end
-    flags = API.LLVMGetFastMathFlags(inst)
-    return (;
-        nnan = flags & LLVM.API.LLVMFastMathNoNaNs != 0,
-        ninf = flags & LLVM.API.LLVMFastMathNoInfs != 0,
-        nsz = flags & LLVM.API.LLVMFastMathNoSignedZeros != 0,
-        arcp = flags & LLVM.API.LLVMFastMathAllowReciprocal != 0,
-        contract = flags & LLVM.API.LLVMFastMathAllowContract != 0,
-        afn = flags & LLVM.API.LLVMFastMathApproxFunc != 0,
-        reassoc = flags & LLVM.API.LLVMFastMathAllowReassoc != 0,
-    )
-end
+# the fast-math flags and their bit in LLVM's `LLVMFastMathFlags`
+const fast_math_flag_bits = (
+    nnan = UInt32(API.LLVMFastMathNoNaNs),
+    ninf = UInt32(API.LLVMFastMathNoInfs),
+    nsz = UInt32(API.LLVMFastMathNoSignedZeros),
+    arcp = UInt32(API.LLVMFastMathAllowReciprocal),
+    contract = UInt32(API.LLVMFastMathAllowContract),
+    afn = UInt32(API.LLVMFastMathApproxFunc),
+    reassoc = UInt32(API.LLVMFastMathAllowReassoc),
+)
+const fast_math_all_bits = UInt32(API.LLVMFastMathAll)
 
 """
-    fast_math!(inst::Instruction; [flag=...], [all=...])
+    FastMathFlags
 
-Add fast math flags to an instruction. Flags that are already set remain set. If `all` is
-`true`, then all flags are set.
+The fast-math flags of a floating-point instruction, as returned by its `fast_math`
+property. This is a view of the flags of that instruction: each flag is a `Bool` property,
+which reads the flag from the instruction, and sets or clears it when assigned to:
 
-The following flags are supported:
  - `nnan`: assume arguments and results are not NaN
  - `ninf`: assume arguments and results are not Inf
  - `nsz`: treat the sign of zero arguments and results as insignificant
@@ -1163,29 +1153,144 @@ The following flags are supported:
  - `contract`: allow contraction of operations
  - `afn`: allow substitution of approximate calculations for functions
  - `reassoc`: allow reassociation of operations
+
+In addition, `fast` is `true` when all flags are set (which LLVM prints as `fast`), and
+assigning to it sets or clears all flags.
+
+Use `NamedTuple(flags)` to get the value of every flag, and assign to the `fast_math`
+property of the instruction to replace all flags at once. Two sets of flags are equal when
+the same flags are set.
+
+# Examples
+
+```julia
+inst.fast_math.nnan = true      # set a single flag
+inst.fast_math.nnan             # true
+inst.fast_math = (; ninf=true)  # replace all flags, clearing the others
+inst.fast_math.fast = true      # set all flags
+```
 """
-function fast_math!(inst::Instruction; nnan=false, ninf=false, nsz=false, arcp=false,
-                          contract=false, afn=false, reassoc=false, all=false)
-    if !Bool(API.LLVMCanValueUseFastMathFlags(inst))
-        throw(ArgumentError("Instruction cannot use fast math flags"))
+struct FastMathFlags
+    inst::Instruction
+
+    function FastMathFlags(inst::Instruction)
+        Bool(API.LLVMCanValueUseFastMathFlags(inst)) ||
+            throw(ArgumentError("Instruction cannot use fast math flags"))
+        new(inst)
     end
-    if all
-        API.LLVMSetFastMathFlags(inst, LLVM.API.LLVMFastMathAll)
-    else
-        flags = 0
-        nnan && (flags |= LLVM.API.LLVMFastMathNoNaNs)
-        ninf && (flags |= LLVM.API.LLVMFastMathNoInfs)
-        nsz && (flags |= LLVM.API.LLVMFastMathNoSignedZeros)
-        arcp && (flags |= LLVM.API.LLVMFastMathAllowReciprocal)
-        contract && (flags |= LLVM.API.LLVMFastMathAllowContract)
-        afn && (flags |= LLVM.API.LLVMFastMathApproxFunc)
-        reassoc && (flags |= LLVM.API.LLVMFastMathAllowReassoc)
-        API.LLVMSetFastMathFlags(inst, flags)
+end
+@properties FastMathFlags
+
+fast_math_bits(flags::FastMathFlags) =
+    UInt32(API.LLVMGetFastMathFlags(getfield(flags, :inst)))
+
+# unlike `LLVMSetFastMathFlags`, which only adds flags, this replaces them
+set_fast_math_bits!(flags::FastMathFlags, bits::UInt32) =
+    API.LLVMExtraSetFastMathFlags(getfield(flags, :inst), bits)
+
+for (flag, bit) in pairs(fast_math_flag_bits)
+    @eval begin
+        getprop(flags::FastMathFlags, ::Val{$(QuoteNode(flag))}) =
+            fast_math_bits(flags) & $bit != 0
+        function setprop!(flags::FastMathFlags, ::Val{$(QuoteNode(flag))}, v::Bool)
+            bits = fast_math_bits(flags)
+            set_fast_math_bits!(flags, v ? bits | $bit : bits & ~$bit)
+            return v
+        end
+        push!(property_registry, (FastMathFlags, $(QuoteNode(flag))))
     end
 end
 
-# read-only, because LLVM's `setFastMathFlags` adds to the existing flags
-@property Instruction fast_math
+getprop(flags::FastMathFlags, ::Val{:fast}) =
+    fast_math_bits(flags) & fast_math_all_bits == fast_math_all_bits
+function setprop!(flags::FastMathFlags, ::Val{:fast}, v::Bool)
+    set_fast_math_bits!(flags, v ? fast_math_all_bits : UInt32(0))
+    return v
+end
+push!(property_registry, (FastMathFlags, :fast))
+
+function Base.NamedTuple(flags::FastMathFlags)
+    bits = fast_math_bits(flags)
+    return map(bit -> bits & bit != 0, fast_math_flag_bits)
+end
+
+Base.:(==)(a::FastMathFlags, b::FastMathFlags) = fast_math_bits(a) == fast_math_bits(b)
+Base.hash(flags::FastMathFlags, h::UInt) =
+    hash(fast_math_bits(flags), hash(FastMathFlags, h))
+
+function Base.show(io::IO, flags::FastMathFlags)
+    print(io, "FastMathFlags(")
+    if flags.fast
+        print(io, "fast=true")
+    else
+        bits = fast_math_bits(flags)
+        join(io, ("$flag=true" for (flag, bit) in pairs(fast_math_flag_bits)
+                  if bits & bit != 0), ", ")
+    end
+    print(io, ")")
+end
+
+fast_math(inst::Instruction) = FastMathFlags(inst)
+
+function fast_math!(inst::Instruction, flags::FastMathFlags)
+    set_fast_math_bits!(FastMathFlags(inst), fast_math_bits(flags))
+    return
+end
+
+function fast_math!(inst::Instruction, flags::NamedTuple)
+    for (flag, v) in pairs(flags)
+        if flag !== :fast && !haskey(fast_math_flag_bits, flag)
+            valid = join(map(repr, (keys(fast_math_flag_bits)..., :fast)), ", ")
+            throw(ArgumentError("Unknown fast-math flag $(repr(flag)); expected $valid"))
+        end
+        v isa Bool || throw(ArgumentError("Fast-math flags must be Bools, got $(repr(v))"))
+    end
+    bits = get(flags, :fast, false) ? fast_math_all_bits : UInt32(0)
+    for (flag, v) in pairs(flags)
+        flag === :fast && continue
+        bit = fast_math_flag_bits[flag]
+        bits = v ? bits | bit : bits & ~bit
+    end
+    set_fast_math_bits!(FastMathFlags(inst), bits)
+    return
+end
+
+# the instructions that can be an `FPMathOperator`, which depends on the LLVM version
+@vocabulary IR FPMathInst
+
+"""
+    LLVM.FPMathInst
+
+The group of floating-point operations that can have fast-math flags, like LLVM's
+`FPMathOperator`: `fneg`, `fadd`, `fsub`, `fmul`, `fdiv`, `frem` and `fcmp`, `fptrunc` and
+`fpext` on LLVM 20+, `uitofp` and `sitofp` on LLVM 23+, and `phi`, `select` and `call`
+instructions of floating-point type.
+
+# Properties
+
+    inst.fast_math
+    inst.fast_math = flags::Union{NamedTuple,FastMathFlags}
+
+The fast-math flags of a floating-point instruction, as a [`FastMathFlags`](@ref) view
+that can be used to inspect and change individual flags, e.g.,
+`inst.fast_math.nnan = true`. Only available on the instructions that LLVM considers
+floating-point operations; `phi`, `select` and `call` instructions only have fast-math
+flags if they produce a floating-point value, and throw an `ArgumentError` otherwise.
+
+Assigning replaces all flags: with a named tuple of `Bool`s (e.g., `(; nnan=true,
+ninf=true)`), the flags that are not specified are cleared, while `fast=true` sets all
+flags that are not specified. The flags can also be copied from another instruction by
+assigning its `FastMathFlags`.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
+"""
+const FPMathInst = Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemInst, FCmpInst,
+                         PHIInst, SelectInst, CallInst,
+                         (version() >= v"20" ? (FPTruncInst, FPExtInst) : ())...,
+                         (version() >= v"23" ? (UIToFPInst, SIToFPInst) : ())...}
+
+@property FPMathInst fast_math fast_math!
 
 
 ## alignment

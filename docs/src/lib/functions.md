@@ -27,6 +27,7 @@ return_attributes(::LLVM.Function)
 
 ```@docs
 MemoryEffects
+FunctionMemoryEffects
 EnumAttribute(::MemoryEffects)
 ```
 

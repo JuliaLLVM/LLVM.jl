@@ -2069,6 +2069,41 @@ if LLVM.version() >= v"16"
         @test fn.memory_effects == MemoryEffects(argmem=:read)
         @test length(function_attributes(fn)) == 1
 
+        # the property is a view of the function's memory effects
+        effects = fn.memory_effects
+        @test effects isa FunctionMemoryEffects
+        @test MemoryEffects(effects) isa MemoryEffects
+        @test MemoryEffects(effects) == effects == MemoryEffects(argmem=:read)
+        @test hash(effects) == hash(MemoryEffects(argmem=:read))
+        @test effects[:argmem] == :read && effects[:other] == :none
+        @test effects.access == :read
+        @test repr(effects) == "MemoryEffects(argmem=:read)"
+        @test effects | MemoryEffects(other=:write) ==
+              MemoryEffects(argmem=:read, other=:write)
+        @test effects & MemoryEffects(:write) == MemoryEffects(:none)
+        value = MemoryEffects(effects)
+
+        # ... which can be modified in place
+        effects[:inaccessiblemem] = :write
+        @test fn.memory_effects == MemoryEffects(argmem=:read, inaccessiblemem=:write)
+        @test effects.access == :readwrite
+        @test occursin("memory(argmem: read, inaccessiblemem: write)", string(fn))
+        @test value == MemoryEffects(argmem=:read)  # values don't change
+        @test length(function_attributes(fn)) == 1
+        fn.memory_effects[:argmem] = :none
+        @test fn.memory_effects == MemoryEffects(inaccessiblemem=:write)
+        @test_throws ArgumentError effects[:globalmem] = :read
+        @test_throws ArgumentError effects[:argmem] = :everything
+
+        # ... or replaced wholesale, also with the effects of another function
+        other = LLVM.Function(mod, "OtherFunction", ft)
+        other.memory_effects[:other] = :read   # starts from `readwrite`
+        @test other.memory_effects == MemoryEffects(:readwrite; other=:read)
+        other.memory_effects = fn.memory_effects
+        @test other.memory_effects == MemoryEffects(inaccessiblemem=:write)
+        fn.memory_effects = MemoryEffects(argmem=:read)
+        @test other.memory_effects == MemoryEffects(inaccessiblemem=:write)
+
         attr = EnumAttribute(MemoryEffects(:none))
         @test MemoryEffects(attr) == MemoryEffects(:none)
         @test_throws ArgumentError MemoryEffects(EnumAttribute("nounwind"))

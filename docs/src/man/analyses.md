@@ -37,6 +37,10 @@ ERROR: LLVM error: Instruction does not dominate all uses!
   ret i32 %ret
 ```
 
+Functions can be verified in the same way, using `verify(f)`. To handle invalid IR without
+catching an exception, e.g., to report it with more context, use `verification_error`,
+which returns the verifier's message, or `nothing` if the IR is valid.
+
 
 ## Dominator and post-dominator
 

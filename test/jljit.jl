@@ -40,8 +40,7 @@ end
 
         jd_main = JITDylib(jljit, "main")
 
-        prefix = LLVM.get_prefix(jljit)
-        dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(prefix)
+        dg = LLVM.DynamicLibrarySearchGenerator(jljit)
         add!(jd_main, dg)
 
         addr = lookup(jljit, jd_main, "jl_apply_generic")
@@ -218,7 +217,7 @@ end
                 LLVM.API.LLVMOrcCSymbolAliasMapEntry(
                     mangle(jljit, "foo"), flags))
 
-            mu = LLVM.reexports(lctm, ism, jd, Ref(entry))
+            mu = LLVM.lazy_reexports(lctm, ism, jd, Ref(entry))
             LLVM.define(jd, mu)
 
             # 2. Lookup address of entry symbol
@@ -229,7 +228,7 @@ end
             sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(jljit, "foo"), flags)
 
             function materialize(mr)
-                syms = LLVM.get_requested_symbols(mr)
+                syms = LLVM.requested_symbols(mr)
                 @assert length(syms) == 1
 
                 # syms contains mangled symbols

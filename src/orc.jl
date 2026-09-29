@@ -338,10 +338,10 @@ The generator is specific to the target of `jit`, whose linker mangling it undoe
 looking up symbols.
 """
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}) =
-    process_search_generator(get_prefix(jit))
+    process_search_generator(global_prefix(jit))
 
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}, path::AbstractString) =
-    library_search_generator(path, get_prefix(jit))
+    library_search_generator(path, global_prefix(jit))
 
 function process_search_generator(prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
@@ -356,9 +356,6 @@ function library_search_generator(path, prefix)
                                                                  C_NULL)
     mark_alloc(DefinitionGenerator(ref[]))
 end
-
-# old name, used by downstream packages
-CreateDynamicLibrarySearchGeneratorForProcess(prefix) = process_search_generator(prefix)
 
 function __try_to_generate(generator::API.LLVMOrcDefinitionGeneratorRef, ctx::Ptr{Cvoid},
                            lookup_state::Ptr{API.LLVMOrcLookupStateRef},
@@ -552,7 +549,14 @@ function emit(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::Thre
 end
 
 
-function get_requested_symbols(mr::MaterializationResponsibility)
+"""
+    LLVM.requested_symbols(mr::LLVM.MaterializationResponsibility)
+
+Get the names of the symbols that were requested from the materialization unit that `mr`
+is responsible for. These names are borrowed: retain them before handing them to APIs that
+take ownership, or using them after the responsibility has been fulfilled.
+"""
+function requested_symbols(mr::MaterializationResponsibility)
     N = Ref{Csize_t}()
     ptr = API.LLVMOrcMaterializationResponsibilityGetRequestedSymbols(mr, N)
     syms = map(LLVMSymbol, Base.unsafe_wrap(Array, ptr, N[], own=false))
@@ -761,8 +765,38 @@ function dispose(lcm::LazyCallThroughManager)
     API.LLVMOrcDisposeLazyCallThroughManager(lcm)
 end
 
-function reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager, jd::JITDylib, symbols)
-    ref = API.LLVMOrcLazyReexports(lctm, ism, jd, symbols, length(symbols))
+"""
+    LLVM.lazy_reexports(lctm, ism, source_jd, aliases)
+
+Create a materialization unit that defines lazy reexports of symbols in `source_jd`.
+`aliases` is a collection of `alias => target` or `alias => (target, flags)` pairs of
+[`LLVM.LLVMSymbol`](@ref)s, with `flags` defaulting to an exported and callable symbol.
+
+Looking up an alias does not materialize its target. Instead, the alias resolves to a stub
+(managed by the indirect stubs manager `ism`) that calls into the lazy call-through manager
+`lctm` the first time it is called, which then looks up the target and updates the stub.
+Both managers must stay alive for as long as the stubs can be called.
+
+The unit takes ownership of one reference for each occurrence of a name: when multiple
+aliases share a target, retain the target an additional time for every extra alias.
+"""
+function lazy_reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager,
+                        jd::JITDylib, aliases::Union{AbstractVector{<:Pair},AbstractDict})
+    # validate everything before taking ownership of the names
+    syms = LLVMSymbol[first(pair) for pair in aliases]
+    allunique(syms) || throw(ArgumentError("duplicate alias names"))
+    aliases = map(collect(aliases)) do (alias, def)
+        target, flags = def isa Tuple ? def : (def, symbol_flags(callable=true))
+        API.LLVMOrcCSymbolAliasMapPair(alias,
+            API.LLVMOrcCSymbolAliasMapEntry(target, flags))
+    end
+    lazy_reexports(lctm, ism, jd, aliases)
+end
+
+# raw form, taking a collection of `API.LLVMOrcCSymbolAliasMapPair`s
+function lazy_reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager,
+                        jd::JITDylib, aliases)
+    ref = API.LLVMOrcLazyReexports(lctm, ism, jd, aliases, length(aliases))
     MaterializationUnit(ref)
 end
 

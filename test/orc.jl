@@ -80,14 +80,6 @@ end
 end
 
 @testset "DynamicLibrarySearchGenerator" begin
-    # the process generator, under its old name
-    @dispose lljit=LLJIT() begin
-        @test_throws LLVMException lookup(lljit, "jl_apply_generic")
-        dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(LLVM.get_prefix(lljit))
-        add!(JITDylib(lljit), dg)
-        @test pointer(lookup(lljit, "jl_apply_generic")) != C_NULL
-    end
-
     # a specific library
     @dispose lljit=LLJIT() begin
         path = String(Base.libllvm_path())
@@ -343,7 +335,7 @@ end
 @testset "Symbols" begin
     @dispose lljit=LLJIT() begin
         sym = mangle(lljit, "foo")
-        @test String(sym) == string(sym) == (LLVM.get_prefix(lljit) == 0 ? "foo" : "_foo")
+        @test String(sym) == string(sym) == (LLVM.global_prefix(lljit) == 0 ? "foo" : "_foo")
         @test occursin(repr(String(sym)), repr(sym))
 
         # symbols are interned
@@ -549,15 +541,8 @@ end
         try
             # 1. define entry symbol
             entry_sym = "foo_entry"
-            flags = LLVM.API.LLVMJITSymbolFlags(
-                LLVM.API.LLVMJITSymbolGenericFlagsCallable |
-                LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-            entry = LLVM.API.LLVMOrcCSymbolAliasMapPair(
-                mangle(lljit, entry_sym),
-                LLVM.API.LLVMOrcCSymbolAliasMapEntry(
-                    mangle(lljit, "foo"), flags))
-
-            mu = LLVM.reexports(lctm, ism, jd, Ref(entry))
+            mu = LLVM.lazy_reexports(lctm, ism, jd,
+                                     [mangle(lljit, entry_sym) => mangle(lljit, "foo")])
             LLVM.define(jd, mu)
 
             # 2. Lookup address of entry symbol
@@ -565,10 +550,8 @@ end
             @test pointer(addr) != C_NULL
 
             # 3. add MU that will call back into the compiler
-            sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(lljit, "foo"), flags)
-
             function materialize(mr)
-                syms = LLVM.get_requested_symbols(mr)
+                syms = LLVM.requested_symbols(mr)
                 @assert length(syms) == 1
 
                 # syms contains mangled symbols
@@ -609,7 +592,8 @@ end
             function discard(jd, sym)
             end
 
-            mu = LLVM.CustomMaterializationUnit("fooMU", Ref(sym), materialize, discard)
+            symbols = [mangle(lljit, "foo") => LLVM.symbol_flags(callable=true)]
+            mu = LLVM.CustomMaterializationUnit("fooMU", symbols, materialize, discard)
             LLVM.define(jd, mu)
 
             @test ccall(pointer(addr), Int32, (Int32, Int32), 1, 2) == 3

@@ -103,7 +103,13 @@ function datalayout(lljit::LLJIT)
     Base.unsafe_string(API.LLVMOrcLLJITGetDataLayoutStr(lljit))
 end
 
-function get_prefix(lljit::LLJIT)
+"""
+    LLVM.global_prefix(jit)
+
+Get the character that the JIT's target prepends to global symbols when mangling them (e.g.,
+`'_'` on macOS), or `'\\0'` if there is none, as a `Cchar`.
+"""
+function global_prefix(lljit::LLJIT)
     return API.LLVMOrcLLJITGetGlobalPrefix(lljit)
 end
 
@@ -129,7 +135,7 @@ function datalayout(jljit::JuliaOJIT)
     Base.unsafe_string(API.JLJITGetDataLayoutString(jljit))
 end
 
-function get_prefix(jljit::JuliaOJIT)
+function global_prefix(jljit::JuliaOJIT)
     return API.JLJITGetGlobalPrefix(jljit)
 end
 

@@ -139,6 +139,22 @@ respectively the `prevfun` and `nextfun` functions. Functions can be reordered w
 `move_before` and `move_after`, or sorted by name with `sort!(functions(mod))` to produce a
 deterministic module layout.
 
+### Aliases and ifuncs
+
+Global aliases and ifuncs are not included when iterating `globals` or `functions`, and
+have their own iterators, `aliases` and `ifuncs`:
+
+```jldoctest module
+julia> ga = GlobalAlias(mod, fun, "SomeAlias");
+
+julia> collect(aliases(mod))
+1-element Vector{GlobalAlias}:
+ @SomeAlias = alias void (), ptr @SomeFunction
+```
+
+Here too it is possible to move to the previous or next element with `prevalias` and
+`nextalias`, or `previfunc` and `nextifunc`.
+
 ### Flags
 
 Modules can also have flags associated with them, which can be set and retrieved using the

@@ -68,19 +68,22 @@ move_after(f::Function, pos::Function) = API.LLVMMoveFunctionAfter(f, pos)
     personality(f::Function)
 
 Get the personality function of the given function, or `nothing` if it has none.
+
+The personality is usually a `Function`, but can be any constant referring to one, such as
+a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed pointers).
 """
 function personality(f::Function)
     has_personality = API.LLVMHasPersonalityFn(f) |> Bool
-    return has_personality ? Function(API.LLVMGetPersonalityFn(f)) : nothing
+    return has_personality ? Value(API.LLVMGetPersonalityFn(f)) : nothing
 end
 
 """
-    personality!(f::Function, persfn::Function)
+    personality!(f::Function, persfn::Constant)
 
-Set the personality function of the given function. Pass `nothing` to remove the personality
-function.
+Set the personality function of the given function, which can be a `Function` or any other
+constant referring to one. Pass `nothing` to remove the personality function.
 """
-function personality!(f::Function, persfn::Union{Nothing,Function})
+function personality!(f::Function, persfn::Union{Nothing,Constant})
     api = version() >= v"20" ? API.LLVMSetPersonalityFn : API.LLVMSetPersonalityFn2
     api(f, something(persfn, C_NULL))
 end

@@ -17,6 +17,9 @@ New features:
 - The `memory` attribute that replaced `readnone`, `readonly`, `argmemonly` etc. in LLVM 16
   can be created and inspected using `MemoryEffects`, e.g.,
   `memory_effects!(f, MemoryEffects(argmem=:read))` or `access(memory_effects(f)) == :none`.
+- Global aliases and ifuncs are supported by means of the `GlobalAlias` and `GlobalIFunc`
+  types, and can be iterated using `aliases` and `ifuncs`. Previously, encountering such a
+  value, e.g., as an instruction operand, resulted in an "Unknown value kind" error.
 
 Bug fixes:
 
@@ -29,6 +32,12 @@ Bug fixes:
 - Pass instrumentation options like `-print-after-all` and `-print-changed` no longer crash or
   silently print nothing when running a `NewPMPassBuilder` pipeline on LLVM 19 and older
   (except on Windows, where Julia itself requires LLVM 20 for these options).
+- `section!` is now only defined for global objects, as LLVM does not support setting the
+  section of a global alias.
+- `last(functions(mod))` returns the last function of a module, instead of the first one.
+- `personality` returns the actual personality value, which may be a `GlobalAlias` or a
+  constant expression, instead of wrapping it as a `Function`, and `personality!` accepts
+  any constant.
 
 
 ## LLVM.jl v9.13

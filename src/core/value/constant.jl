@@ -805,6 +805,14 @@ Abstract supertype for all global values.
 """
 abstract type GlobalValue <: Constant end
 
+"""
+    LLVM.GlobalObject <: LLVM.GlobalValue
+
+Abstract supertype for global values that are backed by an actual object in memory, i.e.,
+functions, global variables and ifuncs, but not aliases.
+"""
+abstract type GlobalObject <: GlobalValue end
+
 export GlobalValue, global_value_type,
        isdeclaration,
        linkage, linkage!,
@@ -875,11 +883,11 @@ function section(val::GlobalValue)
 end
 
 """
-    section!(val::LLVM.GlobalValue, sec::String)
+    section!(val::LLVM.GlobalObject, sec::String)
 
-Set the section of the global value.
+Set the section of the global object.
 """
-section!(val::GlobalValue, sec::String) = API.LLVMSetSection(val, sec)
+section!(val::GlobalObject, sec::String) = API.LLVMSetSection(val, sec)
 
 """
     visibility(val::LLVM.GlobalValue)
@@ -941,8 +949,6 @@ local_unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(va
 
 
 ## global variables
-
-abstract type GlobalObject <: GlobalValue end
 
 export GlobalVariable, erase!,
        initializer, initializer!,
@@ -1104,4 +1110,139 @@ removes the explicit alignment.
 function alignment!(gv::GlobalVariable, bytes::Integer)
     check_alignment(bytes; allow_zero=true)
     API.LLVMSetAlignment(gv, bytes)
+end
+
+
+## global aliases
+
+export GlobalAlias, aliasee, aliasee!
+
+"""
+    GlobalAlias <: LLVM.GlobalValue
+
+A global alias, i.e., a new symbol for an existing global value or constant expression.
+"""
+@checked struct GlobalAlias <: GlobalValue
+    ref::API.LLVMValueRef
+end
+register(GlobalAlias, API.LLVMGlobalAliasValueKind)
+
+"""
+    GlobalAlias(mod::LLVM.Module, typ::LLVM.Type, aliasee::LLVM.Constant, name::String)
+
+Create a global alias in the given module, with the given value type and name, referring to
+the pointer constant `aliasee`. The address space of the alias is that of `aliasee`.
+
+See also: [`aliasee`](@ref), [`aliasee!`](@ref).
+"""
+function GlobalAlias(mod::Module, typ::LLVMType, aliasee::Constant, name::String)
+    ptrtyp = value_type(aliasee)
+    if !(ptrtyp isa PointerType)
+        throw(ArgumentError("Aliasee must be a pointer, got a value of type $ptrtyp"))
+    end
+    # with typed pointers, the value type also needs to match that of the aliasee
+    if PointerType(typ, addrspace(ptrtyp)) != ptrtyp
+        throw(ArgumentError("Aliasee of type $ptrtyp does not match alias value type $typ"))
+    end
+    GlobalAlias(API.LLVMAddAlias2(mod, typ, addrspace(ptrtyp), aliasee, name))
+end
+
+"""
+    GlobalAlias(mod::LLVM.Module, aliasee::LLVM.GlobalValue, name::String)
+
+Create a global alias in the given module, with the given name, referring to the global
+value `aliasee`. The value type and address space of the alias are taken from `aliasee`.
+"""
+GlobalAlias(mod::Module, aliasee::GlobalValue, name::String) =
+    GlobalAlias(mod, global_value_type(aliasee), aliasee, name)
+
+"""
+    aliasee(alias::GlobalAlias)
+
+Get the value that the global alias refers to.
+"""
+aliasee(alias::GlobalAlias) = Value(API.LLVMAliasGetAliasee(alias))
+
+"""
+    aliasee!(alias::GlobalAlias, val::LLVM.Constant)
+
+Set the value that the global alias refers to. The type of `val` must match that of the
+alias.
+"""
+function aliasee!(alias::GlobalAlias, val::Constant)
+    if value_type(val) != value_type(alias)
+        throw(ArgumentError("Aliasee of type $(value_type(val)) does not match alias type $(value_type(alias))"))
+    end
+    API.LLVMAliasSetAliasee(alias, val)
+end
+
+
+## global ifuncs
+
+export GlobalIFunc, resolver, resolver!
+
+"""
+    GlobalIFunc <: LLVM.GlobalObject
+
+An indirect function, whose address is determined at load time by calling a resolver
+function.
+"""
+@checked struct GlobalIFunc <: GlobalObject
+    ref::API.LLVMValueRef
+end
+register(GlobalIFunc, API.LLVMGlobalIFuncValueKind)
+
+"""
+    GlobalIFunc(mod::LLVM.Module, typ::LLVM.FunctionType, resolver::LLVM.Constant,
+                name::String)
+
+Create an indirect function in the given module, with the given name and function type,
+whose address is computed by calling `resolver`. Note that `typ` is the type of the
+resolved function, not that of the resolver. The address space of the ifunc is that of
+`resolver`.
+
+The resolver should be (or refer to) a function definition that returns a pointer; this is
+not checked here, but by the IR verifier.
+
+See also: [`resolver`](@ref), [`resolver!`](@ref).
+"""
+function GlobalIFunc(mod::Module, typ::FunctionType, resolver::Constant, name::String)
+    ptrtyp = value_type(resolver)
+    if !(ptrtyp isa PointerType)
+        throw(ArgumentError("Resolver must be a pointer, got a value of type $ptrtyp"))
+    end
+    GlobalIFunc(API.LLVMAddGlobalIFunc(mod, name, ncodeunits(name), typ,
+                                       addrspace(ptrtyp), resolver))
+end
+
+"""
+    erase!(ifunc::GlobalIFunc)
+
+Remove the ifunc from its parent module and delete it.
+
+!!! warning
+
+    This function is unsafe as it does not check if the ifunc is still used elsewhere.
+"""
+erase!(ifunc::GlobalIFunc) = API.LLVMEraseGlobalIFunc(ifunc)
+
+"""
+    resolver(ifunc::GlobalIFunc)
+
+Get the resolver of the ifunc.
+"""
+resolver(ifunc::GlobalIFunc) = Value(API.LLVMGetGlobalIFuncResolver(ifunc))
+
+"""
+    resolver!(ifunc::GlobalIFunc, val::LLVM.Constant)
+
+Set the resolver of the ifunc. The type of `val` must be a pointer in the address space of
+the ifunc.
+"""
+function resolver!(ifunc::GlobalIFunc, val::Constant)
+    ptrtyp = value_type(val)
+    if !(ptrtyp isa PointerType) || addrspace(ptrtyp) != addrspace(value_type(ifunc))
+        throw(ArgumentError("Resolver of type $ptrtyp is not a pointer in the address space of the ifunc"))
+    end
+    API.LLVMSetGlobalIFuncResolver(ifunc, val)
 end

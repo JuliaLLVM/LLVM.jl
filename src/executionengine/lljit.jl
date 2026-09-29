@@ -64,7 +64,9 @@ function LLJIT(builder::LLJITBuilder)
 end
 
 function dispose(lljit::LLJIT)
-    mark_dispose(API.LLVMOrcDisposeLLJIT, lljit)
+    mark_dispose(lljit) do lljit
+        @check API.LLVMOrcDisposeLLJIT(lljit)
+    end
 end
 
 """

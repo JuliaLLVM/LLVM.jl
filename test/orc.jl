@@ -366,6 +366,9 @@ end
 
         empty!(jd)
         @test_throws LLVMException lookup(lljit, sym)
+
+        # invalid objects are rejected (and consumed)
+        @test_throws LLVMException add!(lljit, jd, MemoryBuffer(rand(UInt8, 64)))
     end
 
     @dispose lljit=LLJIT(; tm=JITTargetMachine()) begin

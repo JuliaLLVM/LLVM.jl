@@ -407,23 +407,26 @@ function lookup_dylib(es::ExecutionSession, name)
 end
 
 function add!(lljit::LLJIT, jd::JITDylib, obj::MemoryBuffer)
-    @check API.LLVMOrcLLJITAddObjectFile(lljit, jd, obj)
-    mark_dispose(obj)
+    err = API.LLVMOrcLLJITAddObjectFile(lljit, jd, obj)
+    mark_dispose(obj)   # consumed, even on failure
+    @check err
     return
 end
 
 # LLVMOrcLLJITAddObjectFileWithRT(J, RT, ObjBuffer)
 
 function add!(lljit::LLJIT, jd::JITDylib, mod::ThreadSafeModule)
-    @check API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, mod)
-    mark_dispose(mod)
+    err = API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, mod)
+    mark_dispose(mod)   # consumed, even on failure
+    @check err
     return
 end
 
 # LLVMOrcLLJITAddLLVMIRModuleWithRT(J, JD, TSM)
 
 function Base.empty!(jd::JITDylib)
-    API.LLVMOrcJITDylibClear(jd)
+    @check API.LLVMOrcJITDylibClear(jd)
+    return jd
 end
 
 struct OrcTargetAddress
@@ -653,8 +656,9 @@ else
 end
 
 function add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
-    @check API.JLJITAddObjectFile(jljit, jd, obj)
-    mark_dispose(obj)
+    err = API.JLJITAddObjectFile(jljit, jd, obj)
+    mark_dispose(obj)   # consumed, even on failure
+    @check err
     return
 end
 
@@ -730,8 +734,9 @@ function add!(jljit::JuliaOJIT, jd::JITDylib, tsm::ThreadSafeModule)
     tsm() do mod
         decorate_module(mod)
     end
-    @check API.JLJITAddLLVMIRModule(jljit, jd, tsm)
-    mark_dispose(tsm)
+    err = API.JLJITAddLLVMIRModule(jljit, jd, tsm)
+    mark_dispose(tsm)   # consumed, even on failure
+    @check err
     return
 end
 

@@ -1667,7 +1667,9 @@ end
 
     # contexts we did not create lack our diagnostic handler, which used to make
     # LLVM print the parse error and exit the process
-    let foreign_ctx = Context(LLVM.API.LLVMContextCreate())
+    # (it may be allocated where a disposed context used to be, so don't let memcheck
+    #  mistake it for that one)
+    let foreign_ctx = LLVM.mark_untracked(Context(LLVM.API.LLVMContextCreate()))
         context!(foreign_ctx) do
             @test_throws invalid_signature parse(LLVM.Module, invalid_bitcode)
             @test_throws invalid_signature parse(LLVM.Module, invalid_bitcode; lazy=true)

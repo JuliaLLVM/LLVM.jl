@@ -56,6 +56,17 @@ function mark_use(obj::Any)
     return obj
 end
 
+# stop tracking an object whose lifetime is managed by something else, e.g., the context
+# owned by a thread-safe context. such an object can be allocated at the address of an
+# object that was disposed of earlier, which would otherwise be reported as a use after
+# dispose.
+function mark_untracked(obj::Any)
+    @static if memcheck_enabled
+        delete!(tracked_objects, obj)
+    end
+    return obj
+end
+
 mark_dispose(obj) = mark_dispose(Returns(nothing), obj)
 
 function mark_dispose(f, obj)

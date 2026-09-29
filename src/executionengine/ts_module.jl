@@ -20,7 +20,7 @@ This object needs to be disposed of using [`dispose(::ThreadSafeContext)`](@ref)
 """
 function ThreadSafeContext(; opaque_pointers=nothing)
     ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext()))
-    ctx = context(ts_ctx)
+    ctx = mark_untracked(context(ts_ctx))
     if opaque_pointers !== nothing
         opaque_pointers!(ctx, opaque_pointers)
     end

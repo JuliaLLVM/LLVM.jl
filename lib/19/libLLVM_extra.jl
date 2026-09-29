@@ -293,10 +293,6 @@ function LLVMGetBuilderContext(Builder)
     ccall((:LLVMGetBuilderContext, libLLVMExtra), LLVMContextRef, (LLVMBuilderRef,), Builder)
 end
 
-mutable struct LLVMOpaquePassBuilderExtensions end
-
-const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
-
 function LLVMExtraBuildAtomicRMWValue(B, Op, Loaded, Val)
     ccall((:LLVMExtraBuildAtomicRMWValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, Cuint, LLVMValueRef, LLVMValueRef), B, Op, Loaded, Val)
 end
@@ -355,6 +351,10 @@ end
 function LLVMExtraGetSyncScopeName(C, SSID, Len)
     ccall((:LLVMExtraGetSyncScopeName, libLLVMExtra), Cstring, (LLVMContextRef, Cuint, Ptr{Csize_t}), C, SSID, Len)
 end
+
+mutable struct LLVMOpaquePassBuilderExtensions end
+
+const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
 
 function LLVMCreatePassBuilderExtensions()
     ccall((:LLVMCreatePassBuilderExtensions, libLLVMExtra), LLVMPassBuilderExtensionsRef, ())
@@ -496,3 +496,59 @@ end
 function LLVMLinkModules3(Dest, Src, Flags)
     ccall((:LLVMLinkModules3, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMModuleRef, Cuint), Dest, Src, Flags)
 end
+
+function LLVMGetSwitchCaseValue(Switch, i)
+    ccall((:LLVMGetSwitchCaseValue, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Cuint), Switch, i)
+end
+
+function LLVMSetSwitchCaseValue(Switch, i, CaseValue)
+    ccall((:LLVMSetSwitchCaseValue, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint, LLVMValueRef), Switch, i, CaseValue)
+end
+
+function LLVMConstFPFromBits(Ty, N)
+    ccall((:LLVMConstFPFromBits, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, Ptr{UInt64}), Ty, N)
+end
+
+function LLVMExtraConstFPGetBits(ConstantVal, N)
+    ccall((:LLVMExtraConstFPGetBits, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
+end
+
+function LLVMGetFirstDbgRecord2(Inst)
+    ccall((:LLVMGetFirstDbgRecord2, libLLVMExtra), LLVMDbgRecordRef, (LLVMValueRef,), Inst)
+end
+
+function LLVMGetNextDbgRecord(DbgRecord)
+    ccall((:LLVMGetNextDbgRecord, libLLVMExtra), LLVMDbgRecordRef, (LLVMDbgRecordRef,), DbgRecord)
+end
+
+@cenum LLVMDbgRecordKind::UInt32 begin
+    LLVMDbgRecordLabel = 0
+    LLVMDbgRecordDeclare = 1
+    LLVMDbgRecordValue = 2
+    LLVMDbgRecordAssign = 3
+end
+
+function LLVMDbgRecordGetDebugLoc(Rec)
+    ccall((:LLVMDbgRecordGetDebugLoc, libLLVMExtra), LLVMMetadataRef, (LLVMDbgRecordRef,), Rec)
+end
+
+function LLVMDbgRecordGetKind(Rec)
+    ccall((:LLVMDbgRecordGetKind, libLLVMExtra), LLVMDbgRecordKind, (LLVMDbgRecordRef,), Rec)
+end
+
+function LLVMDbgVariableRecordGetValue(Rec, OpIdx)
+    ccall((:LLVMDbgVariableRecordGetValue, libLLVMExtra), LLVMValueRef, (LLVMDbgRecordRef, Cuint), Rec, OpIdx)
+end
+
+function LLVMDbgVariableRecordGetVariable(Rec)
+    ccall((:LLVMDbgVariableRecordGetVariable, libLLVMExtra), LLVMMetadataRef, (LLVMDbgRecordRef,), Rec)
+end
+
+function LLVMDbgVariableRecordGetExpression(Rec)
+    ccall((:LLVMDbgVariableRecordGetExpression, libLLVMExtra), LLVMMetadataRef, (LLVMDbgRecordRef,), Rec)
+end
+
+function LLVMExtraDbgVariableRecordGetNumValues(Rec)
+    ccall((:LLVMExtraDbgVariableRecordGetNumValues, libLLVMExtra), Cuint, (LLVMDbgRecordRef,), Rec)
+end
+

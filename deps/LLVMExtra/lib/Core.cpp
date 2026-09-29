@@ -1,5 +1,6 @@
 #include "LLVMExtra.h"
 
+#include <algorithm>
 #include <iterator>
 
 #if LLVM_VERSION_MAJOR >= 17
@@ -15,6 +16,9 @@
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/DebugInfo.h>
+#if LLVM_VERSION_MAJOR >= 19
+#include <llvm/IR/DebugProgramInstruction.h>
+#endif
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
@@ -1051,6 +1055,158 @@ DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::ThreadSafeContext, LLVMOrcThreadSafeCont
 
 LLVMContextRef LLVMOrcThreadSafeContextGetContext(LLVMOrcThreadSafeContextRef TSCtx) {
   return wrap(unwrap(TSCtx)->withContextDo([] (LLVMContext *ctx) { return ctx; }));
+}
+
+#endif
+
+
+//
+// Poison-generating flags
+//
+
+#if LLVM_VERSION_MAJOR < 17
+
+LLVMBool LLVMGetNUW(LLVMValueRef ArithInst) {
+  return unwrap<Instruction>(ArithInst)->hasNoUnsignedWrap();
+}
+
+void LLVMSetNUW(LLVMValueRef ArithInst, LLVMBool HasNUW) {
+  unwrap<Instruction>(ArithInst)->setHasNoUnsignedWrap(HasNUW);
+}
+
+LLVMBool LLVMGetNSW(LLVMValueRef ArithInst) {
+  return unwrap<Instruction>(ArithInst)->hasNoSignedWrap();
+}
+
+void LLVMSetNSW(LLVMValueRef ArithInst, LLVMBool HasNSW) {
+  unwrap<Instruction>(ArithInst)->setHasNoSignedWrap(HasNSW);
+}
+
+LLVMBool LLVMGetExact(LLVMValueRef DivOrShrInst) {
+  return unwrap<Instruction>(DivOrShrInst)->isExact();
+}
+
+void LLVMSetExact(LLVMValueRef DivOrShrInst, LLVMBool IsExact) {
+  unwrap<Instruction>(DivOrShrInst)->setIsExact(IsExact);
+}
+
+#endif
+
+#if LLVM_VERSION_MAJOR == 20
+
+LLVMBool LLVMGetICmpSameSign(LLVMValueRef Inst) {
+  return unwrap<ICmpInst>(Inst)->hasSameSign();
+}
+
+void LLVMSetICmpSameSign(LLVMValueRef Inst, LLVMBool SameSign) {
+  unwrap<ICmpInst>(Inst)->setSameSign(SameSign);
+}
+
+#endif
+
+
+//
+// Switch case values
+//
+
+#if LLVM_VERSION_MAJOR < 22
+
+LLVMValueRef LLVMGetSwitchCaseValue(LLVMValueRef Switch, unsigned i) {
+  assert(i > 0 && i <= unwrap<SwitchInst>(Switch)->getNumCases());
+  auto It = unwrap<SwitchInst>(Switch)->case_begin() + (i - 1);
+  return wrap(It->getCaseValue());
+}
+
+void LLVMSetSwitchCaseValue(LLVMValueRef Switch, unsigned i, LLVMValueRef CaseValue) {
+  assert(i > 0 && i <= unwrap<SwitchInst>(Switch)->getNumCases());
+  auto It = unwrap<SwitchInst>(Switch)->case_begin() + (i - 1);
+  It->setValue(unwrap<ConstantInt>(CaseValue));
+}
+
+#endif
+
+
+//
+// Floating-point constants
+//
+
+#if LLVM_VERSION_MAJOR < 22
+LLVMValueRef LLVMConstFPFromBits(LLVMTypeRef Ty, const uint64_t N[]) {
+  Type *T = unwrap(Ty);
+  unsigned SB = T->getScalarSizeInBits();
+  APInt AI(SB, ArrayRef<uint64_t>(N, divideCeil(SB, 64)));
+  APFloat Quad(T->getFltSemantics(), AI);
+  return wrap(ConstantFP::get(T, Quad));
+}
+#endif
+
+void LLVMExtraConstFPGetBits(LLVMValueRef ConstantVal, uint64_t N[]) {
+  APInt AI = unwrap<ConstantFP>(ConstantVal)->getValueAPF().bitcastToAPInt();
+  std::copy_n(AI.getRawData(), AI.getNumWords(), N);
+}
+
+
+//
+// Debug records
+//
+
+#if LLVM_VERSION_MAJOR >= 19
+
+#if LLVM_VERSION_MAJOR < 22
+LLVMDbgRecordRef LLVMGetFirstDbgRecord2(LLVMValueRef Inst) {
+  Instruction *Instr = unwrap<Instruction>(Inst);
+  if (!Instr->DebugMarker)
+    return nullptr;
+  auto I = Instr->DebugMarker->StoredDbgRecords.begin();
+  if (I == Instr->DebugMarker->StoredDbgRecords.end())
+    return nullptr;
+  return wrap(&*I);
+}
+#endif
+
+#if LLVM_VERSION_MAJOR < 20
+LLVMDbgRecordRef LLVMGetNextDbgRecord(LLVMDbgRecordRef Rec) {
+  DbgRecord *Record = unwrap<DbgRecord>(Rec);
+  simple_ilist<DbgRecord>::iterator I(Record);
+  if (++I == Record->getMarker()->StoredDbgRecords.end())
+    return nullptr;
+  return wrap(&*I);
+}
+#endif
+
+#if LLVM_VERSION_MAJOR < 22
+LLVMMetadataRef LLVMDbgRecordGetDebugLoc(LLVMDbgRecordRef Rec) {
+  return wrap(unwrap<DbgRecord>(Rec)->getDebugLoc().getAsMDNode());
+}
+
+LLVMDbgRecordKind LLVMDbgRecordGetKind(LLVMDbgRecordRef Rec) {
+  DbgRecord *Record = unwrap<DbgRecord>(Rec);
+  if (isa<DbgLabelRecord>(Record))
+    return LLVMDbgRecordLabel;
+  DbgVariableRecord *VariableRecord = cast<DbgVariableRecord>(Record);
+  if (VariableRecord->isDbgDeclare())
+    return LLVMDbgRecordDeclare;
+  if (VariableRecord->isDbgValue())
+    return LLVMDbgRecordValue;
+  assert(VariableRecord->isDbgAssign() && "unexpected record");
+  return LLVMDbgRecordAssign;
+}
+
+LLVMValueRef LLVMDbgVariableRecordGetValue(LLVMDbgRecordRef Rec, unsigned OpIdx) {
+  return wrap(unwrap<DbgVariableRecord>(Rec)->getValue(OpIdx));
+}
+
+LLVMMetadataRef LLVMDbgVariableRecordGetVariable(LLVMDbgRecordRef Rec) {
+  return wrap(unwrap<DbgVariableRecord>(Rec)->getRawVariable());
+}
+
+LLVMMetadataRef LLVMDbgVariableRecordGetExpression(LLVMDbgRecordRef Rec) {
+  return wrap(unwrap<DbgVariableRecord>(Rec)->getRawExpression());
+}
+#endif
+
+unsigned LLVMExtraDbgVariableRecordGetNumValues(LLVMDbgRecordRef Rec) {
+  return unwrap<DbgVariableRecord>(Rec)->getNumVariableLocationOps();
 }
 
 #endif

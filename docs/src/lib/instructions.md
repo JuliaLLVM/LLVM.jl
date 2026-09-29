@@ -125,6 +125,8 @@ isconditional
 condition
 condition!
 default_dest
+case_value
+case_value!
 successors(::Instruction)
 ```
 
@@ -132,6 +134,23 @@ successors(::Instruction)
 
 ```@docs
 incoming
+```
+
+## Poison-generating flags
+
+```@docs
+hasnuw
+nuw!
+hasnsw
+nsw!
+isexact
+exact!
+hasdisjoint
+disjoint!
+hasnneg
+nneg!
+hassamesign
+samesign!
 ```
 
 ## Floating Point instructions

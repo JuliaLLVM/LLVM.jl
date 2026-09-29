@@ -323,6 +323,10 @@ end
             val_result = LLVM.value_before!(dib, r, var, expr, loc, retinst)
             if LLVM.version() >= v"19"
                 @test val_result isa LLVM.DbgRecord
+                @test collect(debug_records(retinst)) == [val_result]
+                @test value(val_result) == r
+                @test variable(val_result) == var
+                @test isempty(debug_records(r))
             else
                 @test val_result isa Instruction
             end
@@ -341,6 +345,79 @@ end
         # the resulting module must be structurally valid — `verify` checks
         # that subprograms, scopes, locations and dbg records are well-formed
         @test LLVM.verify(mod) === nothing
+    end
+end
+
+@testset "debug records" begin
+    LLVM.version() >= v"19" || return
+
+    @dispose ctx=Context() begin
+        mod = parse(LLVM.Module, """
+            define void @f(i32 %x, i32 %y) !dbg !5 {
+              %p = alloca i32, align 4
+                #dbg_declare(ptr %p, !9, !DIExpression(), !10)
+                #dbg_value(i32 %x, !9, !DIExpression(), !11)
+                #dbg_value(!DIArgList(i32 %x, i32 %y), !9, !DIExpression(DW_OP_LLVM_arg, 0, DW_OP_LLVM_arg, 1, DW_OP_plus, DW_OP_stack_value), !11)
+                #dbg_label(!12, !11)
+              ret void, !dbg !11
+            }
+
+            !llvm.dbg.cu = !{!0}
+            !llvm.module.flags = !{!3}
+
+            !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+            !1 = !DIFile(filename: "test.c", directory: "/tmp")
+            !3 = !{i32 2, !"Debug Info Version", i32 3}
+            !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+            !6 = !DISubroutineType(types: !7)
+            !7 = !{null}
+            !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+            !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
+            !10 = !DILocation(line: 2, column: 1, scope: !5)
+            !11 = !DILocation(line: 3, column: 5, scope: !5)
+            !12 = !DILabel(scope: !5, name: "lbl", file: !1, line: 4)
+            """)
+        fn = functions(mod)["f"]
+        alloca, ret = instructions(entry(fn))
+        x, y = parameters(fn)
+
+        @test isempty(debug_records(alloca))
+        records = collect(debug_records(ret))
+        @test length(records) == 4
+        @test all(r -> r isa DbgRecord, records)
+        declare, val, arglist, label = records
+
+        @test kind(declare) == LLVM.API.LLVMDbgRecordDeclare
+        @test kind(val) == LLVM.API.LLVMDbgRecordValue
+        @test kind(arglist) == LLVM.API.LLVMDbgRecordValue
+        @test kind(label) == LLVM.API.LLVMDbgRecordLabel
+        @test occursin("#dbg_declare(ptr %p", string(declare))
+
+        @test LLVM.line(debuglocation(declare)) == 2
+        @test LLVM.line(debuglocation(label)) == 3
+        @test LLVM.column(debuglocation(label)) == 5
+
+        @test value(declare) == alloca
+        @test value(val) == x
+        @test LLVM.location_operands(val) == [x]
+        @test LLVM.location_operands(arglist) == [x, y]
+        @test_throws ArgumentError value(arglist)
+
+        @test variable(val) isa LLVM.DILocalVariable
+        @test LLVM.line(variable(val)) == 2
+        @test variable(val) == variable(arglist)
+        @test expression(val) isa LLVM.DIExpression
+        @test occursin("DW_OP_plus", string(expression(arglist)))
+
+        @test_throws ArgumentError variable(label)
+        @test_throws ArgumentError expression(label)
+        @test_throws ArgumentError value(label)
+
+        # deleted values
+        replace_uses!(y, LLVM.PoisonValue(LLVM.Int32Type()))
+        @test LLVM.location_operands(arglist)[2] isa LLVM.PoisonValue
+
+        dispose(mod)
     end
 end
 

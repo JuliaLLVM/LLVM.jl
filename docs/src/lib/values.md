@@ -34,6 +34,7 @@ ConstantInt
 convert(::Type, val::ConstantInt)
 ConstantFP
 convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat}
+LLVM.bitpattern
 ConstantStruct
 ConstantDataArray
 ConstantDataArray(::LLVMType, ::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}

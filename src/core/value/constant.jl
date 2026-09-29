@@ -243,6 +243,68 @@ Convert a constant floating point value back to a Julia floating point number.
 Base.convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat} =
     convert(T, API.LLVMConstRealGetDouble(val, Ref{API.LLVMBool}()))
 
+# bit patterns
+
+@public bitpattern
+
+fp_width(::LLVMHalf) = 16
+fp_width(::LLVMBFloat) = 16
+fp_width(::LLVMFloat) = 32
+fp_width(::LLVMDouble) = 64
+fp_width(::LLVMX86FP80) = 80
+fp_width(::LLVMFP128) = 128
+fp_width(::LLVMPPCFP128) = 128
+
+# the smallest unsigned integer that can hold a floating-point value of the given width
+fp_container(width::Int) =
+    width <= 16 ? UInt16 : width <= 32 ? UInt32 : width <= 64 ? UInt64 : UInt128
+
+"""
+    ConstantFP(typ::FloatingPointType; bits::Unsigned)
+
+Create a constant floating point value of the given type from its bit pattern. As opposed
+to passing a `Real` value, which is converted to `Float64` first, this can represent every
+value of wider types like `fp128` or `x86_fp80`, as well as the payload of NaN values.
+
+Use [`LLVM.bitpattern`](@ref) to get the bit pattern of an existing constant.
+
+# Examples
+
+```julia
+julia> ConstantFP(LLVM.FP128Type(); bits=0x3fff0000000000000000000000000000)
+fp128 0xL00000000000000003FFF000000000000
+```
+"""
+function ConstantFP(typ::FloatingPointType; bits::Unsigned)
+    width = fp_width(typ)
+    if 8*sizeof(bits) > width && bits >> width != 0
+        throw(ArgumentError("Bit pattern $(repr(bits)) does not fit in a $width-bit floating-point type"))
+    end
+    bits = UInt128(bits)
+    words = UInt64[(bits >> (64*(i-1))) % UInt64 for i in 1:cld(width, 64)]
+    ConstantFP(API.LLVMConstFPFromBits(typ, words))
+end
+
+"""
+    LLVM.bitpattern(val::ConstantFP)
+
+Get the bit pattern of a constant floating point value, as the smallest unsigned integer
+that can hold it (e.g., `UInt32` for `float`, or `UInt128` for `x86_fp80`).
+
+See also [`ConstantFP`](@ref), which can create a constant from its bit pattern.
+"""
+function bitpattern(val::ConstantFP)
+    typ = value_type(val)
+    width = fp_width(typ isa VectorType ? eltype(typ) : typ)
+    words = Vector{UInt64}(undef, cld(width, 64))
+    API.LLVMExtraConstFPGetBits(val, words)
+    bits = zero(UInt128)
+    for (i, word) in enumerate(words)
+        bits |= UInt128(word) << (64*(i-1))
+    end
+    return bits % fp_container(width)
+end
+
 
 # sequential data
 
@@ -270,7 +332,7 @@ Base.length(cda::ConstantDataSequential) = length(value_type(cda))
 Base.size(cda::ConstantDataSequential) = (length(cda),)
 function Base.getindex(cda::ConstantDataSequential, idx::Integer)
     @boundscheck 1 <= idx <= length(cda) || throw(BoundsError(cda, idx))
-    Value(API.LLVMGetElementAsConstant(cda, idx-1))
+    Value(API.LLVMGetAggregateElement(cda, idx-1))
 end
 function Base.collect(cda::ConstantDataSequential)
     constants = Array{Value}(undef, length(cda))
@@ -475,15 +537,14 @@ Base.axes(ca::ConstantArray) = Base.OneTo.(size(ca))
 function Base.getindex(ca::ConstantArray, idx::Integer...)
     # multidimensional arrays are represented by arrays of arrays,
     # which we need to 'peel back' by looking at the operand sets.
-    # for the final dimension, we use LLVMGetElementAsConstant
+    # for the final dimension, we use LLVMGetAggregateElement
     @boundscheck Base.checkbounds_indices(Bool, axes(ca), idx) ||
         throw(BoundsError(ca, idx))
     I = CartesianIndices(size(ca))[idx...]
     for i in Tuple(I)
         if isempty(operands(ca))
-            # XXX: is this valid? LLVMGetElementAsConstant is meant to be used with
-            #      Constant*Data*Arrays, not ConstantArrays
-            ca = Value(API.LLVMGetElementAsConstant(ca, i-1))
+            # packed data (ConstantDataArray) or a zero/undef/poison aggregate
+            ca = Value(API.LLVMGetAggregateElement(ca, i-1))
         else
             ca = (Base.@_propagate_inbounds_meta; operands(ca)[i])
         end
@@ -576,7 +637,7 @@ register(ConstantVector, API.LLVMConstantVectorValueKind)
 
 export ConstantExpr,
 
-       const_neg, const_nswneg, const_nuwneg, const_not, const_add,
+       const_neg, const_nswneg, const_not, const_add,
        const_nswadd, const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_xor,
        const_gep, const_inbounds_gep, const_trunc,
        const_ptrtoint, const_inttoptr, const_bitcast,
@@ -603,9 +664,6 @@ const_neg(val::Constant) =
 
 const_nswneg(val::Constant) =
     Value(API.LLVMConstNSWNeg(val))
-
-const_nuwneg(val::Constant) =
-    Value(API.LLVMConstNUWNeg(val))
 
 const_not(val::Constant) =
     Value(API.LLVMConstNot(val))

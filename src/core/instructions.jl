@@ -838,28 +838,31 @@ Get the default destination of the given switch instruction.
 """
 default_dest(switch::SwitchInst) = BasicBlock(API.LLVMGetSwitchDefaultDest(switch))
 
-@static if version() >= v"22"
-    export case_value, case_value!
+export case_value, case_value!
 
-    """
-        case_value(switch::SwitchInst, i::Integer)
+"""
+    case_value(switch::SwitchInst, i::Integer)
 
-    Get the value of the `i`th case of a switch instruction. Requires LLVM 22+.
-    """
-    function case_value(switch::SwitchInst, i::Integer)
-        @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
-        Value(API.LLVMGetSwitchCaseValue(switch, i))
-    end
+Get the value of the `i`th case of a switch instruction, whose destination is
+`successors(switch)[i+1]` (the first successor being the default destination).
+"""
+function case_value(switch::SwitchInst, i::Integer)
+    @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
+    Value(API.LLVMGetSwitchCaseValue(switch, i))
+end
 
-    """
-        case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
+"""
+    case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
 
-    Set the value of the `i`th case of a switch instruction. Requires LLVM 22+.
-    """
-    function case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
-        @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
-        API.LLVMSetSwitchCaseValue(switch, i, value)
-    end
+Set the value of the `i`th case of a switch instruction. The value needs to have the same
+type as the switch condition.
+"""
+function case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
+    @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
+    cond = Value(API.LLVMGetOperand(switch, 0))
+    value_type(value) == value_type(cond) ||
+        throw(ArgumentError("Switch case value of type $(value_type(value)) does not match the condition of type $(value_type(cond))"))
+    API.LLVMSetSwitchCaseValue(switch, i, value)
 end
 
 # successor iteration
@@ -931,6 +934,162 @@ end
 
 Base.push!(iter::PhiIncomingSet, args::Tuple{<:Value, BasicBlock}) = append!(iter, [args])
 
+
+## poison-generating flags
+
+export hasnuw, nuw!, hasnsw, nsw!, isexact, exact!, hasdisjoint, disjoint!,
+       hasnneg, nneg!, hassamesign, samesign!
+
+# which instructions support each flag, depending on the version of LLVM
+supports_nuw(inst::Instruction) =
+    inst isa Union{AddInst, SubInst, MulInst, ShlInst} ||
+    (version() >= v"19" && inst isa TruncInst)
+supports_nsw(inst::Instruction) = supports_nuw(inst)
+supports_exact(inst::Instruction) = inst isa Union{UDivInst, SDivInst, LShrInst, AShrInst}
+supports_disjoint(inst::Instruction) = version() >= v"18" && inst isa OrInst
+supports_nneg(inst::Instruction) =
+    (version() >= v"18" && inst isa ZExtInst) ||
+    (version() >= v"19" && inst isa UIToFPInst)
+supports_samesign(inst::Instruction) = version() >= v"20" && inst isa ICmpInst
+
+# LLVM asserts (or worse) when querying a flag that the instruction doesn't support
+function check_flag(supported::Bool, inst::Instruction, flag::String)
+    supported ||
+        throw(ArgumentError("$(typeof(inst)) does not support the `$flag` flag on LLVM $(version())"))
+    return
+end
+
+"""
+    hasnuw(inst::Instruction)
+
+Check whether the given `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has
+the `nuw` (no unsigned wrap) flag, which makes the result poison if unsigned overflow
+occurs.
+"""
+function hasnuw(inst::Instruction)
+    check_flag(supports_nuw(inst), inst, "nuw")
+    API.LLVMGetNUW(inst) |> Bool
+end
+
+"""
+    nuw!(inst::Instruction, nuw::Bool)
+
+Set or clear the `nuw` (no unsigned wrap) flag of the given instruction. See
+[`hasnuw`](@ref).
+"""
+function nuw!(inst::Instruction, nuw::Bool)
+    check_flag(supports_nuw(inst), inst, "nuw")
+    API.LLVMSetNUW(inst, nuw)
+end
+
+"""
+    hasnsw(inst::Instruction)
+
+Check whether the given `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has
+the `nsw` (no signed wrap) flag, which makes the result poison if signed overflow occurs.
+"""
+function hasnsw(inst::Instruction)
+    check_flag(supports_nsw(inst), inst, "nsw")
+    API.LLVMGetNSW(inst) |> Bool
+end
+
+"""
+    nsw!(inst::Instruction, nsw::Bool)
+
+Set or clear the `nsw` (no signed wrap) flag of the given instruction. See
+[`hasnsw`](@ref).
+"""
+function nsw!(inst::Instruction, nsw::Bool)
+    check_flag(supports_nsw(inst), inst, "nsw")
+    API.LLVMSetNSW(inst, nsw)
+end
+
+"""
+    isexact(inst::Instruction)
+
+Check whether the given `udiv`, `sdiv`, `lshr` or `ashr` instruction has the `exact` flag,
+which makes the result poison if the division has a remainder, or if the shift shifts out
+any non-zero bits.
+"""
+function isexact(inst::Instruction)
+    check_flag(supports_exact(inst), inst, "exact")
+    API.LLVMGetExact(inst) |> Bool
+end
+
+"""
+    exact!(inst::Instruction, exact::Bool)
+
+Set or clear the `exact` flag of the given instruction. See [`isexact`](@ref).
+"""
+function exact!(inst::Instruction, exact::Bool)
+    check_flag(supports_exact(inst), inst, "exact")
+    API.LLVMSetExact(inst, exact)
+end
+
+"""
+    hasdisjoint(inst::OrInst)
+
+Check whether the given `or` instruction has the `disjoint` flag, which makes the result
+poison if both operands have a bit set in the same position. Requires LLVM 18+.
+"""
+function hasdisjoint(inst::Instruction)
+    check_flag(supports_disjoint(inst), inst, "disjoint")
+    API.LLVMGetIsDisjoint(inst) |> Bool
+end
+
+"""
+    disjoint!(inst::OrInst, disjoint::Bool)
+
+Set or clear the `disjoint` flag of the given `or` instruction. See [`hasdisjoint`](@ref).
+"""
+function disjoint!(inst::Instruction, disjoint::Bool)
+    check_flag(supports_disjoint(inst), inst, "disjoint")
+    API.LLVMSetIsDisjoint(inst, disjoint)
+end
+
+"""
+    hasnneg(inst::Instruction)
+
+Check whether the given `zext` (LLVM 18+) or `uitofp` (LLVM 19+) instruction has the `nneg`
+(non-negative) flag, which makes the result poison if the operand is negative.
+"""
+function hasnneg(inst::Instruction)
+    check_flag(supports_nneg(inst), inst, "nneg")
+    API.LLVMGetNNeg(inst) |> Bool
+end
+
+"""
+    nneg!(inst::Instruction, nneg::Bool)
+
+Set or clear the `nneg` (non-negative) flag of the given instruction. See
+[`hasnneg`](@ref).
+"""
+function nneg!(inst::Instruction, nneg::Bool)
+    check_flag(supports_nneg(inst), inst, "nneg")
+    API.LLVMSetNNeg(inst, nneg)
+end
+
+"""
+    hassamesign(inst::ICmpInst)
+
+Check whether the given `icmp` instruction has the `samesign` flag, which makes the result
+poison if the operands have different signs. Requires LLVM 20+.
+"""
+function hassamesign(inst::Instruction)
+    check_flag(supports_samesign(inst), inst, "samesign")
+    API.LLVMGetICmpSameSign(inst) |> Bool
+end
+
+"""
+    samesign!(inst::ICmpInst, samesign::Bool)
+
+Set or clear the `samesign` flag of the given `icmp` instruction. See
+[`hassamesign`](@ref).
+"""
+function samesign!(inst::Instruction, samesign::Bool)
+    check_flag(supports_samesign(inst), inst, "samesign")
+    API.LLVMSetICmpSameSign(inst, samesign)
+end
 
 ## floating point operations
 

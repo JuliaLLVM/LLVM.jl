@@ -53,3 +53,17 @@ end
 
 @deprecate get_subprogram(func::Function) subprogram(func) false
 @deprecate set_subprogram!(func::Function, sp::DISubProgram) subprogram!(func, sp) false
+
+# LLVM 19 removed `nuw` negation from the IRBuilder and constant expressions, and deprecated
+# the C APIs (llvm/llvm-project#86295): `sub nuw 0, %x` is only valid for `%x == 0`.
+export nuwneg!, const_nuwneg
+function nuwneg!(builder::IRBuilder, V::Value, Name::String="")
+    Base.depwarn("`nuwneg!` is deprecated; use `neg!` and, if the result is an instruction, `nuw!(inst, true)`.", :nuwneg!)
+    val = neg!(builder, V, Name)
+    val isa SubInst && nuw!(val, true)
+    return val
+end
+function const_nuwneg(val::Constant)
+    Base.depwarn("`const_nuwneg` is deprecated; use `const_neg`.", :const_nuwneg)
+    Value(API.LLVMConstNUWNeg(val))
+end

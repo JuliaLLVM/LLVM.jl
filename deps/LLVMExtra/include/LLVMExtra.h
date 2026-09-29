@@ -481,5 +481,58 @@ LLVMBool LLVMLinkModules3(LLVMModuleRef Dest, LLVMModuleRef Src, unsigned Flags)
 LLVMContextRef LLVMOrcThreadSafeContextGetContext(LLVMOrcThreadSafeContextRef TSCtx);
 #endif
 
+// poison-generating flags
+#if LLVM_VERSION_MAJOR < 17 // D89252
+LLVMBool LLVMGetNUW(LLVMValueRef ArithInst);
+void LLVMSetNUW(LLVMValueRef ArithInst, LLVMBool HasNUW);
+LLVMBool LLVMGetNSW(LLVMValueRef ArithInst);
+void LLVMSetNSW(LLVMValueRef ArithInst, LLVMBool HasNSW);
+LLVMBool LLVMGetExact(LLVMValueRef DivOrShrInst);
+void LLVMSetExact(LLVMValueRef DivOrShrInst, LLVMBool IsExact);
+#endif
+#if LLVM_VERSION_MAJOR == 20 // llvm/llvm-project#145247
+LLVMBool LLVMGetICmpSameSign(LLVMValueRef Inst);
+void LLVMSetICmpSameSign(LLVMValueRef Inst, LLVMBool SameSign);
+#endif
+
+// switch case values (which stopped being operands in LLVM 22)
+#if LLVM_VERSION_MAJOR < 22 // llvm/llvm-project#166842
+LLVMValueRef LLVMGetSwitchCaseValue(LLVMValueRef Switch, unsigned i);
+void LLVMSetSwitchCaseValue(LLVMValueRef Switch, unsigned i, LLVMValueRef CaseValue);
+#endif
+
+// floating-point constants from and to their bit pattern, as ceil(bits/64) words with
+// the least significant word first
+#if LLVM_VERSION_MAJOR < 22 // llvm/llvm-project#164381
+LLVMValueRef LLVMConstFPFromBits(LLVMTypeRef Ty, const uint64_t N[]);
+#endif
+void LLVMExtraConstFPGetBits(LLVMValueRef ConstantVal, uint64_t N[]);
+
+// debug records
+#if LLVM_VERSION_MAJOR >= 19
+#if LLVM_VERSION_MAJOR < 22 // llvm/llvm-project#151101
+// LLVMGetFirstDbgRecord crashes on instructions that never had debug records attached
+LLVMDbgRecordRef LLVMGetFirstDbgRecord2(LLVMValueRef Inst);
+#endif
+#if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#107802
+LLVMDbgRecordRef LLVMGetNextDbgRecord(LLVMDbgRecordRef DbgRecord);
+#endif
+#if LLVM_VERSION_MAJOR < 22 // llvm/llvm-project#166383
+typedef enum {
+  LLVMDbgRecordLabel,
+  LLVMDbgRecordDeclare,
+  LLVMDbgRecordValue,
+  LLVMDbgRecordAssign,
+} LLVMDbgRecordKind;
+LLVMMetadataRef LLVMDbgRecordGetDebugLoc(LLVMDbgRecordRef Rec);
+LLVMDbgRecordKind LLVMDbgRecordGetKind(LLVMDbgRecordRef Rec);
+LLVMValueRef LLVMDbgVariableRecordGetValue(LLVMDbgRecordRef Rec, unsigned OpIdx);
+LLVMMetadataRef LLVMDbgVariableRecordGetVariable(LLVMDbgRecordRef Rec);
+LLVMMetadataRef LLVMDbgVariableRecordGetExpression(LLVMDbgRecordRef Rec);
+#endif
+// the number of location operands of a variable record (more than one with DIArgList)
+unsigned LLVMExtraDbgVariableRecordGetNumValues(LLVMDbgRecordRef Rec);
+#endif
+
 LLVM_C_EXTERN_C_END
 #endif

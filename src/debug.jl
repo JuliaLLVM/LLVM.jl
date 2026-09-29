@@ -17,10 +17,10 @@ function mark_alloc(obj::Any; allow_overwrite::Bool=false)
         if haskey(tracked_objects, obj) && !allow_overwrite
             old_alloc_bt, dispose_bt = tracked_objects[obj]
             if dispose_bt == nothing
-                print("\nWARNING: An instance of $(typeof(obj)) was not properly disposed of, and a new allocation will overwrite it.")
-                print("\nThe original allocation was at:")
+                print(io, "\nWARNING: An instance of $(typeof(obj)) was not properly disposed of, and a new allocation will overwrite it.")
+                print(io, "\nThe original allocation was at:")
                 Base.show_backtrace(io, old_alloc_bt)
-                print("\nThe new allocation is at:")
+                print(io, "\nThe new allocation is at:")
                 Base.show_backtrace(io, new_alloc_bt)
                 println(io)
             end
@@ -43,12 +43,12 @@ function mark_use(obj::Any)
 
         alloc_bt, dispose_bt = tracked_objects[obj]
         if dispose_bt !== nothing
-            print("\nWARNING: An instance of $(typeof(obj)) is being used after it was disposed of.")
-            print("\nThe object was allocated at:")
+            print(io, "\nWARNING: An instance of $(typeof(obj)) is being used after it was disposed of.")
+            print(io, "\nThe object was allocated at:")
             Base.show_backtrace(io, alloc_bt)
-            print("\nThe object was disposed of at:")
+            print(io, "\nThe object was disposed of at:")
             Base.show_backtrace(io, dispose_bt)
-            print("\nThe object is being used at:")
+            print(io, "\nThe object is being used at:")
             Base.show_backtrace(io, backtrace()[2:end])
             println(io)
         end
@@ -70,12 +70,12 @@ function mark_dispose(f, obj)
         else
             alloc_bt, old_dispose_bt = tracked_objects[obj]
             if old_dispose_bt !== nothing
-                print("\nWARNING: An instance of $(typeof(obj)) is being disposed of twice.")
-                print("\nThe object was allocated at:")
+                print(io, "\nWARNING: An instance of $(typeof(obj)) is being disposed of twice.")
+                print(io, "\nThe object was allocated at:")
                 Base.show_backtrace(io, alloc_bt)
-                print("\nThe object was already disposed of at:")
+                print(io, "\nThe object was already disposed of at:")
                 Base.show_backtrace(io, old_dispose_bt)
-                print("\nThe object is being disposed of again at:")
+                print(io, "\nThe object is being disposed of again at:")
                 Base.show_backtrace(io, new_dispose_bt)
                 println(io)
             end
@@ -103,7 +103,7 @@ function report_leaks(code=0)
         for (obj, (alloc_bt, dispose_bt)) in tracked_objects
             if dispose_bt === nothing
                 print(io, "\nWARNING: An instance of $(typeof(obj)) was not properly disposed of.")
-                print("\nThe object was allocated at:")
+                print(io, "\nThe object was allocated at:")
                 Base.show_backtrace(io, alloc_bt)
                 println(io)
             end

@@ -356,8 +356,7 @@ end
 end
 
 @testset "debug records" begin
-    LLVM.version() >= v"19" || return
-
+if LLVM.version() >= v"19"
     @dispose ctx=Context() begin
         mod = parse(LLVM.Module, """
             define void @f(i32 %x, i32 %y) !dbg !5 {
@@ -438,6 +437,7 @@ end
 
         dispose(mod)
     end
+end
 end
 
 @testset "DIBuilder: imported entities and macros" begin

@@ -527,8 +527,7 @@ end
 
 
 @testset "LLVM 22 instructions" begin
-    LLVM.version() >= v"22" || return
-
+if LLVM.version() >= v"22"
     @dispose ctx=Context() begin
         mod = parse(LLVM.Module, """
             define i64 @ptrtoaddr_test(ptr %p) {
@@ -543,6 +542,7 @@ end
 
         dispose(mod)
     end
+end
 end
 
 @testset "switch cases" begin

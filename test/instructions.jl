@@ -825,6 +825,43 @@ end
         @check_ir switch "i32 3, label %two"
         @test_throws BoundsError switch.case_values[0] = ConstantInt(Int32(0))
         @test_throws ArgumentError switch.case_values[1] = ConstantInt(Int64(0))
+        @test_throws ArgumentError switch.case_values[1] = ConstantInt(Int32(3))
+        # assigning a case its current value is fine
+        switch.case_values[2] = switch.case_values[2]
+        @test convert(Int, switch.case_values[2]) == 3
+
+        # the cases of a switch are a mutable view of values and destinations
+        f = mod.functions["switch_test"]
+        _, one, two, default = f.blocks
+        cases = switch.cases
+        @test length(cases) == 2
+        @test cases[1] == (ConstantInt(Int32(1)), one)
+        @test cases[2] == (ConstantInt(Int32(3)), two)
+        @test_throws BoundsError cases[3]
+
+        @test push!(cases, (ConstantInt(Int32(4)), default)) === cases
+        @test length(cases) == 3
+        @test cases[3] == (ConstantInt(Int32(4)), default)
+        @check_ir switch "i32 4, label %default"
+        append!(cases, [(ConstantInt(Int32(5)), one), (ConstantInt(Int32(6)), two)])
+        @test [convert(Int, val) for (val, _) in cases] == [1, 3, 4, 5, 6]
+        @test switch.default_dest == default
+
+        cases[1] = (ConstantInt(Int32(7)), two)
+        @test cases[1] == (ConstantInt(Int32(7)), two)
+        cases[1] = (ConstantInt(Int32(7)), one)   # the same value is fine
+        @test cases[1] == (ConstantInt(Int32(7)), one)
+
+        @test_throws ArgumentError push!(cases, (ConstantInt(Int32(4)), one))
+        @test_throws ArgumentError push!(cases, (ConstantInt(Int64(8)), one))
+        @test_throws ArgumentError cases[1] = (ConstantInt(Int32(3)), one)
+        other = LLVM.Function(mod, "other", LLVM.FunctionType(LLVM.VoidType()))
+        elsewhere = BasicBlock(other, "elsewhere")
+        @test_throws ArgumentError push!(cases, (ConstantInt(Int32(9)), elsewhere))
+        @test_throws ArgumentError cases[1] = (ConstantInt(Int32(9)), elsewhere)
+        erase!(other)
+        @test length(cases) == 5
+        verify(mod)
 
         dispose(mod)
     end

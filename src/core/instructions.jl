@@ -1113,10 +1113,69 @@ end
 
 function Base.setindex!(iter::SwitchCaseValueSet, value::ConstantInt, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
-    cond = Value(API.LLVMGetOperand(iter.switch, 0))
+    check_case_value(iter.switch, value, i)
+    API.LLVMSetSwitchCaseValue(iter.switch, i, value)
+    return iter
+end
+
+function check_case_value(switch::SwitchInst, value::ConstantInt, except::Int=0)
+    cond = Value(API.LLVMGetOperand(switch, 0))
     value_type(value) == value_type(cond) ||
         throw(ArgumentError("Switch case value of type $(value_type(value)) does not match the condition of type $(value_type(cond))"))
+    for i in 1:API.LLVMGetNumSuccessors(switch)-1
+        i == except && continue
+        API.LLVMGetSwitchCaseValue(switch, i) == value.ref &&
+            throw(ArgumentError("Switch already has a case for $(value)"))
+    end
+end
+
+function check_case_dest(switch::SwitchInst, dest::BasicBlock)
+    bb = API.LLVMGetInstructionParent(switch)
+    bb == C_NULL && return
+    API.LLVMGetBasicBlockParent(dest) == API.LLVMGetBasicBlockParent(bb) ||
+        throw(ArgumentError("Switch case destination is not part of the same function"))
+end
+
+struct SwitchCaseSet <: AbstractVector{Tuple{ConstantInt,BasicBlock}}
+    switch::SwitchInst
+end
+
+cases(switch::SwitchInst) = SwitchCaseSet(switch)
+
+@property SwitchInst cases
+
+Base.size(iter::SwitchCaseSet) = (API.LLVMGetNumSuccessors(iter.switch) - 1,)
+
+Base.IndexStyle(::SwitchCaseSet) = IndexLinear()
+
+# the C API indexes cases by the index of their successor
+function Base.getindex(iter::SwitchCaseSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return (Value(API.LLVMGetSwitchCaseValue(iter.switch, i))::ConstantInt,
+            BasicBlock(API.LLVMGetSuccessor(iter.switch, i)))
+end
+
+function Base.setindex!(iter::SwitchCaseSet, (value, dest)::Tuple{ConstantInt,BasicBlock},
+                        i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    check_case_value(iter.switch, value, i)
+    check_case_dest(iter.switch, dest)
     API.LLVMSetSwitchCaseValue(iter.switch, i, value)
+    API.LLVMSetSuccessor(iter.switch, i, dest)
+    return iter
+end
+
+function Base.push!(iter::SwitchCaseSet, (value, dest)::Tuple{ConstantInt,BasicBlock})
+    check_case_value(iter.switch, value)
+    check_case_dest(iter.switch, dest)
+    API.LLVMAddCase(iter.switch, value, dest)
+    return iter
+end
+
+function Base.append!(iter::SwitchCaseSet, cases)
+    for case in cases
+        push!(iter, case)
+    end
     return iter
 end
 
@@ -1152,6 +1211,15 @@ The values of the cases of a switch instruction, as a mutable view. The destinat
 `i`th case is `switch.successors[i+1]`, the first successor being the default destination.
 Assigning to an element changes the value of that case, which needs to have the same type
 as the switch condition.
+
+    switch.cases
+
+The cases of a switch instruction, as a view of `(value, block)` tuples of the value of the
+condition and the block to branch to, not including the default destination. The view is
+mutable: cases can be added using `push!` or `append!`, and replaced by assigning to an
+element, e.g., `switch.cases[1] = (ConstantInt(Int32(42)), bb)`. The value needs to have
+the same type as the condition, there can only be one case for each value, and the block
+needs to be part of the same function.
 
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.

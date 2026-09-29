@@ -309,9 +309,11 @@ If the terminator is a branch, it's possible to check if the branch is condition
 `isconditional` function, and get or set the condition using the `condition` property.
 
 If the terminator is a switch, it's possible to get the default destination using the
-`default_dest` property, and to get or set the value of each case using the `case_values`
-property, a mutable view (`switch.case_values[i]` is the value of the case that branches to
-`switch.successors[i+1]`).
+`default_dest` property, and to inspect and change its cases using the `cases` property, a
+mutable view of `(value, block)` tuples: `push!(switch.cases, (ConstantInt(Int32(1)), bb))`
+adds a case, and `switch.cases[i] = (val, bb)` replaces one. To only change the value of a
+case, use the `case_values` property, a mutable view of the values (`switch.case_values[i]`
+is the value of the case that branches to `switch.successors[i+1]`).
 
 
 ## Phi nodes

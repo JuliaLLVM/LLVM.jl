@@ -40,6 +40,8 @@ abstract type Value end
     unsafe_load_ref(API.LLVMValueRef, val)
 end
 
+@inline propref(@nospecialize(x::Value)) = Base.unsafe_convert(API.LLVMValueRef, x)
+
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.
 Base.cconvert(::Type{API.LLVMValueRef}, @nospecialize(obj::Value)) = obj

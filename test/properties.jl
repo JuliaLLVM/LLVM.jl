@@ -136,3 +136,23 @@ end
 end
 
 end
+
+@testset "abstractly typed values" begin
+    # properties of values whose concrete type is only known at run time shouldn't dispatch
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+        ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
+        fn = LLVM.Function(mod, "SomeFunction", ft)
+        position!(builder, BasicBlock(fn, "entry"))
+        inst = add!(builder, parameters(fn)[1], ConstantInt(Int32(1)), "sum")
+        ret!(builder, inst)
+
+        vals = Value[inst, parameters(fn)[1], ConstantInt(Int32(42)), fn]
+        @test all(v -> v.ref === Base.unsafe_convert(LLVM.API.LLVMValueRef, v), vals)
+        @test all(v -> v.name == LLVM.name(v), vals)
+
+        # measure behind a function barrier, as `@allocated` on a global allocates itself
+        sum_refs(vals) = sum(v -> UInt(v.ref), vals)
+        measure(f, x) = (f(x); @allocated f(x))
+        @test measure(sum_refs, vals) == 0
+    end
+end

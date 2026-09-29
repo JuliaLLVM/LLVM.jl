@@ -173,6 +173,10 @@ end
 # The root of a type hierarchy opts in using `@properties`, after which `@property`
 # declares individual properties for that type or any of its subtypes.
 
+# the reference of wrapper objects (overridden for hierarchies whose concrete type is only
+# known at run time, to access it without dispatch)
+@inline propref(x) = getfield(x, :ref)
+
 # (type, name) pairs, to implement `propertynames`
 const property_registry = Tuple{Type,Symbol}[]
 
@@ -204,9 +208,10 @@ end
 macro properties(T)
     quote
         # `ref` is accessed all over the place, so give it a direct path
-        @inline Base.getproperty(x::$T, s::Symbol) =
-            s === :ref ? getfield(x, :ref) : getprop(x, Val(s))
-        @inline Base.setproperty!(x::$T, s::Symbol, v) = setprop!(x, Val(s), v)
+        @inline Base.getproperty(@nospecialize(x::$T), s::Symbol) =
+            s === :ref ? propref(x) : getprop(x, Val(s))
+        @inline Base.setproperty!(@nospecialize(x::$T), s::Symbol, v) =
+            setprop!(x, Val(s), v)
         Base.propertynames(x::$T, private::Bool=false) = property_names(x, private)
     end |> esc
 end
@@ -228,7 +233,7 @@ macro property(T, name::Symbol, setter=nothing)
         :(setprop!(x::$T, ::Val{$sym}, v) = ($setter(x, v); v))
     end
     quote
-        getprop(x::$T, ::Val{$sym}) = $name(x)
+        @inline getprop(x::$T, ::Val{$sym}) = $name(x)
         $setter_method
         push!(property_registry, ($T, $sym))
     end |> esc

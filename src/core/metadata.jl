@@ -19,6 +19,8 @@ abstract type Metadata end
     unsafe_load_ref(API.LLVMMetadataRef, md)
 end
 
+@inline propref(@nospecialize(x::Metadata)) = Base.unsafe_convert(API.LLVMMetadataRef, x)
+
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.
 Base.cconvert(::Type{API.LLVMMetadataRef}, @nospecialize(obj::Metadata)) = obj

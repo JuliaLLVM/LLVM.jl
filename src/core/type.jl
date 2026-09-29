@@ -22,6 +22,8 @@ abstract type LLVMType end
     unsafe_load_ref(API.LLVMTypeRef, typ)
 end
 
+@inline propref(@nospecialize(x::LLVMType)) = Base.unsafe_convert(API.LLVMTypeRef, x)
+
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.
 Base.cconvert(::Type{API.LLVMTypeRef}, @nospecialize(obj::LLVMType)) = obj

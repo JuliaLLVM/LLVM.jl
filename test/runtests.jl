@@ -43,10 +43,7 @@ include("util.jl")
 include("interop.jl")
 include("orc.jl")
 include("disasm.jl")
-if !Sys.iswindows()
-    # XXX: hangs on Windows
-    include("jljit.jl")
-end
+include("jljit.jl")
 if LLVM.has_oldpm()
     include("transform.jl")
 end

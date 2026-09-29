@@ -117,6 +117,25 @@ Set the garbage collector name of the given function.
 gc!(f::Function, name::String) = API.LLVMSetGC(f, name)
 
 """
+    alignment(f::Function)
+
+Get the alignment of the code of the given function in bytes, or 0 if it has no explicit
+alignment.
+"""
+alignment(f::Function) = API.LLVMGetAlignment(f)
+
+"""
+    alignment!(f::Function, bytes::Integer)
+
+Set the alignment of the code of the given function to `bytes`, which must be a power of 2.
+Passing 0 removes the explicit alignment.
+"""
+function alignment!(f::Function, bytes::Integer)
+    check_alignment(bytes; allow_zero=true)
+    API.LLVMSetAlignment(f, bytes)
+end
+
+"""
     entry(f::Function) -> BasicBlock
 
 Get the entry basic block of the given function.

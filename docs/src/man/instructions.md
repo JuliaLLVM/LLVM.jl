@@ -133,6 +133,43 @@ the instruction. This is done by calling the `debuglocation!` function on the bu
   instruction.
 
 
+## Memory instructions
+
+```@meta
+DocTestSetup = quote
+    using LLVM
+
+    if context(; throw_error=false) === nothing
+        Context()
+    end
+
+    mod = LLVM.Module("SomeModule")
+    fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
+    bb = BasicBlock(fun, "entry")
+    builder = IRBuilder()
+    position!(builder, bb)
+end
+```
+
+Stack allocations and memory accesses (loads, stores, and atomic read-modify-write and
+compare-and-exchange instructions) have an alignment, which can be specified using the
+`align` keyword argument when building the instruction, and inspected or changed afterwards
+using `alignment`/`alignment!`:
+
+```jldoctest
+julia> slot = alloca!(builder, LLVM.Int64Type(); align=16)
+%0 = alloca i64, align 16
+
+julia> alignment!(slot, 32)
+
+julia> Int(alignment(slot))
+32
+```
+
+Memory accesses can also be marked volatile, using `isvolatile`/`volatile!` or the
+`volatile` keyword argument when building the instruction.
+
+
 ## Atomic instructions
 
 Atomic instructions support a few additional APIs:

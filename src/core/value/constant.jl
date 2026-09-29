@@ -1063,16 +1063,29 @@ Set the externally initialized flag of the global variable.
 """
 extinit!(gv::GlobalVariable, bool) = API.LLVMSetExternallyInitialized(gv, bool)
 
+# alignments are powers of 2 passed to LLVM as a 32-bit integer. global objects can also have
+# no explicit alignment, which is represented by 0.
+function check_alignment(align; allow_zero::Bool=false)
+    align === nothing || (allow_zero && align == 0) ||
+        (0 < align <= typemax(Cuint) && ispow2(align)) ||
+        throw(ArgumentError("Alignment must be a positive power of 2 up to 2^31" *
+                            (allow_zero ? ", or 0 to remove it" : "") * ", got $align"))
+end
+
 """
     alignment(gv::GlobalVariable)
 
-Get the alignment of the global variable.
+Get the alignment of the global variable in bytes, or 0 if it has no explicit alignment.
 """
 alignment(gv::GlobalVariable) = API.LLVMGetAlignment(gv)
 
 """
     alignment!(gv::GlobalVariable, bytes::Integer)
 
-Set the alignment of the global variable.
+Set the alignment of the global variable to `bytes`, which must be a power of 2. Passing 0
+removes the explicit alignment.
 """
-alignment!(gv::GlobalVariable, bytes::Integer) = API.LLVMSetAlignment(gv, bytes)
+function alignment!(gv::GlobalVariable, bytes::Integer)
+    check_alignment(bytes; allow_zero=true)
+    API.LLVMSetAlignment(gv, bytes)
+end

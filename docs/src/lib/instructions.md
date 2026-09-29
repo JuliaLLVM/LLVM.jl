@@ -72,6 +72,8 @@ copy_atomic_metadata!
 ### Building memory accesses and atomics
 
 ```@docs
+alloca!
+array_alloca!
 load!
 store!
 fence!
@@ -142,6 +144,6 @@ fast_math!
 ## Alignment
 
 ```@docs
-alignment
-alignment!
+alignment(::LLVM.AlignedInst)
+alignment!(::LLVM.AlignedInst, ::Integer)
 ```

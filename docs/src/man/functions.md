@@ -28,6 +28,7 @@ Several APIs can be used to interact with functions:
 - `personality`/`personality!`: get or set the personality function of the function (pass `nothing` to remove the personality function).
 - `callconv`/`callconv!`: get or set the calling convention of the function.
 - `gc`/`gc!`: get or set the garbage collector for the function.
+- `alignment`/`alignment!`: get or set the alignment of the function's code.
 - `isintrinsic`: check if the function is an intrinsic.
 - `erase!`: delete the function from its parent module, and delete the object.
 

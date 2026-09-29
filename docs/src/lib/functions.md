@@ -19,6 +19,8 @@ callconv
 callconv!
 gc
 gc!
+alignment(::LLVM.Function)
+alignment!(::LLVM.Function, ::Integer)
 entry
 ```
 

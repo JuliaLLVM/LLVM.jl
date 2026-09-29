@@ -978,6 +978,9 @@ end
     @test alignment(gv) == 0
     alignment!(gv, 4)
     @test alignment(gv) == 4
+    @test_throws ArgumentError alignment!(gv, 3)
+    alignment!(gv, 0)
+    @test alignment(gv) == 0
 
     @test threadlocalmode(gv) == LLVM.API.LLVMGeneralDynamicTLSModel
     threadlocalmode!(gv, LLVM.API.LLVMNotThreadLocal)
@@ -1486,6 +1489,14 @@ end
     @test LLVM.gc(fn) == ""
     gc!(fn, "SomeGC")
     @test LLVM.gc(fn) == "SomeGC"
+
+    @test alignment(fn) == 0
+    alignment!(fn, 16)
+    @test alignment(fn) == 16
+    @check_ir fn "align 16"
+    @test_throws ArgumentError alignment!(fn, 3)
+    alignment!(fn, 0)
+    @test alignment(fn) == 0
 
     let fns = functions(mod)
         @test fn in fns

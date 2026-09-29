@@ -139,9 +139,28 @@
 
     allocainst = alloca!(builder, LLVM.Int32Type())
     @check_ir allocainst "alloca i32"
+    @test alignment(allocainst) == 4
+    alignment!(allocainst, 16)
+    @test alignment(allocainst) == 16
+    @check_ir allocainst "alloca i32, align 16"
+    @test_throws ArgumentError alignment!(allocainst, 0)
+    @test_throws ArgumentError alignment!(allocainst, 3)
+    @test_throws ArgumentError alignment!(allocainst, 2^32)
+    @test alignment(allocainst) == 16
+
+    # only stack allocations and memory accesses have an alignment
+    @test_throws MethodError alignment(xorinst)
+    @test_throws MethodError alignment!(xorinst, 4)
+
+    aligned_allocainst = alloca!(builder, LLVM.Int32Type(); align=32)
+    @check_ir aligned_allocainst "alloca i32, align 32"
+    @test_throws "power of 2" alloca!(builder, LLVM.Int32Type(); align=3)
 
     array_allocainst = array_alloca!(builder, LLVM.Int32Type(), int1)
     @check_ir array_allocainst "alloca i32, i32 %0"
+
+    aligned_array_allocainst = array_alloca!(builder, LLVM.Int32Type(), int1; align=8)
+    @check_ir aligned_array_allocainst "alloca i32, i32 %0, align 8"
 
     mallocinst = malloc!(builder, LLVM.Int32Type())
     if supports_typed_pointers(ctx)

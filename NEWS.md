@@ -11,9 +11,14 @@ New features:
   `generate_llvmcall` offers the same functionality for use in hand-written generators.
 - Machine code can be disassembled using a `Disassembler` and the `disassemble` function,
   which lazily decodes instructions into their address, size and textual representation.
+- Stack allocations can be aligned using the `align` keyword argument of `alloca!` and
+  `array_alloca!`, and the alignment of functions can be inspected and changed using
+  `alignment` and `alignment!`.
 
 Bug fixes:
 
+- `alignment` and `alignment!` are now only defined for values that have an alignment, and
+  reject invalid alignments, instead of silently returning garbage or corrupting the IR.
 - Contexts can be created and disposed of concurrently from multiple threads.
 - Pass instrumentation options like `-print-after-all` and `-print-changed` no longer crash or
   silently print nothing when running a `NewPMPassBuilder` pipeline on LLVM 19 and older

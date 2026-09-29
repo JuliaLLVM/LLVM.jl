@@ -980,18 +980,23 @@ end
 
 ## alignment
 
-# XXX: only for load, store, alloca
+const AlignedInst = Union{AllocaInst, MemAccessInst}
 
 """
-    alignment(val::Instruction)
+    alignment(inst::Union{AllocaInst, LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst})
 
-Get the alignment of the instruction.
+Get the alignment of the given stack allocation or memory access, in bytes.
 """
-alignment(inst::Instruction) = API.LLVMGetAlignment(inst)
+alignment(inst::AlignedInst) = API.LLVMGetAlignment(inst)
 
 """
-    alignment!(val::Instruction, bytes::Integer)
+    alignment!(inst::Union{AllocaInst, LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst},
+               bytes::Integer)
 
-Set the alignment of the instruction.
+Set the alignment of the given stack allocation or memory access to `bytes`, which must be
+a positive power of 2.
 """
-alignment!(inst::Instruction, bytes::Integer) = API.LLVMSetAlignment(inst, bytes)
+function alignment!(inst::AlignedInst, bytes::Integer)
+    check_alignment(bytes)
+    API.LLVMSetAlignment(inst, bytes)
+end

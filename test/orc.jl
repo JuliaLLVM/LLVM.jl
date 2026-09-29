@@ -569,7 +569,7 @@ end
             fn = LLVM.Function(mod, sym, ft)
 
             gv = LLVM.GlobalVariable(mod, LLVM.Int32Type(), "gv")
-            LLVM.extinit!(gv, true)
+            gv.externally_initialized = true
 
             @dispose builder=IRBuilder() begin
                 entry = BasicBlock(fn, "entry")

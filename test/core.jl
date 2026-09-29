@@ -1003,14 +1003,16 @@ end
     fn.dllstorage = LLVM.API.LLVMDLLImportStorageClass
     @test fn.dllstorage == LLVM.API.LLVMDLLImportStorageClass
 
-    @test !fn.unnamed_addr
-    @test !fn.local_unnamed_addr
-    fn.unnamed_addr = true
-    @test fn.unnamed_addr
-    @test !fn.local_unnamed_addr
-    fn.local_unnamed_addr = true
-    @test !fn.unnamed_addr
-    @test fn.local_unnamed_addr
+    @test fn.unnamed_addr == LLVM.API.LLVMNoUnnamedAddr
+    fn.unnamed_addr = LLVM.API.LLVMGlobalUnnamedAddr
+    @test fn.unnamed_addr == LLVM.API.LLVMGlobalUnnamedAddr
+    @check_ir fn " unnamed_addr"
+    fn.unnamed_addr = LLVM.API.LLVMLocalUnnamedAddr
+    @test fn.unnamed_addr == LLVM.API.LLVMLocalUnnamedAddr
+    @check_ir fn " local_unnamed_addr"
+    fn.unnamed_addr = LLVM.API.LLVMNoUnnamedAddr
+    @test fn.unnamed_addr == LLVM.API.LLVMNoUnnamedAddr
+    @test_throws MethodError fn.unnamed_addr = true
 
     str = MDString("bar")
     md = MDNode([str])
@@ -1045,17 +1047,38 @@ end
     gv.initializer = nothing
     @test gv.initializer === nothing
 
-    @test !isthreadlocal(gv)
-    threadlocal!(gv, true)
-    @test isthreadlocal(gv)
+    # `threadlocal` is a Bool view of `threadlocal_mode`
+    @test !gv.threadlocal
+    @test gv.threadlocal_mode == LLVM.API.LLVMNotThreadLocal
+    gv.threadlocal = true
+    @test gv.threadlocal
+    @test gv.threadlocal_mode == LLVM.API.LLVMGeneralDynamicTLSModel
+    @check_ir gv "thread_local global"
+    gv.threadlocal_mode = LLVM.API.LLVMLocalExecTLSModel
+    @test gv.threadlocal
+    @check_ir gv "thread_local(localexec) global"
+    gv.threadlocal = true       # doesn't replace a more specific model
+    @test gv.threadlocal_mode == LLVM.API.LLVMLocalExecTLSModel
+    gv.threadlocal = false
+    @test !gv.threadlocal
+    @test gv.threadlocal_mode == LLVM.API.LLVMNotThreadLocal
+    gv.threadlocal = true
 
-    @test !isconstant(gv)
-    constant!(gv, true)
+    @test !gv.constant
+    gv.constant = true
+    @test gv.constant
+    @check_ir gv "constant i32"
+    gv.constant = false
+    @test !gv.constant
+    # `isconstant` checks whether a value is a constant, which a global variable is
     @test isconstant(gv)
 
-    @test !isextinit(gv)
-    extinit!(gv, true)
-    @test isextinit(gv)
+    @test !gv.externally_initialized
+    gv.externally_initialized = true
+    @test gv.externally_initialized
+    @check_ir gv "externally_initialized global"
+    gv.externally_initialized = false
+    @test !gv.externally_initialized
 
     @test gv.alignment == 0
     gv.alignment = 4

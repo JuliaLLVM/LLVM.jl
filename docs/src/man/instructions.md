@@ -167,7 +167,7 @@ julia> Int(slot.alignment)
 32
 ```
 
-Memory accesses can also be marked volatile, using `isvolatile`/`volatile!` or the
+Memory accesses can also be marked volatile, using the `inst.volatile` property or the
 `volatile` keyword argument when building the instruction.
 
 
@@ -176,7 +176,8 @@ Memory accesses can also be marked volatile, using `isvolatile`/`volatile!` or t
 Atomic instructions support a few additional APIs:
 
 - `isatomic`: check if the instruction is atomic.
-- `isweak`/`weak!`: check if the instruction is weak, or set it to be weak.
+- `cmpxchg.weak`: whether a compare-and-swap instruction is weak, i.e., may fail
+  spuriously.
 - `inst.syncscope`: the synchronization scope of the instruction, a `SyncScope`.
 - `inst.ordering`: the ordering of the instruction.
 - `inst.success_ordering`, `inst.failure_ordering`: the success and failure orderings of an
@@ -192,7 +193,10 @@ Call site instructions include calls, invokes, and `callbr` instructions. These 
 types support a few additional APIs:
 
 - `call.callconv`: the calling convention of the call site.
-- `istailcall`/`tailcall!`: get or set whether the call site is a tail call.
+- `call.tailcall`: whether a `call` instruction is a tail call, i.e., is marked `tail` or
+  `musttail`.
+- `call.tailcall_kind`: the tail call marker of a `call` instruction, e.g.,
+  `LLVM.API.LLVMTailCallKindMustTail`.
 - `call.called_type`: the function type of the called value of the call site.
 - `call.called_operand`: the called value of the call site.
 - `arguments`: get the arguments of the call site.
@@ -270,16 +274,15 @@ end
 ```
 
 Several integer instructions can carry flags that make the result poison when an assumption
-about the operands does not hold, which enables more aggressive optimization. Each flag can
-be queried and set with a pair of functions, which throw an `ArgumentError` when used with
-an instruction that does not support the flag:
+about the operands does not hold, which enables more aggressive optimization. Each flag is
+a `Bool` property, which only exists on the instructions that support the flag:
 
-- `hasnuw`/`nuw!` and `hasnsw`/`nsw!`: no unsigned or signed wrap, for `add`, `sub`, `mul`,
-  `shl` and (on LLVM 19+) `trunc`;
-- `isexact`/`exact!`: for `udiv`, `sdiv`, `lshr` and `ashr`;
-- `hasdisjoint`/`disjoint!`: for `or` (LLVM 18+);
-- `hasnneg`/`nneg!`: non-negative operand, for `zext` (LLVM 18+) and `uitofp` (LLVM 19+);
-- `hassamesign`/`samesign!`: operands of equal sign, for `icmp` (LLVM 20+).
+- `inst.nuw` and `inst.nsw`: no unsigned or signed wrap, for `add`, `sub`, `mul`, `shl` and
+  (on LLVM 19+) `trunc`;
+- `inst.exact`: for `udiv`, `sdiv`, `lshr` and `ashr`;
+- `inst.disjoint`: for `or` (LLVM 18+);
+- `inst.nneg`: non-negative operand, for `zext` (LLVM 18+) and `uitofp` (LLVM 19+);
+- `inst.samesign`: operands of equal sign, for `icmp` (LLVM 20+).
 
 ```jldoctest
 julia> x, y = parameters(fun);
@@ -287,9 +290,9 @@ julia> x, y = parameters(fun);
 julia> inst = add!(builder, x, y)
 %2 = add i32 %0, %1
 
-julia> nuw!(inst, true)
+julia> inst.nuw = true;
 
-julia> hasnuw(inst), hasnsw(inst)
+julia> inst.nuw, inst.nsw
 (true, false)
 
 julia> inst

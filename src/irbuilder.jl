@@ -737,7 +737,7 @@ function globalstring!(mod::LLVM.Module, str::String, name::String="";
     gv = GlobalVariable(mod, value_type(constant), name,
                         something(addrspace, globals_addrspace(datalayout(mod))))
     alignment!(gv, 1)
-    unnamed_addr!(gv, true)
+    unnamed_addr!(gv, API.LLVMGlobalUnnamedAddr)
     initializer!(gv, constant)
     constant!(gv, true)
     linkage!(gv, LLVM.API.LLVMPrivateLinkage)

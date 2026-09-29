@@ -912,18 +912,13 @@ The visibility of the global value.
 The DLL storage class of the global value.
 
     gv.unnamed_addr
-    gv.unnamed_addr = flag::Bool
+    gv.unnamed_addr = kind::LLVM.API.LLVMUnnamedAddr
 
-Whether the global value has the `unnamed_addr` flag set, i.e., whether its address is
-insignificant. Assigning `true` replaces a `local_unnamed_addr` flag, while assigning
-`false` removes either flag.
-
-    gv.local_unnamed_addr
-    gv.local_unnamed_addr = flag::Bool
-
-Whether the global value has the `local_unnamed_addr` flag set, i.e., whether its address
-is insignificant within the module. Assigning `true` replaces an `unnamed_addr` flag,
-while assigning `false` removes either flag.
+Whether the address of the global value is significant: `LLVM.API.LLVMNoUnnamedAddr` if it
+is, `LLVM.API.LLVMLocalUnnamedAddr` if it is insignificant within the module
+(`local_unnamed_addr`), and `LLVM.API.LLVMGlobalUnnamedAddr` if it is insignificant
+altogether (`unnamed_addr`), which allows merging it with other constants that have the
+same initializer.
 
 The properties of [`Value`](@ref LLVM.Value) are available too.
 """
@@ -996,25 +991,17 @@ dllstorage!(val::GlobalValue, storage::API.LLVMDLLStorageClass) =
 
 @property GlobalValue dllstorage dllstorage!
 
-unnamed_addr(val::GlobalValue) = API.LLVMGetUnnamedAddress(val) === API.LLVMGlobalUnnamedAddr
+unnamed_addr(val::GlobalValue) = API.LLVMGetUnnamedAddress(val)
 
-unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(val, flag ? API.LLVMGlobalUnnamedAddr : API.LLVMNoUnnamedAddr)
+unnamed_addr!(val::GlobalValue, kind::API.LLVMUnnamedAddr) =
+    API.LLVMSetUnnamedAddress(val, kind)
 
 @property GlobalValue unnamed_addr unnamed_addr!
-
-local_unnamed_addr(val::GlobalValue) = API.LLVMGetUnnamedAddress(val) === API.LLVMLocalUnnamedAddr
-
-local_unnamed_addr!(val::GlobalValue, flag::Bool) = API.LLVMSetUnnamedAddress(val, flag ? API.LLVMLocalUnnamedAddr : API.LLVMNoUnnamedAddr)
-
-@property GlobalValue local_unnamed_addr local_unnamed_addr!
 
 
 ## global variables
 
-@vocabulary IR GlobalVariable, erase!,
-               isthreadlocal, threadlocal!,
-               isconstant, constant!,
-               isextinit, extinit!
+@vocabulary IR GlobalVariable, erase!
 
 """
     GlobalVariable <: LLVM.GlobalObject
@@ -1029,10 +1016,36 @@ A global variable.
 The initializer of the global variable, or `nothing` if it has none (i.e., if it is a
 declaration). Assigning `nothing` removes the current initializer.
 
+    gv.threadlocal
+    gv.threadlocal = flag::Bool
+
+Whether the global variable is thread-local. This is a view of the `threadlocal_mode`
+property: assigning `true` to a variable that is not thread-local selects the general
+dynamic model, while assigning `false` makes the variable not thread-local. Assigning the
+current value does not change the thread-local mode.
+
+    gv.constant
+    gv.constant = flag::Bool
+
+Whether the global variable is a global constant, i.e., whether its value is immutable
+throughout the runtime execution of the program.
+
+This differs from `isconstant(gv)`, which checks whether a value is an LLVM constant, and
+is true for every global variable (which represents a constant address).
+
     gv.threadlocal_mode
     gv.threadlocal_mode = mode::LLVM.API.LLVMThreadLocalMode
 
-The thread-local mode of the global variable.
+The thread-local storage model of the global variable, e.g.,
+`LLVM.API.LLVMGeneralDynamicTLSModel`, or `LLVM.API.LLVMNotThreadLocal` if it is not
+thread-local. See also the `threadlocal` property.
+
+    gv.externally_initialized
+    gv.externally_initialized = flag::Bool
+
+Whether the global variable is externally initialized, i.e., whether its value may be
+changed before the program starts running, so that optimizations cannot rely on its
+initializer.
 
     gv.alignment
     gv.alignment = bytes::Integer
@@ -1098,55 +1111,36 @@ end
 
 @property GlobalVariable initializer initializer!
 
-"""
-    isthreadlocal(gv::GlobalVariable)
+threadlocal(gv::GlobalVariable) = API.LLVMIsThreadLocal(gv) |> Bool
 
-Check if the global variable is thread-local.
-"""
-isthreadlocal(gv::GlobalVariable) = API.LLVMIsThreadLocal(gv) |> Bool
+# only change the mode when needed, so that marking a thread-local variable as such does
+# not replace a more specific model (unlike LLVM's `setThreadLocal`)
+function threadlocal!(gv::GlobalVariable, flag::Bool)
+    flag == threadlocal(gv) || API.LLVMSetThreadLocal(gv, flag)
+    return
+end
 
-"""
-    threadlocal!(gv::GlobalVariable, flag::Bool)
+@property GlobalVariable threadlocal threadlocal!
 
-Set the thread-local flag of the global variable.
-"""
-threadlocal!(gv::GlobalVariable, bool) =
-  API.LLVMSetThreadLocal(gv, bool)
+constant(gv::GlobalVariable) = API.LLVMIsGlobalConstant(gv) |> Bool
 
-"""
-    isconstant(gv::GlobalVariable)
+constant!(gv::GlobalVariable, flag::Bool) = API.LLVMSetGlobalConstant(gv, flag)
 
-Check if the global variable is a global constant, i.e., its value is immutable throughout
-the runtime execution of the program.
-"""
-isconstant(gv::GlobalVariable) = API.LLVMIsGlobalConstant(gv) |> Bool
-
-"""
-    constant!(gv::GlobalVariable, flag::Bool)
-
-Set the constant flag of the global variable.
-"""
-constant!(gv::GlobalVariable, bool) = API.LLVMSetGlobalConstant(gv, bool)
+@property GlobalVariable constant constant!
 
 threadlocal_mode(gv::GlobalVariable) = API.LLVMGetThreadLocalMode(gv)
 
-threadlocal_mode!(gv::GlobalVariable, mode) = API.LLVMSetThreadLocalMode(gv, mode)
+threadlocal_mode!(gv::GlobalVariable, mode::API.LLVMThreadLocalMode) =
+    API.LLVMSetThreadLocalMode(gv, mode)
 
 @property GlobalVariable threadlocal_mode threadlocal_mode!
 
-"""
-    isextinit(gv::GlobalVariable)
+externally_initialized(gv::GlobalVariable) = API.LLVMIsExternallyInitialized(gv) |> Bool
 
-Check if the global variable is externally initialized.
-"""
-isextinit(gv::GlobalVariable) = API.LLVMIsExternallyInitialized(gv) |> Bool
+externally_initialized!(gv::GlobalVariable, flag::Bool) =
+    API.LLVMSetExternallyInitialized(gv, flag)
 
-"""
-    extinit!(gv::GlobalVariable, flag::Bool)
-
-Set the externally initialized flag of the global variable.
-"""
-extinit!(gv::GlobalVariable, bool) = API.LLVMSetExternallyInitialized(gv, bool)
+@property GlobalVariable externally_initialized externally_initialized!
 
 # alignments are powers of 2 passed to LLVM as a 32-bit integer. global objects can also have
 # no explicit alignment, which is represented by 0.

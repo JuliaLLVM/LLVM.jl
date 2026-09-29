@@ -32,16 +32,13 @@ return_attributes(::LLVM.CallBase)
 
 ```@docs
 LLVM.AtomicInst
+LLVM.MemAccessInst
 ```
 
 ```@docs
 isatomic
 SyncScope
 LLVM.isavailable
-isweak
-weak!
-isvolatile
-volatile!
 merged_ordering
 strongest_failure_ordering
 is_stronger
@@ -87,8 +84,6 @@ LLVM.CallBase
 ```
 
 ```@docs
-istailcall
-tailcall!
 arguments
 ```
 
@@ -116,23 +111,6 @@ successors(::Instruction)
 incoming
 ```
 
-## Poison-generating flags
-
-```@docs
-hasnuw
-nuw!
-hasnsw
-nsw!
-isexact
-exact!
-hasdisjoint
-disjoint!
-hasnneg
-nneg!
-hassamesign
-samesign!
-```
-
 ## Floating Point instructions
 
 ```@docs
@@ -143,4 +121,12 @@ fast_math!
 
 ```@docs
 LLVM.AlignedInst
+```
+
+## Poison-generating flags
+
+```@docs
+LLVM.NoWrapInst
+LLVM.ExactInst
+LLVM.NonNegInst
 ```

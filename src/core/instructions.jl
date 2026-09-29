@@ -43,6 +43,18 @@ The condition of a conditional branch instruction.
 
 The default destination of a switch instruction.
 
+    or.disjoint
+    or.disjoint = flag::Bool
+
+Whether an `or` instruction has the `disjoint` flag, which makes the result poison if both
+operands have a bit set in the same position. Requires LLVM 18+.
+
+    icmp.samesign
+    icmp.samesign = flag::Bool
+
+Whether an `icmp` instruction has the `samesign` flag, which makes the result poison if the
+operands have different signs. Requires LLVM 20+.
+
 The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 Instruction
@@ -163,7 +175,6 @@ predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
 ## atomics
 
 @vocabulary IR isatomic, SyncScope,
-               isweak, weak!, isvolatile, volatile!,
                is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
                strongest_failure_ordering, mmra!, copy_atomic_metadata!
 
@@ -195,6 +206,12 @@ instruction.
 
 The binary operation of an atomic read-modify-write instruction, e.g.,
 `LLVM.API.LLVMAtomicRMWBinOpAdd`.
+
+    cmpxchg.weak
+    cmpxchg.weak = flag::Bool
+
+Whether an atomic compare-and-exchange instruction is weak, i.e., whether it is allowed to
+fail spuriously, even if the comparison succeeds.
 
     cmpxchg.success_ordering
     cmpxchg.success_ordering = ordering::LLVM.API.LLVMAtomicOrdering
@@ -494,39 +511,37 @@ function isavailable(op::API.LLVMAtomicRMWBinOp)
 end
 @public isavailable
 
-"""
-    isweak(inst::AtomicCmpXchgInst)
+weak(inst::AtomicCmpXchgInst) = API.LLVMGetWeak(inst) |> Bool
 
-Check if the given atomic compare-and-exchange instruction is weak.
-"""
-function isweak(inst::AtomicCmpXchgInst)
-    API.LLVMGetWeak(inst) |> Bool
-end
+weak!(inst::AtomicCmpXchgInst, flag::Bool) = API.LLVMSetWeak(inst, flag)
+
+@property AtomicCmpXchgInst weak weak!
+
+@vocabulary IR MemAccessInst
 
 """
-    weak!(inst::AtomicCmpXchgInst, is_weak::Bool)
+    LLVM.MemAccessInst
 
-Set whether the given atomic compare-and-exchange instruction is weak.
+The group of instructions that access memory: `load`, `store`, `atomicrmw` and `cmpxchg`.
+
+# Properties
+
+    inst.volatile
+    inst.volatile = flag::Bool
+
+Whether a memory access (a `load`, `store`, `atomicrmw` or `cmpxchg` instruction) is
+volatile.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
 """
-function weak!(inst::AtomicCmpXchgInst, is_weak::Bool)
-    API.LLVMSetWeak(inst, is_weak)
-end
-
 const MemAccessInst = Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst}
 
-"""
-    isvolatile(inst::Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst})
+volatile(inst::MemAccessInst) = API.LLVMGetVolatile(inst) |> Bool
 
-Check whether the given memory access is volatile.
-"""
-isvolatile(inst::MemAccessInst) = API.LLVMGetVolatile(inst) |> Bool
+volatile!(inst::MemAccessInst, flag::Bool) = API.LLVMSetVolatile(inst, flag)
 
-"""
-    volatile!(inst::Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst}, is_volatile::Bool)
-
-Set whether the given memory access is volatile.
-"""
-volatile!(inst::MemAccessInst, is_volatile::Bool) = API.LLVMSetVolatile(inst, is_volatile)
+@property MemAccessInst volatile volatile!
 
 """
     mmra!(inst::Instruction, tags::Pair{<:AbstractString,<:AbstractString}...)
@@ -621,12 +636,27 @@ function.
 
 The type of the function that is called by a `call`, `invoke` or `callbr` instruction.
 
+    call.tailcall
+    call.tailcall = flag::Bool
+
+Whether a `call` instruction is marked as a tail call, i.e., whether it has the `tail` or
+`musttail` marker. This is a view of the `tailcall_kind` property: assigning `true` to a
+call that is not a tail call marks it `tail`, while assigning `false` to a tail call
+removes the marker. Assigning the current value does not change the kind of tail call.
+
+    call.tailcall_kind
+    call.tailcall_kind = kind::LLVM.API.LLVMTailCallKind
+
+The tail call marker of a `call` instruction: `LLVM.API.LLVMTailCallKindNone`,
+`LLVMTailCallKindTail` (`tail`), `LLVMTailCallKindMustTail` (`musttail`) or
+`LLVMTailCallKindNoTail` (`notail`). See also the `tailcall` property.
+
 The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
 available too.
 """
 const CallBase = Union{CallBrInst, CallInst, InvokeInst}
 
-@vocabulary IR istailcall, tailcall!, arguments
+@vocabulary IR arguments
 
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
@@ -635,19 +665,24 @@ callconv!(inst::CallBase, cc) =
 
 @property CallBase callconv callconv!
 
-"""
-    istailcall(call_inst::Instruction)
+tailcall(inst::CallInst) = API.LLVMIsTailCall(inst) |> Bool
 
-Tests if this call site must be tail call optimized.
-"""
-istailcall(inst::CallBase) = API.LLVMIsTailCall(inst) |> Bool
+# only change the kind when needed, so that marking a tail call as such does not demote a
+# `musttail` call, and clearing the flag of a `notail` call keeps that marker (unlike
+# LLVM's `setTailCall`)
+function tailcall!(inst::CallInst, flag::Bool)
+    flag == tailcall(inst) || API.LLVMSetTailCall(inst, flag)
+    return
+end
 
-"""
-    tailcall!(call_inst::Instruction, is_tail::Bool)
+@property CallInst tailcall tailcall!
 
-Sets whether this call site must be tail call optimized.
-"""
-tailcall!(inst::CallBase, bool) = API.LLVMSetTailCall(inst, bool)
+tailcall_kind(inst::CallInst) = API.LLVMGetTailCallKind(inst)
+
+tailcall_kind!(inst::CallInst, kind::API.LLVMTailCallKind) =
+    API.LLVMSetTailCallKind(inst, kind)
+
+@property CallInst tailcall_kind tailcall_kind!
 
 called_operand(inst::CallBase) = Value(API.LLVMGetCalledValue(inst))
 
@@ -982,158 +1017,116 @@ Base.push!(iter::PhiIncomingSet, args::Tuple{<:Value, BasicBlock}) = append!(ite
 
 ## poison-generating flags
 
-@vocabulary IR hasnuw, nuw!, hasnsw, nsw!, isexact, exact!, hasdisjoint, disjoint!,
-               hasnneg, nneg!, hassamesign, samesign!
+# the instructions that support each flag, depending on the version of LLVM. querying a
+# flag on other instructions asserts (or worse), so the properties are only declared for
+# these instructions.
+@vocabulary IR NoWrapInst
 
-# which instructions support each flag, depending on the version of LLVM
-supports_nuw(inst::Instruction) =
-    inst isa Union{AddInst, SubInst, MulInst, ShlInst} ||
-    (version() >= v"19" && inst isa TruncInst)
-supports_nsw(inst::Instruction) = supports_nuw(inst)
-supports_exact(inst::Instruction) = inst isa Union{UDivInst, SDivInst, LShrInst, AShrInst}
-supports_disjoint(inst::Instruction) = version() >= v"18" && inst isa OrInst
-supports_nneg(inst::Instruction) =
-    (version() >= v"18" && inst isa ZExtInst) ||
-    (version() >= v"19" && inst isa UIToFPInst)
-supports_samesign(inst::Instruction) = version() >= v"20" && inst isa ICmpInst
+"""
+    LLVM.NoWrapInst
 
-# LLVM asserts (or worse) when querying a flag that the instruction doesn't support
-function check_flag(supported::Bool, inst::Instruction, flag::String)
-    supported ||
-        throw(ArgumentError("$(typeof(inst)) does not support the `$flag` flag on LLVM $(version())"))
-    return
+The group of instructions that can have the `nuw` and `nsw` flags: `add`, `sub`, `mul`,
+`shl` and, on LLVM 19+, `trunc`.
+
+# Properties
+
+    inst.nuw
+    inst.nuw = flag::Bool
+
+Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has the `nuw`
+(no unsigned wrap) flag, which makes the result poison if unsigned overflow occurs.
+
+    inst.nsw
+    inst.nsw = flag::Bool
+
+Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has the `nsw`
+(no signed wrap) flag, which makes the result poison if signed overflow occurs.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
+"""
+const NoWrapInst = version() >= v"19" ? Union{AddInst, SubInst, MulInst, ShlInst, TruncInst} :
+                                        Union{AddInst, SubInst, MulInst, ShlInst}
+@vocabulary IR ExactInst
+
+"""
+    LLVM.ExactInst
+
+The group of instructions that can have the `exact` flag: `udiv`, `sdiv`, `lshr` and `ashr`.
+
+# Properties
+
+    inst.exact
+    inst.exact = flag::Bool
+
+Whether a `udiv`, `sdiv`, `lshr` or `ashr` instruction has the `exact` flag, which makes
+the result poison if the division has a remainder, or if the shift shifts out any non-zero
+bits.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
+"""
+const ExactInst = Union{UDivInst, SDivInst, LShrInst, AShrInst}
+@vocabulary IR NonNegInst
+
+"""
+    LLVM.NonNegInst
+
+The group of instructions that can have the `nneg` flag: `zext` and, on LLVM 19+, `uitofp`.
+
+# Properties
+
+    inst.nneg
+    inst.nneg = flag::Bool
+
+Whether a `zext` or (on LLVM 19+) `uitofp` instruction has the `nneg` (non-negative) flag,
+which makes the result poison if the operand is negative. Requires LLVM 18+.
+
+The properties of [`Instruction`](@ref LLVM.Instruction) and [`Value`](@ref LLVM.Value) are
+available too.
+"""
+const NonNegInst = version() >= v"19" ? Union{ZExtInst, UIToFPInst} : ZExtInst
+
+nuw(inst::NoWrapInst) = API.LLVMGetNUW(inst) |> Bool
+
+nuw!(inst::NoWrapInst, flag::Bool) = API.LLVMSetNUW(inst, flag)
+
+@property NoWrapInst nuw nuw!
+
+nsw(inst::NoWrapInst) = API.LLVMGetNSW(inst) |> Bool
+
+nsw!(inst::NoWrapInst, flag::Bool) = API.LLVMSetNSW(inst, flag)
+
+@property NoWrapInst nsw nsw!
+
+exact(inst::ExactInst) = API.LLVMGetExact(inst) |> Bool
+
+exact!(inst::ExactInst, flag::Bool) = API.LLVMSetExact(inst, flag)
+
+@property ExactInst exact exact!
+
+disjoint(inst::OrInst) = API.LLVMGetIsDisjoint(inst) |> Bool
+
+disjoint!(inst::OrInst, flag::Bool) = API.LLVMSetIsDisjoint(inst, flag)
+
+if version() >= v"18"
+    @property OrInst disjoint disjoint!
 end
 
-"""
-    hasnuw(inst::Instruction)
+nneg(inst::NonNegInst) = API.LLVMGetNNeg(inst) |> Bool
 
-Check whether the given `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has
-the `nuw` (no unsigned wrap) flag, which makes the result poison if unsigned overflow
-occurs.
-"""
-function hasnuw(inst::Instruction)
-    check_flag(supports_nuw(inst), inst, "nuw")
-    API.LLVMGetNUW(inst) |> Bool
+nneg!(inst::NonNegInst, flag::Bool) = API.LLVMSetNNeg(inst, flag)
+
+if version() >= v"18"
+    @property NonNegInst nneg nneg!
 end
 
-"""
-    nuw!(inst::Instruction, nuw::Bool)
+samesign(inst::ICmpInst) = API.LLVMGetICmpSameSign(inst) |> Bool
 
-Set or clear the `nuw` (no unsigned wrap) flag of the given instruction. See
-[`hasnuw`](@ref).
-"""
-function nuw!(inst::Instruction, nuw::Bool)
-    check_flag(supports_nuw(inst), inst, "nuw")
-    API.LLVMSetNUW(inst, nuw)
-end
+samesign!(inst::ICmpInst, flag::Bool) = API.LLVMSetICmpSameSign(inst, flag)
 
-"""
-    hasnsw(inst::Instruction)
-
-Check whether the given `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has
-the `nsw` (no signed wrap) flag, which makes the result poison if signed overflow occurs.
-"""
-function hasnsw(inst::Instruction)
-    check_flag(supports_nsw(inst), inst, "nsw")
-    API.LLVMGetNSW(inst) |> Bool
-end
-
-"""
-    nsw!(inst::Instruction, nsw::Bool)
-
-Set or clear the `nsw` (no signed wrap) flag of the given instruction. See
-[`hasnsw`](@ref).
-"""
-function nsw!(inst::Instruction, nsw::Bool)
-    check_flag(supports_nsw(inst), inst, "nsw")
-    API.LLVMSetNSW(inst, nsw)
-end
-
-"""
-    isexact(inst::Instruction)
-
-Check whether the given `udiv`, `sdiv`, `lshr` or `ashr` instruction has the `exact` flag,
-which makes the result poison if the division has a remainder, or if the shift shifts out
-any non-zero bits.
-"""
-function isexact(inst::Instruction)
-    check_flag(supports_exact(inst), inst, "exact")
-    API.LLVMGetExact(inst) |> Bool
-end
-
-"""
-    exact!(inst::Instruction, exact::Bool)
-
-Set or clear the `exact` flag of the given instruction. See [`isexact`](@ref).
-"""
-function exact!(inst::Instruction, exact::Bool)
-    check_flag(supports_exact(inst), inst, "exact")
-    API.LLVMSetExact(inst, exact)
-end
-
-"""
-    hasdisjoint(inst::OrInst)
-
-Check whether the given `or` instruction has the `disjoint` flag, which makes the result
-poison if both operands have a bit set in the same position. Requires LLVM 18+.
-"""
-function hasdisjoint(inst::Instruction)
-    check_flag(supports_disjoint(inst), inst, "disjoint")
-    API.LLVMGetIsDisjoint(inst) |> Bool
-end
-
-"""
-    disjoint!(inst::OrInst, disjoint::Bool)
-
-Set or clear the `disjoint` flag of the given `or` instruction. See [`hasdisjoint`](@ref).
-"""
-function disjoint!(inst::Instruction, disjoint::Bool)
-    check_flag(supports_disjoint(inst), inst, "disjoint")
-    API.LLVMSetIsDisjoint(inst, disjoint)
-end
-
-"""
-    hasnneg(inst::Instruction)
-
-Check whether the given `zext` (LLVM 18+) or `uitofp` (LLVM 19+) instruction has the `nneg`
-(non-negative) flag, which makes the result poison if the operand is negative.
-"""
-function hasnneg(inst::Instruction)
-    check_flag(supports_nneg(inst), inst, "nneg")
-    API.LLVMGetNNeg(inst) |> Bool
-end
-
-"""
-    nneg!(inst::Instruction, nneg::Bool)
-
-Set or clear the `nneg` (non-negative) flag of the given instruction. See
-[`hasnneg`](@ref).
-"""
-function nneg!(inst::Instruction, nneg::Bool)
-    check_flag(supports_nneg(inst), inst, "nneg")
-    API.LLVMSetNNeg(inst, nneg)
-end
-
-"""
-    hassamesign(inst::ICmpInst)
-
-Check whether the given `icmp` instruction has the `samesign` flag, which makes the result
-poison if the operands have different signs. Requires LLVM 20+.
-"""
-function hassamesign(inst::Instruction)
-    check_flag(supports_samesign(inst), inst, "samesign")
-    API.LLVMGetICmpSameSign(inst) |> Bool
-end
-
-"""
-    samesign!(inst::ICmpInst, samesign::Bool)
-
-Set or clear the `samesign` flag of the given `icmp` instruction. See
-[`hassamesign`](@ref).
-"""
-function samesign!(inst::Instruction, samesign::Bool)
-    check_flag(supports_samesign(inst), inst, "samesign")
-    API.LLVMSetICmpSameSign(inst, samesign)
+if version() >= v"20"
+    @property ICmpInst samesign samesign!
 end
 
 ## floating point operations

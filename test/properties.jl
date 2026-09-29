@@ -164,7 +164,7 @@ end
     # the vocabularies re-export LLVM's bindings
     # including the instruction types, and the groups of instructions that have properties
     @test LLVM.IR.CallInst === LLVM.CallInst
-    for name in (:CallBase, :AtomicInst, :AlignedInst)
+    for name in (:CallBase, :AtomicInst, :MemAccessInst, :AlignedInst, :NoWrapInst, :ExactInst, :NonNegInst)
         @test Base.isexported(LLVM.IR, name)
     end
     @test LLVM.IR.functions === LLVM.functions

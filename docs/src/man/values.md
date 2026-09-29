@@ -243,8 +243,8 @@ couple of additional APIs:
 - `gv.parent`: the module that contains the global value.
 - `gv.linkage`, `gv.visibility`, `gv.section`, `gv.dllstorage`: the linkage, visibility,
   section and DLL storage class of the global value.
-- `gv.unnamed_addr`, `gv.local_unnamed_addr`: whether the global value has a (local)
-  unnamed address.
+- `gv.unnamed_addr`: whether the address of the global value is significant, e.g.,
+  `LLVM.API.LLVMGlobalUnnamedAddr` for an `unnamed_addr` global.
 - `isdeclaration(gv)`: whether the global value is a declaration, i.e., it does not have a
   body.
 
@@ -267,11 +267,31 @@ Global variables support additional APIs:
 - `gv.initializer`: the initializer of the global variable, a constant value (assign
   `nothing` to remove the initializer).
 - `gv.alignment`: the alignment of the global variable.
+- `gv.threadlocal`: whether the global variable is thread-local.
 - `gv.threadlocal_mode`: the thread-local storage model of the global variable.
-- `isthreadlocal`/`threadlocal!`: get or set whether the global variable is thread-local.
-- `isconstant`/`constant!`: get or set whether the global variable is constant.
-- `isextinit`/`extinit!`: get or set whether the global variable is externally initialized.
+- `gv.constant`: whether the global variable is constant.
+- `gv.externally_initialized`: whether the global variable is externally initialized.
 - `erase!`: delete the global variable from its parent module, and delete the object.
+
+All of these properties can be assigned to. The `threadlocal` flag is a view of the
+thread-local mode: making a variable thread-local selects the general dynamic model, which
+can be refined by assigning to `threadlocal_mode`:
+
+```jldoctest
+julia> mod = LLVM.Module("SomeModule");
+
+julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGV");
+
+julia> gv.threadlocal = true;
+
+julia> gv.threadlocal_mode
+LLVMGeneralDynamicTLSModel::LLVMThreadLocalMode = 0x00000001
+
+julia> gv.threadlocal_mode = LLVM.API.LLVMLocalExecTLSModel;
+
+julia> gv
+@SomeGV = external thread_local(localexec) global i32
+```
 
 A global alias introduces a new symbol for an existing global value, or for a constant
 expression involving one. It can be created with the `GlobalAlias` constructor, which takes

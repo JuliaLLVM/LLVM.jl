@@ -45,7 +45,7 @@ end
     ld = load!(builder, T_int, ptr; ordering=AC, scope="agent", align=8, volatile=true)
     @test occursin(Regex("load atomic volatile i32, $ptr_str syncscope\\(\"agent\"\\) acquire, align 8"),
                    string(ld))
-    @test ld.ordering == AC && ld.syncscope.name == "agent" && isvolatile(ld)
+    @test ld.ordering == AC && ld.syncscope.name == "agent" && ld.volatile
     @test !isatomic(load!(builder, T_int, ptr))
 
     st = store!(builder, int, ptr; ordering=RE, align=4)
@@ -250,7 +250,7 @@ end
     new_ld = cast_atomic_to_integer!(ld)
     @test new_ld.value_type == T_i32 && new_ld.ordering == AC
     new_st = cast_atomic_to_integer!(st)
-    @test isvolatile(new_st) && new_st.ordering == RE
+    @test new_st.volatile && new_st.ordering == RE
     new_xchg = cast_atomic_to_integer!(xchg)
     @test new_xchg.value_type == T_i32
     @test cast_atomic_to_integer!(new_ld) == new_ld

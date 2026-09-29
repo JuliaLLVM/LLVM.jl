@@ -61,12 +61,6 @@ GlobalVariable
 erase!(::GlobalVariable)
 move_before(::GlobalVariable, ::GlobalVariable)
 move_after(::GlobalVariable, ::GlobalVariable)
-isthreadlocal
-threadlocal!
-isconstant(::GlobalVariable)
-constant!
-isextinit
-extinit!
 ```
 
 ### Global aliases

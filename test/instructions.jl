@@ -290,9 +290,10 @@
     @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingAcquire
     atomic_cmpxchg_inst.failure_ordering = LLVM.API.LLVMAtomicOrderingMonotonic
     @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingMonotonic
-    @test !isweak(atomic_cmpxchg_inst)
-    weak!(atomic_cmpxchg_inst, true)
-    @test isweak(atomic_cmpxchg_inst)
+    @test !atomic_cmpxchg_inst.weak
+    atomic_cmpxchg_inst.weak = true
+    @test atomic_cmpxchg_inst.weak
+    @test occursin("cmpxchg weak", string(atomic_cmpxchg_inst))
 
     single_thread = true
     atomic_rmw_inst = atomic_rmw!(builder,
@@ -322,13 +323,15 @@
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 syncscope(\"agent\") monotonic"
     end
 
-    @test !isvolatile(atomic_rmw_inst)
-    volatile!(atomic_rmw_inst, true)
-    @test isvolatile(atomic_rmw_inst)
+    @test !atomic_rmw_inst.volatile
+    atomic_rmw_inst.volatile = true
+    @test atomic_rmw_inst.volatile
     @test occursin("atomicrmw volatile add", string(atomic_rmw_inst))
-    @test !isvolatile(atomic_cmpxchg_inst)
-    volatile!(atomic_cmpxchg_inst, true)
-    @test isvolatile(atomic_cmpxchg_inst)
+    atomic_rmw_inst.volatile = false
+    @test !atomic_rmw_inst.volatile
+    @test !atomic_cmpxchg_inst.volatile
+    atomic_cmpxchg_inst.volatile = true
+    @test atomic_cmpxchg_inst.volatile
 
     # operations that are newer than the C API of some LLVM versions
     for op in (LLVM.API.LLVMAtomicRMWBinOpUIncWrap, LLVM.API.LLVMAtomicRMWBinOpUDecWrap,
@@ -453,6 +456,29 @@
     @test callinst.called_operand == trap
     @test callinst.called_type == LLVM.FunctionType(LLVM.VoidType())
 
+    # tail calls: `tailcall` is a Bool view of `tailcall_kind`
+    @test !callinst.tailcall
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindNone
+    callinst.tailcall = true
+    @test callinst.tailcall
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindTail
+    @check_ir callinst "tail call void @llvm.trap()"
+    callinst.tailcall_kind = LLVM.API.LLVMTailCallKindMustTail
+    @test callinst.tailcall
+    @check_ir callinst "musttail call void @llvm.trap()"
+    callinst.tailcall = true    # doesn't demote a `musttail` call
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindMustTail
+    callinst.tailcall = false
+    @test !callinst.tailcall
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindNone
+    callinst.tailcall_kind = LLVM.API.LLVMTailCallKindNoTail
+    @test !callinst.tailcall
+    @check_ir callinst "notail call void @llvm.trap()"
+    callinst.tailcall = false   # keeps the `notail` marker
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindNoTail
+    callinst.tailcall_kind = LLVM.API.LLVMTailCallKindNone
+    @check_ir callinst "call void @llvm.trap()"
+
     neginst = neg!(builder, int1)
     @check_ir neginst "sub i32 0, %0"
 
@@ -563,89 +589,90 @@ end
         # nuw and nsw
         for inst in [add!(builder, a, b), sub!(builder, a, b), mul!(builder, a, b),
                      shl!(builder, a, b)]
-            @test !hasnuw(inst) && !hasnsw(inst)
-            nuw!(inst, true)
-            @test hasnuw(inst) && !hasnsw(inst)
+            @test !inst.nuw && !inst.nsw
+            inst.nuw = true
+            @test inst.nuw && !inst.nsw
             @check_ir inst " nuw i32"
-            nsw!(inst, true)
-            @test hasnuw(inst) && hasnsw(inst)
+            inst.nsw = true
+            @test inst.nuw && inst.nsw
             @check_ir inst " nuw nsw i32"
-            nuw!(inst, false)
-            nsw!(inst, false)
-            @test !hasnuw(inst) && !hasnsw(inst)
+            inst.nuw = false
+            inst.nsw = false
+            @test !inst.nuw && !inst.nsw
         end
-        @test hasnuw(nuwadd!(builder, a, b))
-        @test hasnsw(nswsub!(builder, a, b))
+        @test nuwadd!(builder, a, b).nuw
+        @test nswsub!(builder, a, b).nsw
         trunc = trunc!(builder, a, LLVM.Int8Type())
         if LLVM.version() >= v"19"
-            nuw!(trunc, true)
-            nsw!(trunc, true)
+            trunc.nuw = true
+            trunc.nsw = true
             @check_ir trunc "trunc nuw nsw i32"
         else
-            @test_throws ArgumentError nuw!(trunc, true)
+            @test !hasproperty(trunc, :nuw)
+            @test_throws "no property `nuw`" trunc.nuw = true
         end
 
         # exact
         for inst in [udiv!(builder, a, b), sdiv!(builder, a, b), lshr!(builder, a, b),
                      ashr!(builder, a, b)]
-            @test !isexact(inst)
-            exact!(inst, true)
-            @test isexact(inst)
+            @test !inst.exact
+            inst.exact = true
+            @test inst.exact
             @check_ir inst " exact i32"
+            inst.exact = false
+            @test !inst.exact
         end
-        @test isexact(exactsdiv!(builder, a, b))
+        @test exactsdiv!(builder, a, b).exact
 
         # disjoint
         or = or!(builder, a, b)
         if LLVM.version() >= v"18"
-            @test !hasdisjoint(or)
-            disjoint!(or, true)
-            @test hasdisjoint(or)
+            @test !or.disjoint
+            or.disjoint = true
+            @test or.disjoint
             @check_ir or "or disjoint i32"
         else
-            @test_throws ArgumentError hasdisjoint(or)
+            @test_throws "no property `disjoint`" or.disjoint
         end
 
         # nneg
         zext = zext!(builder, a, LLVM.Int64Type())
         uitofp = uitofp!(builder, a, LLVM.DoubleType())
         if LLVM.version() >= v"18"
-            @test !hasnneg(zext)
-            nneg!(zext, true)
-            @test hasnneg(zext)
+            @test !zext.nneg
+            zext.nneg = true
+            @test zext.nneg
             @check_ir zext "zext nneg i32"
         else
-            @test_throws ArgumentError nneg!(zext, true)
+            @test_throws "no property `nneg`" zext.nneg = true
         end
         if LLVM.version() >= v"19"
-            nneg!(uitofp, true)
-            @test hasnneg(uitofp)
+            uitofp.nneg = true
+            @test uitofp.nneg
             @check_ir uitofp "uitofp nneg i32"
         else
-            @test_throws ArgumentError nneg!(uitofp, true)
+            @test_throws "no property `nneg`" uitofp.nneg = true
         end
 
         # samesign
         icmp = icmp!(builder, LLVM.API.LLVMIntULT, a, b)
         if LLVM.version() >= v"20"
-            @test !hassamesign(icmp)
-            samesign!(icmp, true)
-            @test hassamesign(icmp)
+            @test !icmp.samesign
+            icmp.samesign = true
+            @test icmp.samesign
             @check_ir icmp "icmp samesign ult i32"
         else
-            @test_throws ArgumentError samesign!(icmp, true)
+            @test_throws "no property `samesign`" icmp.samesign = true
         end
 
-        # instructions that don't support a flag
+        # the flags are only available on instructions that support them
         xor = xor!(builder, a, b)
-        @test_throws ArgumentError hasnuw(xor)
-        @test_throws ArgumentError nsw!(xor, false)
-        @test_throws ArgumentError isexact(xor)
-        @test_throws ArgumentError hasdisjoint(xor)
-        @test_throws ArgumentError hasnneg(xor)
-        @test_throws ArgumentError hassamesign(xor)
-        @test_throws ArgumentError hasnuw(or)
-        @test_throws ArgumentError exact!(icmp, true)
+        for flag in (:nuw, :nsw, :exact, :disjoint, :nneg, :samesign)
+            @test !hasproperty(xor, flag)
+            @test_throws "no property `$flag`" getproperty(xor, flag)
+        end
+        @test_throws "no property `nuw`" or.nuw
+        @test_throws "no property `exact`" icmp.exact = true
     end
 end
 

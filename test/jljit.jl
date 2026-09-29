@@ -105,24 +105,19 @@ end
         # Julia JIT, so only generate the symbol we are looking for.
         jd = JITDylib(jljit, "generated")
         name = string(gensym("generated"))
+        mangled = mangle(jljit, name)
         data = Ref{Int32}(42)
         dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
             for (sym, flags) in lookup_set
-                string(sym) == name || continue
-                address = LLVM.API.LLVMOrcJITTargetAddress(
-                    reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
-                symbol = LLVM.API.LLVMJITEvaluatedSymbol(address,
-                    LLVM.API.LLVMJITSymbolFlags(LLVM.API.LLVMJITSymbolGenericFlagsExported, 0))
+                sym == mangled || continue
                 LLVM.retain(sym)
-                pair = LLVM.API.LLVMOrcCSymbolMapPair(sym, symbol)
-                LLVM.define(jd, LLVM.absolute_symbols(Ref(pair)))
+                LLVM.define(jd, LLVM.absolute_symbols(sym => pointer_from_objref(data)))
             end
         end
         add!(jd, dg)
 
-        GC.@preserve data begin
-            @test pointer(lookup(jljit, jd, name)) == Base.unsafe_convert(Ptr{Int32}, data)
-        end
+        @test pointer(lookup(jljit, jd, name)) == pointer_from_objref(data)
+        LLVM.release(mangled)
     end
 end
 

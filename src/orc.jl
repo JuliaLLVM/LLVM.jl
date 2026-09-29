@@ -142,6 +142,20 @@ linkinglayercreator!(creator::Core.Function, builder::LLJITBuilder) =
 
 include("executionengine/ts_module.jl")
 
+"""
+    LLVM.LLVMSymbol
+
+An interned symbol name: an entry in the symbol string pool of an [`ExecutionSession`](@ref).
+ORC identifies symbols by their linker-mangled names, which [`mangle`](@ref) computes and
+interns. Symbols from the same session are equal if and only if their names are.
+
+Symbols are reference counted. Functions that return a symbol, like `mangle` and
+[`intern`](@ref), return a new reference, which should eventually be released with
+[`LLVM.release`](@ref), or be passed to an API that takes ownership of it (e.g.,
+[`LLVM.absolute_symbols`](@ref)). Use [`LLVM.retain`](@ref) to create an additional
+reference, e.g., to pass a symbol to multiple such APIs, or when passing on a symbol that
+was only borrowed.
+"""
 @checked struct LLVMSymbol
     ref::API.LLVMOrcSymbolStringPoolEntryRef
 end
@@ -152,20 +166,41 @@ function Base.cconvert(::Type{Cstring}, sym::LLVMSymbol)
     return API.LLVMOrcSymbolStringPoolEntryStr(sym)
 end
 
-function Base.string(sym::LLVMSymbol)
-    cstr = API.LLVMOrcSymbolStringPoolEntryStr(sym)
-    Base.unsafe_string(cstr)
+Base.String(sym::LLVMSymbol) = Base.unsafe_string(API.LLVMOrcSymbolStringPoolEntryStr(sym))
+Base.string(sym::LLVMSymbol) = String(sym)
+
+function Base.show(io::IO, sym::LLVMSymbol)
+    show(io, typeof(sym))
+    print(io, "(")
+    show(io, String(sym))
+    print(io, ")")
 end
 
+"""
+    intern(es::ExecutionSession, name) -> LLVM.LLVMSymbol
+
+Intern `name`, as is, in the symbol string pool of `es`. The caller owns the returned
+reference; see [`LLVM.LLVMSymbol`](@ref).
+"""
 function intern(es::ExecutionSession, string)
     entry = API.LLVMOrcExecutionSessionIntern(es, string)
     LLVMSymbol(entry)
 end
 
+"""
+    LLVM.release(sym::LLVM.LLVMSymbol)
+
+Release a reference to the symbol `sym`.
+"""
 function release(sym::LLVMSymbol)
     API.LLVMOrcReleaseSymbolStringPoolEntry(sym)
 end
 
+"""
+    LLVM.retain(sym::LLVM.LLVMSymbol)
+
+Acquire an additional reference to the symbol `sym`.
+"""
 function retain(sym::LLVMSymbol)
     API.LLVMOrcRetainSymbolStringPoolEntry(sym)
 end
@@ -176,9 +211,38 @@ end
 # Unfortunately we don't have a generic utility for that yet, but on MacOS it just means
 # dropping the leading '_' if there is one, or prepending a \01 prefix (see https://llvm.org/docs/LangRef.html#identifiers)
 
+"""
+    mangle(jit, name) -> LLVM.LLVMSymbol
+
+Apply the target's linker mangling to `name` (e.g., prefixing an underscore on macOS), and
+intern the result in the JIT's execution session. The caller owns the returned reference;
+see [`LLVM.LLVMSymbol`](@ref).
+"""
 function mangle(lljit::LLJIT, name)
     entry = API.LLVMOrcLLJITMangleAndIntern(lljit, name)
     return LLVMSymbol(entry)
+end
+
+
+## symbol flags
+
+"""
+    LLVM.symbol_flags(; exported=true, callable=false, weak=false,
+                      materialization_side_effects_only=false, target_flags=0)
+
+Create the flags of a JIT symbol definition, as used by [`LLVM.absolute_symbols`](@ref),
+[`LLVM.CustomMaterializationUnit`](@ref) and [`LLVM.lazy_reexports`](@ref).
+"""
+function symbol_flags(; exported::Bool=true, callable::Bool=false, weak::Bool=false,
+                      materialization_side_effects_only::Bool=false,
+                      target_flags::Integer=0)
+    flags = UInt8(0)
+    exported && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsExported))
+    weak && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsWeak))
+    callable && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsCallable))
+    materialization_side_effects_only &&
+        (flags |= UInt8(API.LLVMJITSymbolGenericFlagsMaterializationSideEffectsOnly))
+    return API.LLVMJITSymbolFlags(flags, target_flags)
 end
 
 @checked struct JITDylib
@@ -390,6 +454,19 @@ const CUSTOM_DG_LOCK = ReentrantLock()
 add!(jd::JITDylib, dg::CustomDefinitionGenerator) = add!(jd, dg.dg)
 dispose(dg::CustomDefinitionGenerator) = dispose(dg.dg)
 
+"""
+    LLVM.check_callback_error(obj)
+
+Rethrow the first exception that was captured from a Julia callback of `obj` (e.g., a
+[`LLVM.CustomDefinitionGenerator`](@ref) or [`LLVM.CustomMaterializationUnit`](@ref)) as a
+[`CallbackException`](@ref), clearing it. Returns `nothing` if no exception was captured.
+
+Exceptions cannot propagate through LLVM, so callbacks that throw are reported to LLVM as
+failures instead, typically resulting in a generic error from the operation that triggered
+the callback.
+"""
+function check_callback_error end
+
 function check_callback_error(dg::CustomDefinitionGenerator)
     dg.exception === nothing && return nothing
     err, bt = dg.exception
@@ -563,6 +640,37 @@ function __destroy(ctx::Ptr{Cvoid})
     nothing
 end
 
+"""
+    LLVM.CustomMaterializationUnit(name, symbols, materialize, discard, [init])
+
+Create a materialization unit that promises to define `symbols`, a collection of
+`name => flags` pairs mapping each [`LLVM.LLVMSymbol`](@ref) to flags created by
+[`LLVM.symbol_flags`](@ref). Add it to a JITDylib with [`LLVM.define`](@ref).
+
+When any of these symbols is looked up, `materialize(mr)` is called with a
+`LLVM.MaterializationResponsibility` for the symbols, which it should fulfill, e.g., by
+generating IR and emitting it with `LLVM.emit(layer, mr, tsm)`; use
+[`LLVM.requested_symbols`](@ref) to see which symbols were requested. If a symbol is
+overridden by another definition before it was materialized, `discard(jd, name)` is called
+instead.
+
+If `materialize` throws, materialization of the symbols fails, and lookups report an LLVM
+error. Retrieve the original exception by calling [`LLVM.check_callback_error`](@ref) on the
+unit. An exception in `discard` is only reported that way.
+
+The unit takes ownership of the symbol names. `init` can be used to specify an
+initializer symbol, which takes ownership of an additional reference.
+"""
+function CustomMaterializationUnit(name, symbols::Union{AbstractVector{<:Pair},AbstractDict},
+                                   materialize, discard, init=C_NULL)
+    # validate everything before taking ownership of the names
+    syms = LLVMSymbol[first(pair) for pair in symbols]
+    allunique(syms) || throw(ArgumentError("duplicate symbol names"))
+    symbols = [API.LLVMOrcCSymbolFlagsMapPair(sym, flags) for (sym, flags) in symbols]
+    CustomMaterializationUnit(name, symbols, materialize, discard, init)
+end
+
+# raw form, taking a collection of `API.LLVMOrcCSymbolFlagsMapPair`s
 function CustomMaterializationUnit(name, symbols, materialize, discard, init=C_NULL)
     this = CustomMaterializationUnit(materialize, discard)
     @lock CUSTOM_MU_LOCK push!(CUSTOM_MU_ROOTS, this)
@@ -581,6 +689,44 @@ function CustomMaterializationUnit(name, symbols, materialize, discard, init=C_N
     return this
 end
 
+"""
+    LLVM.absolute_symbols(name => address, ...)
+    LLVM.absolute_symbols(name => (address, flags), ...)
+    LLVM.absolute_symbols(pairs)
+
+Create a materialization unit that defines each symbol `name` (a [`LLVM.LLVMSymbol`](@ref))
+at a fixed `address` (a pointer, integer, or [`OrcTargetAddress`](@ref)), e.g., to make
+host functions or data available to JIT-compiled code. Symbols default to being exported;
+pass `flags` created by [`LLVM.symbol_flags`](@ref) to change that. The pairs can also be
+passed as a collection, e.g., a vector or a dictionary.
+
+The unit takes ownership of the symbol names, and should be added to a JITDylib using
+[`LLVM.define`](@ref):
+
+```julia
+LLVM.define(jd, LLVM.absolute_symbols(mangle(lljit, "counter") => pointer(counter)))
+```
+"""
+absolute_symbols(pair::Pair{LLVMSymbol}, pairs::Pair{LLVMSymbol}...) =
+    absolute_symbols([pair, pairs...])
+
+function absolute_symbols(pairs::Union{AbstractVector{<:Pair},AbstractDict})
+    # validate everything before taking ownership of the names
+    syms = LLVMSymbol[first(pair) for pair in pairs]
+    allunique(syms) || throw(ArgumentError("duplicate symbol names"))
+    symbols = map(collect(pairs)) do (sym, def)
+        address, flags = def isa Tuple ? def : (def, symbol_flags())
+        API.LLVMOrcCSymbolMapPair(sym, API.LLVMJITEvaluatedSymbol(_target_address(address),
+                                                                 flags))
+    end
+    absolute_symbols(symbols)
+end
+
+_target_address(ptr::Ptr) = API.LLVMOrcJITTargetAddress(reinterpret(UInt, ptr))
+_target_address(addr::Integer) = API.LLVMOrcJITTargetAddress(addr)
+_target_address(addr::OrcTargetAddress) = addr.ptr
+
+# raw form, taking a collection of `API.LLVMOrcCSymbolMapPair`s
 function absolute_symbols(symbols)
     ref = API.LLVMOrcAbsoluteSymbols(symbols, length(symbols))
     MaterializationUnit(ref)

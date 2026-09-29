@@ -126,13 +126,8 @@ end
             push!(requests, (; kind, jd_flags, names=[string(name) => flags for (name, flags) in lookup_set]))
             for (name, flags) in lookup_set
                 name == gv_name || continue
-                address = LLVM.API.LLVMOrcJITTargetAddress(
-                    reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
-                symbol = LLVM.API.LLVMJITEvaluatedSymbol(address,
-                    LLVM.API.LLVMJITSymbolFlags(LLVM.API.LLVMJITSymbolGenericFlagsExported, 0))
-                LLVM.retain(name)   # absolute_symbols takes ownership
-                pair = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
-                LLVM.define(jd, LLVM.absolute_symbols(Ref(pair)))
+                LLVM.retain(name)   # borrowed, but absolute_symbols takes ownership
+                LLVM.define(jd, LLVM.absolute_symbols(name => pointer_from_objref(data)))
             end
         end
         @test dg in LLVM.CUSTOM_DG_ROOTS
@@ -157,7 +152,7 @@ end
 
         # direct lookups, of symbols that are already defined
         GC.@preserve data begin
-            @test pointer(lookup(lljit, "gv")) == Base.unsafe_convert(Ptr{Int32}, data)
+            @test pointer(lookup(lljit, "gv")) == pointer_from_objref(data)
         end
         @test length(requests) == 1
 
@@ -305,9 +300,8 @@ end
 @testset "Unmaterialized units" begin
     local mu
     @dispose lljit=LLJIT() begin
-        flags = LLVM.API.LLVMJITSymbolFlags(LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-        sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(lljit, "unused"), flags)
-        mu = LLVM.CustomMaterializationUnit("unusedMU", Ref(sym), mr -> nothing,
+        symbols = [mangle(lljit, "unused") => LLVM.symbol_flags(callable=true)]
+        mu = LLVM.CustomMaterializationUnit("unusedMU", symbols, mr -> nothing,
                                             (jd, sym) -> nothing)
         LLVM.define(JITDylib(lljit), mu)
         @test mu in LLVM.CUSTOM_MU_ROOTS
@@ -316,26 +310,56 @@ end
     @test !(mu in LLVM.CUSTOM_MU_ROOTS)
 end
 
-@testset "Duplicate definitions" begin
+@testset "Absolute symbols" begin
     @dispose lljit=LLJIT() begin
         jd = JITDylib(lljit)
         data = Ref{Int32}(42)
-        GC.@preserve data begin
-            address = LLVM.API.LLVMOrcJITTargetAddress(
-                reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
-            flags = LLVM.API.LLVMJITSymbolFlags(
-                LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-            symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
+        ptr = pointer_from_objref(data)
 
-            gv = LLVM.API.LLVMOrcCSymbolMapPair(mangle(lljit, "gv"), symbol)
-            LLVM.define(jd, LLVM.absolute_symbols(Ref(gv)))
+        LLVM.define(jd, LLVM.absolute_symbols(mangle(lljit, "gv") => ptr))
+        @test pointer(lookup(lljit, "gv")) == ptr
 
-            gv = LLVM.API.LLVMOrcCSymbolMapPair(mangle(lljit, "gv"), symbol)
-            @test_throws LLVMException LLVM.define(jd, LLVM.absolute_symbols(Ref(gv)))
+        # multiple symbols, flags, and collections
+        LLVM.define(jd, LLVM.absolute_symbols([
+            mangle(lljit, "gv1") => ptr + 1,
+            mangle(lljit, "gv2") => (UInt(ptr) + 2, LLVM.symbol_flags(callable=true)),
+        ]))
+        LLVM.define(jd, LLVM.absolute_symbols(
+            Dict(mangle(lljit, "gv3") => OrcTargetAddress(ptr + 3))))
+        @test pointer(lookup(lljit, "gv1")) == ptr + 1
+        @test pointer(lookup(lljit, "gv2")) == ptr + 2
+        @test pointer(lookup(lljit, "gv3")) == ptr + 3
 
-            @test pointer(lookup(lljit, "gv")) == Base.unsafe_convert(Ptr{Int32}, data)
-        end
+        # duplicate definitions are rejected
+        @test_throws LLVMException LLVM.define(jd,
+            LLVM.absolute_symbols(mangle(lljit, "gv") => ptr + 4))
+        @test pointer(lookup(lljit, "gv")) == ptr
+        sym = mangle(lljit, "dup")
+        @test_throws ArgumentError LLVM.absolute_symbols([sym => ptr, sym => ptr])
+        LLVM.release(sym)
     end
+end
+
+@testset "Symbols" begin
+    @dispose lljit=LLJIT() begin
+        sym = mangle(lljit, "foo")
+        @test String(sym) == string(sym) == (LLVM.get_prefix(lljit) == 0 ? "foo" : "_foo")
+        @test occursin(repr(String(sym)), repr(sym))
+
+        # symbols are interned
+        other = intern(ExecutionSession(lljit), String(sym))
+        @test other == sym
+        LLVM.release(other)
+        LLVM.release(sym)
+    end
+
+    flags = LLVM.symbol_flags()
+    @test flags.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsExported)
+    @test flags.TargetFlags == 0
+    flags = LLVM.symbol_flags(exported=false, callable=true, weak=true, target_flags=1)
+    @test flags.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsCallable) |
+                                UInt8(LLVM.API.LLVMJITSymbolGenericFlagsWeak)
+    @test flags.TargetFlags == 1
 end
 
 @testset "Loading ObjectFile" begin

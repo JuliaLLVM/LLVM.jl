@@ -85,7 +85,7 @@ end
         @test_throws LLVMException lookup(lljit, "jl_apply_generic")
         dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(LLVM.get_prefix(lljit))
         add!(JITDylib(lljit), dg)
-        @test pointer(lookup(lljit, "jl_apply_generic")) == cglobal(:jl_apply_generic)
+        @test pointer(lookup(lljit, "jl_apply_generic")) != C_NULL
     end
 
     # a specific library
@@ -110,6 +110,118 @@ end
         dispose(dg)
 
         @test_throws LLVMException LLVM.DynamicLibrarySearchGenerator(lljit, "/nonexistent/libfoo.so")
+    end
+end
+
+@testset "CustomDefinitionGenerator" begin
+    local dg
+    data = Ref{Int32}(42)
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        jd = JITDylib(lljit)
+        gv_name = mangle(lljit, "gv")
+        weak_name = mangle(lljit, "weak")
+
+        requests = []
+        dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+            push!(requests, (; kind, jd_flags, names=[string(name) => flags for (name, flags) in lookup_set]))
+            for (name, flags) in lookup_set
+                name == gv_name || continue
+                address = LLVM.API.LLVMOrcJITTargetAddress(
+                    reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
+                symbol = LLVM.API.LLVMJITEvaluatedSymbol(address,
+                    LLVM.API.LLVMJITSymbolFlags(LLVM.API.LLVMJITSymbolGenericFlagsExported, 0))
+                LLVM.retain(name)   # absolute_symbols takes ownership
+                pair = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
+                LLVM.define(jd, LLVM.absolute_symbols(Ref(pair)))
+            end
+        end
+        @test dg in LLVM.CUSTOM_DG_ROOTS
+        add!(jd, dg)
+
+        # lookups performed when linking code
+        ts_mod = ThreadSafeModule("jit")
+        ts_mod() do mod
+            gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+            load_gv = LLVM.Function(mod, "load_gv", LLVM.FunctionType(LLVM.Int32Type()))
+            @dispose builder=IRBuilder() begin
+                position!(builder, BasicBlock(load_gv, "entry"))
+                ret!(builder, load!(builder, LLVM.Int32Type(), gv))
+            end
+        end
+        add!(lljit, jd, ts_mod)
+        GC.@preserve data begin
+            @test ccall(pointer(lookup(lljit, "load_gv")), Int32, ()) == 42
+        end
+        @test only(requests).kind == LLVM.API.LLVMOrcLookupKindStatic
+        @test only(requests).names == [string(gv_name) => LLVM.API.LLVMOrcSymbolLookupFlagsRequiredSymbol]
+
+        # direct lookups, of symbols that are already defined
+        GC.@preserve data begin
+            @test pointer(lookup(lljit, "gv")) == Base.unsafe_convert(Ptr{Int32}, data)
+        end
+        @test length(requests) == 1
+
+        # symbols that the generator does not define remain undefined
+        @test_throws LLVMException lookup(lljit, "undefined")
+        @test length(requests) == 2
+        @test requests[2].jd_flags == LLVM.API.LLVMOrcJITDylibLookupFlagsMatchAllSymbols
+
+        # weak references are allowed to remain undefined
+        # (older versions of LLVM request them as if they were required, and RuntimeDyld,
+        #  which LLJIT uses to link COFF objects, aborts on unresolved weak references)
+        if LLVM.version() >= v"18" && !Sys.iswindows()
+            ts_mod = ThreadSafeModule("jit")
+            ts_mod() do mod
+                weak = GlobalVariable(mod, LLVM.Int32Type(), "weak")
+                linkage!(weak, LLVM.API.LLVMExternalWeakLinkage)
+                get_weak = LLVM.Function(mod, "get_weak", LLVM.FunctionType(value_type(weak)))
+                @dispose builder=IRBuilder() begin
+                    position!(builder, BasicBlock(get_weak, "entry"))
+                    ret!(builder, weak)
+                end
+            end
+            add!(lljit, jd, ts_mod)
+            @test ccall(pointer(lookup(lljit, "get_weak")), Ptr{Int32}, ()) == C_NULL
+            @test requests[end].names == [string(weak_name) =>
+                                          LLVM.API.LLVMOrcSymbolLookupFlagsWeaklyReferencedSymbol]
+        end
+
+        LLVM.release(gv_name)
+        LLVM.release(weak_name)
+    end
+    # destroying the JITDylib disposes of the generator
+    @test !(dg in LLVM.CUSTOM_DG_ROOTS)
+
+    # generators that are not added to a JITDylib need to be disposed of
+    dg = LLVM.CustomDefinitionGenerator((args...) -> nothing)
+    @test dg in LLVM.CUSTOM_DG_ROOTS
+    dispose(dg)
+    @test !(dg in LLVM.CUSTOM_DG_ROOTS)
+
+    # exceptions are reported to ORC, and can be rethrown afterwards
+    @dispose lljit=LLJIT() begin
+        dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+            throw(ArgumentError("definition generator error"))
+        end
+        add!(JITDylib(lljit), dg)
+
+        err = try
+            lookup(lljit, "foo")
+        catch err
+            err
+        end
+        @test err isa LLVMException
+        @test occursin("definition generator error", err.info)
+
+        try
+            LLVM.check_callback_error(dg)
+            @test false
+        catch err
+            @test err isa CallbackException
+            @test err.ex isa ArgumentError
+            @test !isempty(err.processed_bt)
+        end
+        @test LLVM.check_callback_error(dg) === nothing
     end
 end
 

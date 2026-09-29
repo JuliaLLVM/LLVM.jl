@@ -99,6 +99,33 @@ end
     end
 end
 
+@testset "CustomDefinitionGenerator" begin
+    @dispose jljit=JuliaOJIT() begin
+        # on older Julia versions, this is a JITDylib that is shared by all users of the
+        # Julia JIT, so only generate the symbol we are looking for.
+        jd = JITDylib(jljit, "generated")
+        name = string(gensym("generated"))
+        data = Ref{Int32}(42)
+        dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+            for (sym, flags) in lookup_set
+                string(sym) == name || continue
+                address = LLVM.API.LLVMOrcJITTargetAddress(
+                    reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
+                symbol = LLVM.API.LLVMJITEvaluatedSymbol(address,
+                    LLVM.API.LLVMJITSymbolFlags(LLVM.API.LLVMJITSymbolGenericFlagsExported, 0))
+                LLVM.retain(sym)
+                pair = LLVM.API.LLVMOrcCSymbolMapPair(sym, symbol)
+                LLVM.define(jd, LLVM.absolute_symbols(Ref(pair)))
+            end
+        end
+        add!(jd, dg)
+
+        GC.@preserve data begin
+            @test pointer(lookup(jljit, jd, name)) == Base.unsafe_convert(Ptr{Int32}, data)
+        end
+    end
+end
+
 @testset "Loading ObjectFile" begin
     @dispose jljit=JuliaOJIT() begin
         jd = JITDylib(jljit, "objfile1")

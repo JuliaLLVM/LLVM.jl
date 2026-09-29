@@ -234,7 +234,7 @@ Attach a generator to a JITDylib with [`add!`](@ref add!(::JITDylib, ::LLVM.Defi
 which transfers ownership to the JITDylib. A generator that is never added should be disposed
 of with [`dispose`](@ref dispose(::LLVM.DefinitionGenerator)).
 
-See also: [`LLVM.DynamicLibrarySearchGenerator`](@ref).
+See also: [`LLVM.DynamicLibrarySearchGenerator`](@ref), [`LLVM.CustomDefinitionGenerator`](@ref).
 """
 @checked struct DefinitionGenerator
     ref::API.LLVMOrcDefinitionGeneratorRef
@@ -295,6 +295,108 @@ end
 
 # old name, used by downstream packages
 CreateDynamicLibrarySearchGeneratorForProcess(prefix) = process_search_generator(prefix)
+
+function __try_to_generate(generator::API.LLVMOrcDefinitionGeneratorRef, ctx::Ptr{Cvoid},
+                           lookup_state::Ptr{API.LLVMOrcLookupStateRef},
+                           kind::API.LLVMOrcLookupKind, jd::API.LLVMOrcJITDylibRef,
+                           jd_flags::API.LLVMOrcJITDylibLookupFlags,
+                           lookup_set::API.LLVMOrcCLookupSet, lookup_set_size::Csize_t)
+    dg = Base.unsafe_pointer_to_objref(ctx)::CustomDefinitionGenerator
+    try
+        elements = Base.unsafe_wrap(Array, lookup_set, lookup_set_size)
+        symbols = [LLVMSymbol(el.Name) => el.LookupFlags for el in elements]
+        dg.callback(kind, JITDylib(jd), jd_flags, symbols)
+        return API.LLVMErrorRef(C_NULL)
+    catch err
+        # Julia exceptions cannot unwind through LLVM, so report the failure to ORC
+        # and keep the exception around for check_callback_error.
+        _capture_callback_exception!(dg, err)
+        msg = try
+            sprint(showerror, err)
+        catch
+            "unprintable $(typeof(err))"
+        end
+        return API.LLVMCreateStringError("exception in ORC definition generator: $msg")
+    end
+end
+
+function __dispose_generator(ctx::Ptr{Cvoid})
+    dg = Base.unsafe_pointer_to_objref(ctx)::CustomDefinitionGenerator
+    @lock CUSTOM_DG_LOCK delete!(CUSTOM_DG_ROOTS, dg)
+    return
+end
+
+"""
+    LLVM.CustomDefinitionGenerator(f)
+
+Create a definition generator that calls `f(kind, jd, jd_flags, lookup_set)` whenever a
+lookup fails to find symbols in the JITDylib the generator is attached to. The arguments
+mirror those of LLVM's `DefinitionGenerator::tryToGenerate`:
+
+- `kind::LLVM.API.LLVMOrcLookupKind`: whether this is a static (linker) lookup, or a
+  `dlsym`-like one;
+- `jd::JITDylib`: the JITDylib to define the symbols in;
+- `jd_flags::LLVM.API.LLVMOrcJITDylibLookupFlags`: whether the lookup matches only exported
+  symbols, or all of them;
+- `lookup_set::Vector{Pair{LLVM.LLVMSymbol,LLVM.API.LLVMOrcSymbolLookupFlags}}`: the
+  linker-mangled names of the symbols that were not found, each paired with a flag
+  indicating whether the symbol is required or only weakly referenced.
+
+`f` should define the symbols it can provide in `jd`, e.g., using [`LLVM.define`](@ref).
+Symbols it does not define are left to other generators and JITDylibs in the search order.
+The names in `lookup_set` are only valid during the call; retain them with `LLVM.retain`
+before handing them to functions that take ownership, like `LLVM.absolute_symbols`.
+
+If `f` throws, the lookup fails with an LLVM error that includes the exception message. The
+original exception can be retrieved by calling `LLVM.check_callback_error` on the generator,
+which rethrows it as a [`CallbackException`](@ref).
+
+`f` runs synchronously on the thread performing the lookup, while LLVM holds locks that
+serialize definition generation. It must not perform lookups that can reach the same
+JITDylib again, as that may deadlock. Asynchronous generation (suspending the lookup) is
+not supported.
+
+The generator is used like a [`LLVM.DefinitionGenerator`](@ref): attach it to a JITDylib
+with `add!`, which keeps it alive for the lifetime of that JITDylib, or `dispose` it.
+"""
+mutable struct CustomDefinitionGenerator
+    callback
+    exception::Union{Nothing,Tuple{Any,Vector}}
+    dg::DefinitionGenerator
+
+    function CustomDefinitionGenerator(callback)
+        this = new(callback, nothing)
+
+        # LLVM only holds a raw pointer to the generator, so root it until LLVM disposes
+        # of it (either when its JITDylib is destroyed, or when we dispose of it manually).
+        @lock CUSTOM_DG_LOCK push!(CUSTOM_DG_ROOTS, this)
+
+        ref = API.LLVMOrcCreateCustomCAPIDefinitionGenerator(
+            @cfunction(__try_to_generate, API.LLVMErrorRef,
+                       (API.LLVMOrcDefinitionGeneratorRef, Ptr{Cvoid},
+                        Ptr{API.LLVMOrcLookupStateRef}, API.LLVMOrcLookupKind,
+                        API.LLVMOrcJITDylibRef, API.LLVMOrcJITDylibLookupFlags,
+                        API.LLVMOrcCLookupSet, Csize_t)),
+            Base.pointer_from_objref(this),
+            @cfunction(__dispose_generator, Cvoid, (Ptr{Cvoid},)))
+        this.dg = mark_alloc(DefinitionGenerator(ref))
+        return this
+    end
+end
+
+const CUSTOM_DG_ROOTS = Base.IdSet{CustomDefinitionGenerator}()
+const CUSTOM_DG_LOCK = ReentrantLock()
+
+add!(jd::JITDylib, dg::CustomDefinitionGenerator) = add!(jd, dg.dg)
+dispose(dg::CustomDefinitionGenerator) = dispose(dg.dg)
+
+function check_callback_error(dg::CustomDefinitionGenerator)
+    dg.exception === nothing && return nothing
+    err, bt = dg.exception
+    dg.exception = nothing
+    throw(CallbackException("ORC definition generator", err, bt))
+end
+
 
 function lookup_dylib(es::ExecutionSession, name)
     ref = API.LLVMOrcExecutionSessionGetJITDylibByName(es, name)

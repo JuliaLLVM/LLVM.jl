@@ -76,4 +76,5 @@ LLVM.DefinitionGenerator
 add!(::JITDylib, ::LLVM.DefinitionGenerator)
 dispose(::LLVM.DefinitionGenerator)
 LLVM.DynamicLibrarySearchGenerator
+LLVM.CustomDefinitionGenerator
 ```

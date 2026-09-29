@@ -34,7 +34,8 @@ end
 # Only add a method to a Base function when the meaning clearly matches its documented
 # contract; e.g., LLVM's `parent` property (the containing object) is not `Base.parent`
 # (which unwraps a view), and the size of a debug info type is a property in bits, not
-# `Base.sizeof`.
+# `Base.sizeof`. Mutating Base methods return the collection they modify, like Base does
+# (`push!`, `append!`, `delete!`, `empty!`, `setindex!`).
 #
 # Naming: predicates are named `isfoo` or `hasfoo`, with the words concatenated when that
 # reads well (`isdeclaration`, `isopaque`, `hasjit`), and separated by underscores when it

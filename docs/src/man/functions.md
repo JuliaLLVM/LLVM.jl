@@ -87,11 +87,11 @@ value. The `parameter_attributes` property is a vector with the attributes of ea
 parameter:
 
 ```jldoctest function
-julia> push!(fun.function_attributes, StringAttribute("nounwind"))
+julia> push!(fun.function_attributes, StringAttribute("nounwind"));
 
-julia> push!(fun.parameter_attributes[1], StringAttribute("nocapture"))
+julia> push!(fun.parameter_attributes[1], StringAttribute("nocapture"));
 
-julia> push!(fun.return_attributes, StringAttribute("sret"))
+julia> push!(fun.return_attributes, StringAttribute("sret"));
 
 julia> mod
 ; ModuleID = 'SomeModule'

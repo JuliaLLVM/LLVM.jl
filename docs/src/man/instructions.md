@@ -105,11 +105,11 @@ arguments and its return value:
 ```jldoctest function
 julia> instr = call!(builder, fun.function_type, fun, LLVM.Value[ fun.parameters... ]);
 
-julia> push!(instr.function_attributes, StringAttribute("nounwind"))
+julia> push!(instr.function_attributes, StringAttribute("nounwind"));
 
-julia> push!(instr.argument_attributes[1], StringAttribute("nocapture"))
+julia> push!(instr.argument_attributes[1], StringAttribute("nocapture"));
 
-julia> push!(instr.return_attributes, StringAttribute("sret"))
+julia> push!(instr.return_attributes, StringAttribute("sret"));
 
 julia> mod
 ; ModuleID = 'SomeModule'

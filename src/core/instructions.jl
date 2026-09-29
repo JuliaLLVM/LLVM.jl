@@ -808,24 +808,23 @@ function Base.collect(iter::CallSiteAttrSet)
     return LLVM.Attribute[LLVM.Attribute(elem) for elem in elems]
 end
 
-Base.push!(iter::CallSiteAttrSet, attr::LLVM.Attribute) =
+function Base.push!(iter::CallSiteAttrSet, attr::LLVM.Attribute)
     LLVM.API.LLVMAddCallSiteAttribute(iter.instr, iter.idx, attr)
+    return iter
+end
 
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.EnumAttribute) =
+function Base.delete!(iter::CallSiteAttrSet,
+                      attr::Union{LLVM.EnumAttribute,LLVM.TypeAttribute,
+                                  LLVM.ConstantRangeAttribute,
+                                  LLVM.ConstantRangeListAttribute})
     LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.TypeAttribute) =
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.ConstantRangeAttribute) =
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.ConstantRangeListAttribute) =
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
+    return iter
+end
 
 function Base.delete!(iter::CallSiteAttrSet, attr::LLVM.StringAttribute)
     k = kind(attr)
-    return LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
+    LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
+    return iter
 end
 
 function Base.length(iter::CallSiteAttrSet)
@@ -1100,12 +1099,17 @@ function Base.getindex(iter::PhiIncomingSet, i::Int)
                        BasicBlock(API.LLVMGetIncomingBlock(iter.phi, i-1)))
 end
 
-function Base.append!(iter::PhiIncomingSet, args::Vector{Tuple{V, BasicBlock}} where V <: Value)
-    vals, blocks = zip(args...)
-    API.LLVMAddIncoming(iter.phi, collect(vals), collect(blocks), length(args))
+function Base.push!(iter::PhiIncomingSet, (val, bb)::Tuple{<:Value, BasicBlock})
+    API.LLVMAddIncoming(iter.phi, [val], [bb], 1)
+    return iter
 end
 
-Base.push!(iter::PhiIncomingSet, args::Tuple{<:Value, BasicBlock}) = append!(iter, [args])
+function Base.append!(iter::PhiIncomingSet, args)
+    for arg in args
+        push!(iter, arg)
+    end
+    return iter
+end
 
 
 ## poison-generating flags

@@ -175,6 +175,51 @@ end
 
 end
 
+@testset "mutating views" begin
+    # like Base's collections, mutating a view returns the view
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+        ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
+        fn = LLVM.Function(mod, "SomeFunction", ft)
+        position!(builder, BasicBlock(fn, "entry"))
+        call = call!(builder, ft, fn, [fn.parameters[1]])
+        inst = ret!(builder)
+
+        attr = EnumAttribute("nounwind")
+        for attrs in (fn.function_attributes, fn.parameter_attributes[1],
+                      call.function_attributes, call.argument_attributes[1])
+            @test push!(attrs, attr) === attrs
+            @test append!(attrs, [attr]) === attrs
+            @test delete!(attrs, attr) === attrs
+            @test isempty(collect(attrs))
+        end
+
+        node = MDNode([MDString("SomeString")])
+        for md in (inst.metadata, fn.metadata)
+            @test setindex!(md, node, "SomeKind") === md
+            @test haskey(md, "SomeKind")
+            @test delete!(md, "SomeKind") === md
+            @test !haskey(md, "SomeKind")
+        end
+        @test empty!(fn.metadata) === fn.metadata
+
+        bb = BasicBlock(fn, "other")
+        position!(builder, bb)
+        phi = phi!(builder, LLVM.Int32Type())
+        @test push!(phi.incoming, (fn.parameters[1], fn.entry)) === phi.incoming
+        @test append!(phi.incoming, []) === phi.incoming
+        @test length(phi.incoming) == 1
+
+        other = LLVM.Function(mod, "OtherFunction", ft)
+        BasicBlock(other, "entry")
+        @test empty!(other) === other
+        @test isdeclaration(other)
+
+        gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
+        @test push!(mod.used, gv) === mod.used
+        @test delete!(mod.used, gv) === mod.used
+    end
+end
+
 @testset "abstractly typed values" begin
     # properties of values whose concrete type is only known at run time shouldn't dispatch
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin

@@ -122,7 +122,10 @@ function_type(Fn::Function) = FunctionType(API.LLVMGetFunctionType(Fn))
 
 Delete the body of the given function, and convert the linkage to external.
 """
-Base.empty!(f::Function) = API.LLVMFunctionDeleteBody(f)
+function Base.empty!(f::Function)
+    API.LLVMFunctionDeleteBody(f)
+    return f
+end
 
 """
     erase!(f::Function)
@@ -240,24 +243,22 @@ function Base.collect(iter::FunctionAttrSet)
     return Attribute[Attribute(elem) for elem in elems]
 end
 
-Base.push!(iter::FunctionAttrSet, attr::Attribute) =
+function Base.push!(iter::FunctionAttrSet, attr::Attribute)
     API.LLVMAddAttributeAtIndex(iter.f, iter.idx, attr)
+    return iter
+end
 
-Base.delete!(iter::FunctionAttrSet, attr::EnumAttribute) =
+function Base.delete!(iter::FunctionAttrSet,
+                      attr::Union{EnumAttribute,TypeAttribute,ConstantRangeAttribute,
+                                  ConstantRangeListAttribute})
     API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-
-Base.delete!(iter::FunctionAttrSet, attr::TypeAttribute) =
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-
-Base.delete!(iter::FunctionAttrSet, attr::ConstantRangeAttribute) =
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-
-Base.delete!(iter::FunctionAttrSet, attr::ConstantRangeListAttribute) =
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
+    return iter
+end
 
 function Base.delete!(iter::FunctionAttrSet, attr::StringAttribute)
     k = kind(attr)
     API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, k, length(k))
+    return iter
 end
 
 function Base.length(iter::FunctionAttrSet)

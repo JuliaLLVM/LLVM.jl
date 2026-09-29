@@ -223,6 +223,7 @@ This takes ownership of the module.
 function Base.push!(engine::ExecutionEngine, mod::Module)
     push!(engine.mods, mod)
     API.LLVMAddModule(engine.ref, mod.ref)
+    return engine
 end
 
 """
@@ -237,7 +238,7 @@ function Base.delete!(engine::ExecutionEngine, mod::Module)
     API.LLVMRemoveModule(engine.ref, mod.ref, out_ref, Ref{Cstring}()) # out string is not used
     @assert mod == Module(out_ref[])
     delete!(engine.mods, mod)
-    return
+    return engine
 end
 
 """

@@ -310,11 +310,15 @@ function Base.getindex(md::InstructionMetadataDict, key)
     return Metadata(MetadataAsValue(objref))
   end
 
-Base.setindex!(md::InstructionMetadataDict, node::MDNode, key) =
+function Base.setindex!(md::InstructionMetadataDict, node::MDNode, key)
     API.LLVMSetMetadata(md.val, MDKind(key), Value(node))
+    return md
+end
 
-Base.delete!(md::InstructionMetadataDict, key) =
+function Base.delete!(md::InstructionMetadataDict, key)
     API.LLVMSetMetadata(md.val, MDKind(key), C_NULL)
+    return md
+end
 
 # LLVM only supports fetching all metadata at once. despite its name, the C API function
 # includes the debug location on some versions, so handle it separately.
@@ -355,7 +359,10 @@ function Base.length(md::GlobalMetadataDict)
     Int(num_entries[])
 end
 
-Base.empty!(md::GlobalMetadataDict) = API.LLVMGlobalClearMetadata(md.val)
+function Base.empty!(md::GlobalMetadataDict)
+    API.LLVMGlobalClearMetadata(md.val)
+    return md
+end
 
 function Base.iterate(md::GlobalMetadataDict)
     num_entries = Ref{Csize_t}()
@@ -380,8 +387,10 @@ function Base.iterate(md::GlobalMetadataDict, (state, metadata))
     val, (state, metadata)
 end
 
-Base.setindex!(md::GlobalMetadataDict, node::Metadata, key) =
+function Base.setindex!(md::GlobalMetadataDict, node::Metadata, key)
     API.LLVMGlobalSetMetadata(md.val, MDKind(key), node)
+    return md
+end
 
 Base.get(md::GlobalMetadataDict, key, default) = get(md, MDKind(key), default)
 function Base.get(md::GlobalMetadataDict, key::MDKind, default)
@@ -400,8 +409,10 @@ function Base.getindex(md::GlobalMetadataDict, key)
     return val
 end
 
-Base.delete!(md::GlobalMetadataDict, key) =
+function Base.delete!(md::GlobalMetadataDict, key)
     API.LLVMGlobalEraseMetadata(md.val, MDKind(key))
+    return md
+end
 
 
 ## named metadata

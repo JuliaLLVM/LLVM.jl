@@ -258,6 +258,19 @@ end
     @test typeof(Value(val.ref)) == LLVM.AllocaInst               # type reconstructed
     @test_throws UndefRefError Value(LLVM.API.LLVMValueRef(C_NULL))
 
+    # abstractly-typed values are converted without knowing their concrete type
+    vals = Value[val, fn, parameters(fn)[1], ConstantInt(Int32(1))]
+    @test all(v -> Base.unsafe_convert(LLVM.API.LLVMValueRef, v) === v.ref, vals)
+    @test Base.cconvert(Ptr{LLVM.API.LLVMValueRef}, vals) == [v.ref for v in vals]
+
+    # wrapper types need to consist of a single reference
+    @eval struct InvalidValue <: LLVM.Value
+        ref::LLVM.API.LLVMValueRef
+        data::Int
+    end
+    @test_throws ErrorException LLVM.register(InvalidValue, LLVM.API.LLVMArgumentValueKind)
+    @test typeof(Value(parameters(fn)[1].ref)) == LLVM.Argument
+
     show(devnull, val)
 
     @test value_type(val) == LLVM.PointerType(typ)
@@ -2212,6 +2225,16 @@ end
     @test nextinst(addinst) == brinst
     @test previnst(brinst) == addinst
     @test nextinst(brinst) === nothing
+
+    # walking the IR doesn't dispatch dynamically, only allocating a box for every value
+    # whose concrete type is determined at run time
+    let walk(bb) = (n = 0; for inst in instructions(bb), op in operands(inst)
+                               n += op isa LLVM.Argument
+                           end; n)
+        @test walk(bb1) == 3
+        nvals = sum(inst -> 1 + length(operands(inst)), instructions(bb1))
+        @test @allocated(walk(bb1)) <= 4 * sizeof(Int) * nvals
+    end
 
     position!(builder, bb2)
     retinst = ret!(builder)

@@ -1,6 +1,10 @@
 # An instruction builder represents a point within a basic block and is the exclusive means
 # of building instructions using the C interface.
 
+# instruction builders are thin wrappers around the C API, so don't specialize them on the
+# concrete type of their operands (which would compile them for every combination).
+@nospecialize
+
 export IRBuilder,
        position!,
        debuglocation, debuglocation!
@@ -40,7 +44,7 @@ Get the context associated with an instruction builder.
 """
 context(builder::IRBuilder) = Context(API.LLVMGetBuilderContext(builder))
 
-function IRBuilder(f::Core.Function, args...; kwargs...)
+function IRBuilder(@specialize(f::Core.Function), args...; kwargs...)
     builder = IRBuilder(args...; kwargs...)
     try
         f(builder)
@@ -775,3 +779,5 @@ isnotnull!(builder::IRBuilder, Val::Value, Name::String="") =
 function ptrdiff!(builder::IRBuilder, Ty::LLVMType, LHS::Value, RHS::Value, Name::String="")
     Value(API.LLVMBuildPtrDiff2(builder, Ty, LHS, RHS, Name))
 end
+
+@specialize

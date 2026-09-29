@@ -317,7 +317,7 @@ globals(mod::Module) = ModuleGlobalSet(mod)
 
 Base.eltype(::ModuleGlobalSet) = GlobalVariable
 
-function Base.iterate(iter::ModuleGlobalSet, state=API.LLVMGetFirstGlobal(iter.mod))
+@inline function Base.iterate(iter::ModuleGlobalSet, state=API.LLVMGetFirstGlobal(iter.mod))
     state == C_NULL ? nothing : (GlobalVariable(state), API.LLVMGetNextGlobal(state))
 end
 
@@ -408,7 +408,7 @@ functions(mod::Module) = ModuleFunctionSet(mod)
 
 Base.eltype(::ModuleFunctionSet) = Function
 
-function Base.iterate(iter::ModuleFunctionSet, state=API.LLVMGetFirstFunction(iter.mod))
+@inline function Base.iterate(iter::ModuleFunctionSet, state=API.LLVMGetFirstFunction(iter.mod))
     state == C_NULL ? nothing : (Function(state), API.LLVMGetNextFunction(state))
 end
 

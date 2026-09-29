@@ -36,6 +36,6 @@ end
 Base.setindex!(iter::UserOperandSet, val::Value, i) =
     API.LLVMSetOperand(iter.user, i-1, val)
 
-function Base.iterate(iter::UserOperandSet, i=1)
+@inline function Base.iterate(iter::UserOperandSet, i=1)
     i >= length(iter) + 1 ? nothing : (iter[i], i+1)
 end

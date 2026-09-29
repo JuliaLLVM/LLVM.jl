@@ -9,8 +9,23 @@ Abstract supertype for all metadata types.
 """
 abstract type Metadata end
 
-# subtypes are expected to have a 'ref::API.LLVMMetadataRef' field
-Base.unsafe_convert(::Type{API.LLVMMetadataRef}, md::Metadata) = md.ref
+# subtypes must be immutable structs with a single `ref::API.LLVMMetadataRef` field (see
+# `check_layout`), except for the field-less `MDNull`
+@inline function Base.unsafe_convert(::Type{API.LLVMMetadataRef},
+                                      @nospecialize(md::Metadata))
+    md isa MDNull && return convert(API.LLVMMetadataRef, C_NULL)
+    typecheck_enabled && check_layout(typeof(md), API.LLVMMetadataRef)
+    unsafe_load_ref(API.LLVMMetadataRef, md)
+end
+
+# avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
+# wrappers consist of nothing but their reference, so there's nothing else to keep alive.
+Base.cconvert(::Type{API.LLVMMetadataRef}, @nospecialize(obj::Metadata)) = obj
+function Base.cconvert(::Type{Ptr{API.LLVMMetadataRef}},
+                       @nospecialize(objs::Vector{<:Metadata}))
+    R = API.LLVMMetadataRef
+    R[Base.unsafe_convert(R, obj) for obj in objs]
+end
 
 # XXX: LLVMMetadataKind is simply unsigned, so we don't know the max enum
 const metadata_kinds = Vector{Type}(fill(Nothing, 64))
@@ -21,6 +36,7 @@ function identify(::Type{Metadata}, ref::API.LLVMMetadataRef)
     return typ
 end
 function register(T::Type{<:Metadata}, kind)
+    check_layout(T, API.LLVMMetadataRef)
     metadata_kinds[kind+1] = T
 end
 
@@ -38,7 +54,7 @@ end
 function Metadata(ref::API.LLVMMetadataRef)
     ref == C_NULL && throw(UndefRefError())
     T = identify(Metadata, ref)
-    return T(ref)
+    return unsafe_wrap_ref(T, ref)::Metadata
 end
 
 Base.string(md::Metadata) = unsafe_message(API.LLVMPrintMetadataToString(md))
@@ -209,8 +225,6 @@ MDNode(mds::Vector{<:Metadata}) =
 # so that we can keep everything as a subtype of `Metadata`
 struct MDNull <: Metadata end
 Base.convert(::Type{Metadata}, ::Nothing) = MDNull()
-Base.unsafe_convert(::Type{API.LLVMMetadataRef}, md::MDNull) =
-    convert(API.LLVMMetadataRef, C_NULL)
 
 
 ## metadata

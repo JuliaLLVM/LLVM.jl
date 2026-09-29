@@ -228,7 +228,8 @@ couple of additional APIs:
 - `isdeclaration`: whether the global value is a declaration, i.e., it does not have a body.
 - `linkage`/`linkage!`: get or set the linkage of the global value.
 - `visibility`/`visibility!`: get or set the visibility of the global value.
-- `section`/`section!`: get or set the section of the global value.
+- `section`/`section!`: get or set the section of the global value (setting is only
+  supported on global objects, i.e., not on aliases).
 - `dllstorage`/`dllstorage!`: get or set the DLL storage class of the global value.
 - `unnamed_addr`/`unnamed_addr!`: get or set whether the global value has an unnamed address.
 - `local_unnamed_addr`/`local_unnamed_addr!`: get or set whether the global value has a local unnamed address.
@@ -253,6 +254,33 @@ Global variables support additional APIs:
 - `isextinit`/`isextinit!`: get or set whether the global variable is externally initialized.
 - `erase!`: delete the global variable from its parent module, and delete the object.
 - `alignment`/`alignment!`: get or set the alignment of the global variable.
+
+A global alias introduces a new symbol for an existing global value, or for a constant
+expression involving one. It can be created with the `GlobalAlias` constructor, which takes
+the value type and address space from the global value it refers to:
+
+```jldoctest
+julia> mod = LLVM.Module("SomeModule");
+
+julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGV");
+
+julia> initializer!(gv, ConstantInt(Int32(42)));
+
+julia> ga = GlobalAlias(mod, gv, "SomeAlias")
+@SomeAlias = alias i32, ptr @SomeGV
+
+julia> aliasee(ga)
+@SomeGV = global i32 42
+```
+
+For constant expressions, pass the value type explicitly, as in
+`GlobalAlias(mod, typ, aliasee, name)`. The aliasee can be changed with `aliasee!`.
+
+Similarly, an indirect function or ifunc is a symbol whose address is determined at load
+time by calling a resolver function. It is created with the `GlobalIFunc` constructor, which
+takes the function type of the ifunc (not that of the resolver), and the resolver itself.
+The resolver can be queried and changed with `resolver` and `resolver!`, and the ifunc can be
+removed with `erase!`.
 
 
 ## Uses

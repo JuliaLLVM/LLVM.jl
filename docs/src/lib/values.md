@@ -92,6 +92,24 @@ alignment(::GlobalVariable)
 alignment!(::GlobalVariable, ::Integer)
 ```
 
+### Global aliases
+
+```@docs
+GlobalAlias
+aliasee
+aliasee!
+```
+
+### Global ifuncs
+
+```@docs
+LLVM.GlobalObject
+GlobalIFunc
+erase!(::GlobalIFunc)
+resolver
+resolver!
+```
+
 ## Uses
 
 ```@docs

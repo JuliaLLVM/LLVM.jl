@@ -478,6 +478,156 @@ function Base.sort!(iter::ModuleFunctionSet; by=name, kwargs...)
 end
 
 
+## global alias iteration
+
+export aliases, prevalias, nextalias
+
+struct ModuleAliasSet
+    mod::Module
+end
+
+"""
+    aliases(mod::LLVM.Module)
+
+Get an iterator over the global aliases in the given module.
+"""
+aliases(mod::Module) = ModuleAliasSet(mod)
+
+Base.eltype(::ModuleAliasSet) = GlobalAlias
+
+function Base.iterate(iter::ModuleAliasSet, state=API.LLVMGetFirstGlobalAlias(iter.mod))
+    state == C_NULL ? nothing : (GlobalAlias(state), API.LLVMGetNextGlobalAlias(state))
+end
+
+function Base.first(iter::ModuleAliasSet)
+    ref = API.LLVMGetFirstGlobalAlias(iter.mod)
+    ref == C_NULL && throw(BoundsError(iter))
+    GlobalAlias(ref)
+end
+
+function Base.last(iter::ModuleAliasSet)
+    ref = API.LLVMGetLastGlobalAlias(iter.mod)
+    ref == C_NULL && throw(BoundsError(iter))
+    GlobalAlias(ref)
+end
+
+Base.isempty(iter::ModuleAliasSet) = API.LLVMGetLastGlobalAlias(iter.mod) == C_NULL
+
+Base.IteratorSize(::Type{ModuleAliasSet}) = Base.SizeUnknown()
+
+"""
+    prevalias(alias::GlobalAlias)
+
+Get the previous global alias in the module, or `nothing` if there is none.
+
+See also: [`nextalias`](@ref).
+"""
+function prevalias(alias::GlobalAlias)
+    ref = API.LLVMGetPreviousGlobalAlias(alias)
+    ref == C_NULL && return nothing
+    GlobalAlias(ref)
+end
+
+"""
+    nextalias(alias::GlobalAlias)
+
+Get the next global alias in the module, or `nothing` if there is none.
+
+See also: [`prevalias`](@ref).
+"""
+function nextalias(alias::GlobalAlias)
+    ref = API.LLVMGetNextGlobalAlias(alias)
+    ref == C_NULL && return nothing
+    GlobalAlias(ref)
+end
+
+# partial associative interface
+
+function Base.haskey(iter::ModuleAliasSet, name::String)
+    return API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name)) != C_NULL
+end
+
+function Base.getindex(iter::ModuleAliasSet, name::String)
+    objref = API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name))
+    objref == C_NULL && throw(KeyError(name))
+    return GlobalAlias(objref)
+end
+
+## ifunc iteration
+
+export ifuncs, previfunc, nextifunc
+
+struct ModuleIFuncSet
+    mod::Module
+end
+
+"""
+    ifuncs(mod::LLVM.Module)
+
+Get an iterator over the ifuncs in the given module.
+"""
+ifuncs(mod::Module) = ModuleIFuncSet(mod)
+
+Base.eltype(::ModuleIFuncSet) = GlobalIFunc
+
+function Base.iterate(iter::ModuleIFuncSet, state=API.LLVMGetFirstGlobalIFunc(iter.mod))
+    state == C_NULL ? nothing : (GlobalIFunc(state), API.LLVMGetNextGlobalIFunc(state))
+end
+
+function Base.first(iter::ModuleIFuncSet)
+    ref = API.LLVMGetFirstGlobalIFunc(iter.mod)
+    ref == C_NULL && throw(BoundsError(iter))
+    GlobalIFunc(ref)
+end
+
+function Base.last(iter::ModuleIFuncSet)
+    ref = API.LLVMGetLastGlobalIFunc(iter.mod)
+    ref == C_NULL && throw(BoundsError(iter))
+    GlobalIFunc(ref)
+end
+
+Base.isempty(iter::ModuleIFuncSet) = API.LLVMGetLastGlobalIFunc(iter.mod) == C_NULL
+
+Base.IteratorSize(::Type{ModuleIFuncSet}) = Base.SizeUnknown()
+
+"""
+    previfunc(ifunc::GlobalIFunc)
+
+Get the previous ifunc in the module, or `nothing` if there is none.
+
+See also: [`nextifunc`](@ref).
+"""
+function previfunc(ifunc::GlobalIFunc)
+    ref = API.LLVMGetPreviousGlobalIFunc(ifunc)
+    ref == C_NULL && return nothing
+    GlobalIFunc(ref)
+end
+
+"""
+    nextifunc(ifunc::GlobalIFunc)
+
+Get the next ifunc in the module, or `nothing` if there is none.
+
+See also: [`previfunc`](@ref).
+"""
+function nextifunc(ifunc::GlobalIFunc)
+    ref = API.LLVMGetNextGlobalIFunc(ifunc)
+    ref == C_NULL && return nothing
+    GlobalIFunc(ref)
+end
+
+# partial associative interface
+
+function Base.haskey(iter::ModuleIFuncSet, name::String)
+    return API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name)) != C_NULL
+end
+
+function Base.getindex(iter::ModuleIFuncSet, name::String)
+    objref = API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name))
+    objref == C_NULL && throw(KeyError(name))
+    return GlobalIFunc(objref)
+end
+
 ## module flag iteration
 # TODO: doesn't actually iterate, since we can't list the available keys
 

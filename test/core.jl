@@ -1051,6 +1051,125 @@ end
     @test global_value_type(gv) == LLVM.Int32Type()
 end
 
+# global aliases
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
+    initializer!(gv, ConstantInt(Int32(42)))
+
+    ga = GlobalAlias(mod, LLVM.Int32Type(), gv, "SomeAlias")
+    @test ga isa GlobalAlias
+    @test ga isa GlobalValue
+    @test !(ga isa LLVM.GlobalObject)
+    show(devnull, ga)
+
+    @test name(ga) == "SomeAlias"
+    @test LLVM.parent(ga) == mod
+    @test global_value_type(ga) == LLVM.Int32Type()
+    @test value_type(ga) == value_type(gv)
+    @test linkage(ga) == LLVM.API.LLVMExternalLinkage
+    @test aliasee(ga) == gv
+
+    # the type-inferring constructor
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    @dispose builder=IRBuilder() begin
+        position!(builder, BasicBlock(fn, "entry"))
+        ret!(builder)
+    end
+    fa = GlobalAlias(mod, fn, "SomeFunctionAlias")
+    @test global_value_type(fa) == ft
+    @test aliasee(fa) == fn
+
+    # aliasee can be changed, but only to a value of the same type
+    other_gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeOtherGlobal")
+    initializer!(other_gv, ConstantInt(Int32(0)))
+    aliasee!(ga, other_gv)
+    @test aliasee(ga) == other_gv
+    as1_gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeAS1Global", 1)
+    @test_throws ArgumentError aliasee!(ga, as1_gv)
+    @test_throws ArgumentError GlobalAlias(mod, LLVM.Int32Type(), ConstantInt(Int32(0)), "BadAlias")
+    if supports_typed_pointers(ctx)
+        @test_throws ArgumentError GlobalAlias(mod, LLVM.Int64Type(), gv, "BadAlias")
+    end
+
+    # the address space is taken from the aliasee
+    initializer!(as1_gv, ConstantInt(Int32(0)))
+    as1_ga = GlobalAlias(mod, as1_gv, "SomeAS1Alias")
+    @test addrspace(value_type(as1_ga)) == 1
+    as0_ga = GlobalAlias(mod, LLVM.Int32Type(),
+                         const_addrspacecast(as1_gv, LLVM.PointerType(LLVM.Int32Type())),
+                         "SomeAS0Alias")
+    @test addrspace(value_type(as0_ga)) == 0
+    @test aliasee(as0_ga) isa ConstantExpr
+
+    @test verify(mod) === nothing
+end
+
+# global ifuncs
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.Int32Type())
+    impl = LLVM.Function(mod, "impl", ft)
+    other_impl = LLVM.Function(mod, "other_impl", ft)
+    resolver_ft = LLVM.FunctionType(value_type(impl))
+    resolver_fn = LLVM.Function(mod, "resolver", resolver_ft)
+    other_resolver_fn = LLVM.Function(mod, "other_resolver", resolver_ft)
+    @dispose builder=IRBuilder() begin
+        for (f, ret) in ((impl, ConstantInt(Int32(0))), (other_impl, ConstantInt(Int32(1))),
+                         (resolver_fn, impl), (other_resolver_fn, other_impl))
+            position!(builder, BasicBlock(f, "entry"))
+            ret!(builder, ret)
+        end
+    end
+
+    ifunc = GlobalIFunc(mod, ft, resolver_fn, "SomeIFunc")
+    @test ifunc isa GlobalIFunc
+    @test ifunc isa LLVM.GlobalObject
+    show(devnull, ifunc)
+
+    @test name(ifunc) == "SomeIFunc"
+    @test global_value_type(ifunc) == ft
+    @test resolver(ifunc) == resolver_fn
+
+    resolver!(ifunc, other_resolver_fn)
+    @test resolver(ifunc) == other_resolver_fn
+    as1_gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeAS1Global", 1)
+    @test_throws ArgumentError resolver!(ifunc, as1_gv)
+    @test_throws ArgumentError GlobalIFunc(mod, ft, ConstantInt(Int32(0)), "BadIFunc")
+
+    @test verify(mod) === nothing
+
+    @test ifunc in ifuncs(mod)
+    erase!(ifunc)
+    @test isempty(ifuncs(mod))
+end
+
+# aliases and ifuncs are recognized when encountered as operands
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
+    initializer!(gv, ConstantInt(Int32(42)))
+    ga = GlobalAlias(mod, gv, "SomeAlias")
+
+    ft = LLVM.FunctionType(LLVM.Int32Type())
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    resolver_fn = LLVM.Function(mod, "resolver", LLVM.FunctionType(value_type(fn)))
+    position!(builder, BasicBlock(resolver_fn, "entry"))
+    ret!(builder, fn)
+    ifunc = GlobalIFunc(mod, ft, resolver_fn, "SomeIFunc")
+
+    position!(builder, BasicBlock(fn, "entry"))
+    ld = load!(builder, LLVM.Int32Type(), ga)
+    call = call!(builder, ft, ifunc)
+    ret!(builder, add!(builder, ld, call))
+
+    @test operands(ld)[1] isa GlobalAlias
+    @test operands(ld)[1] == ga
+    @test called_operand(call) isa GlobalIFunc
+    @test called_operand(call) == ifunc
+    @test ga in user.(collect(uses(gv)))
+
+    @test verify(mod) === nothing
+end
+
 end
 
 
@@ -1347,6 +1466,50 @@ end
     @test name.(collect(gvs)) == ["c", "b", "a"]
     @test all(haskey(gvs, name) for name in ("a", "b", "c"))
     @test occursin(r"(?s)@c.*@b.*@a", string(mod))
+end
+
+# global alias and ifunc iteration
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
+    ft = LLVM.FunctionType(value_type(gv))
+    resolver_fn = LLVM.Function(mod, "resolver", ft)
+    @dispose builder=IRBuilder() begin
+        position!(builder, BasicBlock(resolver_fn, "entry"))
+        ret!(builder, null(value_type(gv)))
+    end
+
+    # names are unique across all global values, so use a different prefix for each kind
+    for (iter, T, prevf, nextf, create) in
+        ((aliases(mod), GlobalAlias, prevalias, nextalias,
+          name -> GlobalAlias(mod, gv, "alias_$name")),
+         (ifuncs(mod), GlobalIFunc, previfunc, nextifunc,
+          name -> GlobalIFunc(mod, LLVM.FunctionType(LLVM.VoidType()), resolver_fn, "ifunc_$name")))
+        @test eltype(iter) == T
+        @test isempty(iter)
+        @test_throws BoundsError first(iter)
+        @test_throws BoundsError last(iter)
+
+        x = create("x")
+        y = create("ÿ")
+        @test endswith(name(y), "_ÿ")
+        @test !isempty(iter)
+        @test collect(iter) == [x, y]
+        @test first(iter) == x
+        @test last(iter) == y
+        @test nextf(x) == y
+        @test nextf(y) === nothing
+        @test prevf(y) == x
+        @test prevf(x) === nothing
+
+        @test haskey(iter, name(y))
+        @test iter[name(y)] == y
+        @test !haskey(iter, "z")
+        @test_throws KeyError iter["z"]
+    end
+
+    # aliases and ifuncs are not global variables or functions
+    @test collect(globals(mod)) == [gv]
+    @test collect(functions(mod)) == [resolver_fn]
 end
 
 # function iteration

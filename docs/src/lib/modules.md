@@ -53,6 +53,12 @@ functions(::LLVM.Module)
 sort!(::LLVM.ModuleFunctionSet)
 prevfun
 nextfun
+aliases
+prevalias
+nextalias
+ifuncs
+previfunc
+nextifunc
 flags(::LLVM.Module)
 ```
 

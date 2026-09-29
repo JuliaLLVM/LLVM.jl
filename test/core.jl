@@ -149,6 +149,14 @@ end
     arrtyp = LLVM.ArrayType(eltyp, 0)
     @test isempty(arrtyp)
 end
+if LLVM.version() >= v"17" && Sys.WORD_SIZE == 64
+    # arrays can have more than 2^32 elements
+    @dispose ctx=Context() begin
+        arrtyp = LLVM.ArrayType(LLVM.Int8Type(), 2^32 + 1)
+        @test length(arrtyp) == 2^32 + 1
+        @test string(arrtyp) == "[4294967297 x i8]"
+    end
+end
 @dispose ctx=Context() begin
     eltyp = LLVM.Int32Type()
 

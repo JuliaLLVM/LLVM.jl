@@ -285,8 +285,10 @@ end
             mr -> throw(ArgumentError("materialization callback error")),
             (jd, sym) -> nothing)
         LLVM.define(jd, mu)
+        @test mu in LLVM.CUSTOM_MU_ROOTS
 
         @test_throws LLVMException lookup(lljit, "throws")
+        @test !(mu in LLVM.CUSTOM_MU_ROOTS)
         try
             LLVM.check_callback_error(mu)
             @test false
@@ -298,6 +300,20 @@ end
         end
         @test LLVM.check_callback_error(mu) === nothing
     end
+end
+
+@testset "Unmaterialized units" begin
+    local mu
+    @dispose lljit=LLJIT() begin
+        flags = LLVM.API.LLVMJITSymbolFlags(LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
+        sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(lljit, "unused"), flags)
+        mu = LLVM.CustomMaterializationUnit("unusedMU", Ref(sym), mr -> nothing,
+                                            (jd, sym) -> nothing)
+        LLVM.define(JITDylib(lljit), mu)
+        @test mu in LLVM.CUSTOM_MU_ROOTS
+    end
+    # destroying the JITDylib destroys the unit
+    @test !(mu in LLVM.CUSTOM_MU_ROOTS)
 end
 
 @testset "Duplicate definitions" begin
@@ -570,6 +586,7 @@ end
             LLVM.define(jd, mu)
 
             @test ccall(pointer(addr), Int32, (Int32, Int32), 1, 2) == 3
+            @test !(mu in LLVM.CUSTOM_MU_ROOTS)
         finally
             dispose(lctm)
             dispose(ism)

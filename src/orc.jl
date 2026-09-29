@@ -516,7 +516,10 @@ mutable struct CustomMaterializationUnit <: AbstractMaterializationUnit
 end
 Base.cconvert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::CustomMaterializationUnit) = mu.mu
 
+# LLVM only holds a raw pointer to custom materialization units, so root them until LLVM
+# either materializes or destroys them.
 const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
+const CUSTOM_MU_LOCK = ReentrantLock()
 
 function check_callback_error(mu::CustomMaterializationUnit)
     mu.exception === nothing && return nothing
@@ -532,6 +535,9 @@ function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibi
     catch err
         _capture_callback_exception!(mu, err)
         API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
+    finally
+        # LLVM does not call the destroy callback for materialized units
+        @lock CUSTOM_MU_LOCK delete!(CUSTOM_MU_ROOTS, mu)
     end
     nothing
 end
@@ -550,13 +556,13 @@ end
 
 function __destroy(ctx::Ptr{Cvoid})
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
-    delete!(CUSTOM_MU_ROOTS, mu)
+    @lock CUSTOM_MU_LOCK delete!(CUSTOM_MU_ROOTS, mu)
     nothing
 end
 
 function CustomMaterializationUnit(name, symbols, materialize, discard, init=C_NULL)
     this = CustomMaterializationUnit(materialize, discard)
-    push!(CUSTOM_MU_ROOTS, this)
+    @lock CUSTOM_MU_LOCK push!(CUSTOM_MU_ROOTS, this)
 
     ref = API.LLVMOrcCreateCustomMaterializationUnit(
         name,

@@ -118,6 +118,34 @@ julia> TypeAttribute("byval", LLVM.Int32Type())
 TypeAttribute 74=LLVM.IntegerType(i32)
 ```
 
+### Memory effects
+
+Since LLVM 16, the memory accesses a function may perform are described by the `memory`
+attribute, which replaces the `readnone`, `readonly`, `writeonly`, `argmemonly`,
+`inaccessiblememonly` and `inaccessiblemem_or_argmemonly` function attributes. Rather than
+encoding this attribute by hand, use `MemoryEffects` to describe which kind of access
+(`:none`, `:read`, `:write` or `:readwrite`) is possible for each location of memory, and
+`memory_effects`/`memory_effects!` to get or set the effects of a function or call:
+
+```jldoctest function
+julia> memory_effects(fun)
+MemoryEffects(:readwrite)
+
+julia> memory_effects!(fun, MemoryEffects(argmem=:read))
+
+julia> effects = memory_effects(fun)
+MemoryEffects(argmem=:read)
+
+julia> effects[:argmem], effects[:other]
+(:read, :none)
+
+julia> access(effects)
+:read
+```
+
+The `memory` attribute itself can be created with `EnumAttribute(effects)`, and decoded with
+`MemoryEffects(attr)`.
+
 
 ## Parameters
 

@@ -40,8 +40,7 @@ end
 
         jd_main = JITDylib(jljit, "main")
 
-        prefix = LLVM.get_prefix(jljit)
-        dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(prefix)
+        dg = LLVM.DynamicLibrarySearchGenerator(jljit)
         add!(jd_main, dg)
 
         addr = lookup(jljit, jd_main, "jl_apply_generic")
@@ -96,6 +95,28 @@ end
         # end
         # This test triggers an assertion in the juliaJIT memory manager
         # because it allocates a code section but doesn't finalize it
+    end
+end
+
+@testset "CustomDefinitionGenerator" begin
+    @dispose jljit=JuliaOJIT() begin
+        # on older Julia versions, this is a JITDylib that is shared by all users of the
+        # Julia JIT, so only generate the symbol we are looking for.
+        jd = JITDylib(jljit, "generated")
+        name = string(gensym("generated"))
+        mangled = mangle(jljit, name)
+        data = Ref{Int32}(42)
+        dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+            for (sym, flags) in lookup_set
+                sym == mangled || continue
+                LLVM.retain(sym)
+                LLVM.define(jd, LLVM.absolute_symbols(sym => pointer_from_objref(data)))
+            end
+        end
+        add!(jd, dg)
+
+        @test pointer(lookup(jljit, jd, name)) == pointer_from_objref(data)
+        LLVM.release(mangled)
     end
 end
 
@@ -196,7 +217,7 @@ end
                 LLVM.API.LLVMOrcCSymbolAliasMapEntry(
                     mangle(jljit, "foo"), flags))
 
-            mu = LLVM.reexports(lctm, ism, jd, Ref(entry))
+            mu = LLVM.lazy_reexports(lctm, ism, jd, Ref(entry))
             LLVM.define(jd, mu)
 
             # 2. Lookup address of entry symbol
@@ -207,7 +228,7 @@ end
             sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(jljit, "foo"), flags)
 
             function materialize(mr)
-                syms = LLVM.get_requested_symbols(mr)
+                syms = LLVM.requested_symbols(mr)
                 @assert length(syms) == 1
 
                 # syms contains mangled symbols

@@ -13,6 +13,17 @@
 @deprecate has_newpm() true false
 @deprecate has_julia_ojit() true false
 
+function CreateDynamicLibrarySearchGeneratorForProcess(prefix)
+    Base.depwarn("`CreateDynamicLibrarySearchGeneratorForProcess(prefix)` is deprecated, " *
+                 "use `DynamicLibrarySearchGenerator(jit)` instead.",
+                 :CreateDynamicLibrarySearchGeneratorForProcess)
+    process_search_generator(prefix)
+end
+@deprecate get_prefix(jit::Union{LLJIT,JuliaOJIT}) global_prefix(jit) false
+@deprecate get_requested_symbols(mr::MaterializationResponsibility) requested_symbols(mr) false
+@deprecate(reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager, jd::JITDylib, symbols),
+           lazy_reexports(lctm, ism, jd, symbols), false)
+
 Base.@deprecate_binding ValueMetadataDict LLVM.InstructionMetadataDict
 
 @deprecate(fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope::String,

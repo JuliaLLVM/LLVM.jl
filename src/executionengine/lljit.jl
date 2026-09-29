@@ -1,12 +1,28 @@
+"""
+    LLJITBuilder()
+
+Create a builder to customize the construction of an [`LLJIT`](@ref), e.g., using
+[`targetmachinebuilder!`](@ref) or [`linkinglayercreator!`](@ref). The builder is consumed
+when constructing the JIT; otherwise, it needs to be disposed of using `dispose`.
+"""
 @checked struct LLJITBuilder
     ref::API.LLVMOrcLLJITBuilderRef
     roots::Vector{Any}
 end
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) = mark_use(builder).ref
 
+"""
+    LLJIT
+
+LLVM's standard ORC-based JIT, which compiles and links code on demand, i.e., when it is
+looked up. It needs to be disposed of using `dispose`, or by using the do-block form of its
+constructors.
+"""
 @checked mutable struct LLJIT
     ref::API.LLVMOrcLLJITRef
+    roots::Vector{Any}  # Julia objects that LLVM holds on to, e.g., for callbacks
 end
+LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, Any[])
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
 
 function LLJITBuilder()
@@ -18,6 +34,11 @@ function dispose(builder::LLJITBuilder)
     mark_dispose(API.LLVMOrcDisposeLLJITBuilder, builder)
 end
 
+"""
+    targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
+
+Use `tmb` to create the JIT's target machines, taking ownership of it.
+"""
 function targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
     API.LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder, tmb)
 end
@@ -38,12 +59,9 @@ function linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
 end
 
 """
-    LLJIT(::LLJITBuilder)
+    LLJIT(builder::LLJITBuilder)
 
-Creates a LLJIT stack based on the provided builder.
-
-!!! note
-    Takes ownership of the provided builder.
+Create an LLJIT as configured by `builder`, taking ownership of the builder.
 """
 function LLJIT(builder::LLJITBuilder)
     ref = Ref{API.LLVMOrcLLJITRef}()
@@ -64,13 +82,19 @@ function LLJIT(builder::LLJITBuilder)
 end
 
 function dispose(lljit::LLJIT)
-    mark_dispose(API.LLVMOrcDisposeLLJIT, lljit)
+    mark_dispose(lljit) do lljit
+        @check API.LLVMOrcDisposeLLJIT(lljit)
+    end
+    empty!(lljit.roots)
+    return
 end
 
 """
-    LLJIT(;tm::Union{Nothing, TargetMachine})
+    LLJIT(; tm::Union{Nothing,TargetMachine}=nothing)
+    LLJIT(f; tm=nothing)
 
-Use the provided TargetMachine and construct an LLJIT from it.
+Create an LLJIT that compiles for the host, or for the target machine `tm`, taking
+ownership of it. The do-block form disposes of the JIT after calling `f(lljit)`.
 """
 function LLJIT(; tm::Union{Nothing, TargetMachine} = nothing)
     builder = LLJITBuilder()
@@ -92,6 +116,13 @@ function LLJIT(f::Core.Function, args...; kwargs...)
     end
 end
 
+"""
+    triple(jit)
+    datalayout(jit)
+
+Get the target triple, or the data layout string, that the JIT compiles code for. Modules
+added to the JIT should use these.
+"""
 function triple(lljit::LLJIT)
     cstr = API.LLVMOrcLLJITGetTripleString(lljit)
     Base.unsafe_string(cstr)
@@ -101,13 +132,26 @@ function datalayout(lljit::LLJIT)
     Base.unsafe_string(API.LLVMOrcLLJITGetDataLayoutStr(lljit))
 end
 
-function get_prefix(lljit::LLJIT)
+"""
+    LLVM.global_prefix(jit)
+
+Get the character that the JIT's target prepends to global symbols when mangling them (e.g.,
+`'_'` on macOS), or `'\\0'` if there is none, as a `Cchar`.
+"""
+function global_prefix(lljit::LLJIT)
     return API.LLVMOrcLLJITGetGlobalPrefix(lljit)
 end
 
 
 # JuliaOJIT interface
 
+"""
+    JuliaOJIT()
+    JuliaOJIT(f)
+
+Get a handle to Julia's own JIT, e.g., to add code to it that can be called from Julia
+code. The JIT is not owned by LLVM.jl, so disposing of the handle is a no-op.
+"""
 @checked mutable struct JuliaOJIT
     ref::API.JuliaOJITRef
 end
@@ -127,7 +171,7 @@ function datalayout(jljit::JuliaOJIT)
     Base.unsafe_string(API.JLJITGetDataLayoutString(jljit))
 end
 
-function get_prefix(jljit::JuliaOJIT)
+function global_prefix(jljit::JuliaOJIT)
     return API.JLJITGetGlobalPrefix(jljit)
 end
 

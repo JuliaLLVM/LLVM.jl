@@ -73,16 +73,10 @@ julia> res = ccall(addr, Int64, (Int64, Int64), 1, 2)
 ```
 
 
-## ORCJIT
+## ORC
 
-The ORCJIT engine is a more modern JIT engine, which is more flexible and powerful than
-MCJIT. LLVM.jl only supports the ORCv2 API, which is the latest version of ORCJIT.
-
-!!! warning
-
-    Documentation for ORCJIT is a work in progress.
-
-### Thread-safe operation
+ORC is LLVM's modern JIT framework, and the recommended way to execute LLVM IR. LLVM.jl
+supports LLJIT, a ready-to-use JIT built on ORC, as well as adding code to Julia's own JIT.
 
 ```@meta
 DocTestSetup = quote
@@ -95,37 +89,40 @@ DocTestSetup = quote
 end
 ```
 
-Because of ORC often compiling code lazily, thread-safety is a concern. To ensure that
-everything is thread-safe, the ORC APIs use thread-safe wrappers of LLVM objects like
-contexts and modules.
+### Thread-safe contexts and modules
 
-Thread safe contexts are similar to regular contexts, but they require taking a lock
-when using them. On the Julia side, they are created much like regular contexts:
+Because ORC can compile code lazily, possibly on other threads, it works with thread-safe
+wrappers of LLVM contexts and modules. A `ThreadSafeContext` is created much like a
+regular context, and similarly becomes the task's active thread-safe context:
 
 ```jldoctest
-julia> ts_ctx = ThreadSafeContext()
-ThreadSafeContext(Ptr{LLVM.API.LLVMOrcOpaqueThreadSafeContext}(0x0000600001fac180))
-
-julia> dispose(ts_ctx)
-```
-
-LLVM.jl also maintains a task-bound thread-safe context, simplifying API usage much in the
-same way as regular contexts:
-
-```
-julia> ts_context()
-ERROR: No LLVM thread-safe context is active
-
 julia> ts_ctx = ThreadSafeContext();
 
-julia> ts_context()
-ThreadSafeContext(Ptr{LLVM.API.LLVMOrcOpaqueThreadSafeContext} @0x00006000035844a0)
+julia> ts_context() == ts_ctx
+true
 
 julia> dispose(ts_ctx)
 
-julia> ts_context()
-ERROR: No LLVM thread-safe context is active
+julia> ts_context(; throw_error=false) === nothing
+true
 ```
+
+A `ThreadSafeModule` wraps a module in the active thread-safe context. To access the module,
+call the thread-safe module with a function, which locks the context while the function
+runs:
+
+```jldoctest
+julia> @dispose ts_ctx=ThreadSafeContext() begin
+           ts_mod = ThreadSafeModule("SomeModule")
+           ts_mod() do mod
+               string(mod)
+           end
+       end
+"; ModuleID = 'SomeModule'\nsource_filename = \"SomeModule\"\n"
+```
+
+Only access modules and contexts in this way: using the underlying context directly, e.g.,
+through `context(ts_ctx)`, bypasses the lock.
 
 ```@meta
 DocTestSetup = quote
@@ -137,24 +134,231 @@ DocTestSetup = quote
 end
 ```
 
-Similarly, `ThreadSafeModule` is a thread-safe wrapper around a module, and can be used
-much like a regular module:
+### Compiling and running code
 
-```jldoctest
-julia> ts_mod = ThreadSafeModule("SomeModule")
-ThreadSafeModule(Ptr{LLVM.API.LLVMOrcOpaqueThreadSafeModule}(0x0000600001d893a0))
+An `LLJIT` compiles code for the host by default. After adding a module to one of its
+JITDylibs, look up a symbol to compile it and get its address:
 
-julia> dispose(ts_mod)
-```
+```jldoctest orc
+julia> lljit = LLJIT();
 
-Whereas thread-safe contexts are just for use with LLVM C APIs, it is possible to access
-the underlying module from a thread-safe module (taking a lock in the process):
-
-```jldoctest
-julia> ts_mod = ThreadSafeModule("SomeModule");
+julia> ts_mod = ThreadSafeModule("jit");
 
 julia> ts_mod() do mod
-            string(mod)
-        end
-"; ModuleID = 'SomeModule'\nsource_filename = \"SomeModule\"\n"
+           triple!(mod, triple(lljit))
+           ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
+           fn = LLVM.Function(mod, "add", ft)
+           @dispose builder=IRBuilder() begin
+               position!(builder, BasicBlock(fn, "entry"))
+               ret!(builder, add!(builder, parameters(fn)...))
+           end
+           return
+       end
+
+julia> jd = JITDylib(lljit);
+
+julia> add!(lljit, jd, ts_mod)
+
+julia> addr = lookup(lljit, "add");
+
+julia> ccall(pointer(addr), Int64, (Int64, Int64), 1, 2)
+3
 ```
+
+Adding a module consumes it. The JIT, and all code it compiled, stays alive until it is
+disposed of, which should only happen once its code is not used anymore. Alternatively, use
+the do-block form `LLJIT() do lljit ... end`, or `@dispose lljit=LLJIT() begin ... end`.
+
+To customize the JIT, e.g., to use a different object linking layer, create it from an
+`LLJITBuilder`.
+
+### JITDylibs and symbols
+
+Code is added to JITDylibs, which are the JIT's equivalent of dynamic libraries. Every
+`LLJIT` has a main JITDylib, `JITDylib(lljit)`, which `lookup(lljit, name)` searches. More
+JITDylibs can be created in the JIT's execution session, and searched explicitly:
+
+```jldoctest orc
+julia> es = ExecutionSession(lljit);
+
+julia> other = JITDylib(es, "other");
+
+julia> LLVM.lookup_dylib(es, "other") == other
+true
+
+julia> lookup(lljit, other, "add")
+ERROR: LLVM error: Symbols not found: [ add ]
+```
+
+Internally, ORC identifies symbols by their linker-mangled names, e.g., with an underscore
+prepended on macOS. `lookup` takes care of this, but other APIs take symbols created by
+`mangle`, which applies the target's mangling and interns the result in the execution
+session:
+
+```jldoctest orc
+julia> sym = mangle(lljit, "add");
+
+julia> String(sym) in ("add", "_add")
+true
+```
+
+Symbols are reference counted. `mangle` returns a new reference, which most APIs that take
+symbols take ownership of. Otherwise, release it:
+
+```jldoctest orc
+julia> LLVM.release(sym)
+```
+
+### Making host symbols available
+
+A JITDylib does not see any symbols from the host process by default. To call host
+functions or access host data, define them as absolute symbols:
+
+```jldoctest orc
+julia> counter = Ref(41);
+
+julia> LLVM.define(jd, LLVM.absolute_symbols(
+           mangle(lljit, "counter") => pointer_from_objref(counter)))
+
+julia> pointer(lookup(lljit, "counter")) == pointer_from_objref(counter)
+true
+```
+
+Alternatively, attach a definition generator to the JITDylib, which is consulted whenever a
+symbol cannot be found. `LLVM.DynamicLibrarySearchGenerator` makes all symbols of the current
+process, or of a specific library, available:
+
+```jldoctest orc
+julia> add!(jd, LLVM.DynamicLibrarySearchGenerator(lljit))
+
+julia> lookup(lljit, "jl_apply_generic");
+```
+
+For other policies, `LLVM.CustomDefinitionGenerator` calls a Julia function with the symbols
+that could not be found, which can then define them:
+
+```jldoctest orc
+julia> answer = Ref(42);
+
+julia> dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+           for (name, flags) in lookup_set
+               if String(name) in ("answer", "_answer")
+                   LLVM.retain(name)   # the lookup set's names are borrowed
+                   LLVM.define(jd, LLVM.absolute_symbols(name => pointer_from_objref(answer)))
+               end
+           end
+       end;
+
+julia> add!(jd, dg)
+
+julia> pointer(lookup(lljit, "answer")) == pointer_from_objref(answer)
+true
+```
+
+### Removing code
+
+Code can be removed from a JITDylib by clearing it with `empty!`, or selectively, by
+adding it using a resource tracker:
+
+```jldoctest orc
+julia> rt = LLVM.ResourceTracker(jd);
+
+julia> ts_mod = ThreadSafeModule("jit");
+
+julia> ts_mod() do mod
+           fn = LLVM.Function(mod, "temporary", LLVM.FunctionType(LLVM.VoidType()))
+           @dispose builder=IRBuilder() begin
+               position!(builder, BasicBlock(fn, "entry"))
+               ret!(builder)
+           end
+           return
+       end
+
+julia> add!(lljit, rt, ts_mod)
+
+julia> lookup(lljit, "temporary");
+
+julia> remove!(rt)
+
+julia> lookup(lljit, "temporary")
+ERROR: LLVM error: Symbols not found: [ temporary ]
+```
+
+Resource trackers are reference counted too; `dispose` releases the reference, without
+removing the tracked code:
+
+```jldoctest orc
+julia> dispose(rt)
+
+julia> dispose(lljit)
+```
+
+### Lazy compilation
+
+Instead of adding code upfront, a materialization unit can promise to define symbols, and
+only generate code when one of them is looked up. `LLVM.CustomMaterializationUnit` calls a
+Julia function to do so, which typically generates a module and emits it through one of the
+JIT's layers:
+
+```julia
+flags = LLVM.symbol_flags(callable=true)
+mu = LLVM.CustomMaterializationUnit("lazy", [mangle(lljit, "foo") => flags],
+    function materialize(mr)
+        ts_mod = ThreadSafeModule("foo")
+        ts_mod() do mod
+            # generate IR defining `foo`
+        end
+        LLVM.emit(LLVM.IRTransformLayer(lljit), mr, ts_mod)
+    end,
+    function discard(jd, sym)
+        # `sym` was overridden before being materialized
+    end)
+LLVM.define(jd, mu)
+```
+
+Looking up `foo` then materializes it. To defer compilation even further, until a function
+is first *called*, create a lazy reexport. Looking it up returns the address of a stub,
+which calls into the JIT to look up (and thus materialize) the target the first time it is
+called:
+
+```julia
+es = ExecutionSession(lljit)
+lctm = LLVM.LocalLazyCallThroughManager(triple(lljit), es)
+ism = LLVM.LocalIndirectStubsManager(triple(lljit))
+LLVM.define(jd, LLVM.lazy_reexports(lctm, ism, jd,
+                                    [mangle(lljit, "foo_stub") => mangle(lljit, "foo")]))
+addr = lookup(lljit, "foo_stub")    # doesn't materialize `foo` yet
+```
+
+Both managers need to stay alive for as long as the stubs can be called, and need to be
+disposed of afterwards.
+
+Finally, to process all modules before they are compiled, e.g., to optimize them, install a
+transformation on the JIT's IR transform layer:
+
+```julia
+LLVM.set_transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
+    tsm() do mod
+        run!("default<O2>", mod)
+    end
+end
+```
+
+### Errors in callbacks
+
+Julia exceptions cannot propagate through LLVM. When a callback like a materializer,
+definition generator or transformation throws, the operation that triggered it fails with a
+generic `LLVMException`. The original exception is kept, and can be rethrown as a
+`CallbackException` by calling `LLVM.check_callback_error` on the object that owns the
+callback.
+
+### Julia's JIT
+
+Code can also be added to Julia's own JIT, using `JuliaOJIT()`, e.g., to make it callable
+from Julia code. Its API is similar to that of `LLJIT`, but lookups always need an explicit
+JITDylib: `lookup(jljit, jd, name)`.
+
+How JITDylibs work depends on the Julia version: on Julia 1.14 and later,
+`JITDylib(jljit, name)` creates a new JITDylib, which can see Julia's symbols but is not
+visible to other code. On older versions, it returns a single JITDylib that is shared by
+all users of Julia's JIT, and whose symbols are visible to Julia code.

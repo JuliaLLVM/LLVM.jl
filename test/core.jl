@@ -1968,7 +1968,7 @@ end
     @test isintrinsic(intr_fn)
 
     intr = Intrinsic(intr_fn)
-    show(devnull, intr)
+    @test repr(intr) == "Intrinsic(\"llvm.trap\")"
 
     @test !isoverloaded(intr)
 
@@ -1996,7 +1996,7 @@ end
     @test isintrinsic(intr_fn)
 
     intr = Intrinsic(intr_fn)
-    show(devnull, intr)
+    @test repr(intr) == "Intrinsic(\"llvm.sin\")"
 
     @test isoverloaded(intr)
 
@@ -2015,6 +2015,27 @@ end
     @test isintrinsic(fn)
 
     @test intr == Intrinsic("llvm.sin")
+end
+
+# identifying intrinsics
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    trap = Intrinsic("llvm.trap")
+    @test_throws ArgumentError Intrinsic("llvm.nonexisting")
+
+    f = LLVM.Function(mod, trap)
+    @test f.intrinsic == trap
+    @test isintrinsic(f, trap)
+    @test !isintrinsic(f, Intrinsic("llvm.debugtrap"))
+
+    g = LLVM.Function(mod, "g", LLVM.FunctionType(LLVM.VoidType()))
+    @test g.intrinsic === nothing
+    @test !isintrinsic(g)
+    @test !isintrinsic(g, trap)
+    @test_throws ArgumentError Intrinsic(g)
+
+    # any value can be checked
+    @test !isintrinsic(ConstantInt(Int32(0)))
+    @test !isintrinsic(ConstantInt(Int32(0)), trap)
 end
 
 # function and instruction attributes

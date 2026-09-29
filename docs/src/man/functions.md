@@ -32,7 +32,8 @@ Several APIs can be used to interact with functions:
 - `fun.gc`: the garbage collector for the function.
 - `fun.alignment`: the alignment of the function's code.
 - `fun.entry`: the entry block of the function, or `nothing` if it has no body.
-- `isintrinsic`: check if the function is an intrinsic.
+- `fun.intrinsic`: the intrinsic that the function declares, or `nothing`.
+- `isintrinsic`: check if a value is an intrinsic function, or a specific one.
 - `erase!`: delete the function from its parent module, and delete the object.
 - `copy_attributes!(dest, src)`: copy the attributes of a function that aren't needed to
   create it, like its calling convention, section and function attributes, e.g., when
@@ -74,6 +75,9 @@ declare void @llvm.trap() #0
 
 julia> isintrinsic(f)
 true
+
+julia> f.intrinsic
+Intrinsic("llvm.trap")
 ```
 
 However, the `Intrinsic` type supports additional APIs:
@@ -89,7 +93,7 @@ overloaded name is correct:
 julia> mod = LLVM.Module("SomeModule");
 
 julia> intr = LLVM.Intrinsic("llvm.abs")
-Intrinsic(5): overloaded intrinsic
+Intrinsic("llvm.abs")
 
 julia> isoverloaded(intr)
 true

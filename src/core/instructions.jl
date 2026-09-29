@@ -58,6 +58,30 @@ The incoming values of the phi node, as a view of `(value, block)` tuples of the
 value and the block it originates from. The view is mutable: incoming values can be added
 using `push!` or `append!`.
 
+    alloca.allocated_type
+
+The type that an `alloca` instruction allocates memory for.
+
+    gep.pointer_operand
+
+The pointer that a `getelementptr` instruction indexes into.
+
+    gep.source_element_type
+
+The type that a `getelementptr` instruction indexes into, as passed to the builder.
+
+    gep.inbounds
+    gep.inbounds = flag::Bool
+
+Whether a `getelementptr` instruction is `inbounds`, i.e., whether the resulting pointer is
+known to be within the bounds of the object that the pointer operand is based on.
+
+    inst.indices
+
+The indices of an `extractvalue` or `insertvalue` instruction, as a read-only view. These
+are the zero-based indices that select the element of the aggregate, like in textual IR,
+e.g., `[1, 0]` for `extractvalue {i32, {i8, i8}} %agg, 1, 0`.
+
     or.disjoint
     or.disjoint = flag::Bool
 
@@ -547,6 +571,15 @@ The group of instructions that access memory: `load`, `store`, `atomicrmw` and `
 Whether a memory access (a `load`, `store`, `atomicrmw` or `cmpxchg` instruction) is
 volatile.
 
+    inst.pointer_operand
+
+The pointer operand of a memory access, i.e., the address of the memory that it accesses.
+
+    inst.value_operand
+
+The value operand of a `store` or `atomicrmw` instruction, i.e., the value that is stored
+or combined with the value in memory.
+
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
 """
@@ -643,9 +676,22 @@ The calling convention of a `call`, `invoke` or `callbr` instruction, e.g.,
 `LLVM.API.LLVMFastCallConv`.
 
     call.called_operand
+    call.called_operand = callee::Value
 
 The operand of a `call`, `invoke` or `callbr` instruction that represents the called
-function.
+function. This can be any value, e.g., a function, a cast of one, or a function pointer.
+
+Assigning to this property only replaces the callee: the function type of the call (its
+`called_type`), arguments and attributes remain unchanged, so the new callee should be
+callable using that function type.
+
+    call.called_function
+
+The function that a `call`, `invoke` or `callbr` instruction calls directly, or `nothing`
+for other calls, e.g., of a function pointer. Like C++'s `CallBase::getCalledFunction`,
+this does not look through casts or aliases (use `strip_pointer_casts` on the
+`called_operand` for that), and is `nothing` if the function's type differs from the
+function type of the call.
 
     call.called_type
 
@@ -731,6 +777,22 @@ tailcall_kind!(inst::CallInst, kind::API.LLVMTailCallKind) =
 
 called_operand(inst::CallBase) = Value(API.LLVMGetCalledValue(inst))
 
+function called_operand!(inst::CallBase, callee::Value)
+    # the callee is the last operand of every kind of call site
+    idx = API.LLVMGetNumOperands(inst) - 1
+    old_type = API.LLVMTypeOf(API.LLVMGetOperand(inst, idx))
+    API.LLVMTypeOf(callee) == old_type ||
+        throw(ArgumentError("Callee of type $(value_type(callee)) does not match the called operand of type $(LLVMType(old_type))"))
+    API.LLVMSetOperand(inst, idx, callee)
+end
+
+function called_function(inst::CallBase)
+    ref = API.LLVMGetCalledValue(inst)
+    (API.LLVMIsAFunction(ref) != C_NULL &&
+     API.LLVMGetFunctionType(ref) == API.LLVMGetCalledFunctionType(inst)) || return nothing
+    return Function(ref)
+end
+
 function called_type(inst::CallBase)
     @static if version() >= v"11"
         LLVMType(API.LLVMGetCalledFunctionType(inst))
@@ -739,7 +801,8 @@ function called_type(inst::CallBase)
     end
 end
 
-@property CallBase called_operand
+@property CallBase called_operand called_operand!
+@property CallBase called_function
 @property CallBase called_type
 
 struct CallArgumentSet <: AbstractVector{Value}
@@ -1372,6 +1435,57 @@ const FPMathInst = Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemI
                          (version() >= v"23" ? (UIToFPInst, SIToFPInst) : ())...}
 
 @property FPMathInst fast_math fast_math!
+
+
+## memory operations
+
+pointer_operand(inst::LoadInst) = Value(API.LLVMGetOperand(inst, 0))
+pointer_operand(inst::StoreInst) = Value(API.LLVMGetOperand(inst, 1))
+pointer_operand(inst::GetElementPtrInst) = Value(API.LLVMGetOperand(inst, 0))
+pointer_operand(inst::AtomicRMWInst) = Value(API.LLVMGetOperand(inst, 0))
+pointer_operand(inst::AtomicCmpXchgInst) = Value(API.LLVMGetOperand(inst, 0))
+
+@property Union{LoadInst,StoreInst,GetElementPtrInst,AtomicRMWInst,AtomicCmpXchgInst} pointer_operand
+
+value_operand(inst::StoreInst) = Value(API.LLVMGetOperand(inst, 0))
+value_operand(inst::AtomicRMWInst) = Value(API.LLVMGetOperand(inst, 1))
+
+@property Union{StoreInst,AtomicRMWInst} value_operand
+
+allocated_type(inst::AllocaInst) = LLVMType(API.LLVMGetAllocatedType(inst))
+
+@property AllocaInst allocated_type
+
+source_element_type(inst::GetElementPtrInst) =
+    LLVMType(API.LLVMGetGEPSourceElementType(inst))
+
+@property GetElementPtrInst source_element_type
+
+inbounds(inst::GetElementPtrInst) = API.LLVMIsInBounds(inst) |> Bool
+
+inbounds!(inst::GetElementPtrInst, flag::Bool) = API.LLVMSetIsInBounds(inst, flag)
+
+@property GetElementPtrInst inbounds inbounds!
+
+
+## aggregate operations
+
+struct AggregateIndexSet <: AbstractVector{Int}
+    inst::Instruction
+end
+
+indices(inst::Union{ExtractValueInst,InsertValueInst}) = AggregateIndexSet(inst)
+
+@property Union{ExtractValueInst,InsertValueInst} indices
+
+Base.size(iter::AggregateIndexSet) = (Int(API.LLVMGetNumIndices(iter.inst)),)
+
+Base.IndexStyle(::AggregateIndexSet) = IndexLinear()
+
+function Base.getindex(iter::AggregateIndexSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Int(unsafe_load(API.LLVMGetIndices(iter.inst), i))
+end
 
 
 ## alignment

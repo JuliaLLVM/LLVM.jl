@@ -176,6 +176,33 @@ julia> Int(slot.alignment)
 Memory accesses can also be marked volatile, using the `inst.volatile` property or the
 `volatile` keyword argument when building the instruction.
 
+The operands of memory instructions are available as properties too, so that code that
+inspects or rewrites them doesn't need to know their position in `inst.operands`:
+
+- `inst.pointer_operand`: the address that a load, store, `atomicrmw` or `cmpxchg`
+  instruction accesses, or that a `getelementptr` instruction indexes into.
+- `inst.value_operand`: the value that a store or `atomicrmw` instruction writes.
+- `alloca.allocated_type`: the type that an `alloca` instruction allocates.
+- `gep.source_element_type`: the type that a `getelementptr` instruction indexes into.
+- `gep.inbounds`: whether a `getelementptr` instruction is `inbounds`, which can also be
+  assigned to.
+
+```jldoctest
+julia> slot = alloca!(builder, LLVM.Int64Type());
+
+julia> store = store!(builder, ConstantInt(Int64(1)), slot)
+store i64 1, ptr %0, align 4
+
+julia> store.pointer_operand == slot
+true
+
+julia> store.value_operand
+i64 1
+
+julia> slot.allocated_type
+i64
+```
+
 
 ## Atomic instructions
 
@@ -204,8 +231,16 @@ types support a few additional APIs:
 - `call.tailcall_kind`: the tail call marker of a `call` instruction, e.g.,
   `LLVM.API.LLVMTailCallKindMustTail`.
 - `call.called_type`: the function type of the called value of the call site.
-- `call.called_operand`: the called value of the call site.
+- `call.called_operand`: the called value of the call site, which can be any value (e.g.,
+  a function pointer). Assigning to it replaces the callee, but keeps the function type,
+  arguments and attributes of the call.
+- `call.called_function`: the function that is called directly, or `nothing` (e.g., for
+  calls of a function pointer). Like C++'s `CallBase::getCalledFunction`, this does not
+  look through casts.
 - `call.arguments`: the arguments of the call site, as a mutable view.
+
+To check whether a call calls a specific intrinsic, pass its callee to `isintrinsic`, e.g.,
+`isintrinsic(call.called_operand, Intrinsic("llvm.memcpy"))`.
 
 ### Operand bundles
 

@@ -140,6 +140,8 @@
 
     allocainst = alloca!(builder, LLVM.Int32Type())
     @check_ir allocainst "alloca i32"
+    @test allocainst.allocated_type == LLVM.Int32Type()
+    @test !hasproperty(xorinst, :allocated_type)
     @test allocainst.alignment == 4
     allocainst.alignment = 16
     @test allocainst.alignment == 16
@@ -217,6 +219,8 @@
     end
     loadinst.alignment = 4
     @test loadinst.alignment == 4
+    @test loadinst.pointer_operand == ptr1
+    @test !hasproperty(loadinst, :value_operand)
 
     @test !isatomic(loadinst)
     loadinst.ordering = LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
@@ -238,6 +242,8 @@
     else
         @check_ir storeinst "store i32 %0, ptr %4"
     end
+    @test storeinst.pointer_operand == ptr1
+    @test storeinst.value_operand == int1
 
     fenceinst = fence!(builder, LLVM.API.LLVMAtomicOrderingSequentiallyConsistent)
     @check_ir fenceinst "fence"
@@ -248,6 +254,14 @@
     else
         @check_ir gepinst "getelementptr i32, ptr %4, i32 %0"
     end
+    @test gepinst.pointer_operand == ptr1
+    @test gepinst.source_element_type == LLVM.Int32Type()
+    @test !gepinst.inbounds
+    gepinst.inbounds = true
+    @test gepinst.inbounds
+    @check_ir gepinst "getelementptr inbounds i32"
+    gepinst.inbounds = false
+    @test !gepinst.inbounds
 
     gepinst1 = inbounds_gep!(builder, LLVM.Int32Type(), ptr1, [int1])
     if supports_typed_pointers(ctx)
@@ -255,6 +269,7 @@
     else
         @check_ir gepinst1 "getelementptr inbounds i32, ptr %4, i32 %0"
     end
+    @test gepinst1.inbounds
 
     single_thread = false
     atomic_rmw_inst = atomic_rmw!(builder,
@@ -266,6 +281,8 @@
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 seq_cst"
     end
     @test atomic_rmw_inst.binop == LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test atomic_rmw_inst.pointer_operand == ptr1
+    @test atomic_rmw_inst.value_operand == int1
     @test atomic_rmw_inst.syncscope == SyncScope("system")
     atomic_rmw_inst.syncscope = SyncScope("agent")
     @test atomic_rmw_inst.syncscope == SyncScope("agent")
@@ -454,6 +471,7 @@
 
     @check_ir callinst "call void @llvm.trap()"
     @test callinst.called_operand == trap
+    @test callinst.called_function == trap
     @test callinst.called_type == LLVM.FunctionType(LLVM.VoidType())
 
     # tail calls: `tailcall` is a Bool view of `tailcall_kind`
@@ -525,6 +543,76 @@ end
 
 end
 
+
+@testset "call sites" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    f = LLVM.Function(mod, "f", ft)
+    g = LLVM.Function(mod, "g", ft)
+    h = LLVM.Function(mod, "h", LLVM.FunctionType(LLVM.Int32Type()))
+    caller = LLVM.Function(mod, "caller", LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(ft)]))
+    position!(builder, BasicBlock(caller, "entry"))
+
+    # direct calls
+    call = call!(builder, ft, f)
+    @test call.called_function == f
+    call.called_operand = g
+    @test call.called_function == g
+    @test call.called_type == ft
+    @check_ir call "call void @g()"
+
+    # indirect calls, or calls of a function with a different type, are not direct calls
+    ptr = caller.parameters[1]
+    indirect = call!(builder, ft, ptr)
+    @test indirect.called_function === nothing
+    @test indirect.called_operand == ptr
+    if !supports_typed_pointers(ctx)
+        mismatch = call!(builder, ft, h)
+        @test mismatch.called_function === nothing
+        @test mismatch.called_operand == h
+    end
+
+    # the callee needs to have the same type as the called operand
+    @test_throws ArgumentError call.called_operand = ConstantInt(Int32(0))
+
+    ret!(builder)
+    verify(mod)
+end
+end
+
+@testset "aggregates" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    inner = LLVM.StructType([LLVM.Int8Type(), LLVM.Int16Type()])
+    outer = LLVM.StructType([LLVM.Int32Type(), inner])
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int8Type(), [outer]))
+    position!(builder, BasicBlock(f, "entry"))
+    agg = f.parameters[1]
+
+    ev = extract_value!(builder, agg, 1)
+    @test ev.indices == [1]
+    @test_throws BoundsError ev.indices[2]
+    @test_throws CanonicalIndexError ev.indices[1] = 0
+    ev2 = extract_value!(builder, ev, 0)
+    @test ev2.indices == [0]
+    iv = insert_value!(builder, agg, ev, 1)
+    @test iv.indices == [1]
+    @test !hasproperty(ev2, :pointer_operand)
+
+    ret!(builder, ev2)
+    verify(mod)
+end
+end
+
+@testset "arguments" begin
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])
+    f = LLVM.Function(mod, "f", ft)
+    for (i, arg) in enumerate(f.parameters)
+        @test arg.index == i
+        @test arg.parent.parameters[arg.index] == arg
+    end
+end
+end
 
 @testset "LLVM 22 instructions" begin
 if LLVM.version() >= v"22"

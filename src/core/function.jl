@@ -91,6 +91,10 @@ of blocks, so iterate instead of indexing each block.
 
 The subprogram that describes the function, or `nothing` if it has none.
 
+    f.intrinsic
+
+The intrinsic that the function declares, or `nothing` if it isn't an intrinsic.
+
     f.next
     f.prev
 
@@ -388,6 +392,11 @@ A parameter of a function, as a value that can be used in its body.
 
 The function that the parameter belongs to.
 
+    arg.index
+
+The position of the parameter in the parameter list of its function, starting at 1, so
+that `arg.parent.parameters[arg.index] == arg`.
+
     arg.next
     arg.prev
 
@@ -456,6 +465,10 @@ end
 parent(arg::Argument) = Function(API.LLVMGetParamParent(arg))
 
 @property Argument parent
+
+index(arg::Argument) = Int(API.LLVMExtraGetArgNo(arg)) + 1
+
+@property Argument index
 
 
 # basic block iteration
@@ -535,16 +548,13 @@ end
 @public overloaded_name
 
 """
-    isintrinsic(f::Function)
-
-Check if the given function is an intrinsic.
-"""
-isintrinsic(f::Function) = API.LLVMGetIntrinsicID(f) != 0
-
-"""
     LLVM.Intrinsic
+    Intrinsic(name::String)
+    Intrinsic(f::LLVM.Function)
 
-An LLVM intrinsic function, identified by its ID.
+An LLVM intrinsic function, identified by its (base) name, e.g., `Intrinsic("llvm.memcpy")`,
+or the intrinsic that a function declares. Throws an `ArgumentError` if there is no such
+intrinsic; see the `intrinsic` property of functions for a non-throwing alternative.
 
 # Properties
 
@@ -563,10 +573,35 @@ struct Intrinsic
     end
 
     function Intrinsic(name::String)
-        new(API.LLVMLookupIntrinsicID(name, length(name)))
+        id = API.LLVMLookupIntrinsicID(name, ncodeunits(name))
+        id == 0 && throw(ArgumentError("Unknown intrinsic: $name"))
+        new(id)
     end
 end
 @properties Intrinsic
+
+intrinsic(f::Function) = isintrinsic(f) ? Intrinsic(f) : nothing
+
+@property Function intrinsic
+
+"""
+    isintrinsic(val::Value)
+    isintrinsic(val::Value, intr::Intrinsic)
+
+Check if the given value is a function that is an intrinsic, or a specific intrinsic. This
+works with any value, e.g., to check the `called_operand` of a call instruction:
+
+```julia
+memcpy = Intrinsic("llvm.memcpy")
+isintrinsic(call.called_operand, memcpy)
+```
+
+Intrinsics are identified by their ID, so unlike C++'s `Function::isIntrinsic`, which
+checks for the `llvm.` prefix that is reserved for intrinsics, this is false for functions
+that are named like intrinsics that the current version of LLVM does not know.
+"""
+isintrinsic(val::Value) = API.LLVMGetIntrinsicID(val) != 0
+isintrinsic(val::Value, intr::Intrinsic) = API.LLVMGetIntrinsicID(val) == intr.id
 
 Base.convert(::Type{UInt32}, intr::Intrinsic) = intr.id
 
@@ -621,11 +656,5 @@ function FunctionType(intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMTy
     LLVMType(API.LLVMIntrinsicGetType(context(), intr, as_vector(params), length(params)))
 end
 
-function Base.show(io::IO, intr::Intrinsic)
-    print(io, "Intrinsic($(intr.id))")
-    if isoverloaded(intr)
-        print(io, ": overloaded intrinsic")
-    else
-        print(io, ": \"$(name(intr))\"")
-    end
-end
+# display intrinsics as the call that creates them, as their IDs differ between versions
+Base.show(io::IO, intr::Intrinsic) = print(io, "Intrinsic(", repr(name(intr)), ")")

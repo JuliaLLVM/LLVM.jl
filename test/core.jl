@@ -1678,6 +1678,26 @@ end
 
 @testset "function" begin
 
+# personalities can be other constants referring to a function
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    pers_fn = LLVM.Function(mod, "PersonalityFunction",
+                            LLVM.FunctionType(LLVM.Int32Type(); vararg=true))
+
+    pers_alias = GlobalAlias(mod, pers_fn, "PersonalityAlias")
+    personality!(fn, pers_alias)
+    @test personality(fn) == pers_alias
+    @test personality(fn) isa GlobalAlias
+
+    pers_cast = const_bitcast(pers_fn, LLVM.PointerType(LLVM.Int8Type()))
+    personality!(fn, pers_cast)
+    @test personality(fn) == pers_cast
+    if supports_typed_pointers(ctx)
+        @test personality(fn) isa ConstantExpr
+    end
+end
+
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
     fn = LLVM.Function(mod, "SomeFunction", ft)

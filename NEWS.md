@@ -35,6 +35,9 @@ Bug fixes:
 - `section!` is now only defined for global objects, as LLVM does not support setting the
   section of a global alias.
 - `last(functions(mod))` returns the last function of a module, instead of the first one.
+- `personality` returns the actual personality value, which may be a `GlobalAlias` or a
+  constant expression, instead of wrapping it as a `Function`, and `personality!` accepts
+  any constant.
 
 
 ## LLVM.jl v9.13

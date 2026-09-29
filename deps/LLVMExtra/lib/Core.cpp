@@ -12,6 +12,7 @@
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/CodeGen/Passes.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
+#include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/Dominators.h>
@@ -487,6 +488,42 @@ char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD) {
   jd->dump(rso);
   rso.flush();
   return strdup(str.c_str());
+}
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::ObjectLayer, LLVMOrcObjectLayerRef)
+
+static orc::RTDyldObjectLinkingLayer *unwrapRTDyld(LLVMOrcObjectLayerRef Layer) {
+  return static_cast<orc::RTDyldObjectLinkingLayer *>(unwrap(Layer));
+}
+
+void LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(
+    LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, LLVMBool OverrideObjectFlags) {
+  unwrapRTDyld(RTDyldObjLinkingLayer)
+      ->setOverrideObjectFlagsWithResponsibilityFlags(OverrideObjectFlags);
+}
+
+void LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
+    LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, LLVMBool AutoClaimObjectSymbols) {
+  unwrapRTDyld(RTDyldObjLinkingLayer)
+      ->setAutoClaimResponsibilityForObjectSymbols(AutoClaimObjectSymbols);
+}
+
+// Mirrors LLJIT::createObjectLinkingLayer.
+void LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(
+    LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, const char *TripleStr) {
+  auto *Layer = unwrapRTDyld(RTDyldObjLinkingLayer);
+  // Normalize so that, e.g., the default x86_64-w64-mingw32 triple is recognized as COFF.
+  Triple TT(Triple::normalize(TripleStr));
+  if (TT.isOSBinFormatCOFF()) {
+    Layer->setOverrideObjectFlagsWithResponsibilityFlags(true);
+    Layer->setAutoClaimResponsibilityForObjectSymbols(true);
+  }
+#if LLVM_VERSION_MAJOR >= 16
+  if (TT.isOSBinFormatELF() &&
+      (TT.getArch() == Triple::ArchType::ppc64 ||
+       TT.getArch() == Triple::ArchType::ppc64le))
+    Layer->setAutoClaimResponsibilityForObjectSymbols(true);
+#endif
 }
 
 

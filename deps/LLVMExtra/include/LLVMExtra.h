@@ -144,6 +144,16 @@ void LLVMOrcIRCompileLayerEmit(LLVMOrcIRCompileLayerRef IRLayer,
                                LLVMOrcThreadSafeModuleRef TSM);
 char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD);
 
+// Configuration of layers created by LLVMOrcCreateRTDyldObjectLinkingLayer*.
+// The object layer must be an RTDyldObjectLinkingLayer.
+void LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(
+    LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, LLVMBool OverrideObjectFlags);
+void LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
+    LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, LLVMBool AutoClaimObjectSymbols);
+// Apply the settings LLJIT uses for its default object layer on the given target triple.
+void LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(
+    LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, const char *Triple);
+
 // Cloning functionality
 typedef enum {
   LLVMCloneFunctionChangeTypeLocalChangesOnly = 0,

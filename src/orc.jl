@@ -45,8 +45,44 @@ end
 end
 Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) = oll.ref
 
-function ObjectLinkingLayer(es::ExecutionSession)
+"""
+    ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.triple();
+                       override_object_flags=nothing, auto_claim_object_symbols=nothing)
+
+Create a RuntimeDyld-based object linking layer that allocates memory using a
+`SectionMemoryManager`.
+
+The layer is configured the same way LLJIT configures its default object layer for
+`triple`. Objects for COFF targets (e.g., Windows) do not carry reliable symbol
+visibility information, so on those targets the layer uses the symbol flags from the IR
+instead of from the object file (`override_object_flags`), and takes responsibility for
+additional symbols that code generation introduced (`auto_claim_object_symbols`). Pass
+`true` or `false` to either keyword argument to override the default.
+
+The triple defaults to the host's. When creating the layer in
+[`linkinglayercreator!`](@ref), pass the triple the callback receives instead, as the JIT
+may target a different object format (e.g., [`JITTargetMachine`](@ref) uses ELF on
+Windows):
+
+```julia
+linkinglayercreator!(builder) do es, triple
+    ObjectLinkingLayer(es, triple)
+end
+```
+"""
+function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.triple();
+                            override_object_flags::Union{Nothing,Bool}=nothing,
+                            auto_claim_object_symbols::Union{Nothing,Bool}=nothing)
     ref = API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
+    API.LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(ref, triple)
+    if override_object_flags !== nothing
+        API.LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(
+            ref, override_object_flags)
+    end
+    if auto_claim_object_symbols !== nothing
+        API.LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
+            ref, auto_claim_object_symbols)
+    end
     ObjectLinkingLayer(ref)
 end
 

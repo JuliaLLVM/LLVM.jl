@@ -62,4 +62,5 @@ JITDylib
 lookup(::LLJIT, ::Any)
 CallbackException
 linkinglayercreator!
+ObjectLinkingLayer(::ExecutionSession, ::String)
 ```

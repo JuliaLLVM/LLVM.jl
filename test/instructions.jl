@@ -766,6 +766,38 @@ end
 end
 end
 
+@testset "erasing while iterating" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
+    bb = BasicBlock(f, "entry")
+    position!(builder, bb)
+    x = f.parameters[1]
+    for i in 1:10
+        add!(builder, x, ConstantInt(Int32(i)))
+    end
+    ret!(builder)
+
+    # the instruction that was just returned can be erased
+    for inst in bb.instructions
+        if inst isa LLVM.AddInst
+            erase!(inst)
+        end
+    end
+    @test length(collect(bb.instructions)) == 1
+
+    # the same holds for blocks
+    for i in 1:3
+        position!(builder, BasicBlock(f, "unreachable$i"))
+        unreachable!(builder)
+    end
+    for bb in f.blocks
+        bb.name == "entry" || erase!(bb)
+    end
+    @test length(f.blocks) == 1
+    verify(mod)
+end
+end
+
 @testset "arguments" begin
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])

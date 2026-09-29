@@ -175,6 +175,14 @@ julia> mod
 [94707] signal (11.2): Segmentation fault: 11
 ```
 
+Most LLVM.jl objects, like modules, values, types and metadata, are lightweight wrappers
+around a pointer to the LLVM object. Wrappers of the same object are equal (both `==` and
+`===`) and have the same hash, so they can be compared, and used as keys of a `Dict` or as
+elements of a `Set`, without converting them to a pointer. This is object identity: two
+instructions that compute the same thing are different objects, while changing an object
+does not change its identity. Wrappers do not keep the object alive, so they become invalid
+when the object is disposed of or erased.
+
 ### Scoped disposal
 
 For convenience, many of these objects can be created and disposed using do-block variants
@@ -383,6 +391,25 @@ position, like the attributes of each parameter, are vectors of views:
 though LLVM stores their elements in a linked list, which makes indexing linear in the
 position of the element; iterate the view instead of indexing it in a loop. To get a copy
 that doesn't change along with the IR, use `collect`.
+
+Because views reflect changes to the IR, changing a collection while iterating over it
+requires care. The views of linked lists, like the instructions of a block, the blocks of a
+function, or the functions and global variables of a module, look up the next element
+before returning the current one, so it is safe to remove or erase the element that was
+just returned (and only that element):
+
+```julia
+for inst in bb.instructions
+    if inst isa LLVM.CallInst && inst.called_function == f
+        erase!(inst)
+    end
+end
+```
+
+Similarly, the use that was just returned when iterating over the `uses` of a value can be
+replaced, or its user erased, as long as that doesn't also remove the next use (e.g., when
+the user uses the value multiple times). In other cases, `collect` the view first, and
+iterate over the copy.
 
 ### Views of richer state
 

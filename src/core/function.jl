@@ -84,7 +84,8 @@ be used as inputs to other instructions.
 The basic blocks of the function, in order, as a read-only view that always reflects the
 current body of the function. Create a `BasicBlock` to add one, and use operations like
 `remove!` or `move_before` to change the list of blocks. Indexing the view walks the list
-of blocks, so iterate instead of indexing each block.
+of blocks, so iterate instead of indexing each block. While iterating over the view, it is
+safe to remove or erase the block that was just returned, but not other blocks.
 
     f.subprogram
     f.subprogram = sp::DISubProgram

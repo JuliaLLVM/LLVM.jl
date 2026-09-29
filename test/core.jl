@@ -1578,6 +1578,8 @@ end
 
         @test !haskey(gvs, "SomeOtherGlobal")
         @test_throws KeyError gvs["SomeOtherGlobal"]
+        @test get(gvs, "SomeGlobal", nothing) == dummygv
+        @test get(gvs, "SomeOtherGlobal", nothing) === nothing
     end
 end
 
@@ -1641,6 +1643,8 @@ end
         @test iter[y.name] == y
         @test !haskey(iter, "z")
         @test_throws KeyError iter["z"]
+        @test get(iter, y.name, nothing) == y
+        @test get(iter, "z", nothing) === nothing
     end
 
     # aliases and ifuncs are not global variables or functions
@@ -1678,6 +1682,8 @@ end
 
         @test !haskey(fns, "SomeOtherFunction")
         @test_throws KeyError fns["SomeOtherFunction"]
+        @test get(fns, "SomeFunction", nothing) == dummyfn
+        @test get(fns, "SomeOtherFunction", nothing) === nothing
     end
 
     anotherfn = LLVM.Function(mod, "SomeOtherFunction", ft)
@@ -1687,6 +1693,53 @@ end
     @test dummyfn.next == anotherfn
     @test anotherfn.prev == dummyfn
     @test anotherfn.next === nothing
+end
+
+# looking up or declaring functions
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    other_ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
+
+    # the function is declared when it doesn't exist
+    calls = Ref(0)
+    f = get!(mod.functions, "f") do
+        calls[] += 1
+        f = LLVM.Function(mod, "f", ft)
+        push!(f.function_attributes, EnumAttribute(:noreturn))
+        f
+    end
+    @test f isa LLVM.Function
+    @test f.name == "f"
+    @test isdeclaration(f)
+    @test calls[] == 1
+    @test haskey(f.function_attributes, :noreturn)
+
+    # an existing function is returned as is, even if it has another type
+    @test get!(() -> error("should not be called"), mod.functions, "f") == f
+    @test get!(() -> LLVM.Function(mod, "f", other_ft), mod.functions, "f") == f
+    @test f.function_type == ft
+    @test collect(mod.functions) == [f]
+
+    # the function needs to be created in the module, with the requested name
+    @test_throws ArgumentError get!(() -> LLVM.Function(mod, "g", ft), mod.functions, "h")
+    @test_throws ArgumentError get!(() -> nothing, mod.functions, "h")
+
+    # the global values of a module share a namespace
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    @test_throws "already contains a global variable" get!(mod.functions, "gv") do
+        error("should not be called")
+    end
+    @test_throws "already contains a function" get!(mod.globals, "f") do
+        error("should not be called")
+    end
+
+    # the same works for global variables
+    @test get!(() -> error("should not be called"), mod.globals, "gv") == gv
+    counter = get!(mod.globals, "counter") do
+        GlobalVariable(mod, LLVM.Int64Type(), "counter")
+    end
+    @test counter isa GlobalVariable
+    @test mod.globals["counter"] == counter
 end
 
 # function ordering

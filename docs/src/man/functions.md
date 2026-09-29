@@ -35,6 +35,25 @@ Several APIs can be used to interact with functions:
 - `isintrinsic`: check if the function is an intrinsic.
 - `erase!`: delete the function from its parent module, and delete the object.
 
+To call a function that may or may not have been declared already, like a runtime
+function, use `get!` on the `functions` of the module. It returns the existing function, or
+calls a function to declare it:
+
+```jldoctest
+julia> mod = LLVM.Module("SomeModule");
+
+julia> abort = get!(mod.functions, "abort") do
+           f = LLVM.Function(mod, "abort", LLVM.FunctionType(LLVM.VoidType()))
+           push!(f.function_attributes, EnumAttribute(:noreturn))
+           f
+       end
+; Function Attrs: noreturn
+declare void @abort() #0
+
+julia> get!(() -> error("not called"), mod.functions, "abort") == abort
+true
+```
+
 
 ## Intrinsics
 

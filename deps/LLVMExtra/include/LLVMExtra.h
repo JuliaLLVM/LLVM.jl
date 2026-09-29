@@ -75,6 +75,12 @@ LLVMPassRef LLVMCreateFunctionPass2(const char *Name, LLVMPassCallback Callback,
 void LLVMAddTargetLibraryInfoByTriple(const char *T, LLVMPassManagerRef PM);
 void LLVMAppendToUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
 void LLVMAppendToCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
+size_t LLVMGetNumUsed(LLVMModuleRef Mod);
+void LLVMGetUsed(LLVMModuleRef Mod, LLVMValueRef *Dest);
+size_t LLVMGetNumCompilerUsed(LLVMModuleRef Mod);
+void LLVMGetCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Dest);
+void LLVMRemoveFromUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
+void LLVMRemoveFromCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
 void LLVMAddGenericAnalysisPasses(LLVMPassManagerRef PM);
 void LLVMDumpMetadata(LLVMMetadataRef MD);
 char *LLVMPrintMetadataToString(LLVMMetadataRef MD);
@@ -131,10 +137,13 @@ void LLVMSetPersonalityFn2(LLVMValueRef Fn, LLVMValueRef PersonalityFn);
 const char *LLVMGetMDString2(LLVMMetadataRef MD, unsigned *Length);
 unsigned LLVMGetMDNodeNumOperands2(LLVMMetadataRef MD);
 void LLVMGetMDNodeOperands2(LLVMMetadataRef MD, LLVMMetadataRef *Dest);
+LLVMMetadataRef LLVMGetMDNodeOperand2(LLVMMetadataRef MD, unsigned I);
 unsigned LLVMGetNamedMetadataNumOperands2(LLVMNamedMDNodeRef NMD);
 void LLVMGetNamedMetadataOperands2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef *Dest);
+LLVMMetadataRef LLVMGetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I);
 void LLVMAddNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef Val);
 void LLVMClearNamedMetadataOperands(LLVMNamedMDNodeRef NMD);
+void LLVMSetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I, LLVMMetadataRef Val);
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New);
 
 // ORC API extensions
@@ -247,6 +256,20 @@ typedef unsigned LLVMFastMathFlags;
 LLVMFastMathFlags LLVMGetFastMathFlags(LLVMValueRef FPMathInst);
 void LLVMSetFastMathFlags(LLVMValueRef FPMathInst, LLVMFastMathFlags FMF);
 LLVMBool LLVMCanValueUseFastMathFlags(LLVMValueRef Inst);
+#endif
+// replace the fast-math flags of an instruction (`LLVMSetFastMathFlags` only adds flags)
+void LLVMExtraSetFastMathFlags(LLVMValueRef FPMathInst, LLVMFastMathFlags FMF);
+
+// tail call kinds
+#if LLVM_VERSION_MAJOR < 18 // D153107
+typedef enum {
+  LLVMTailCallKindNone = 0,
+  LLVMTailCallKindTail = 1,
+  LLVMTailCallKindMustTail = 2,
+  LLVMTailCallKindNoTail = 3,
+} LLVMTailCallKind;
+LLVMTailCallKind LLVMGetTailCallKind(LLVMValueRef CallInst);
+void LLVMSetTailCallKind(LLVMValueRef CallInst, LLVMTailCallKind kind);
 #endif
 
 // atomics with syncscope

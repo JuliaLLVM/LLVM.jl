@@ -78,6 +78,30 @@ function LLVMAppendToCompilerUsed(Mod, Values, Count)
     ccall((:LLVMAppendToCompilerUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
 end
 
+function LLVMGetNumUsed(Mod)
+    ccall((:LLVMGetNumUsed, libLLVMExtra), Csize_t, (LLVMModuleRef,), Mod)
+end
+
+function LLVMGetUsed(Mod, Dest)
+    ccall((:LLVMGetUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}), Mod, Dest)
+end
+
+function LLVMGetNumCompilerUsed(Mod)
+    ccall((:LLVMGetNumCompilerUsed, libLLVMExtra), Csize_t, (LLVMModuleRef,), Mod)
+end
+
+function LLVMGetCompilerUsed(Mod, Dest)
+    ccall((:LLVMGetCompilerUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}), Mod, Dest)
+end
+
+function LLVMRemoveFromUsed(Mod, Values, Count)
+    ccall((:LLVMRemoveFromUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
+end
+
+function LLVMRemoveFromCompilerUsed(Mod, Values, Count)
+    ccall((:LLVMRemoveFromCompilerUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
+end
+
 function LLVMAddGenericAnalysisPasses(PM)
     ccall((:LLVMAddGenericAnalysisPasses, libLLVMExtra), Cvoid, (LLVMPassManagerRef,), PM)
 end
@@ -154,6 +178,10 @@ function LLVMGetMDNodeOperands2(MD, Dest)
     ccall((:LLVMGetMDNodeOperands2, libLLVMExtra), Cvoid, (LLVMMetadataRef, Ptr{LLVMMetadataRef}), MD, Dest)
 end
 
+function LLVMGetMDNodeOperand2(MD, I)
+    ccall((:LLVMGetMDNodeOperand2, libLLVMExtra), LLVMMetadataRef, (LLVMMetadataRef, Cuint), MD, I)
+end
+
 function LLVMGetNamedMetadataNumOperands2(NMD)
     ccall((:LLVMGetNamedMetadataNumOperands2, libLLVMExtra), Cuint, (LLVMNamedMDNodeRef,), NMD)
 end
@@ -162,12 +190,20 @@ function LLVMGetNamedMetadataOperands2(NMD, Dest)
     ccall((:LLVMGetNamedMetadataOperands2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, Ptr{LLVMMetadataRef}), NMD, Dest)
 end
 
+function LLVMGetNamedMetadataOperand2(NMD, I)
+    ccall((:LLVMGetNamedMetadataOperand2, libLLVMExtra), LLVMMetadataRef, (LLVMNamedMDNodeRef, Cuint), NMD, I)
+end
+
 function LLVMAddNamedMetadataOperand2(NMD, Val)
     ccall((:LLVMAddNamedMetadataOperand2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, LLVMMetadataRef), NMD, Val)
 end
 
 function LLVMClearNamedMetadataOperands(NMD)
     ccall((:LLVMClearNamedMetadataOperands, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef,), NMD)
+end
+
+function LLVMSetNamedMetadataOperand2(NMD, I, Val)
+    ccall((:LLVMSetNamedMetadataOperand2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, Cuint, LLVMMetadataRef), NMD, I, Val)
 end
 
 function LLVMReplaceMDNodeOperandWith2(MD, I, New)
@@ -255,6 +291,10 @@ end
 
 function LLVMPostDominatorTreeInstructionDominates(Tree, InstA, InstB)
     ccall((:LLVMPostDominatorTreeInstructionDominates, libLLVMExtra), LLVMBool, (LLVMPostDominatorTreeRef, LLVMValueRef, LLVMValueRef), Tree, InstA, InstB)
+end
+
+function LLVMExtraSetFastMathFlags(FPMathInst, FMF)
+    ccall((:LLVMExtraSetFastMathFlags, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMFastMathFlags), FPMathInst, FMF)
 end
 
 function LLVMGetSyncScopeID(C, Name, SLen)

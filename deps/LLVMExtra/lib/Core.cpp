@@ -8,6 +8,7 @@
 #else
 #include <llvm/ADT/Triple.h>
 #endif
+#include <llvm/ADT/SetVector.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -260,6 +261,69 @@ void LLVMAppendToCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Co
   appendToCompilerUsed(*unwrap(Mod), GlobalValues);
 }
 
+// the list may contain duplicates, which are only returned once
+static SmallSetVector<GlobalValue *, 16> getUsedList(Module &M, bool CompilerUsed) {
+  SmallVector<GlobalValue *, 16> Vec;
+  collectUsedGlobalVariables(M, Vec, CompilerUsed);
+  return SmallSetVector<GlobalValue *, 16>(Vec.begin(), Vec.end());
+}
+
+size_t LLVMGetNumUsed(LLVMModuleRef Mod) { return getUsedList(*unwrap(Mod), false).size(); }
+
+void LLVMGetUsed(LLVMModuleRef Mod, LLVMValueRef *Dest) {
+  for (auto *GV : getUsedList(*unwrap(Mod), false))
+    *Dest++ = wrap(GV);
+}
+
+size_t LLVMGetNumCompilerUsed(LLVMModuleRef Mod) {
+  return getUsedList(*unwrap(Mod), true).size();
+}
+
+void LLVMGetCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Dest) {
+  for (auto *GV : getUsedList(*unwrap(Mod), true))
+    *Dest++ = wrap(GV);
+}
+
+// like the static removeFromUsedList in ModuleUtils.cpp, which is only exposed (as
+// removeFromUsedLists) since LLVM 16, and only for both lists at once
+static void removeFromUsedList(Module &M, StringRef Name, ArrayRef<LLVMValueRef> Values) {
+  GlobalVariable *GV = M.getNamedGlobal(Name);
+  if (!GV || !GV->hasInitializer())
+    return;
+  auto *Init = dyn_cast<ConstantArray>(GV->getInitializer());
+  if (!Init)
+    return;
+
+  SmallPtrSet<Value *, 8> ToRemove;
+  for (auto *V : Values)
+    ToRemove.insert(unwrap(V));
+
+  SmallVector<Constant *, 16> NewInit;
+  for (Value *Op : Init->operands())
+    if (!ToRemove.count(Op->stripPointerCasts()))
+      NewInit.push_back(cast<Constant>(Op));
+  if (NewInit.size() == Init->getNumOperands())
+    return;
+
+  if (!NewInit.empty()) {
+    ArrayType *ATy = ArrayType::get(Init->getType()->getElementType(), NewInit.size());
+    auto *NewGV = new GlobalVariable(M, ATy, false, GlobalValue::AppendingLinkage,
+                                     ConstantArray::get(ATy, NewInit), "", GV,
+                                     GV->getThreadLocalMode(), GV->getAddressSpace());
+    NewGV->setSection(GV->getSection());
+    NewGV->takeName(GV);
+  }
+  GV->eraseFromParent();
+}
+
+void LLVMRemoveFromUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count) {
+  removeFromUsedList(*unwrap(Mod), "llvm.used", ArrayRef(Values, Count));
+}
+
+void LLVMRemoveFromCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count) {
+  removeFromUsedList(*unwrap(Mod), "llvm.compiler.used", ArrayRef(Values, Count));
+}
+
 void LLVMAddGenericAnalysisPasses(LLVMPassManagerRef PM) {
   unwrap(PM)->add(createTargetTransformInfoWrapperPass(TargetIRAnalysis()));
 }
@@ -441,6 +505,10 @@ void LLVMGetMDNodeOperands2(LLVMMetadataRef MD, LLVMMetadataRef *Dest) {
     Dest[i] = wrap(N->getOperand(i));
 }
 
+LLVMMetadataRef LLVMGetMDNodeOperand2(LLVMMetadataRef MD, unsigned I) {
+  return wrap(unwrap<MDNode>(MD)->getOperand(I));
+}
+
 unsigned LLVMGetNamedMetadataNumOperands2(LLVMNamedMDNodeRef NMD) {
   return unwrap<NamedMDNode>(NMD)->getNumOperands();
 }
@@ -451,12 +519,20 @@ void LLVMGetNamedMetadataOperands2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef *Dest
     Dest[i] = wrap(N->getOperand(i));
 }
 
+LLVMMetadataRef LLVMGetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I) {
+  return wrap(unwrap<NamedMDNode>(NMD)->getOperand(I));
+}
+
 void LLVMAddNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef Val) {
   unwrap<NamedMDNode>(NMD)->addOperand(unwrap<MDNode>(Val));
 }
 
 void LLVMClearNamedMetadataOperands(LLVMNamedMDNodeRef NMD) {
   unwrap<NamedMDNode>(NMD)->clearOperands();
+}
+
+void LLVMSetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I, LLVMMetadataRef Val) {
+  unwrap<NamedMDNode>(NMD)->setOperand(I, unwrap<MDNode>(Val));
 }
 
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New) {
@@ -771,8 +847,6 @@ LLVMBool LLVMPostDominatorTreeInstructionDominates(LLVMPostDominatorTreeRef Tree
 // fastmath
 //
 
-#if LLVM_VERSION_MAJOR < 18
-
 static FastMathFlags mapFromLLVMFastMathFlags(LLVMFastMathFlags FMF) {
   FastMathFlags NewFMF;
   NewFMF.setAllowReassoc((FMF & LLVMFastMathAllowReassoc) != 0);
@@ -785,6 +859,8 @@ static FastMathFlags mapFromLLVMFastMathFlags(LLVMFastMathFlags FMF) {
 
   return NewFMF;
 }
+
+#if LLVM_VERSION_MAJOR < 18
 
 static LLVMFastMathFlags mapToLLVMFastMathFlags(FastMathFlags FMF) {
   LLVMFastMathFlags NewFMF = LLVMFastMathNone;
@@ -820,6 +896,28 @@ void LLVMSetFastMathFlags(LLVMValueRef FPMathInst, LLVMFastMathFlags FMF) {
 LLVMBool LLVMCanValueUseFastMathFlags(LLVMValueRef V) {
   Value *Val = unwrap<Value>(V);
   return isa<FPMathOperator>(Val);
+}
+
+#endif
+
+void LLVMExtraSetFastMathFlags(LLVMValueRef FPMathInst, LLVMFastMathFlags FMF) {
+  Value *P = unwrap<Value>(FPMathInst);
+  cast<Instruction>(P)->copyFastMathFlags(mapFromLLVMFastMathFlags(FMF));
+}
+
+
+//
+// tail calls
+//
+
+#if LLVM_VERSION_MAJOR < 18
+
+LLVMTailCallKind LLVMGetTailCallKind(LLVMValueRef Call) {
+  return (LLVMTailCallKind)unwrap<CallInst>(Call)->getTailCallKind();
+}
+
+void LLVMSetTailCallKind(LLVMValueRef Call, LLVMTailCallKind kind) {
+  unwrap<CallInst>(Call)->setTailCallKind((CallInst::TailCallKind)kind);
 }
 
 #endif

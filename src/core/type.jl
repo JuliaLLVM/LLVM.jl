@@ -7,8 +7,13 @@ Abstract supertype for all LLVM types.
 """
 abstract type LLVMType end
 
-# subtypes are expected to have a 'ref::API.LLVMTypeRef' field
-Base.unsafe_convert(::Type{API.LLVMTypeRef}, typ::LLVMType) = typ.ref
+# subtypes must be immutable structs with a single `ref::API.LLVMTypeRef` field
+# (see `check_layout`)
+@inline function Base.unsafe_convert(::Type{API.LLVMTypeRef},
+                                      @nospecialize(typ::LLVMType))
+    typecheck_enabled && check_layout(typeof(typ), API.LLVMTypeRef)
+    unsafe_load_ref(API.LLVMTypeRef, typ)
+end
 
 """
     eltype(typ::LLVMType)
@@ -29,6 +34,7 @@ function identify(::Type{LLVMType}, ref::API.LLVMTypeRef)
     return typ
 end
 function register(T::Type{<:LLVMType}, kind::API.LLVMTypeKind)
+    check_layout(T, API.LLVMTypeRef)
     type_kinds[kind+1] = T
 end
 
@@ -46,7 +52,7 @@ end
 function LLVMType(ref::API.LLVMTypeRef)
     ref == C_NULL && throw(UndefRefError())
     T = identify(LLVMType, ref)
-    return T(ref)::LLVMType
+    return unsafe_wrap_ref(T, ref)::LLVMType
 end
 
 """
@@ -481,7 +487,7 @@ function Base.getindex(iter::StructTypeElementSet, i)
     return LLVMType(API.LLVMStructGetTypeAtIndex(iter.typ, i-1))
 end
 
-function Base.iterate(iter::StructTypeElementSet, i=1)
+@inline function Base.iterate(iter::StructTypeElementSet, i=1)
     i >= length(iter) + 1 ? nothing : (iter[i], i+1)
 end
 

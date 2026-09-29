@@ -31,6 +31,14 @@ New features:
   (LLVM 19+), and inspected using `kind`, `debuglocation`, `variable`, `expression`,
   `value` and `LLVM.location_operands`.
 
+Performance:
+
+- Working with values, types and metadata whose concrete type is only known at run time,
+  e.g., when iterating over instructions or their operands, no longer requires dynamic
+  dispatch. This makes walking the IR 3 to 6 times faster.
+- Subtypes of `LLVM.Value`, `LLVM.LLVMType` and `LLVM.Metadata` need to be immutable
+  structs with a single `ref` field, which is now checked when registering them.
+
 Deprecations:
 
 - `nuwneg!` and `const_nuwneg` are deprecated, following LLVM 19, which removed `nuw`

@@ -124,8 +124,8 @@ instructions(bb::BasicBlock) = BasicBlockInstructionSet(bb)
 
 Base.eltype(::BasicBlockInstructionSet) = Instruction
 
-function Base.iterate(iter::BasicBlockInstructionSet,
-                      state=API.LLVMGetFirstInstruction(iter.bb))
+@inline function Base.iterate(iter::BasicBlockInstructionSet,
+                              state=API.LLVMGetFirstInstruction(iter.bb))
     state == C_NULL ? nothing : (Instruction(state), API.LLVMGetNextInstruction(state))
 end
 

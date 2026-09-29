@@ -103,6 +103,32 @@ macro checked(typedef)
     return esc(typedef)
 end
 
+## dispatch-free access to wrapper objects
+
+# Objects like values, types and metadata are wrapped in a Julia type that mirrors LLVM's
+# class hierarchy, and that's only known at run time (e.g., the operands of an instruction
+# can be of any value type). To avoid dynamic dispatch when working with such objects, all
+# of these wrappers have the same layout: a single `ref` field. That makes it possible to
+# construct them, and to access their reference, without knowing the concrete type.
+
+# check that a wrapper type has the expected layout
+function check_layout(T::Type, R::Type{<:Ptr})
+    valid = isbitstype(T) && fieldcount(T) == 1 &&
+            fieldname(T, 1) === :ref && fieldtype(T, 1) === R
+    valid || error("$T should be an immutable struct with a single `ref::$R` field")
+end
+
+# construct an object of a type only known at run time, without calling its constructor.
+# this does not perform any checks, so the type needs to be the result of `identify`.
+@inline unsafe_wrap_ref(@nospecialize(T::Type), ref::R) where {R<:Ptr} =
+    ccall(:jl_new_bits, Any, (Any, Ref{R}), T, ref)
+
+# load the reference of an object, without dispatching on its type. when the concrete type
+# is known, this compiles to a plain field access.
+@inline function unsafe_load_ref(::Type{R}, @nospecialize(obj)) where {R<:Ptr}
+    GC.@preserve obj unsafe_load(Ptr{R}(ccall(:jl_value_ptr, Ptr{Cvoid}, (Any,), obj)))
+end
+
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)
     ref==C_NULL && throw(UndefRefError())

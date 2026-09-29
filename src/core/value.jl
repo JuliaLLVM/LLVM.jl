@@ -10,8 +10,13 @@ Abstract type representing an LLVM value.
 """
 abstract type Value end
 
-# subtypes are expected to have a 'ref::API.LLVMValueRef' field
-Base.unsafe_convert(::Type{API.LLVMValueRef}, val::Value) = val.ref
+# subtypes must be immutable structs with a single `ref::API.LLVMValueRef` field
+# (see `check_layout`)
+@inline function Base.unsafe_convert(::Type{API.LLVMValueRef},
+                                      @nospecialize(val::Value))
+    typecheck_enabled && check_layout(typeof(val), API.LLVMValueRef)
+    unsafe_load_ref(API.LLVMValueRef, val)
+end
 
 const value_kinds = Vector{Type}(fill(Nothing, typemax(API.LLVMValueKind)+1))
 function identify(::Type{Value}, ref::API.LLVMValueRef)
@@ -21,6 +26,8 @@ function identify(::Type{Value}, ref::API.LLVMValueRef)
     return typ
 end
 function register(T::Type{<:Value}, kind::API.LLVMValueKind)
+    # instructions are identified further by their opcode
+    T === Instruction || check_layout(T, API.LLVMValueRef)
     value_kinds[kind+1] = T
 end
 
@@ -38,7 +45,8 @@ end
 function Value(ref::API.LLVMValueRef)
     ref == C_NULL && throw(UndefRefError())
     T = identify(Value, ref)
-    return T(ref)
+    T === Instruction && return Instruction(ref)
+    return unsafe_wrap_ref(T, ref)::Value
 end
 
 
@@ -222,7 +230,7 @@ uses(val::Value) = ValueUseSet(val)
 
 Base.eltype(::ValueUseSet) = Use
 
-function Base.iterate(iter::ValueUseSet, state=first_use(iter.val))
+@inline function Base.iterate(iter::ValueUseSet, state=first_use(iter.val))
     state == C_NULL ? nothing : (Use(state), API.LLVMGetNextUse(state))
 end
 

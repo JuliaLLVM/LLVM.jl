@@ -295,7 +295,7 @@ function Base.getindex(iter::FunctionParameterSet, i::Int)
     return Argument(API.LLVMGetParam(iter.f, i-1))
 end
 
-function Base.iterate(iter::FunctionParameterSet, state=API.LLVMGetFirstParam(iter.f))
+@inline function Base.iterate(iter::FunctionParameterSet, state=API.LLVMGetFirstParam(iter.f))
     state == C_NULL ? nothing : (Argument(state), API.LLVMGetNextParam(state))
 end
 
@@ -351,7 +351,7 @@ function Base.last(iter::FunctionBlockSet)
     BasicBlock(ref)
 end
 
-function Base.iterate(iter::FunctionBlockSet, state=API.LLVMGetFirstBasicBlock(iter.f))
+@inline function Base.iterate(iter::FunctionBlockSet, state=API.LLVMGetFirstBasicBlock(iter.f))
     state == C_NULL ? nothing : (BasicBlock(state), API.LLVMGetNextBasicBlock(state))
 end
 

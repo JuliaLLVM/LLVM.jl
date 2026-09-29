@@ -18,6 +18,7 @@ function identify(::Type{Instruction}, ref::API.LLVMValueRef)
     return typ
 end
 function register(T::Type{<:Instruction}, opcode::API.LLVMOpcode)
+    check_layout(T, API.LLVMValueRef)
     instruction_opcodes[opcode+1] = T
 end
 
@@ -35,7 +36,7 @@ end
 function Instruction(ref::API.LLVMValueRef)
     ref == C_NULL && throw(UndefRefError())
     T = identify(Instruction, ref)
-    return T(ref)
+    return unsafe_wrap_ref(T, ref)::Instruction
 end
 
 """

@@ -120,80 +120,84 @@ end
     end
 end
 
-@testset "Loading ObjectFile" begin
-    @dispose jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit, "objfile1")
+# XXX: on Windows, Julia 1.10 and 1.11 deadlock when looking up a symbol from an object
+#      file that was added to their JIT (on the JIT's emission lock)
+if !Sys.iswindows() || VERSION >= v"1.12"
+    @testset "Loading ObjectFile" begin
+        @dispose jljit=JuliaOJIT() begin
+            jd = JITDylib(jljit, "objfile1")
 
-        sym = "SomeFunction"
-        obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
-            ft = LLVM.FunctionType(LLVM.VoidType())
-            fn = LLVM.Function(mod, sym, ft)
+            sym = "SomeFunction"
+            obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
+                ft = LLVM.FunctionType(LLVM.VoidType())
+                fn = LLVM.Function(mod, sym, ft)
 
-            @dispose builder=IRBuilder() begin
-                entry = BasicBlock(fn, "entry")
-                position!(builder, entry)
-                ret!(builder)
+                @dispose builder=IRBuilder() begin
+                    entry = BasicBlock(fn, "entry")
+                    position!(builder, entry)
+                    ret!(builder)
+                end
+                verify(mod)
+
+                @dispose tm=JITTargetMachine() begin
+                    emit(tm, mod, LLVM.API.LLVMObjectFile)
+                end
             end
-            verify(mod)
-
-            @dispose tm=JITTargetMachine() begin
-                emit(tm, mod, LLVM.API.LLVMObjectFile)
-            end
-        end
-        add!(jljit, jd, MemoryBuffer(obj))
-
-        addr = lookup(jljit, jd, sym)
-        @test pointer(addr) != C_NULL
-        empty!(jd)
-        @test_throws LLVMException lookup(jljit, jd, sym)
-    end
-
-    @dispose jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit, "objfile2")
-
-        sym = "SomeFunction"
-        obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
-            ft = LLVM.FunctionType(LLVM.Int32Type())
-            fn = LLVM.Function(mod, sym, ft)
-
-            gv = LLVM.GlobalVariable(mod, LLVM.Int32Type(), "gv")
-            LLVM.extinit!(gv, true)
-
-            @dispose builder=IRBuilder() begin
-                entry = BasicBlock(fn, "entry")
-                position!(builder, entry)
-                val = load!(builder, LLVM.Int32Type(), gv)
-                ret!(builder, val)
-            end
-            verify(mod)
-
-            @dispose tm=JITTargetMachine() begin
-                emit(tm, mod, LLVM.API.LLVMObjectFile)
-            end
-        end
-
-        data = Ref{Int32}(42)
-        GC.@preserve data begin
-            address = LLVM.API.LLVMOrcJITTargetAddress(
-                reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
-            flags = LLVM.API.LLVMJITSymbolFlags(
-                LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-            name = mangle(jljit, "gv")
-            symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
-            gv = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
-
-            mu = LLVM.absolute_symbols(Ref(gv))
-            LLVM.define(jd, mu)
-
             add!(jljit, jd, MemoryBuffer(obj))
 
             addr = lookup(jljit, jd, sym)
             @test pointer(addr) != C_NULL
-            @test ccall(pointer(addr), Int32, ()) == 42
-            data[] = -1
-            @test ccall(pointer(addr), Int32, ()) == -1
             empty!(jd)
             @test_throws LLVMException lookup(jljit, jd, sym)
+        end
+
+        @dispose jljit=JuliaOJIT() begin
+            jd = JITDylib(jljit, "objfile2")
+
+            sym = "SomeFunction"
+            obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
+                ft = LLVM.FunctionType(LLVM.Int32Type())
+                fn = LLVM.Function(mod, sym, ft)
+
+                gv = LLVM.GlobalVariable(mod, LLVM.Int32Type(), "gv")
+                LLVM.extinit!(gv, true)
+
+                @dispose builder=IRBuilder() begin
+                    entry = BasicBlock(fn, "entry")
+                    position!(builder, entry)
+                    val = load!(builder, LLVM.Int32Type(), gv)
+                    ret!(builder, val)
+                end
+                verify(mod)
+
+                @dispose tm=JITTargetMachine() begin
+                    emit(tm, mod, LLVM.API.LLVMObjectFile)
+                end
+            end
+
+            data = Ref{Int32}(42)
+            GC.@preserve data begin
+                address = LLVM.API.LLVMOrcJITTargetAddress(
+                    reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
+                flags = LLVM.API.LLVMJITSymbolFlags(
+                    LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
+                name = mangle(jljit, "gv")
+                symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
+                gv = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
+
+                mu = LLVM.absolute_symbols(Ref(gv))
+                LLVM.define(jd, mu)
+
+                add!(jljit, jd, MemoryBuffer(obj))
+
+                addr = lookup(jljit, jd, sym)
+                @test pointer(addr) != C_NULL
+                @test ccall(pointer(addr), Int32, ()) == 42
+                data[] = -1
+                @test ccall(pointer(addr), Int32, ()) == -1
+                empty!(jd)
+                @test_throws LLVMException lookup(jljit, jd, sym)
+            end
         end
     end
 end

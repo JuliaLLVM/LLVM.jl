@@ -95,6 +95,21 @@ julia> convert(Float16, c)
 Float16(1.0)
 ```
 
+Floating-point constants pass through a `Float64`, which cannot represent every value of
+wider types like `fp128` or `x86_fp80`. To create such constants exactly, pass their bit
+pattern instead, and use `LLVM.bitpattern` to get it back:
+
+```jldoctest
+julia> ConstantFP(LLVM.FP128Type(), 0.1)    # rounded to Float64 precision
+fp128 0xLA0000000000000003FFB999999999999
+
+julia> c = ConstantFP(LLVM.FP128Type(); bits=0x3ffb999999999999999999999999999a)
+fp128 0xL999999999999999A3FFB999999999999
+
+julia> LLVM.bitpattern(c)
+0x3ffb999999999999999999999999999a
+```
+
 Constant structures can be created using the `ConstantStruct` constructor:
 
 ```jldoctest

@@ -243,6 +243,68 @@ Convert a constant floating point value back to a Julia floating point number.
 Base.convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat} =
     convert(T, API.LLVMConstRealGetDouble(val, Ref{API.LLVMBool}()))
 
+# bit patterns
+
+@public bitpattern
+
+fp_width(::LLVMHalf) = 16
+fp_width(::LLVMBFloat) = 16
+fp_width(::LLVMFloat) = 32
+fp_width(::LLVMDouble) = 64
+fp_width(::LLVMX86FP80) = 80
+fp_width(::LLVMFP128) = 128
+fp_width(::LLVMPPCFP128) = 128
+
+# the smallest unsigned integer that can hold a floating-point value of the given width
+fp_container(width::Int) =
+    width <= 16 ? UInt16 : width <= 32 ? UInt32 : width <= 64 ? UInt64 : UInt128
+
+"""
+    ConstantFP(typ::FloatingPointType; bits::Unsigned)
+
+Create a constant floating point value of the given type from its bit pattern. As opposed
+to passing a `Real` value, which is converted to `Float64` first, this can represent every
+value of wider types like `fp128` or `x86_fp80`, as well as the payload of NaN values.
+
+Use [`LLVM.bitpattern`](@ref) to get the bit pattern of an existing constant.
+
+# Examples
+
+```julia
+julia> ConstantFP(LLVM.FP128Type(); bits=0x3fff0000000000000000000000000000)
+fp128 0xL00000000000000003FFF000000000000
+```
+"""
+function ConstantFP(typ::FloatingPointType; bits::Unsigned)
+    width = fp_width(typ)
+    if 8*sizeof(bits) > width && bits >> width != 0
+        throw(ArgumentError("Bit pattern $(repr(bits)) does not fit in a $width-bit floating-point type"))
+    end
+    bits = UInt128(bits)
+    words = UInt64[(bits >> (64*(i-1))) % UInt64 for i in 1:cld(width, 64)]
+    ConstantFP(API.LLVMConstFPFromBits(typ, words))
+end
+
+"""
+    LLVM.bitpattern(val::ConstantFP)
+
+Get the bit pattern of a constant floating point value, as the smallest unsigned integer
+that can hold it (e.g., `UInt32` for `float`, or `UInt128` for `x86_fp80`).
+
+See also [`ConstantFP`](@ref), which can create a constant from its bit pattern.
+"""
+function bitpattern(val::ConstantFP)
+    typ = value_type(val)
+    width = fp_width(typ isa VectorType ? eltype(typ) : typ)
+    words = Vector{UInt64}(undef, cld(width, 64))
+    API.LLVMExtraConstFPGetBits(val, words)
+    bits = zero(UInt128)
+    for (i, word) in enumerate(words)
+        bits |= UInt128(word) << (64*(i-1))
+    end
+    return bits % fp_container(width)
+end
+
 
 # sequential data
 

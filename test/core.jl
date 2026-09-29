@@ -447,16 +447,46 @@ end
     end
     let
         typ = LLVM.X86FP80Type()
-        # TODO: how to construct full-width constants?
         c = ConstantFP(typ, 1.1)
         @test convert(Float64, c) == 1.1
     end
     for T in [LLVM.FP128Type, LLVM.PPCFP128Type]
         typ = T()
-        # TODO: how to construct full-width constants?
         c = ConstantFP(typ, 1.1)
         @test convert(Float64, c) == 1.1
     end
+
+    # from and to bit patterns
+    for (typ, bits) in [(LLVM.HalfType(), 0x3c00), (LLVM.BFloatType(), 0x3f80),
+                        (LLVM.FloatType(), 0x3f800000),
+                        (LLVM.DoubleType(), 0x3ff0000000000000),
+                        (LLVM.X86FP80Type(), UInt128(0x3fff) << 64 | 0x8000000000000000),
+                        (LLVM.FP128Type(), UInt128(0x3fff) << 112),
+                        (LLVM.PPCFP128Type(), UInt128(0x3ff0000000000000))]
+        c = ConstantFP(typ; bits)
+        @test value_type(c) == typ
+        @test convert(Float64, c) == 1.0
+        @test LLVM.bitpattern(c) === bits
+        @test LLVM.bitpattern(ConstantFP(typ, 1.0)) === bits
+        # patterns can be passed using wider integers
+        @test LLVM.bitpattern(ConstantFP(typ; bits=UInt128(bits))) === bits
+    end
+    let
+        # full-precision constants of wider types
+        bits = 0x3ffb999999999999999999999999999a  # 0.1
+        c = ConstantFP(LLVM.FP128Type(); bits)
+        @test LLVM.bitpattern(c) == bits
+        @test LLVM.bitpattern(ConstantFP(LLVM.FP128Type(), 0.1)) != bits
+        @check_ir c "fp128 0xL999999999999999A3FFB999999999999"
+    end
+    let
+        # NaN payloads
+        c = ConstantFP(LLVM.FloatType(); bits=0x7fa00001)
+        @test isnan(convert(Float32, c))
+        @test LLVM.bitpattern(c) === 0x7fa00001
+    end
+    @test_throws ArgumentError ConstantFP(LLVM.HalfType(); bits=0x10000)
+    @test_throws ArgumentError ConstantFP(LLVM.X86FP80Type(); bits=UInt128(1) << 80)
     for T in [Float16, Float32, Float64]
         c = ConstantFP(typemax(T))
         @test convert(T, c) == typemax(T)

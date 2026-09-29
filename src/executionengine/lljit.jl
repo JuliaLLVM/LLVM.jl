@@ -6,7 +6,9 @@ Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) =
 
 @checked mutable struct LLJIT
     ref::API.LLVMOrcLLJITRef
+    roots::Vector{Any}  # Julia objects that LLVM holds on to, e.g., for callbacks
 end
+LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, Any[])
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
 
 function LLJITBuilder()
@@ -67,6 +69,8 @@ function dispose(lljit::LLJIT)
     mark_dispose(lljit) do lljit
         @check API.LLVMOrcDisposeLLJIT(lljit)
     end
+    empty!(lljit.roots)
+    return
 end
 
 """

@@ -686,18 +686,97 @@ function lookup(lljit::LLJIT, jd::JITDylib, name)
     OrcTargetAddress(state.address)
 end
 
+"""
+    LLVM.IRTransformLayer(lljit::LLJIT)
+
+Get the layer of `lljit` that transforms IR modules before they are compiled. Modules added
+with `add!` pass through this layer, as can modules emitted by a materialization unit
+with [`LLVM.emit`](@ref). By default, it does not change modules; use
+[`LLVM.set_transform!`](@ref) to install a transformation.
+"""
 @checked struct IRTransformLayer
     ref::API.LLVMOrcIRTransformLayerRef
+    jit::LLJIT
 end
 Base.unsafe_convert(::Type{API.LLVMOrcIRTransformLayerRef}, il::IRTransformLayer) = il.ref
 
 function IRTransformLayer(lljit::LLJIT)
     ref = API.LLVMOrcLLJITGetIRTransformLayer(lljit)
-    IRTransformLayer(ref)
+    IRTransformLayer(ref, lljit)
 end
 
-function set_transform!(il::IRTransformLayer)
-    API.LLVMOrcIRTransformLayerSetTransform(il)
+mutable struct IRTransform
+    callback
+    exception::Union{Nothing,Tuple{Any,Vector}}
+    IRTransform(callback) = new(callback, nothing)
+end
+
+function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModuleRef},
+                        mr::API.LLVMOrcMaterializationResponsibilityRef)
+    state = Base.unsafe_pointer_to_objref(ctx)::IRTransform
+    try
+        state.callback(ThreadSafeModule(unsafe_load(tsm_ref)),
+                       MaterializationResponsibility(mr))
+        return API.LLVMErrorRef(C_NULL)
+    catch err
+        _capture_callback_exception!(state, err)
+        # on failure, LLVM expects us to have disposed of the module
+        API.LLVMOrcDisposeThreadSafeModule(unsafe_load(tsm_ref))
+        unsafe_store!(tsm_ref, C_NULL)
+        msg = try
+            sprint(showerror, err)
+        catch
+            "unprintable $(typeof(err))"
+        end
+        return API.LLVMCreateStringError("exception in ORC IR transform: $msg")
+    end
+end
+
+"""
+    LLVM.set_transform!(f, layer::LLVM.IRTransformLayer)
+
+Install `f(tsm::ThreadSafeModule, mr::LLVM.MaterializationResponsibility)` as the
+transformation that `layer` applies to IR modules before they are compiled, replacing any
+previous one. `f` should modify the module in place, e.g., by running an optimization
+pipeline on it:
+
+```julia
+LLVM.set_transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
+    tsm() do mod
+        run!("default<O2>", mod)
+    end
+end
+```
+
+Both arguments are borrowed: `f` should not dispose of them, or pass them to APIs that take
+ownership. The transformation is kept alive for as long as the JIT, and should be installed
+before any code is added to it. It may be called on whichever thread materializes code.
+
+If `f` throws, materialization of the module fails, and the original exception can be
+retrieved by calling [`LLVM.check_callback_error`](@ref) on the layer.
+"""
+function set_transform!(f, il::IRTransformLayer)
+    state = IRTransform(f)
+    # LLVM only holds a raw pointer to the transformation. Earlier transformations may
+    # still be in use, so keep all of them alive until the JIT is disposed of.
+    push!(il.jit.roots, state)
+    API.LLVMOrcIRTransformLayerSetTransform(il,
+        @cfunction(__ir_transform, API.LLVMErrorRef,
+                   (Ptr{Cvoid}, Ptr{API.LLVMOrcThreadSafeModuleRef},
+                    API.LLVMOrcMaterializationResponsibilityRef)),
+        Base.pointer_from_objref(state))
+    return
+end
+
+function check_callback_error(il::IRTransformLayer)
+    for state in il.jit.roots
+        if state isa IRTransform && state.exception !== nothing
+            err, bt = state.exception
+            state.exception = nothing
+            throw(CallbackException("ORC IR transform", err, bt))
+        end
+    end
+    return nothing
 end
 
 

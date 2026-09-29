@@ -442,6 +442,58 @@ end
     end
 end
 
+@testset "IRTransformLayer" begin
+    function constant_module(name, val)
+        ts_mod = ThreadSafeModule("jit")
+        ts_mod() do mod
+            fn = LLVM.Function(mod, name, LLVM.FunctionType(LLVM.Int32Type()))
+            @dispose builder=IRBuilder() begin
+                position!(builder, BasicBlock(fn, "entry"))
+                ret!(builder, ConstantInt(Int32(val)))
+            end
+        end
+        ts_mod
+    end
+
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        jd = JITDylib(lljit)
+        il = LLVM.IRTransformLayer(lljit)
+
+        # transformations can modify modules in place
+        transformed = String[]
+        LLVM.set_transform!(il) do tsm, mr
+            tsm() do mod
+                for fn in functions(mod)
+                    push!(transformed, LLVM.name(fn))
+                    ret = terminator(entry(fn))
+                    operands(ret)[1] = ConstantInt(Int32(2))
+                end
+            end
+        end
+        add!(lljit, jd, constant_module("transformed", 1))
+        @test ccall(pointer(lookup(lljit, "transformed")), Int32, ()) == 2
+        @test transformed == ["transformed"]
+
+        # exceptions fail materialization
+        LLVM.set_transform!(il) do tsm, mr
+            throw(ArgumentError("transform error"))
+        end
+        add!(lljit, jd, constant_module("failing", 1))
+        @test_throws LLVMException redirect_stderr(devnull) do
+            lookup(lljit, "failing")
+        end
+        try
+            LLVM.check_callback_error(il)
+            @test false
+        catch err
+            @test err isa CallbackException
+            @test err.ex isa ArgumentError
+        end
+        @test LLVM.check_callback_error(il) === nothing
+        @test length(lljit.roots) == 2
+    end
+end
+
 @testset "Loading ObjectFile" begin
     @dispose lljit=LLJIT(;tm=JITTargetMachine()) begin
         jd = JITDylib(lljit)

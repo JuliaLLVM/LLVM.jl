@@ -11,7 +11,8 @@ abstract type AbstractPassManager end
 """
     add!(pm::AbstractPassManager, pass)
 
-Adds a pass or pipeline to a pass builder or pass manager.
+Adds a pass or pipeline to a pass builder or pass manager, and returns the pass builder or
+pass manager.
 
 The pass or pipeline should be a string or string-convertible object known by LLVM. These
 can be constructed by using pass constructors, e.g., `InternalizePass()`, or by manually
@@ -22,7 +23,10 @@ before they can be used.
 
 See also: [`register!`](@ref)
 """
-add!(pm::AbstractPassManager, pass) = push!(pm.passes, string(pass))
+function add!(pm::AbstractPassManager, pass)
+    push!(pm.passes, string(pass))
+    return pm
+end
 
 """
     ModulePassManager()
@@ -61,6 +65,7 @@ function add!(f::Base.Callable, parent::AbstractPassManager, nested::AbstractPas
     if !isempty(nested.passes)
         add!(parent, nested)
     end
+    return parent
 end
 
 @doc (@doc PassManager)
@@ -293,6 +298,7 @@ See also: [`ModulePass`](@ref), [`FunctionPass`](@ref)
 """
 function register!(pb::PassBuilder, pass::CustomPass)
     push!(pb.custom_passes, pass)
+    return pb
 end
 
 @vocabulary Passes register_callbacks!
@@ -953,7 +959,10 @@ end
 
 Base.string(pb::AAManager) = join(pb.passes, ",")
 
-add!(pb::PassBuilder, aa::AAManager) = push!(pb.aa_passes, string(aa))
+function add!(pb::PassBuilder, aa::AAManager)
+    push!(pb.aa_passes, string(aa))
+    return pb
+end
 add!(pm::AAManager, aa::AAManager) =
     error("Alias analyses can only be added to the top-level pass builder")
 

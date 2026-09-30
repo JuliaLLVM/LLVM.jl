@@ -23,6 +23,19 @@ end
     # invalid options are rejected (without leaking the options)
     @test_throws ArgumentError PassBuilder(; invalid_option=true)
 
+    # adding and registering passes returns the pass builder or manager
+    @dispose pb=PassBuilder() begin
+        @test add!(pb, NoOpModulePass()) === pb
+        @test add!(pb, ModulePassManager()) do mpm
+            @test add!(mpm, NoOpModulePass()) === mpm
+        end === pb
+        @test add!(_ -> nothing, pb, FunctionPassManager()) === pb
+        @test add!(pb, AAManager()) do aam
+            add!(aam, BasicAA())
+        end === pb
+        @test register!(pb, ModulePass("some-pass", mod -> false)) === pb
+    end
+
     @dispose ctx=Context() begin
         # single pass
         @dispose mod=test_module() begin

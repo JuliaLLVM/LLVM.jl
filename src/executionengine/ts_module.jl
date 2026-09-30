@@ -74,15 +74,25 @@ disposed of unconditionally, e.g., using the do-block form of its constructors
 (`tsm() do mod ... end`), which gives access to the module it contains. The modules that an
 IR transformation receives are borrowed: they can be used during the transformation, but
 not be consumed or disposed of.
+
+To use a thread-safe module that foreign code created, e.g., a `ccall` that returns a
+`LLVMOrcThreadSafeModuleRef`, wrap its handle with `ThreadSafeModule(ref)`, which takes
+over the responsibility to dispose of or consume it, or `ThreadSafeModule(ref;
+borrowed=true)` to only use it, in which case it can't be disposed of or consumed. Neither
+keeps the object alive, or affects its lifetime otherwise: a borrowed thread-safe module
+can only be used for as long as its owner keeps it alive. To hand an owned thread-safe
+module over to foreign code, use [`LLVM.consume!`](@ref).
 """
 mutable struct ThreadSafeModule
     ref::API.LLVMOrcThreadSafeModuleRef
     owned::Bool     # whether we own the module, i.e., it wasn't consumed or borrowed
     borrowed::Bool  # whether the module is borrowed from LLVM (e.g., in an IR transform)
+    # whether `unsafe_module` gave access to the module, which memcheck then doesn't track
+    unsafe_access::Bool
 
     function ThreadSafeModule(ref::API.LLVMOrcThreadSafeModuleRef; borrowed::Bool=false)
         ref == C_NULL && throw(UndefRefError())
-        tsm = new(ref, !borrowed, borrowed)
+        tsm = new(ref, !borrowed, borrowed, false)
         borrowed ? tsm : mark_alloc(tsm)
     end
 end
@@ -173,13 +183,17 @@ end
 mutable struct ThreadSafeModuleCallback
     ret::Ref{Any}
     callback
+    tsm::ThreadSafeModule
 
-    ThreadSafeModuleCallback(callback) = new(Ref{Any}(), callback)
+    ThreadSafeModuleCallback(callback, tsm) = new(Ref{Any}(), callback, tsm)
 end
 
 function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
     cb = Base.unsafe_pointer_to_objref(data)::ThreadSafeModuleCallback
-    mod = mark_alloc(Module(ref); allow_overwrite=true)
+    # the module is only valid during the callback, unless `unsafe_module` is used
+    mod = Module(ref)
+    tracked = !cb.tsm.unsafe_access
+    tracked && mark_alloc(mod; allow_overwrite=true)
     ctx = context(mod)
     activate(ctx)
     try
@@ -188,7 +202,8 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
         msg = sprint(Base.display_error, err, Base.catch_backtrace())
         return API.LLVMCreateStringError(msg)
     finally
-        mark_dispose(mod)
+        # also check whether `unsafe_module` was called during the callback
+        tracked && !cb.tsm.unsafe_access && mark_dispose(mod)
         deactivate(ctx)
     end
     return convert(API.LLVMErrorRef, C_NULL)
@@ -201,9 +216,16 @@ ThreadSafeModule(f::Core.Function, args...) = with_disposal(f, ThreadSafeModule(
 
 Apply `f` to the LLVM module contained within `mod`, after locking the module and activating
 its context. Exceptions from `f` are reported after LLVM releases the module lock.
+
+The module is only valid during the call, and should not be used after `f` returns: its
+context isn't locked anymore then, and the thread-safe module can be consumed, e.g., by
+compiling it. To use information from the module afterwards, extract it within `f`, e.g.,
+by serializing the module to bitcode that can be parsed in another context. See
+[`LLVM.unsafe_module`](@ref) for accessing the module when the lifetime of the thread-safe
+module and synchronization of its context are ensured otherwise.
 """
 function (mod::ThreadSafeModule)(f)
-    cb = ThreadSafeModuleCallback(f)
+    cb = ThreadSafeModuleCallback(f, mod)
     GC.@preserve cb begin
         @check API.LLVMOrcThreadSafeModuleWithModuleDo(
             mod,
@@ -211,4 +233,27 @@ function (mod::ThreadSafeModule)(f)
             Base.pointer_from_objref(cb))
     end
     cb.ret[]
+end
+
+@public unsafe_module
+
+"""
+    LLVM.unsafe_module(tsm::ThreadSafeModule)
+
+Get the module contained in `tsm`, without locking or activating its context. This is an
+escape hatch for when calling the thread-safe module (`tsm() do mod ... end`), which
+locks its context while giving access to the module, isn't possible, e.g., when the module
+needs to be used after the thread-safe module was obtained from and returned to foreign
+code.
+
+The module is borrowed: it can only be used for as long as the thread-safe module and its
+context are alive, and the thread-safe module isn't consumed. The caller is responsible
+for synchronizing all accesses to the context (which other threads may be using to compile
+code), for activating it if needed, and should never dispose of the module. The `memcheck`
+debugging mode doesn't track the module afterwards, also not when calling `tsm`.
+"""
+function unsafe_module(tsm::ThreadSafeModule)
+    mod = Module(API.LLVMExtraThreadSafeModuleGetModuleUnlocked(tsm))
+    tsm.unsafe_access = true
+    return mark_untracked(mod)
 end

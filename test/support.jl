@@ -59,6 +59,25 @@ if LLVM.memcheck_enabled
         @test occursin("being used after it was disposed of.\nThe object was allocated at:\nStacktrace:",
                        read(path, String))
     end
+
+    # modules accessed with `unsafe_module` remain valid after a callback of their
+    # thread-safe module, also when accessed during one
+    let (; out, err) =
+        execute_code("""@dispose ts_ctx=ThreadSafeContext() tsm=ThreadSafeModule("m") begin
+                            m = LLVM.unsafe_module(tsm)
+                            tsm() do mod
+                                mod.name
+                            end
+                            m.name
+                        end
+                        @dispose ts_ctx=ThreadSafeContext() tsm=ThreadSafeModule("m") begin
+                            m = tsm() do mod
+                                LLVM.unsafe_module(tsm)
+                            end
+                            m.name
+                        end""")
+        @test !occursin("WARNING", out)
+    end
 end
 end
 

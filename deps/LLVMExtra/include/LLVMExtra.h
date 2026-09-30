@@ -98,6 +98,8 @@ void LLVMOrcIRCompileLayerEmit(LLVMOrcIRCompileLayerRef IRLayer,
                                LLVMOrcMaterializationResponsibilityRef MR,
                                LLVMOrcThreadSafeModuleRef TSM);
 char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD);
+// the module of a thread-safe module, without locking its context
+LLVMModuleRef LLVMExtraThreadSafeModuleGetModuleUnlocked(LLVMOrcThreadSafeModuleRef TSM);
 
 // Configuration of layers created by LLVMOrcCreateRTDyldObjectLinkingLayer*.
 // The object layer must be an RTDyldObjectLinkingLayer.

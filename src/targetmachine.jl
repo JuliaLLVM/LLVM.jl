@@ -51,6 +51,8 @@ end
 Base.unsafe_convert(::Type{API.LLVMTargetMachineRef}, tm::TargetMachine) =
     check_owned(tm).ref
 
+consume!(tm::TargetMachine) = consume_owned!(tm)
+
 """
     TargetMachine(t::Target, triple::String; cpu::String="", features::String="",
                   opt_level=LLVM.CodeGenOptLevel.Default, reloc=LLVM.RelocMode.Default,

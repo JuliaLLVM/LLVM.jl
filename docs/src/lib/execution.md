@@ -55,6 +55,7 @@ ThreadSafeModule
 ThreadSafeModule(::String)
 ThreadSafeModule(::LLVM.Module)
 dispose(::ThreadSafeModule)
+LLVM.unsafe_module
 ```
 
 ### JITs

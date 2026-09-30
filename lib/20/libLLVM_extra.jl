@@ -159,6 +159,10 @@ function LLVMDumpJitDylibToString(JD)
     ccall((:LLVMDumpJitDylibToString, libLLVMExtra), Cstring, (LLVMOrcJITDylibRef,), JD)
 end
 
+function LLVMExtraThreadSafeModuleGetModuleUnlocked(TSM)
+    ccall((:LLVMExtraThreadSafeModuleGetModuleUnlocked, libLLVMExtra), LLVMModuleRef, (LLVMOrcThreadSafeModuleRef,), TSM)
+end
+
 function LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(RTDyldObjLinkingLayer, OverrideObjectFlags)
     ccall((:LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, LLVMBool), RTDyldObjLinkingLayer, OverrideObjectFlags)
 end

@@ -39,6 +39,8 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcJITTargetMachineBuilderRef},
                     tmb::TargetMachineBuilder) = check_owned(tmb).ref
 
+consume!(tmb::TargetMachineBuilder) = consume_owned!(tmb)
+
 
 function TargetMachineBuilder()
     ref = Ref{API.LLVMOrcJITTargetMachineBuilderRef}()
@@ -94,6 +96,8 @@ mutable struct ObjectLinkingLayer
 end
 Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) =
     check_owned(oll).ref
+
+consume!(oll::ObjectLinkingLayer) = consume_owned!(oll)
 
 """
     ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
@@ -417,6 +421,8 @@ mutable struct DefinitionGenerator
 end
 Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) =
     check_owned(dg).ref
+
+consume!(dg::DefinitionGenerator) = consume_owned!(dg)
 
 """
     dispose(dg::DefinitionGenerator)
@@ -1063,6 +1069,8 @@ mutable struct MaterializationUnit <: AbstractMaterializationUnit
 end
 Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::MaterializationUnit) =
     check_owned(mu).ref
+
+consume!(mu::MaterializationUnit) = consume_owned!(mu)
 
 dispose(mu::MaterializationUnit) = dispose_owned(API.LLVMOrcDisposeMaterializationUnit, mu)
 

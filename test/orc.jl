@@ -504,6 +504,48 @@ end
     @dispose lljit=LLJIT() begin
         @dispose oll=ObjectLinkingLayer(lljit.execution_session) begin end
     end
+
+    # handing objects over to foreign code
+    @dispose ts_ctx=ThreadSafeContext() begin
+        tsm = constant_module("foreign")
+        ref = LLVM.consume!(tsm)
+        @test ref isa LLVM.API.LLVMOrcThreadSafeModuleRef
+        @test_throws ArgumentError LLVM.consume!(tsm)
+        @test_throws ArgumentError tsm(mod -> nothing)
+        dispose(tsm)    # does nothing
+
+        # wrapping a foreign handle, either taking over its ownership or borrowing it
+        owned = ThreadSafeModule(ref)
+        @test owned(mod -> haskey(mod.functions, "foreign"))
+        borrowed = ThreadSafeModule(ref; borrowed=true)
+        @test borrowed(mod -> haskey(mod.functions, "foreign"))
+        @test_throws ArgumentError LLVM.consume!(borrowed)
+        @test_throws ArgumentError dispose(borrowed)
+        dispose(owned)
+
+        buf = MemoryBuffer(UInt8[1, 2, 3])
+        ref = LLVM.consume!(buf)
+        @test ref isa LLVM.API.LLVMMemoryBufferRef
+        @test_throws ArgumentError LLVM.consume!(buf)
+        @test_throws ArgumentError length(buf)
+        dispose(buf)    # does nothing
+        LLVM.API.LLVMDisposeMemoryBuffer(ref)
+
+        # objects that don't track their ownership can't be consumed
+        @test_throws MethodError LLVM.consume!(ts_ctx)
+    end
+
+    # accessing the module of a thread-safe module without locking its context
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        tsm = constant_module("unlocked")
+        mod = LLVM.unsafe_module(tsm)
+        @test mod isa LLVM.Module
+        @test haskey(mod.functions, "unlocked")
+        @test context(mod) == context(ts_ctx)
+        @test tsm(m -> m == mod)
+        add!(lljit, lljit.main_dylib, tsm)
+        @test_throws ArgumentError LLVM.unsafe_module(tsm)
+    end
 end
 
 @testset "do-block constructors" begin

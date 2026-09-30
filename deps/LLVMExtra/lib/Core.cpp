@@ -353,6 +353,10 @@ void LLVMOrcIRCompileLayerEmit(LLVMOrcIRCompileLayerRef IRLayer,
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::JITDylib, LLVMOrcJITDylibRef)
 
+LLVMModuleRef LLVMExtraThreadSafeModuleGetModuleUnlocked(LLVMOrcThreadSafeModuleRef TSM) {
+  return wrap(unwrap(TSM)->getModuleUnlocked());
+}
+
 char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD) {
   std::string str;
   llvm::raw_string_ostream rso(str);

@@ -19,6 +19,8 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) =
     check_owned(builder).ref
 
+consume!(builder::LLJITBuilder) = consume_owned!(builder)
+
 """
     LLJIT
 

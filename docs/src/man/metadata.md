@@ -146,10 +146,9 @@ ModuleMetadataIterator for module :
 When generating IR, it is possible to add debug information metadata to the generated code.
 This information can be used by debuggers to provide a better debugging experience.
 
-!!! note
-
-    LLVM.jl currently does not offer extensive wrappers for generating debug info, and is
-    mostly focussed on the ability to inspect or copy existing information.
+Debug information is created with a `DIBuilder`, whose functions (`file!`,
+`compile_unit!`, `subprogram!`, `basic_type!`, `auto_variable!`, `dbg_value!`, ...) are
+part of the `LLVM.Build` vocabulary, and listed in the reference.
 
 LLVM represents debug information as a variety of `DI`-prefixed structures, which are
 subtypes of the above metadata types. In LLVM.jl, these structures expose their contents

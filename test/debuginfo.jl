@@ -95,7 +95,7 @@ end
             lb = LLVM.lexical_block!(dib, sp, file, 3, 5)
             @test lb isa DILexicalBlock
 
-            lbf = LLVM.lexical_block_file!(dib, lb, file, 0)
+            lbf = LLVM.lexical_block_file!(dib, lb, file; discriminator=1)
             @test lbf isa DILexicalBlockFile
 
             # DILocation with lexical block scope
@@ -121,7 +121,7 @@ end
             @test_throws MethodError LLVM.auto_variable!(dib, cu, "x", file, 2, i64)
             @test_throws MethodError LLVM.parameter_variable!(dib, file, "a", 1, file, 1, i64)
             @test_throws MethodError LLVM.lexical_block!(dib, cu, file, 3, 5)
-            @test_throws MethodError LLVM.lexical_block_file!(dib, file, file, 0)
+            @test_throws MethodError LLVM.lexical_block_file!(dib, file, file)
             if LLVM.version() >= v"20"
                 @test_throws MethodError LLVM.label!(dib, cu, "lbl", file, 4)
             end
@@ -204,7 +204,7 @@ end
             @test ct isa LLVM.DICompositeType
 
             # arrays/vectors via subrange
-            sr = LLVM.get_or_create_subrange!(dib, 0, 10)
+            sr = LLVM.subrange!(dib, 0, 10)
             @test sr isa LLVM.DISubrange
             aty = LLVM.array_type!(dib, 640, 64, i64, [sr])
             @test aty isa LLVM.DICompositeType
@@ -217,6 +217,23 @@ end
             @test e1 isa LLVM.DIEnumerator
             et = LLVM.enumeration_type!(dib, cu, "Color", file, 1, 32, 32, LLVM.Metadata[e1])
             @test et isa LLVM.DICompositeType
+            et2 = LLVM.enumeration_type!(dib, cu, "Typed", file, 1, 64, 64, [e1];
+                                         underlying_type=i64)
+            @test occursin("baseType", string(et2))
+
+            # enumerator values need to fit in the signed or unsigned integer
+            e2 = LLVM.enumerator!(dib, "B", -1)
+            @test occursin("value: -1", string(e2))
+            e3 = LLVM.enumerator!(dib, "C", typemax(UInt64); unsigned=true)
+            @test occursin("value: 18446744073709551615, isUnsigned: true", string(e3))
+            @test_throws ArgumentError LLVM.enumerator!(dib, "D", typemax(UInt64))
+            @test_throws ArgumentError LLVM.enumerator!(dib, "E", -1; unsigned=true)
+            @test_throws ArgumentError LLVM.enumerator!(dib, "F", 0; size_in_bits=0)
+            err = try LLVM.enumerator!(dib, "D", typemax(UInt64)) catch err err end
+            @test occursin("does not fit in a signed enumerator of 64 bits", sprint(showerror, err))
+            if LLVM.version() < v"21"
+                @test_throws ArgumentError LLVM.enumerator!(dib, "F", 1; size_in_bits=128)
+            end
 
             # bitfield + static + member-pointer + inheritance
             @test LLVM.bitfield_member_type!(dib, cu, "b", file, 1, 3, 0, 0, i64) isa LLVM.DIDerivedType
@@ -226,12 +243,17 @@ end
 
             base = LLVM.class_type!(dib, cu, "Base", file, 1, 64, 64, 0, LLVM.Metadata[])
             @test LLVM.inheritance!(dib, ct, base, 0) isa LLVM.DIDerivedType
+            @test LLVM.inheritance!(dib, ct, base, 0; vbptr_offset=8) isa LLVM.DIDerivedType
 
             # subroutine
             sroute = LLVM.subroutine_type!(dib, file, i64, LLVM.Metadata[i64])
             @test sroute isa LLVM.DISubroutineType
             # void return
             @test LLVM.subroutine_type!(dib, file, nothing) isa LLVM.DISubroutineType
+            # variadic
+            vararg = LLVM.subroutine_type!(dib, file, nothing, [i64, nothing])
+            @test vararg.operands[end].operands == [nothing, i64, nothing]
+            @test_throws ArgumentError LLVM.subroutine_type!(dib, file, nothing, [MDNode([])])
 
             # top-level types
             DW_TAG_structure_type = 0x13
@@ -288,11 +310,12 @@ end
 
             # global variable expression + accessors
             gve = LLVM.global_variable_expression!(dib, cu, "g", "g",
-                                                  file, 1, i64, false, e)
+                                                  file, 1, i64, e)
             @test gve isa LLVM.DIGlobalVariableExpression
             gve2 = LLVM.global_variable_expression!(dib, nothing, "g2", "g2",
-                                                   file, 1, i64, false, e)
+                                                   file, 1, i64, e; local_to_unit=true)
             @test gve2.variable.scope === nothing
+            @test occursin("isLocal: true", string(gve2.variable))
             gv = gve.variable
             @test gv isa LLVM.DIGlobalVariable
             @test gv.line == 1
@@ -545,16 +568,17 @@ end
                                    file, "LLVM.jl Tests")
 
             ns = LLVM.namespace!(dib, cu, "MyNS")
-            ie = LLVM.imported_module_from_namespace!(dib, cu, ns, file, 1)
+            ie = LLVM.imported_module!(dib, cu, ns, file, 1)
             @test ie isa LLVM.DIImportedEntity
-            @test LLVM.imported_module_from_namespace!(dib, nothing, ns, file, 1) isa
+            @test LLVM.imported_module!(dib, nothing, ns, file, 1) isa
                   LLVM.DIImportedEntity
 
-            ie2 = LLVM.imported_module_from_alias!(dib, cu, ie, file, 2)
+            ie2 = LLVM.imported_module!(dib, cu, ie, file, 2)
             @test ie2 isa LLVM.DIImportedEntity
 
             dm = LLVM.dimodule!(dib, cu, "MyMod")
-            ie3 = LLVM.imported_module_from_module!(dib, cu, dm, file, 3)
+            ied0 = LLVM.imported_declaration!(dib, dm, ns, file, 3, "renamed")
+            ie3 = LLVM.imported_module!(dib, cu, dm, file, 3; elements=[ied0])
             @test ie3 isa LLVM.DIImportedEntity
 
             # imported declaration (decl = another scope)
@@ -681,16 +705,15 @@ end
             @test real_struct in ptr_to_fwd.operands
 
             # make the type reachable from the compile unit
-            LLVM.global_variable_expression!(dib, cu, "n", "n", file, 1, real_struct, false,
+            LLVM.global_variable_expression!(dib, cu, "n", "n", file, 1, real_struct,
                                              LLVM.expression!(dib))
 
             # temporary global variables
-            tgv = LLVM.temp_global_variable_fwd_decl!(dib, cu, "tg", "tg", file, 2, i64,
-                                                      false)
+            tgv = LLVM.temp_global_variable_fwd_decl!(dib, cu, "tg", "tg", file, 2, i64)
             @test tgv isa TemporaryMDNode{LLVM.DIGlobalVariable}
             @test tgv.node.line == 2
             imported = LLVM.imported_declaration!(dib, cu, tgv.node, file, 3, "alias")
-            gve = LLVM.global_variable_expression!(dib, cu, "tg", "tg", file, 2, i64, false,
+            gve = LLVM.global_variable_expression!(dib, cu, "tg", "tg", file, 2, i64,
                                                    LLVM.expression!(dib))
             replace_temporary!(tgv, gve.variable)
             @test imported.operands[2] == gve.variable
@@ -712,10 +735,10 @@ end
                                    file, "LLVM.jl Tests")
             i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
 
-            ta = LLVM.get_or_create_type_array!(dib, LLVM.Metadata[i64, i64])
-            @test ta isa LLVM.Metadata
-            arr = LLVM.get_or_create_array!(dib, LLVM.Metadata[i64])
-            @test arr isa LLVM.Metadata
+            ta = MDTuple([i64, nothing])
+            @test ta isa MDTuple
+            @test ta.operands == [i64, nothing]
+            @test MDNode([i64, nothing]) == ta
 
             # ObjC (not widely used from Julia but round-tripped)
             prop = LLVM.objc_property!(dib, "count", file, 1,
@@ -841,13 +864,32 @@ end
             st = LLVM.set_type!(dib, cu, "set_of_int", file, 1, 32, 32, i32)
             @test st isa LLVM.DIDerivedType
 
-            srt = LLVM.subrange_type!(dib, cu, "range", 1, file, 32, 32, i32)
+            srt = LLVM.subrange_type!(dib, cu, "range", file, 1, 32, 32, i32)
             @test srt isa DISubrangeType
+            @test srt.line == 1
 
-            big = LLVM.enumerator_arbitrary!(dib, "big", 128, UInt64[1, 2])
-            @test big isa LLVM.DIEnumerator
-            @test_throws ArgumentError LLVM.enumerator_arbitrary!(dib, "bad", 256,
-                                                                  UInt64[1])
+            sr = LLVM.subrange!(dib, 0, 4)
+            dat = LLVM.dynamic_array_type!(dib, cu, "dyn", file, 2, 128, 32, i32, [sr])
+            @test dat isa LLVM.DICompositeType
+            @test dat.line == 2
+            @test dat.size_in_bits == 128
+
+            # arbitrary-precision enumerators
+            big1 = LLVM.enumerator!(dib, "big", Int128(2)^100; size_in_bits=128)
+            @test occursin("value: 1267650600228229401496703205376", string(big1))
+            neg = LLVM.enumerator!(dib, "neg", -Int128(2)^100; size_in_bits=128)
+            @test occursin("value: -1267650600228229401496703205376", string(neg))
+            ubig = LLVM.enumerator!(dib, "ubig", typemax(UInt128); size_in_bits=128,
+                                    unsigned=true)
+            @test occursin("value: $(typemax(UInt128)), isUnsigned: true", string(ubig))
+            @test occursin("value: -3", string(LLVM.enumerator!(dib, "i7", -3;
+                                                                   size_in_bits=7)))
+            @test_throws ArgumentError LLVM.enumerator!(dib, "bad", big(2)^127;
+                                                        size_in_bits=128)
+            err = try LLVM.enumerator!(dib, "bad", 64; size_in_bits=7) catch err err end
+            @test occursin("does not fit in a signed enumerator of 7 bits", sprint(showerror, err))
+            @test_throws ArgumentError LLVM.enumerator!(dib, "bad", -1; size_in_bits=128,
+                                                        unsigned=true)
         end
     end
 end

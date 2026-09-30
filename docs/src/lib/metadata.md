@@ -7,7 +7,8 @@ MDString(::String)
 convert(::Type{String}, ::MDString)
 MDNode
 MDTuple
-MDNode(::Vector)
+MDTuple(::AbstractVector)
+MDNode(::AbstractVector)
 ```
 
 ## Temporary nodes
@@ -155,20 +156,13 @@ LLVM.enumerator!
 LLVM.enumeration_type!
 LLVM.forward_decl!
 LLVM.replaceable_composite_type!
-LLVM.get_or_create_subrange!
+LLVM.subrange!
 ```
 
 Subroutine types:
 
 ```@docs
 LLVM.subroutine_type!
-```
-
-Array-node helpers:
-
-```@docs
-LLVM.get_or_create_array!
-LLVM.get_or_create_type_array!
 ```
 
 Objective-C:
@@ -210,9 +204,7 @@ LLVM.temp_global_variable_fwd_decl!
 
 ```@docs
 LLVM.DIImportedEntity
-LLVM.imported_module_from_namespace!
-LLVM.imported_module_from_alias!
-LLVM.imported_module_from_module!
+LLVM.imported_module!
 LLVM.imported_declaration!
 ```
 

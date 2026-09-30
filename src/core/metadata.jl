@@ -241,16 +241,25 @@ end
 register(MDTuple, API.LLVMMDTupleMetadataKind)
 
 """
-    MDNode(vals::Vector) -> MDTuple
+    MDTuple(elements::AbstractVector) -> MDTuple
 
-Create a new tuple metadata node from the given operands.
+Create a new tuple metadata node with the given elements as its operands, or get the
+existing one, in the task-local [`context`](@ref).
 
-Passing `nothing` as a value will result in a null operand.
+Passing `nothing` as an element will result in a null operand.
 """
-MDNode(vals::AbstractVector) =
-    MDNode(convert(Vector{Metadata}, vals))
-MDNode(mds::Vector{<:Metadata}) =
+function MDTuple(elements::AbstractVector)
+    mds = convert(Vector{Metadata}, elements)
     MDTuple(API.LLVMMDNodeInContext2(context(), mds, length(mds)))
+end
+
+"""
+    MDNode(elements::AbstractVector) -> MDTuple
+
+Create a new tuple metadata node. Equivalent to [`MDTuple(elements)`](@ref
+MDTuple(::AbstractVector)).
+"""
+MDNode(elements::AbstractVector) = MDTuple(elements)
 
 # we support passing `nothing`, but convert it to a non-exported `MDNull` instance
 # so that we can keep everything as a subtype of `Metadata`

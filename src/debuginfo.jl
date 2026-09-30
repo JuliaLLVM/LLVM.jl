@@ -388,7 +388,7 @@ end
         inheritance!, member_type!, bitfield_member_type!, static_member_type!,
         member_pointer_type!, struct_type!, union_type!, class_type!, array_type!,
         vector_type!, enumeration_type!, enumerator!, forward_decl!,
-        replaceable_composite_type!, subroutine_type!, get_or_create_subrange!
+        replaceable_composite_type!, subroutine_type!, subrange!
 
 """
     DIType
@@ -688,14 +688,13 @@ object_pointer_type!(builder::DIBuilder, type::DIType) =
 end # @static
 
 """
-    inheritance!(builder::DIBuilder, derived::DIType, base::DIType,
-                 base_offset::Integer, vbptr_offset::Integer=0;
-                 flags=API.LLVMDIFlagZero) -> DIDerivedType
+    inheritance!(builder::DIBuilder, derived::DIType, base::DIType, base_offset::Integer;
+                 vbptr_offset::Integer=0, flags=API.LLVMDIFlagZero) -> DIDerivedType
 
 Create a new inheritance relationship from `derived` to `base`.
 """
 function inheritance!(builder::DIBuilder, derived::DIType, base::DIType,
-                      base_offset::Integer, vbptr_offset::Integer=0;
+                      base_offset::Integer; vbptr_offset::Integer=0,
                       flags=API.LLVMDIFlagZero)
     DIDerivedType(API.LLVMDIBuilderCreateInheritance(
         builder, derived, base, UInt64(base_offset), UInt32(vbptr_offset), flags))
@@ -865,67 +864,90 @@ function class_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::Ab
 end
 
 """
-    array_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+    array_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
                element_type::DIType, subscripts::AbstractVector{<:Metadata}) -> DICompositeType
 
 Create a new array type. Subscripts are typically built with
-[`get_or_create_subrange!`](@ref).
+[`subrange!`](@ref).
 """
-function array_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+function array_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
                     element_type::DIType, subscripts::AbstractVector{<:Metadata})
     subs = convert(Vector{Metadata}, subscripts)
     DICompositeType(API.LLVMDIBuilderCreateArrayType(
-        builder, UInt64(size), UInt32(align_in_bits),
+        builder, UInt64(size_in_bits), UInt32(align_in_bits),
         element_type, subs, Cuint(length(subs))))
 end
 
 """
-    vector_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+    vector_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
                 element_type::DIType, subscripts::AbstractVector{<:Metadata}) -> DICompositeType
 
 Create a new vector type. Subscripts are typically built with
-[`get_or_create_subrange!`](@ref).
+[`subrange!`](@ref).
 """
-function vector_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
+function vector_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
                      element_type::DIType, subscripts::AbstractVector{<:Metadata})
     subs = convert(Vector{Metadata}, subscripts)
     DICompositeType(API.LLVMDIBuilderCreateVectorType(
-        builder, UInt64(size), UInt32(align_in_bits),
+        builder, UInt64(size_in_bits), UInt32(align_in_bits),
         element_type, subs, Cuint(length(subs))))
 end
 
 """
     enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
-                unsigned::Bool=false) -> DIEnumerator
+                unsigned::Bool=false, size_in_bits::Integer=64) -> DIEnumerator
 
-Create a new enumerator for use inside an enumeration type.
+Create a new enumerator for use inside an enumeration type. The value is interpreted as a
+signed or `unsigned` integer of `size_in_bits` bits, and must fit in it. Sizes other than
+64 bits require LLVM 21+.
 """
 function enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
-                     unsigned::Bool=false)
-    DIEnumerator(API.LLVMDIBuilderCreateEnumerator(
-        builder, name, Csize_t(ncodeunits(name)), Int64(value), unsigned))
+                     unsigned::Bool=false, size_in_bits::Integer=64)
+    size_in_bits > 0 || throw(ArgumentError("The size of an enumerator must be positive"))
+    lo, hi = unsigned ? (big(0), big(2)^size_in_bits - 1) :
+                        (-big(2)^(size_in_bits-1), big(2)^(size_in_bits-1) - 1)
+    lo <= value <= hi ||
+        throw(ArgumentError("The value $value does not fit in " *
+                            (unsigned ? "an unsigned" : "a signed") *
+                            " enumerator of $size_in_bits bits"))
+    if size_in_bits == 64
+        bits = unsigned ? reinterpret(Int64, UInt64(value)) : Int64(value)
+        return DIEnumerator(API.LLVMDIBuilderCreateEnumerator(
+            builder, name, Csize_t(ncodeunits(name)), bits, unsigned))
+    end
+    @static if version() >= v"21"
+        # the two's complement words of the value, as LLVM's APInt stores them
+        val = big(value)
+        words = UInt64[(val >> (64*(i-1))) % UInt64 for i in 1:cld(size_in_bits, 64)]
+        DIEnumerator(API.LLVMDIBuilderCreateEnumeratorOfArbitraryPrecision(
+            builder, name, Csize_t(ncodeunits(name)), UInt64(size_in_bits), words,
+            unsigned))
+    else
+        throw(ArgumentError("Enumerators with a size other than 64 bits require LLVM 21+"))
+    end
 end
 
 """
     enumeration_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                      file::DIFile, line::Integer, size_in_bits::Integer,
                      align_in_bits::Integer, elements::AbstractVector{<:Metadata};
-                     class_ty=nothing) -> DICompositeType
+                     underlying_type=nothing) -> DICompositeType
 
 Create a new enumeration type. `elements` should be a vector of
-[`DIEnumerator`](@ref) metadata nodes.
+[`DIEnumerator`](@ref) metadata nodes, and `underlying_type` is the integer type of the
+enumeration, if it has one.
 """
 function enumeration_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                           file::DIFile, line::Integer, size_in_bits::Integer,
                           align_in_bits::Integer, elements::AbstractVector{<:Metadata};
-                          class_ty=nothing)
+                          underlying_type::Union{DIType,Nothing}=nothing)
     elts = convert(Vector{Metadata}, elements)
     DICompositeType(API.LLVMDIBuilderCreateEnumerationType(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
         UInt64(size_in_bits), UInt32(align_in_bits),
         elts, Cuint(length(elts)),
-        something(class_ty, C_NULL)))
+        something(underlying_type, C_NULL)))
 end
 
 """
@@ -991,15 +1013,17 @@ end
 """
     subroutine_type!(builder::DIBuilder, file::DIFile,
                     return_type::Union{DIType,Nothing},
-                    parameter_types::AbstractVector{<:Metadata}=Metadata[];
+                    parameter_types::AbstractVector=Metadata[];
                     flags=API.LLVMDIFlagZero) -> DISubroutineType
 
 Create a new subroutine type with the given return and parameter types. Pass
-`nothing` for `return_type` to describe a `void`-returning subroutine.
+`nothing` for `return_type` to describe a `void`-returning subroutine, and as the last
+parameter type of a variadic subroutine. The parameter types must be [`DIType`](@ref)s or
+`nothing`.
 """
 function subroutine_type!(builder::DIBuilder, file::DIFile,
                          return_type::Union{DIType,Nothing},
-                         parameter_types::AbstractVector{<:Metadata}=Metadata[];
+                         parameter_types::AbstractVector=Metadata[];
                          flags=API.LLVMDIFlagZero)
     # LLVM packs the return type as the 0th element of the parameter-types array,
     # with a null entry standing for `void`.
@@ -1007,48 +1031,25 @@ function subroutine_type!(builder::DIBuilder, file::DIFile,
         return_type === nothing ? C_NULL :
             Base.unsafe_convert(API.LLVMMetadataRef, return_type)]
     for p in parameter_types
-        push!(params, Base.unsafe_convert(API.LLVMMetadataRef, p))
+        p === nothing || p isa DIType ||
+            throw(ArgumentError("Parameter types must be DITypes or nothing, got $(typeof(p))"))
+        push!(params, p === nothing ? C_NULL : Base.unsafe_convert(API.LLVMMetadataRef, p))
     end
     DISubroutineType(API.LLVMDIBuilderCreateSubroutineType(
         builder, file, params, Cuint(length(params)), flags))
 end
 
 
-# subrange / array helpers
-
-@vocabulary Build get_or_create_array!, get_or_create_type_array!
+# subranges
 
 """
-    get_or_create_subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer)
+    subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer) -> DISubrange
 
-Get or create a subrange metadata node, describing one dimension of an array
-or vector type.
+Get or create a subrange, describing one dimension of an array or vector type.
 """
-get_or_create_subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer) =
+subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer) =
     DISubrange(API.LLVMDIBuilderGetOrCreateSubrange(
         builder, Int64(lower_bound), Int64(count)))
-
-"""
-    get_or_create_array!(builder::DIBuilder, elements::AbstractVector{<:Metadata})
-
-Get or create a generic metadata array node, used for lists such as
-`elements` fields of composite types.
-"""
-function get_or_create_array!(builder::DIBuilder, elements::AbstractVector{<:Metadata})
-    elts = convert(Vector{Metadata}, elements)
-    Metadata(API.LLVMDIBuilderGetOrCreateArray(builder, elts, Csize_t(length(elts))))
-end
-
-"""
-    get_or_create_type_array!(builder::DIBuilder, types::AbstractVector{<:Metadata})
-
-Get or create a metadata node for a type array, used for e.g. template
-parameter lists.
-"""
-function get_or_create_type_array!(builder::DIBuilder, types::AbstractVector{<:Metadata})
-    tys = convert(Vector{Metadata}, types)
-    Metadata(API.LLVMDIBuilderGetOrCreateTypeArray(builder, tys, Csize_t(length(tys))))
-end
 
 
 # ObjC
@@ -1109,7 +1110,7 @@ end
 @static if version() >= v"21"
 
 @vocabulary IR DISubrangeType
-@vocabulary Build set_type!, subrange_type!, dynamic_array_type!, enumerator_arbitrary!
+@vocabulary Build set_type!, subrange_type!, dynamic_array_type!
 
 """
     DISubrangeType <: DIType
@@ -1140,7 +1141,7 @@ end
 
 """
     subrange_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
-                  line::Integer, file::DIFile, size_in_bits::Integer,
+                  file::DIFile, line::Integer, size_in_bits::Integer,
                   align_in_bits::Integer, base_type::DIType;
                   flags=API.LLVMDIFlagZero,
                   lower_bound=nothing, upper_bound=nothing,
@@ -1149,7 +1150,7 @@ end
 Create a new subrange type. Requires LLVM 21+.
 """
 function subrange_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
-                       line::Integer, file::DIFile, size_in_bits::Integer,
+                       file::DIFile, line::Integer, size_in_bits::Integer,
                        align_in_bits::Integer, base_type::DIType;
                        flags=API.LLVMDIFlagZero,
                        lower_bound=nothing, upper_bound=nothing,
@@ -1166,7 +1167,7 @@ end
 
 """
     dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
-                      line::Integer, file::DIFile, size::Integer,
+                      file::DIFile, line::Integer, size_in_bits::Integer,
                       align_in_bits::Integer, element_type::DIType,
                       subscripts::AbstractVector{<:Metadata};
                       data_location=nothing, associated=nothing,
@@ -1177,7 +1178,7 @@ Create a new dynamic array type (Fortran assumed-shape/deferred-shape arrays).
 Requires LLVM 21+.
 """
 function dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
-                           line::Integer, file::DIFile, size::Integer,
+                           file::DIFile, line::Integer, size_in_bits::Integer,
                            align_in_bits::Integer, element_type::DIType,
                            subscripts::AbstractVector{<:Metadata};
                            data_location=nothing, associated=nothing,
@@ -1187,7 +1188,7 @@ function dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, 
     DICompositeType(API.LLVMDIBuilderCreateDynamicArrayType(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         Cuint(line), file,
-        UInt64(size), UInt32(align_in_bits), element_type,
+        UInt64(size_in_bits), UInt32(align_in_bits), element_type,
         subs, Cuint(length(subs)),
         something(data_location, C_NULL),
         something(associated, C_NULL),
@@ -1196,24 +1197,6 @@ function dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, 
         something(bit_stride, C_NULL)))
 end
 
-"""
-    enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
-                   size_in_bits::Integer, words::AbstractVector{UInt64};
-                   unsigned::Bool=false) -> DIEnumerator
-
-Create a new arbitrary-precision enumerator. Requires LLVM 21+.
-"""
-function enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
-                        size_in_bits::Integer, words::AbstractVector{UInt64};
-                        unsigned::Bool=false)
-    # LLVM reads cld(size_in_bits, 64) words from the array
-    if length(words) < cld(size_in_bits, 64)
-        throw(ArgumentError("words must contain at least cld(size_in_bits, 64) = $(cld(size_in_bits, 64)) elements"))
-    end
-    DIEnumerator(API.LLVMDIBuilderCreateEnumeratorOfArbitraryPrecision(
-        builder, name, Csize_t(ncodeunits(name)),
-        UInt64(size_in_bits), as_vector(words), unsigned))
-end
 
 end # @static if version() >= v"21"
 
@@ -1250,9 +1233,8 @@ line(subprogram::DISubprogram) = line_number(API.LLVMDISubprogramGetLine(subprog
     subprogram!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                 file::DIFile, line::Integer, type::DISubroutineType;
                 linkage_name::AbstractString="", scope_line::Integer=line,
-                is_local_to_unit::Bool=false, is_definition::Bool=true,
-                flags=API.LLVMDIFlagZero,
-                is_optimized::Bool=false) -> DISubprogram
+                local_to_unit::Bool=false, definition::Bool=true,
+                flags=API.LLVMDIFlagZero, optimized::Bool=false) -> DISubprogram
 
 Create a new [`DISubprogram`](@ref) describing a function. When
 `linkage_name` is empty, LLVM falls back to `name`. `scope_line`
@@ -1261,15 +1243,14 @@ defaults to the function's `line`, which is the usual case.
 function subprogram!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                      file::DIFile, line::Integer, type::DISubroutineType;
                      linkage_name::AbstractString="", scope_line::Integer=line,
-                     is_local_to_unit::Bool=false, is_definition::Bool=true,
-                     flags=API.LLVMDIFlagZero,
-                     is_optimized::Bool=false)
+                     local_to_unit::Bool=false, definition::Bool=true,
+                     flags=API.LLVMDIFlagZero, optimized::Bool=false)
     DISubprogram(API.LLVMDIBuilderCreateFunction(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         linkage_name, Csize_t(ncodeunits(linkage_name)),
         file, Cuint(line), type,
-        is_local_to_unit, is_definition, Cuint(scope_line),
-        flags, is_optimized))
+        local_to_unit, definition, Cuint(scope_line),
+        flags, optimized))
 end
 
 """
@@ -1509,7 +1490,7 @@ end
     global_variable_expression!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                               name::AbstractString, linkage::AbstractString,
                               file::DIFile, line::Integer, type::DIType,
-                              local_to_unit::Bool, expression::DIExpression;
+                              expression::DIExpression; local_to_unit::Bool=false,
                               declaration=nothing,
                               align_in_bits::Integer=0) -> DIGlobalVariableExpression
 
@@ -1518,7 +1499,7 @@ Create a new global variable descriptor paired with a DWARF expression.
 function global_variable_expression!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                                    name::AbstractString, linkage::AbstractString,
                                    file::DIFile, line::Integer, type::DIType,
-                                   local_to_unit::Bool, expression::DIExpression;
+                                   expression::DIExpression; local_to_unit::Bool=false,
                                    declaration=nothing,
                                    align_in_bits::Integer=0)
     DIGlobalVariableExpression(API.LLVMDIBuilderCreateGlobalVariableExpression(
@@ -1531,9 +1512,8 @@ end
 """
     temp_global_variable_fwd_decl!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                                name::AbstractString, linkage::AbstractString,
-                               file::DIFile, line::Integer, type::DIType,
-                               local_to_unit::Bool;
-                               declaration=nothing,
+                               file::DIFile, line::Integer, type::DIType;
+                               local_to_unit::Bool=false, declaration=nothing,
                                align_in_bits::Integer=0)
         -> TemporaryMDNode{DIGlobalVariable}
 
@@ -1543,9 +1523,8 @@ variable (e.g., `gve.variable` of a [`global_variable_expression!`](@ref)) using
 """
 function temp_global_variable_fwd_decl!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                                     name::AbstractString, linkage::AbstractString,
-                                    file::DIFile, line::Integer, type::DIType,
-                                    local_to_unit::Bool;
-                                    declaration=nothing,
+                                    file::DIFile, line::Integer, type::DIType;
+                                    local_to_unit::Bool=false, declaration=nothing,
                                     align_in_bits::Integer=0)
     TemporaryMDNode{DIGlobalVariable}(API.LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
@@ -1593,13 +1572,13 @@ function lexical_block!(builder::DIBuilder, scope::DILocalScope, file::DIFile,
 end
 
 """
-    lexical_block_file!(builder::DIBuilder, scope::DILocalScope, file::DIFile,
+    lexical_block_file!(builder::DIBuilder, scope::DILocalScope, file::DIFile;
                       discriminator::Integer=0) -> DILexicalBlockFile
 
 Create a new [`DILexicalBlockFile`](@ref) for tracking source-file changes
 within a lexical scope.
 """
-function lexical_block_file!(builder::DIBuilder, scope::DILocalScope, file::DIFile,
+function lexical_block_file!(builder::DIBuilder, scope::DILocalScope, file::DIFile;
                            discriminator::Integer=0)
     DILexicalBlockFile(API.LLVMDIBuilderCreateLexicalBlockFile(
         builder, scope, file, Cuint(discriminator)))
@@ -1948,8 +1927,7 @@ end # @static version check
 ## imported entity
 
 @vocabulary IR DIImportedEntity
-@vocabulary Build imported_module_from_namespace!, imported_module_from_alias!,
-        imported_module_from_module!, imported_declaration!
+@vocabulary Build imported_module!, imported_declaration!
 
 """
     DIImportedEntity
@@ -1962,45 +1940,33 @@ end
 register(DIImportedEntity, API.LLVMDIImportedEntityMetadataKind)
 
 """
-    imported_module_from_namespace!(builder::DIBuilder, scope::Union{DIScope,Nothing},
-                                 ns::DINamespace, file::DIFile,
-                                 line::Integer) -> DIImportedEntity
+    imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing}, ns::DINamespace,
+                     file::DIFile, line::Integer) -> DIImportedEntity
+    imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
+                     entity::Union{DIModule,DIImportedEntity}, file::DIFile, line::Integer;
+                     elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
 
-Create a new `DIImportedEntity` from a namespace.
+Create a new [`DIImportedEntity`](@ref LLVM.DIImportedEntity) that imports a namespace
+(like C++'s `using namespace`), a module, or an alias of another imported entity into
+`scope`. The `elements` of an imported module or alias are its renamed entities.
 """
-imported_module_from_namespace!(builder::DIBuilder, scope::Union{DIScope,Nothing}, ns::DINamespace,
-                             file::DIFile, line::Integer) =
+imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing}, ns::DINamespace,
+                 file::DIFile, line::Integer) =
     DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromNamespace(
         builder, something(scope, C_NULL), ns, file, Cuint(line)))
 
-"""
-    imported_module_from_alias!(builder::DIBuilder, scope::Union{DIScope,Nothing},
-                             imported::DIImportedEntity, file::DIFile,
-                             line::Integer,
-                             elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
-
-Create a new `DIImportedEntity` from an alias.
-"""
-function imported_module_from_alias!(builder::DIBuilder, scope::Union{DIScope,Nothing},
-                                  imported::DIImportedEntity, file::DIFile,
-                                  line::Integer,
-                                  elements::AbstractVector{<:Metadata}=Metadata[])
+function imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
+                          alias::DIImportedEntity, file::DIFile, line::Integer;
+                          elements::AbstractVector{<:Metadata}=Metadata[])
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromAlias(
-        builder, something(scope, C_NULL), imported, file, Cuint(line),
+        builder, something(scope, C_NULL), alias, file, Cuint(line),
         elts, Cuint(length(elts))))
 end
 
-"""
-    imported_module_from_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
-                              mod::DIModule, file::DIFile, line::Integer,
-                              elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
-
-Create a new `DIImportedEntity` from a module.
-"""
-function imported_module_from_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
-                                   mod::DIModule, file::DIFile, line::Integer,
-                                   elements::AbstractVector{<:Metadata}=Metadata[])
+function imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
+                          mod::DIModule, file::DIFile, line::Integer;
+                          elements::AbstractVector{<:Metadata}=Metadata[])
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromModule(
         builder, something(scope, C_NULL), mod, file, Cuint(line),
@@ -2008,15 +1974,19 @@ function imported_module_from_module!(builder::DIBuilder, scope::Union{DIScope,N
 end
 
 """
-    imported_declaration!(builder::DIBuilder, scope::Union{DIScope,Nothing}, decl::Metadata,
-                        file::DIFile, line::Integer, name::AbstractString,
-                        elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
+    imported_declaration!(builder::DIBuilder, scope::Union{DIScope,Nothing}, decl::DINode,
+                          file::DIFile, line::Integer, name::AbstractString;
+                          elements::AbstractVector{<:Metadata}=Metadata[])
+        -> DIImportedEntity
 
-Create a new `DIImportedEntity` from a declaration.
+Create a new [`DIImportedEntity`](@ref LLVM.DIImportedEntity) that imports the declaration
+`decl` (e.g., a variable, subprogram or type) into `scope`, as `name` (like C++'s
+`using`).
 """
-function imported_declaration!(builder::DIBuilder, scope::Union{DIScope,Nothing}, decl::Metadata,
-                              file::DIFile, line::Integer, name::AbstractString,
-                              elements::AbstractVector{<:Metadata}=Metadata[])
+function imported_declaration!(builder::DIBuilder, scope::Union{DIScope,Nothing},
+                               decl::DINode, file::DIFile, line::Integer,
+                               name::AbstractString;
+                               elements::AbstractVector{<:Metadata}=Metadata[])
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedDeclaration(
         builder, something(scope, C_NULL), decl, file, Cuint(line),
@@ -2108,9 +2078,11 @@ debug_location!(inst::Instruction) =
 
 """
     replace_arrays!(builder::DIBuilder, T::DICompositeType,
-                   elements::AbstractVector{<:Metadata})
+                   elements::AbstractVector{<:Metadata}) -> DICompositeType
 
-Replace the elements array of the given composite type `T`. Requires LLVM 21+.
+Replace the elements array of the given composite type `T`, and return the resulting type.
+Use the returned type instead of `T`, as LLVM can replace `T` with an existing, identical
+type. Requires LLVM 21+.
 """
 function replace_arrays!(builder::DIBuilder, T::DICompositeType,
                         elements::AbstractVector{<:Metadata})

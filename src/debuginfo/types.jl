@@ -730,7 +730,7 @@ end
 @vocabulary IR DISubrangeType
 @vocabulary Build set_type!, subrange_type!, dynamic_array_type!
 
-"""
+@doc """
     DISubrangeType <: DIType
 
 A subrange type (an integer range type, as found in Fortran or Ada), built
@@ -741,7 +741,7 @@ with [`subrange_type!`](@ref). Requires LLVM 21+.
 end
 register(DISubrangeType, API.LLVMDISubrangeTypeMetadataKind)
 
-"""
+@doc """
     set_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
              file::DIFile, line::Integer, size_in_bits::Integer,
              align_in_bits::Integer, base_type::DIType) -> DIDerivedType
@@ -757,7 +757,7 @@ function set_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::Abst
         UInt64(size_in_bits), UInt32(align_in_bits), base_type))
 end
 
-"""
+@doc """
     subrange_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                   file::DIFile, line::Integer, size_in_bits::Integer,
                   align_in_bits::Integer, base_type::DIType;
@@ -783,7 +783,7 @@ function subrange_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name:
         something(bias, C_NULL)))
 end
 
-"""
+@doc """
     dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                       file::DIFile, line::Integer, size_in_bits::Integer,
                       align_in_bits::Integer, element_type::DIType,
@@ -822,7 +822,7 @@ end # @static if version() >= v"21"
 
 @vocabulary Build replace_arrays!
 
-"""
+@doc """
     replace_arrays!(builder::DIBuilder, T::DICompositeType,
                    elements::AbstractVector{<:Metadata}) -> DICompositeType
 

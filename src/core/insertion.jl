@@ -283,8 +283,8 @@ end
 for (T, first, next, move) in
         ((:Function, :LLVMGetFirstFunction, :LLVMGetNextFunction, :LLVMExtraMoveFunction),
          (:GlobalVariable, :LLVMGetFirstGlobal, :LLVMGetNextGlobal, :LLVMExtraMoveGlobal))
-    kind = T === :Function ? "Function" : "Global variable"
-    set = T === :Function ? :ModuleFunctionSet : :ModuleGlobalSet
+    local kind = T === :Function ? "Function" : "Global variable"
+    local set = T === :Function ? :ModuleFunctionSet : :ModuleGlobalSet
     @eval begin
         function before(x::$T)
             mod = API.LLVMGetGlobalParent(x)

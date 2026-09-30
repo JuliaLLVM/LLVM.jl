@@ -175,7 +175,7 @@ end
 
     let mod1 = emit_inc(1), mod2 = emit_inc(2)
         @dispose engine=LLVM.JIT(mod1) begin
-            @test_throws ErrorException collect(engine.functions)
+            @test_throws MethodError collect(engine.functions)
             @test haskey(engine.functions, "add_1")
             @test engine.functions["add_1"] isa LLVM.Function
 

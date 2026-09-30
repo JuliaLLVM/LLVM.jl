@@ -645,18 +645,14 @@ TokenType() = TokenType(API.LLVMTokenTypeInContext(context()))
 
 ## type iteration
 
-struct ContextTypeDict <: AbstractDict{String,LLVMType}
+# a lookup of the named types of a context, which LLVM can't enumerate (so not a collection)
+struct ContextTypeDict
     ctx::Context
 end
 
 types(ctx::Context) = ContextTypeDict(ctx)
 
 @property Context types
-
-Base.iterate(::ContextTypeDict, _...) =
-    error("Iteration of the types in a context is not supported")
-Base.length(::ContextTypeDict) =
-    error("Iteration of the types in a context is not supported")
 
 Base.show(io::IO, iter::ContextTypeDict) = print(io, "ContextTypeDict(", iter.ctx, ")")
 Base.show(io::IO, ::MIME"text/plain", iter::ContextTypeDict) = show(io, iter)
@@ -669,4 +665,9 @@ function Base.getindex(iter::ContextTypeDict, name::String)
     objref = API.LLVMGetTypeByName2(iter.ctx, name)
     objref == C_NULL && throw(KeyError(name))
     return LLVMType(objref)
+end
+
+function Base.get(iter::ContextTypeDict, name::String, default)
+    objref = API.LLVMGetTypeByName2(iter.ctx, name)
+    objref == C_NULL ? default : LLVMType(objref)
 end

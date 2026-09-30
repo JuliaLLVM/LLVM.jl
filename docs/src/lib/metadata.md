@@ -10,6 +10,15 @@ MDTuple
 MDNode(::Vector)
 ```
 
+## Temporary nodes
+
+```@docs
+TemporaryMDNode
+TemporaryMDNode(::AbstractVector)
+replace_temporary!
+dispose(::TemporaryMDNode)
+```
+
 ## Metadata <-> Value
 
 ```@docs
@@ -236,14 +245,6 @@ The debug location of an instruction is available as its `debug_location` proper
 ```@docs
 DICompileUnit
 LLVM.compile_unit!
-```
-
-### Mutation helpers
-
-```@docs
-LLVM.temporary_mdnode
-LLVM.dispose_temporary
-LLVM.replace_uses!(::LLVM.Metadata, ::LLVM.Metadata)
 ```
 
 ### Other

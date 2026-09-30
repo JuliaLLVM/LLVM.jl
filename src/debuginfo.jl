@@ -956,9 +956,20 @@ end
                               runtime_lang::Integer=0, size_in_bits::Integer=0,
                               align_in_bits::Integer=0,
                               flags=API.LLVMDIFlagZero,
-                              unique_id::AbstractString="") -> DICompositeType
+                              unique_id::AbstractString="")
+        -> TemporaryMDNode{DICompositeType}
 
-Create a new replaceable composite type forward declaration.
+Create a temporary composite type, a placeholder for a type that refers to itself, e.g.,
+through a pointer to it. Build the complete type with the temporary type as a
+placeholder, and then replace it with [`replace_temporary!`](@ref), before the builder is
+finalized:
+
+```julia
+fwd = replaceable_composite_type!(dib, DW_TAG_structure_type, "Node", nothing, file, 1)
+next = member_type!(dib, nothing, "next", file, 2, 64, 64, 0, pointer_type!(dib, fwd.node, 64))
+node = struct_type!(dib, nothing, "Node", file, 1, 64, 64, [next])
+replace_temporary!(fwd, node)
+```
 """
 function replaceable_composite_type!(builder::DIBuilder, tag::Integer,
                                    name::AbstractString, scope::Union{DIScope,Nothing},
@@ -967,7 +978,7 @@ function replaceable_composite_type!(builder::DIBuilder, tag::Integer,
                                    align_in_bits::Integer=0,
                                    flags=API.LLVMDIFlagZero,
                                    unique_id::AbstractString="")
-    DICompositeType(API.LLVMDIBuilderCreateReplaceableCompositeType(
+    TemporaryMDNode{DICompositeType}(API.LLVMDIBuilderCreateReplaceableCompositeType(
         builder, Cuint(tag), name, Csize_t(ncodeunits(name)),
         something(scope, C_NULL), file, Cuint(line), Cuint(runtime_lang),
         UInt64(size_in_bits), UInt32(align_in_bits), flags,
@@ -1523,9 +1534,12 @@ end
                                file::DIFile, line::Integer, type::DIType,
                                local_to_unit::Bool;
                                declaration=nothing,
-                               align_in_bits::Integer=0) -> DIGlobalVariable
+                               align_in_bits::Integer=0)
+        -> TemporaryMDNode{DIGlobalVariable}
 
-Create a new temporary forward declaration for a global variable.
+Create a temporary forward declaration of a global variable, to be replaced with the
+variable (e.g., `gve.variable` of a [`global_variable_expression!`](@ref)) using
+[`replace_temporary!`](@ref).
 """
 function temp_global_variable_fwd_decl!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                                     name::AbstractString, linkage::AbstractString,
@@ -1533,7 +1547,7 @@ function temp_global_variable_fwd_decl!(builder::DIBuilder, scope::Union{DIScope
                                     local_to_unit::Bool;
                                     declaration=nothing,
                                     align_in_bits::Integer=0)
-    DIGlobalVariable(API.LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
+    TemporaryMDNode{DIGlobalVariable}(API.LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         linkage, Csize_t(ncodeunits(linkage)),
         file, Cuint(line), type, local_to_unit,
@@ -2058,7 +2072,9 @@ end
                    parent_macrofile::Union{DIMacroFile,Nothing},
                    line::Integer, file::DIFile) -> DIMacroFile
 
-Create a new (temporary) [`DIMacroFile`](@ref).
+Create a new temporary [`DIMacroFile`](@ref), for use as the parent of [`macro!`](@ref).
+Unlike other temporary nodes, the builder replaces it when it is finalized, which
+invalidates the returned node.
 """
 temp_macro_file!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
                line::Integer, file::DIFile) =
@@ -2084,40 +2100,7 @@ debug_location!(inst::Instruction) =
     loc === nothing ? debug_location!(inst) : debug_location!(inst, loc)
 
 
-## mutation / advanced helpers
-
-@vocabulary IR temporary_mdnode, dispose_temporary
-
-"""
-    temporary_mdnode(operands::AbstractVector{<:Metadata}=Metadata[]) -> MDNode
-
-Create a temporary metadata node in the task-local [`context`](@ref) with the
-given operands. Temporary nodes are useful for constructing cycles and must be
-either replaced via [`replace_uses!`](@ref) or disposed of via
-[`dispose_temporary`](@ref).
-"""
-function temporary_mdnode(operands::AbstractVector{<:Metadata}=Metadata[])
-    ops = convert(Vector{Metadata}, operands)
-    ref = API.LLVMTemporaryMDNode(context(), ops, Csize_t(length(ops)))
-    Metadata(ref)
-end
-
-"""
-    dispose_temporary(md::Metadata)
-
-Dispose of a temporary metadata node returned by [`temporary_mdnode`](@ref).
-"""
-dispose_temporary(md::Metadata) = API.LLVMDisposeTemporaryMDNode(md)
-
-"""
-    replace_uses!(temp::Metadata, replacement::Metadata)
-
-Replace all uses of temporary metadata `temp` with `replacement`, and dispose
-of `temp`. Method on the existing [`replace_uses!`](@ref) for [`Value`](@ref).
-"""
-replace_uses!(temp::Metadata, replacement::Metadata) =
-    API.LLVMMetadataReplaceAllUsesWith(temp, replacement)
-
+## mutation
 
 @static if version() >= v"21"
 

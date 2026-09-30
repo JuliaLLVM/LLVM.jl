@@ -298,10 +298,6 @@ end
             @test gv.line == 1
             @test gve.expression isa LLVM.DIExpression
 
-            # temp global forward decl
-            tgv = LLVM.temp_global_variable_fwd_decl!(dib, cu, "tg", "tg",
-                                                   file, 2, i64, false)
-            @test tgv isa LLVM.DIGlobalVariable
 
             LLVM.finalize_subprogram!(dib, sp)
         end
@@ -586,26 +582,79 @@ end
     end
 end
 
-@testset "DIBuilder: mutation helpers" begin
-    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
-        DIBuilder(mod) do dib
-            # temporary_mdnode + dispose_temporary on an unused temp
-            temp = LLVM.temporary_mdnode()
-            @test temp isa LLVM.Metadata
-            LLVM.dispose_temporary(temp)
+@testset "temporary nodes" begin
+    @dispose ctx=Context() begin
+        # an unused temporary
+        temp = TemporaryMDNode()
+        @test temp isa TemporaryMDNode{MDTuple}
+        @test temp.node isa MDTuple
+        @test isempty(temp.node.operands)
+        @test occursin("TemporaryMDNode{MDTuple}(", sprint(show, temp))
+        dispose(temp)
+        @test_throws ArgumentError temp.node
+        @test sprint(show, temp) == "TemporaryMDNode{MDTuple}(consumed)"
+        dispose(temp)   # disposing of a consumed handle does nothing
 
-            # replace_uses! on a used temp
-            DW_ATE_signed = 0x05
-            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
+        # replacing the uses of a temporary
+        s = MDString("x")
+        @dispose temp=TemporaryMDNode([s, nothing]) begin
+            @test temp.node.operands[1] == s
+            @test temp.node.operands[2] === nothing
+            user = MDNode([temp.node, MDString("user")])
+            @test user.operands[1] == temp.node
 
-            temp2 = LLVM.temporary_mdnode(LLVM.Metadata[i64])
-            real_node = MDNode([i64])
-            LLVM.replace_uses!(temp2, real_node)
-            # temp2 is disposed as a side effect of RAUW
+            # it can't replace itself
+            @test_throws ArgumentError replace_temporary!(temp, temp.node)
+
+            replacement = MDNode([MDString("replacement")])
+            @test replace_temporary!(temp, replacement) === replacement
+            @test user.operands[1] == replacement
+            @test_throws ArgumentError temp.node
+            @test_throws ArgumentError replace_temporary!(temp, replacement)
+        end
+
+        # disposing of a temporary that is used replaces it with null operands
+        temp = TemporaryMDNode()
+        user = MDNode([temp.node, MDString("user")])
+        dispose(temp)
+        @test user.operands[1] === nothing
+
+        # a node that refers to itself
+        node = TemporaryMDNode() do temp
+            replace_temporary!(temp, MDNode([temp.node, MDString("loop")]))
+        end
+        @test node.operands[1] == node
+        @test node.operands[2] == MDString("loop")
+
+        # the do-block disposes of an unused temporary
+        let temp
+            TemporaryMDNode() do t
+                temp = t
+            end
+            @test_throws ArgumentError temp.node
+        end
+
+        # also when the block throws, before or after replacing the temporary
+        let temp
+            @test_throws ErrorException("before") TemporaryMDNode() do t
+                temp = t
+                error("before")
+            end
+            @test_throws ArgumentError temp.node
+        end
+        let temp, user
+            @test_throws ErrorException("after") TemporaryMDNode() do t
+                temp = t
+                user = MDNode([t.node, MDString("thrown")])
+                replace_temporary!(t, MDString("replaced"))
+                error("after")
+            end
+            @test_throws ArgumentError temp.node
+            @test user.operands[1] == MDString("replaced")
         end
     end
 
-    # cycle-breaking: forward decl + RAUW (works on all LLVM versions)
+    # recursive types
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
             file = LLVM.file!(dib, "test.jl", "/tmp")
@@ -617,16 +666,39 @@ end
 
             fwd = LLVM.replaceable_composite_type!(dib, DW_TAG_structure_type, "Node",
                                                  cu, file, 1; size_in_bits=64)
+            @test fwd isa TemporaryMDNode{LLVM.DICompositeType}
+            @test fwd.node.name == "Node"
             i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
-            ptr_to_fwd = LLVM.pointer_type!(dib, fwd, 64)
+            ptr_to_fwd = LLVM.pointer_type!(dib, fwd.node, 64)
 
             mem_val = LLVM.member_type!(dib, cu, "value", file, 1, 64, 64, 0, i64)
             mem_next = LLVM.member_type!(dib, cu, "next", file, 2, 64, 64, 64, ptr_to_fwd)
 
             real_struct = LLVM.struct_type!(dib, cu, "Node", file, 1, 128, 64,
                                            LLVM.Metadata[mem_val, mem_next])
-            LLVM.replace_uses!(fwd, real_struct)
+            replace_temporary!(fwd, real_struct)
+            dispose(fwd)
+            @test real_struct in ptr_to_fwd.operands
+
+            # make the type reachable from the compile unit
+            LLVM.global_variable_expression!(dib, cu, "n", "n", file, 1, real_struct, false,
+                                             LLVM.expression!(dib))
+
+            # temporary global variables
+            tgv = LLVM.temp_global_variable_fwd_decl!(dib, cu, "tg", "tg", file, 2, i64,
+                                                      false)
+            @test tgv isa TemporaryMDNode{LLVM.DIGlobalVariable}
+            @test tgv.node.line == 2
+            imported = LLVM.imported_declaration!(dib, cu, tgv.node, file, 3, "alias")
+            gve = LLVM.global_variable_expression!(dib, cu, "tg", "tg", file, 2, i64, false,
+                                                   LLVM.expression!(dib))
+            replace_temporary!(tgv, gve.variable)
+            @test imported.operands[2] == gve.variable
         end
+        ir = string(mod)
+        @test occursin("name: \"next\"", ir)
+        @test !occursin("temporary", ir)
+        @test verify(mod) === nothing
     end
 end
 

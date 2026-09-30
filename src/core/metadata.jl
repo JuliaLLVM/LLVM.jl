@@ -258,6 +258,126 @@ struct MDNull <: Metadata end
 Base.convert(::Type{Metadata}, ::Nothing) = MDNull()
 
 
+## temporary nodes
+
+@vocabulary IR TemporaryMDNode, replace_temporary!
+
+"""
+    TemporaryMDNode{T<:MDNode}
+
+A temporary metadata node: a placeholder that other metadata can refer to before the node
+it stands for can be created, e.g., to create metadata that refers to itself.
+
+The handle owns the temporary node, which needs to be replaced with
+[`replace_temporary!`](@ref), or disposed of with [`dispose`](@ref), which replaces its
+uses with null operands. Either one consumes the handle, after which disposing of it
+again does nothing, so the handle can be disposed of with `@dispose` or the do-block form
+of the constructor even if it was replaced.
+
+# Properties
+
+    temp.node
+
+The temporary node, a `T`, for use as an operand of other metadata. Throws an
+`ArgumentError` once the handle has been consumed, which also invalidates the nodes that
+were obtained from it before.
+"""
+mutable struct TemporaryMDNode{T<:MDNode}
+    ref::API.LLVMMetadataRef
+    owned::Bool
+
+    function TemporaryMDNode{T}(ref::API.LLVMMetadataRef) where {T<:MDNode}
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new{T}(ref, true))
+    end
+end
+@properties TemporaryMDNode
+
+"""
+    TemporaryMDNode(operands=Metadata[]) -> TemporaryMDNode{MDTuple}
+    TemporaryMDNode(f::Function, operands=Metadata[])
+
+Create a temporary tuple node with the given operands, in the task-local
+[`context`](@ref). Passing `nothing` as an operand results in a null operand.
+
+The do-block form calls `f` with the handle and disposes of it afterwards, unless `f`
+replaced it, and returns the result of `f`:
+
+```julia
+node = TemporaryMDNode() do temp
+    replace_temporary!(temp, MDNode([temp.node, MDString("loop")]))
+end
+```
+"""
+function TemporaryMDNode(operands::AbstractVector=Metadata[])
+    ops = convert(Vector{Metadata}, operands)
+    TemporaryMDNode{MDTuple}(API.LLVMTemporaryMDNode(context(), ops, length(ops)))
+end
+
+function TemporaryMDNode(f::Core.Function, args...)
+    temp = TemporaryMDNode(args...)
+    try
+        f(temp)
+    finally
+        dispose(temp)
+    end
+end
+
+function Base.show(io::IO, temp::TemporaryMDNode)
+    print(io, typeof(temp), "(")
+    if getfield(temp, :owned)
+        print(io, strip(string(node(temp))))
+    else
+        print(io, "consumed")
+    end
+    print(io, ")")
+end
+
+function check_owned(temp::TemporaryMDNode)
+    getfield(temp, :owned) ||
+        throw(ArgumentError("The temporary metadata node has been replaced or disposed of"))
+    return mark_use(temp)
+end
+
+node(temp::TemporaryMDNode{T}) where {T} = T(check_owned(temp).ref)
+
+@property TemporaryMDNode node
+
+"""
+    replace_temporary!(temp::TemporaryMDNode, replacement::Metadata) -> replacement
+
+Replace every use of the temporary node `temp` with `replacement`, and delete the
+temporary node, consuming the handle.
+
+A uniqued node that used `temp` can become identical to an existing node, in which case
+LLVM replaces it by that node and deletes it, invalidating it.
+"""
+function replace_temporary!(temp::TemporaryMDNode, replacement::Metadata)
+    check_owned(temp)
+    Base.unsafe_convert(API.LLVMMetadataRef, replacement) == temp.ref &&
+        throw(ArgumentError("Cannot replace a temporary metadata node with itself"))
+    setfield!(temp, :owned, false)
+    mark_dispose(temp) do temp
+        API.LLVMMetadataReplaceAllUsesWith(temp.ref, replacement)
+    end
+    return replacement
+end
+
+"""
+    dispose(temp::TemporaryMDNode)
+
+Delete the temporary node `temp`, replacing its uses with null operands, unless the
+handle has already been consumed.
+"""
+function dispose(temp::TemporaryMDNode)
+    getfield(temp, :owned) || return
+    setfield!(temp, :owned, false)
+    mark_dispose(temp) do temp
+        API.LLVMDisposeTemporaryMDNode(temp.ref)
+    end
+end
+
+
 ## metadata
 
 @vocabulary IR MDKind

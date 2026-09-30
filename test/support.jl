@@ -46,6 +46,47 @@ if LLVM.memcheck_enabled
         @test occursin("An instance of MemoryBuffer was not properly disposed of.", out)
     end
 
+    # problems that occur repeatedly are reported once, and summarized at exit
+    let (; out, err) =
+        execute_code("""ctx = Context()
+                        builder = IRBuilder()
+                        dispose(builder)
+                        for i in 1:10
+                            LLVM.API.LLVMGetInsertBlock(builder)
+                        end""")
+        @test count("is being used after it was disposed of.", out) == 1
+        @test occursin("This is memcheck problem #1.", out)
+        @test occursin(r"memcheck problem #1 \(\S*IRBuilder used after being disposed of\) has occurred 10 times\.", out)
+        @test occursin(r"#1: \S*IRBuilder used after being disposed of, 10 times: allocated at", out)
+        @test occursin(r"  - 10 times used at \S*none:6", out)
+    end
+
+    # also when the object is used at different locations
+    let (; out, err) =
+        execute_code("""ctx = Context()
+                        builder = IRBuilder()
+                        dispose(builder)
+                        use1(b) = LLVM.API.LLVMGetInsertBlock(b)
+                        use2(b) = LLVM.API.LLVMGetInsertBlock(b)
+                        for i in 1:10
+                            use1(builder)
+                            use2(builder)
+                        end""")
+        @test count("is being used after it was disposed of.", out) == 1
+        @test occursin(r"has occurred 10 times, at 2 locations\.", out)
+        @test occursin(r"20 times: allocated at", out)
+        @test occursin(r"  - 10 times used at \S*none:5", out)
+        @test occursin(r"  - 10 times used at \S*none:6", out)
+    end
+
+    # leaks are grouped by where the objects were allocated
+    let (; out, err) =
+        execute_code("""bufs = [LLVM.MemoryBuffer(UInt8[]) for i in 1:3]
+                        buf = LLVM.MemoryBuffer(UInt8[])""")
+        @test occursin("3 instances of MemoryBuffer were not properly disposed of.", out)
+        @test occursin("An instance of MemoryBuffer was not properly disposed of.", out)
+    end
+
     # reports are not interleaved when stdout is buffered, e.g., when it is a file
     mktemp() do path, io
         close(io)

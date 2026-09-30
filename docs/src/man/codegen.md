@@ -158,8 +158,9 @@ which take a type or an address space:
 
 - `pointersize`
 - `intptr`
-- `sizeof`
+- `bit_size`
 - `storage_size`
+- `abi_size`
 - `abi_alignment`
 - `frame_alignment`
 - `preferred_alignment`

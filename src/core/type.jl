@@ -81,7 +81,7 @@ Return true if it makes sense to take the size of this type.
 Note that this does not mean that it's possible to call `sizeof` on this type, as LLVM types
 sizes can only queried given a target data layout.
 
-See also: [`sizeof(::DataLayout, ::LLVMType)`](@ref).
+See also: [`LLVM.bit_size`](@ref).
 """
 issized(typ::LLVMType) = API.LLVMTypeIsSized(typ) |> Bool
 

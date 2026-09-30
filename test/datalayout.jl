@@ -20,7 +20,12 @@ end
 
     @test LLVM.intptr(dl) == LLVM.intptr(dl, 0) == LLVM.Int32Type()
 
-    @test sizeof(dl, LLVM.Int32Type()) == LLVM.storage_size(dl, LLVM.Int32Type()) == LLVM.abi_size(dl, LLVM.Int32Type()) == 4
+    @test LLVM.bit_size(dl, LLVM.Int32Type()) == 32
+    @test LLVM.storage_size(dl, LLVM.Int32Type()) == LLVM.abi_size(dl, LLVM.Int32Type()) == 4
+    # types whose size isn't a multiple of 8 bits
+    @test LLVM.bit_size(dl, LLVM.Int1Type()) == 1
+    @test LLVM.storage_size(dl, LLVM.IntType(9)) == 2
+    @test LLVM.abi_size(dl, LLVM.Int32Type()) isa Int
 
     @test LLVM.abi_alignment(dl, LLVM.Int32Type()) == LLVM.frame_alignment(dl, LLVM.Int32Type()) == LLVM.preferred_alignment(dl, LLVM.Int32Type()) == 4
 
@@ -34,8 +39,13 @@ end
 
     elem = [LLVM.Int32Type(), LLVM.FloatType()]
     let st = LLVM.StructType(elem)
-        @test LLVM.element_at(dl, st, 4) == 1
-        @test LLVM.offsetof(dl, st, 1) == 4
+        # elements are numbered from 1, like the elements of the struct type
+        @test LLVM.element_at(dl, st, 0) == 1
+        @test LLVM.element_at(dl, st, 4) == 2
+        @test LLVM.offsetof(dl, st, 1) == 0
+        @test LLVM.offsetof(dl, st, 2) == 4
+        @test_throws BoundsError LLVM.offsetof(dl, st, 3)
+        @test_throws ArgumentError LLVM.element_at(dl, st, 8)
     end
 
     @test dl.globals_addrspace == 0

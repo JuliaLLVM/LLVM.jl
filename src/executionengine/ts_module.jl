@@ -29,14 +29,8 @@ function ThreadSafeContext(; opaque_pointers=nothing)
     ts_ctx
 end
 
-function ThreadSafeContext(f::Core.Function; kwargs...)
-    ctx = ThreadSafeContext(; kwargs...)
-    try
-        f(ctx)
-    finally
-        dispose(ctx)
-    end
-end
+ThreadSafeContext(f::Core.Function; kwargs...) =
+    with_disposal(f, ThreadSafeContext(; kwargs...))
 
 """
     context(ts_ctx::ThreadSafeContext)
@@ -74,7 +68,10 @@ end
 A thread-safe version of [`LLVM.Module`](@ref).
 
 A thread-safe module is consumed by adding it to a JIT, e.g., with `add!` or [`emit!`](@ref),
-after which it can't be used anymore, and disposing of it does nothing. The modules that an
+after which it can't be used anymore, and disposing of it does nothing, so it can be
+disposed of unconditionally, e.g., using the do-block form of its constructors
+(`ThreadSafeModule(name) do tsm ... end`). That's different from calling the module
+(`tsm() do mod ... end`), which gives access to the module it contains. The modules that an
 IR transformation receives are borrowed: they can be used during the transformation, but
 not be consumed or disposed of.
 """
@@ -196,6 +193,8 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
     end
     return convert(API.LLVMErrorRef, C_NULL)
 end
+
+ThreadSafeModule(f::Core.Function, args...) = with_disposal(f, ThreadSafeModule(args...))
 
 """
     (mod::ThreadSafeModule)(f)

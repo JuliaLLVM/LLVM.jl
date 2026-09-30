@@ -66,14 +66,8 @@ context(builder::IRBuilder) = Context(API.LLVMGetBuilderContext(builder))
 
 @property IRBuilder context
 
-function IRBuilder(@specialize(f::Core.Function), args...; kwargs...)
-    builder = IRBuilder(args...; kwargs...)
-    try
-        f(builder)
-    finally
-        dispose(builder)
-    end
-end
+IRBuilder(@specialize(f::Core.Function), args...; kwargs...) =
+    with_disposal(f, IRBuilder(args...; kwargs...))
 
 Base.show(io::IO, builder::IRBuilder) = @printf(io, "IRBuilder(%p)", builder.ref)
 

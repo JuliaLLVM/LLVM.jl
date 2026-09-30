@@ -204,14 +204,8 @@ function dispose(engine::ExecutionEngine)
 end
 
 for x in [:ExecutionEngine, :Interpreter, :JIT]
-    @eval function $x(f::Core.Function, args...; kwargs...)
-        engine = $x(args...; kwargs...)
-        try
-            f(engine)
-        finally
-            dispose(engine)
-        end
-    end
+    @eval $x(f::Core.Function, args...; kwargs...) =
+        with_disposal(f, $x(args...; kwargs...))
 end
 
 """

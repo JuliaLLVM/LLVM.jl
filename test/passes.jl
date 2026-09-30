@@ -23,6 +23,8 @@ end
     # invalid options are rejected (without leaking the options)
     @test_throws ArgumentError PassBuilder(; invalid_option=true)
 
+    @test PassBuilder(pb -> pb isa PassBuilder; verify_each=true)
+
     # adding and registering passes returns the pass builder or manager
     @dispose pb=PassBuilder() begin
         @test add!(pb, NoOpModulePass()) === pb

@@ -3,8 +3,8 @@
 
 Create a builder to customize the construction of an [`LLJIT`](@ref), e.g., using
 [`target_machine_builder!`](@ref) or [`linking_layer_creator!`](@ref). The builder is consumed
-when constructing the JIT; otherwise, it needs to be disposed of using `dispose`, which
-does nothing once it has been consumed.
+when constructing the JIT; otherwise, it needs to be disposed of using `dispose` or the
+do-block form, which do nothing once it has been consumed.
 """
 mutable struct LLJITBuilder
     ref::API.LLVMOrcLLJITBuilderRef
@@ -68,6 +68,8 @@ LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, Any[])
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
 
 LLJITBuilder() = LLJITBuilder(API.LLVMOrcCreateLLJITBuilder(), Any[])
+
+LLJITBuilder(f::Core.Function) = with_disposal(f, LLJITBuilder())
 
 dispose(builder::LLJITBuilder) = dispose_owned(API.LLVMOrcDisposeLLJITBuilder, builder)
 
@@ -145,14 +147,8 @@ function LLJIT(; tm::Union{Nothing, TargetMachine} = nothing)
     end
 end
 
-function LLJIT(f::Core.Function, args...; kwargs...)
-    lljit = LLJIT(args...; kwargs...)
-    try
-        f(lljit)
-    finally
-        dispose(lljit)
-    end
-end
+LLJIT(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, LLJIT(args...; kwargs...))
 
 function triple(lljit::LLJIT)
     cstr = API.LLVMOrcLLJITGetTripleString(lljit)
@@ -222,14 +218,8 @@ function dispose(jljit::JuliaOJIT)
     return nothing
 end
 
-function JuliaOJIT(f::Core.Function)
-    jljit = JuliaOJIT()
-    try
-        f(jljit)
-    finally
-        dispose(jljit)
-    end
-end
+JuliaOJIT(f::Core.Function) =
+    with_disposal(f, JuliaOJIT())
 
 
 """

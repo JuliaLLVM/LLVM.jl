@@ -74,14 +74,8 @@ Dispose of the given disassembler.
 """
 dispose(dis::Disassembler) = mark_dispose(API.LLVMDisasmDispose, dis)
 
-function Disassembler(f::Core.Function, args...; kwargs...)
-    dis = Disassembler(args...; kwargs...)
-    try
-        f(dis)
-    finally
-        dispose(dis)
-    end
-end
+Disassembler(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, Disassembler(args...; kwargs...))
 
 
 ## disassembly

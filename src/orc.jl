@@ -53,7 +53,8 @@ target machines that compile code. The builder either targets the host, or is ba
 `tm`, taking ownership of it.
 
 The builder is consumed by [`target_machine_builder!`](@ref); otherwise, it needs to be
-disposed of using `dispose`, which does nothing once it has been consumed.
+disposed of using `dispose` or the do-block form, which do nothing once it has been
+consumed.
 """
 mutable struct TargetMachineBuilder
     ref::API.LLVMOrcJITTargetMachineBuilderRef
@@ -79,6 +80,9 @@ function TargetMachineBuilder(tm::TargetMachine)
     mark_dispose(tm)
     TargetMachineBuilder(tmb)
 end
+
+TargetMachineBuilder(f::Core.Function, args...) =
+    with_disposal(f, TargetMachineBuilder(args...))
 
 dispose(tmb::TargetMachineBuilder) =
     dispose_owned(API.LLVMOrcDisposeJITTargetMachineBuilder, tmb)
@@ -108,8 +112,8 @@ An object linking layer, based on RuntimeDyld, for use with
 [`linking_layer_creator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
 
 The layer is consumed by returning it from a linking layer creator, which hands it over to
-the JIT; otherwise, it needs to be disposed of using `dispose`, which does nothing once it
-has been consumed.
+the JIT; otherwise, it needs to be disposed of using `dispose` or the do-block form of the
+constructor, which do nothing once it has been consumed.
 """
 mutable struct ObjectLinkingLayer
     ref::API.LLVMOrcObjectLayerRef
@@ -166,6 +170,9 @@ function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_tr
     end
     ObjectLinkingLayer(ref)
 end
+
+ObjectLinkingLayer(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, ObjectLinkingLayer(args...; kwargs...))
 
 # LLVMOrcDisposeObjectLayer leaves the layer registered with its execution session (#629)
 dispose(oll::ObjectLinkingLayer) =
@@ -469,13 +476,17 @@ current process, or in the dynamic library at `path`. That library is loaded whe
 the generator, and stays loaded for the remainder of the process.
 
 The generator is specific to the target of `jit`, whose linker mangling it undoes before
-looking up symbols.
+looking up symbols. The do-block form disposes of the generator afterwards, unless it was
+added to a JITDylib.
 """
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}) =
     process_search_generator(global_prefix(jit))
 
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}, path::AbstractString) =
     library_search_generator(path, global_prefix(jit))
+
+DynamicLibrarySearchGenerator(f::Core.Function, args...) =
+    with_disposal(f, DynamicLibrarySearchGenerator(args...))
 
 function process_search_generator(prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
@@ -690,14 +701,8 @@ function ResourceTracker(jd::JITDylib)
     mark_alloc(ResourceTracker(API.LLVMOrcJITDylibCreateResourceTracker(jd)))
 end
 
-function ResourceTracker(f::Core.Function, jd::JITDylib)
-    rt = ResourceTracker(jd)
-    try
-        f(rt)
-    finally
-        dispose(rt)
-    end
-end
+ResourceTracker(f::Core.Function, jd::JITDylib) =
+    with_disposal(f, ResourceTracker(jd))
 
 function default_resource_tracker(jd::JITDylib)
     # contrary to its documentation, LLVMOrcJITDylibGetDefaultResourceTracker does not
@@ -1249,14 +1254,19 @@ Base.unsafe_convert(::Type{API.LLVMOrcIndirectStubsManagerRef}, ism::IndirectStu
 
 """
     LocalIndirectStubsManager(triple)
+    LocalIndirectStubsManager(f, triple)
 
 Create a manager of indirect stubs for the current process, as used by
-[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`, or by using the
+do-block form, after the last call of a stub it manages.
 """
 function LocalIndirectStubsManager(triple)
     ref = API.LLVMOrcCreateLocalIndirectStubsManager(triple)
     IndirectStubsManager(ref)
 end
+
+LocalIndirectStubsManager(f::Core.Function, triple) =
+    with_disposal(f, LocalIndirectStubsManager(triple))
 
 function dispose(ism::IndirectStubsManager)
     API.LLVMOrcDisposeIndirectStubsManager(ism)
@@ -1269,15 +1279,20 @@ Base.unsafe_convert(::Type{API.LLVMOrcLazyCallThroughManagerRef}, lcm::LazyCallT
 
 """
     LocalLazyCallThroughManager(triple, es::ExecutionSession)
+    LocalLazyCallThroughManager(f, triple, es::ExecutionSession)
 
 Create a manager of lazy call-throughs for the current process, as used by
-[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`, or by using the
+do-block form, after the last call of a stub that uses it.
 """
 function LocalLazyCallThroughManager(triple, es)
     ref = Ref{API.LLVMOrcLazyCallThroughManagerRef}()
     @check API.LLVMOrcCreateLocalLazyCallThroughManager(triple, es, C_NULL, ref)
     LazyCallThroughManager(ref[])
 end
+
+LocalLazyCallThroughManager(f::Core.Function, triple, es) =
+    with_disposal(f, LocalLazyCallThroughManager(triple, es))
 
 function dispose(lcm::LazyCallThroughManager)
     API.LLVMOrcDisposeLazyCallThroughManager(lcm)

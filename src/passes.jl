@@ -184,11 +184,12 @@ end
 
 """
     PassBuilder(; verify_each=false, debug_logging=false, pipeline_tuning_kwargs...)
+    PassBuilder(f; kwargs...)
 
 Create a new pass builder. The pass builder is the main object used to construct and run
 pass pipelines. The `verify_each` keyword argument enables module verification after each
-pass, while `debug_logging` can be used to enable more output. Pass builder objects needs to
-be disposed after use.
+pass, while `debug_logging` can be used to enable more output. Pass builder objects need to
+be disposed of after use, e.g., using `@dispose` or the do-block form.
 
 Several other keyword arguments can be used to tune the pipeline. This only has an effect
 when using one of LLVM's default pipelines, like `default<O3>`:
@@ -282,6 +283,8 @@ function PassBuilder(; kwargs...)
 
     return obj
 end
+
+PassBuilder(f::Core.Function; kwargs...) = with_disposal(f, PassBuilder(; kwargs...))
 
 function dispose(pb::PassBuilder)
     API.LLVMDisposePassBuilderOptions(pb.opts)

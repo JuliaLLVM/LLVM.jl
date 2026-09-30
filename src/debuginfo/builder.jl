@@ -55,14 +55,8 @@ function dispose(builder::DIBuilder)
     mark_dispose(API.LLVMDisposeDIBuilder, builder)
 end
 
-function DIBuilder(f::Core.Function, args...; kwargs...)
-    builder = DIBuilder(args...; kwargs...)
-    try
-        f(builder)
-    finally
-        dispose(builder)
-    end
-end
+DIBuilder(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, DIBuilder(args...; kwargs...))
 
 Base.show(io::IO, builder::DIBuilder) = @printf(io, "DIBuilder(%p)", builder.ref)
 

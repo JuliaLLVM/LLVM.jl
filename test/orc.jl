@@ -490,6 +490,39 @@ end
     end
 end
 
+@testset "do-block constructors" begin
+    # every resource can be disposed of using a do-block, also once it has been consumed
+    @test LLJITBuilder(builder -> 42) == 42
+    TargetMachineBuilder() do tmb
+        LLJITBuilder() do builder
+            target_machine_builder!(builder, tmb)
+            LLJIT(builder) do lljit
+                es = lljit.execution_session
+                ObjectLinkingLayer(oll -> nothing, es)
+                DynamicLibrarySearchGenerator(dg -> nothing, lljit)
+                DynamicLibrarySearchGenerator(lljit) do dg
+                    add!(lljit.main_dylib, dg)
+                end
+                @test pointer(lookup(lljit, "jl_apply_generic")) != C_NULL
+                LocalLazyCallThroughManager(lljit.triple, es) do lctm
+                    LocalIndirectStubsManager(lljit.triple) do ism
+                        @test lctm isa LLVM.LazyCallThroughManager
+                        @test ism isa LLVM.IndirectStubsManager
+                    end
+                end
+                ThreadSafeContext() do ts_ctx
+                    ThreadSafeModule("unused") do tsm
+                        @test tsm(mod -> mod.name) == "unused"
+                    end
+                    ThreadSafeModule("added") do tsm
+                        add!(lljit, lljit.main_dylib, tsm)
+                    end
+                end
+            end
+        end
+    end
+end
+
 @testset "Absolute symbols" begin
     @dispose lljit=LLJIT() begin
         jd = lljit.main_dylib

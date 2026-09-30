@@ -51,14 +51,8 @@ Dispose of the given target data layout.
 """
 dispose(dl::DataLayout) = mark_dispose(API.LLVMDisposeTargetData, dl)
 
-function DataLayout(f::Core.Function, args...; kwargs...)
-    dl = DataLayout(args...; kwargs...)
-    try
-        f(dl)
-    finally
-        dispose(dl)
-    end
-end
+DataLayout(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, DataLayout(args...; kwargs...))
 
 Base.string(dl::DataLayout) =
     unsafe_message(API.LLVMCopyStringRepOfTargetData(dl))

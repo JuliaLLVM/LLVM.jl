@@ -362,7 +362,18 @@ macro property(T, name, setter=nothing)
 end
 
 
-## helper macro for disposing resources without do-block syntax
+## disposing of resources
+
+# the do-block form of resource constructors, e.g., `Foo(f, args...) = with_disposal(f,
+# Foo(args...))`: call `f` with the resource, and dispose of it afterwards
+function with_disposal(f::F, x) where {F}
+    try
+        f(x)
+    finally
+        dispose(x)
+    end
+end
+
 
 export @dispose
 

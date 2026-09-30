@@ -323,14 +323,8 @@ function TemporaryMDNode(operands::AbstractVector=Metadata[])
     TemporaryMDNode{MDTuple}(API.LLVMTemporaryMDNode(context(), ops, length(ops)))
 end
 
-function TemporaryMDNode(f::Core.Function, args...)
-    temp = TemporaryMDNode(args...)
-    try
-        f(temp)
-    finally
-        dispose(temp)
-    end
-end
+TemporaryMDNode(f::Core.Function, args...) =
+    with_disposal(f, TemporaryMDNode(args...))
 
 function Base.show(io::IO, temp::TemporaryMDNode)
     print(io, typeof(temp), "(")

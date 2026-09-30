@@ -707,9 +707,18 @@ end
         dispose(rt1)
         dispose(rt2)
 
+        # released trackers can't be used anymore, and releasing them again does nothing
+        @test_throws ArgumentError remove!(rt1)
+        @dispose tsm=constant_module("unused", 0) begin
+            @test_throws ArgumentError add!(lljit, rt1, tsm)
+        end
+        dispose(rt1)
+
         # the default tracker tracks code added without an explicit tracker
         rt = jd.default_resource_tracker
         remove!(rt)
+        # which destroys it
+        @test_throws ArgumentError remove!(rt)
         dispose(rt)
         @test_throws LLVMException lookup(lljit, "untracked")
         @test_throws LLVMException lookup(lljit, "released")

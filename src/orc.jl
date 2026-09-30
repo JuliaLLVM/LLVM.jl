@@ -354,7 +354,8 @@ looked up and linked against.
 
 The resource tracker that tracks code added to the JITDylib without an explicit tracker.
 The tracker is owned by the JITDylib, so disposing of it is not required (and does
-nothing).
+nothing). Removing the tracker, or clearing the JITDylib, destroys it, so get it again
+afterwards.
 """
 @checked struct JITDylib
     ref::API.LLVMOrcJITDylibRef
@@ -657,13 +658,26 @@ cleared.
 See also: the [`default_resource_tracker`](@ref LLVM.JITDylib) property of a
 JITDylib.
 """
-@checked mutable struct ResourceTracker
+mutable struct ResourceTracker
     # mutable, so that the memory checker can tell multiple references apart
     ref::API.LLVMOrcResourceTrackerRef
     owned::Bool     # whether we hold a reference that needs to be released
+    borrowed::Bool  # whether the tracker is borrowed from its JITDylib (the default one)
+
+    function ResourceTracker(ref::API.LLVMOrcResourceTrackerRef; borrowed::Bool=false)
+        ref == C_NULL && throw(UndefRefError())
+        new(ref, !borrowed, borrowed)
+    end
 end
-ResourceTracker(ref::API.LLVMOrcResourceTrackerRef) = ResourceTracker(ref, true)
-Base.unsafe_convert(::Type{API.LLVMOrcResourceTrackerRef}, rt::ResourceTracker) = rt.ref
+
+function check_usable(rt::ResourceTracker)
+    rt.owned || rt.borrowed ||
+        throw(ArgumentError("This ResourceTracker has been disposed of"))
+    return mark_use(rt)
+end
+
+Base.unsafe_convert(::Type{API.LLVMOrcResourceTrackerRef}, rt::ResourceTracker) =
+    check_usable(rt).ref
 
 function ResourceTracker(jd::JITDylib)
     mark_alloc(ResourceTracker(API.LLVMOrcJITDylibCreateResourceTracker(jd)))
@@ -676,7 +690,7 @@ function default_resource_tracker(jd::JITDylib)
     # contrary to its documentation, LLVMOrcJITDylibGetDefaultResourceTracker does not
     # retain the tracker, so we should not release it either.
     # See https://github.com/llvm/llvm-project/issues/227221
-    ResourceTracker(API.LLVMOrcJITDylibGetDefaultResourceTracker(jd), false)
+    ResourceTracker(API.LLVMOrcJITDylibGetDefaultResourceTracker(jd); borrowed=true)
 end
 
 @property JITDylib default_resource_tracker
@@ -684,24 +698,28 @@ end
 """
     dispose(rt::ResourceTracker)
 
-Release a reference to the resource tracker `rt`. This does not remove the tracked code.
+Release a reference to the resource tracker `rt`, after which it can't be used anymore.
+This does not remove the tracked code. Disposing of a tracker again, or of the default
+tracker of a JITDylib, does nothing.
 """
-function dispose(rt::ResourceTracker)
-    rt.owned || return
-    mark_dispose(API.LLVMOrcReleaseResourceTracker, rt)
-end
+dispose(rt::ResourceTracker) = dispose_owned(API.LLVMOrcReleaseResourceTracker, rt)
 
 """
     remove!(rt::ResourceTracker)
 
 Remove all code and data tracked by `rt` from the JIT. The tracker becomes defunct, and
-cannot be used to add code anymore (but still needs to be disposed of).
+cannot be used to add code anymore (but still needs to be disposed of). Removing the
+default tracker of a JITDylib destroys it, so it can't be used anymore; the JITDylib then
+creates a new default tracker when needed.
 
 It is the caller's responsibility to ensure that the removed code is not executing, and
 that no pointers into it are used anymore.
 """
 function remove!(rt::ResourceTracker)
-    @check API.LLVMOrcResourceTrackerRemove(rt)
+    err = API.LLVMOrcResourceTrackerRemove(rt)
+    # the JITDylib releases its default tracker when removing it (even if that fails)
+    rt.borrowed = false
+    @check err
     return
 end
 
@@ -717,6 +735,7 @@ function transfer!(dst::ResourceTracker, src::ResourceTracker)
 end
 
 function add!(lljit::LLJIT, rt::ResourceTracker, obj::MemoryBuffer)
+    check_usable(rt)
     # consumed, even on failure
     err = API.LLVMOrcLLJITAddObjectFileWithRT(lljit, rt, consume!(obj))
     @check err
@@ -724,6 +743,7 @@ function add!(lljit::LLJIT, rt::ResourceTracker, obj::MemoryBuffer)
 end
 
 function add!(lljit::LLJIT, rt::ResourceTracker, mod::ThreadSafeModule)
+    check_usable(rt)
     # consumed, even on failure
     err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, consume!(mod))
     @check err

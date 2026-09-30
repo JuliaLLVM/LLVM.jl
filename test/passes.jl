@@ -304,6 +304,25 @@ end
     end
 end
 
+@testset "internalize" begin
+    # preserving global values requires LLVM 19 (or Julia's LLVM 18), but works on all versions
+    ir = """
+        @g = global i32 0
+        define void @f() {
+          ret void
+        }
+        define void @h() {
+          ret void
+        }"""
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+        run!(InternalizePass(; preserved_gvs=["f", "g"]), mod)
+        @test mod.functions["f"].linkage == LLVM.Linkage.External
+        @test mod.globals["g"].linkage == LLVM.Linkage.External
+        @test mod.functions["h"].linkage == LLVM.Linkage.Internal
+        verify(mod)
+    end
+end
+
 @testset "custom TTI" begin
     # IR with an `addrspacecast` from AS 2 to the generic AS. With no TTI
     # attached, `InferAddressSpacesPass` has no flat AS to infer against and

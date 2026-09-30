@@ -733,6 +733,9 @@ end
 @function_pass "view-dom-only" DomOnlyViewer
 @function_pass "view-post-dom" PostDomViewer
 @function_pass "view-post-dom-only" PostDomOnlyViewer
+# LLVM only registers this pass since LLVM 21, but LLVMExtra makes it available on all
+# supported versions
+@function_pass "expand-reductions" ExpandReductionsPass
 @function_pass "fix-irreducible" FixIrreduciblePass
 @static if version() < v"19"
     @function_pass "flattencfg" FlattenCFGPass

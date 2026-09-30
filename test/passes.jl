@@ -273,6 +273,35 @@ end
     end
 end
 
+@testset "expand reductions" begin
+    # the pass is only registered by LLVM since LLVM 21, but works on all versions
+    ir = """
+        define i32 @f(<4 x i32> %v) {
+          %r = call i32 @llvm.vector.reduce.add.v4i32(<4 x i32> %v)
+          ret i32 %r
+        }
+        declare i32 @llvm.vector.reduce.add.v4i32(<4 x i32>)"""
+    @dispose ctx=Context() begin
+        # on a function, and as part of a module pipeline (using the generic TTI, which
+        # asks for reductions to be expanded)
+        @dispose mod=parse(LLVM.Module, ir) begin
+            @test run!(ExpandReductionsPass(), mod.functions["f"]) === nothing
+            @test !occursin("vector.reduce", string(mod.functions["f"]))
+            verify(mod)
+        end
+        @dispose mod=parse(LLVM.Module, ir) begin
+            @dispose pb=PassBuilder() begin
+                add!(pb, FunctionPassManager()) do fpm
+                    add!(fpm, ExpandReductionsPass())
+                end
+                run!(pb, mod)
+            end
+            @test !occursin("vector.reduce", string(mod.functions["f"]))
+            verify(mod)
+        end
+    end
+end
+
 @testset "custom TTI" begin
     # IR with an `addrspacecast` from AS 2 to the generic AS. With no TTI
     # attached, `InferAddressSpacesPass` has no flat AS to infer against and

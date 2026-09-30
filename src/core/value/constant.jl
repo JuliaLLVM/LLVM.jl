@@ -429,6 +429,31 @@ ConstantDataArray(data::AbstractVector{Float32}) =
 ConstantDataArray(data::AbstractVector{Float16}) =
     ConstantDataArray(HalfType(), data)
 
+@vocabulary IR isstring
+
+"""
+    isstring(val::Value)
+
+Check whether the given value is a constant string, i.e., a constant array of `i8`
+values, like C++'s `ConstantDataSequential::isString`. Its contents can be retrieved using
+[`String`](@ref String(::ConstantDataArray)).
+"""
+isstring(val::Value) = val isa ConstantDataArray && Bool(API.LLVMIsConstantString(val))
+
+"""
+    String(str::ConstantDataArray)
+
+Get the contents of a constant string, like C++'s `ConstantDataSequential::getAsString`.
+This includes all NUL characters, e.g., the one that terminates a C string. Throws an
+`ArgumentError` if the array is not a string; see [`isstring`](@ref).
+"""
+function Base.String(str::ConstantDataArray)
+    isstring(str) || throw(ArgumentError("Constant array of type $(value_type(str)) is not a string"))
+    len = Ref{Csize_t}()
+    data = API.LLVMGetAsString(str, len)
+    return unsafe_string(convert(Ptr{UInt8}, data), len[])
+end
+
 """
     ConstantDataVector <: LLVM.ConstantDataSequential
 

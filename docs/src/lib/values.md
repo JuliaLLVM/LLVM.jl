@@ -36,6 +36,8 @@ ConstantStruct
 ConstantDataArray
 ConstantDataArray(::LLVMType, ::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
 ConstantDataArray(::AbstractVector)
+isstring
+String(::ConstantDataArray)
 ConstantDataVector
 ConstantArray
 ConstantArray(::LLVMType, ::AbstractArray{<:LLVM.Constant,N}) where {N}

@@ -651,6 +651,16 @@ end
         @test collect(cda) == ConstantInt.(vec)
     end
 
+    # strings
+    let
+        str = ConstantDataArray(codeunits("hello\0"))
+        @test isstring(str)
+        @test String(str) == "hello\0"
+        @test !isstring(ConstantDataArray(Int32[1, 2]))
+        @test_throws ArgumentError String(ConstantDataArray(Int32[1, 2]))
+        @test !isstring(ConstantInt(Int8(1)))
+    end
+
     # from Julia values
     for T in [Int8, Int16, Int32, Int64]
         vec = T[1,2,3,4]

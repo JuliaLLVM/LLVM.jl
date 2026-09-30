@@ -182,6 +182,44 @@ Insertion points:
   is always its literal end, so records can't be inserted after a terminator; before,
   `declare_at_end!` inserted before the terminator and `value_at_end!` after it.
 
+Debug information:
+
+- `DISubProgram` is renamed to `DISubprogram`, LLVM's spelling, and is a `DILocalScope`,
+  like the lexical blocks. `DILocalScope` is public, and locations (`DILocation`), local
+  variables (`auto_variable!`, `parameter_variable!`), lexical blocks and labels require
+  one, as LLVM does, instead of accepting any `DIScope` (e.g., a file or compile unit,
+  which fails to verify).
+- The scope of other declarations (types, subprograms, global variables, namespaces,
+  modules and imported entities) can be `nothing`, for a declaration at the top level.
+  `scope.file` is `nothing` for a scope without a file instead of throwing, and assigning
+  `nothing` to `f.subprogram` removes the subprogram of a function.
+- Temporary metadata nodes are owned by a `TemporaryMDNode` handle, which other metadata
+  refers to as `temp.node`, and that is consumed by replacing the node with
+  `replace_temporary!(temp, node)` or by disposing of it. `TemporaryMDNode(operands)`
+  (with do-block and `@dispose` support) replaces `temporary_mdnode`, `dispose(temp)`
+  replaces `dispose_temporary`, and `replace_temporary!` replaces
+  `replace_uses!(temp, node)`, which accepted any metadata. `replaceable_composite_type!`
+  and `temp_global_variable_fwd_decl!` return a `TemporaryMDNode` too, which has to be
+  replaced or disposed of before the `DIBuilder` is finalized.
+- `imported_module!` replaces `imported_module_from_namespace!`,
+  `imported_module_from_module!` and `imported_module_from_alias!`, depending on the type
+  of what is imported. `enumerator!` accepts a `size_in_bits` keyword for arbitrary-precision
+  enumerators (on LLVM 21 and later), replacing `enumerator_arbitrary!`, and throws an
+  `ArgumentError` for values that don't fit, while it used to throw an `InexactError` for
+  unsigned values above `typemax(Int64)`, even with `unsigned=true`. `get_or_create_subrange!` is renamed to `subrange!`, and
+  `MDTuple(elements)` (or `MDNode(elements)`) replaces `get_or_create_array!` and
+  `get_or_create_type_array!`.
+- Optional arguments of the `DIBuilder` functions are keywords, with consistent names:
+  `subprogram!` takes `local_to_unit`, `definition` and `optimized` (instead of
+  `is_local_to_unit`, `is_definition` and `is_optimized`), `global_variable_expression!`
+  and `temp_global_variable_fwd_decl!` take `local_to_unit` as a keyword instead of a
+  positional argument, as do `lexical_block_file!` its `discriminator`, `inheritance!` its
+  `vbptr_offset`, and the `imported_*!` functions their `elements`. The `class_ty` of
+  `enumeration_type!` is renamed to `underlying_type`, and `subrange_type!` and
+  `dynamic_array_type!` take their file before their line, like the other functions.
+  `subroutine_type!` accepts `nothing` as a parameter type, for variadic subroutines, and
+  rejects parameter types that aren't `DIType`s, which LLVM doesn't check.
+
 Types, constants and data layouts:
 
 - LLVM types and constants no longer implement Base's collection functions, which

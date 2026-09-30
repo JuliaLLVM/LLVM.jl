@@ -67,14 +67,8 @@ Dispose of the given target machine.
 """
 dispose(tm::TargetMachine) = mark_dispose(API.LLVMDisposeTargetMachine, tm)
 
-function TargetMachine(f::Core.Function, args...; kwargs...)
-    tm = TargetMachine(args...; kwargs...)
-    try
-        f(tm)
-    finally
-        dispose(tm)
-    end
-end
+TargetMachine(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, TargetMachine(args...; kwargs...))
 
 target(tm::TargetMachine) = Target(API.LLVMGetTargetMachineTarget(tm))
 
@@ -198,11 +192,5 @@ function JITTargetMachine(; triple::String=LLVM.default_triple(), cpu::String=""
                   code = API.LLVMCodeModelJITDefault) # Required to init TM as JIT
 end
 
-function JITTargetMachine(f::Core.Function; kwargs...)
-    tm = JITTargetMachine(; kwargs...)
-    try
-        f(tm)
-    finally
-        dispose(tm)
-    end
-end
+JITTargetMachine(f::Core.Function; kwargs...) =
+    with_disposal(f, JITTargetMachine(; kwargs...))

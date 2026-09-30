@@ -69,7 +69,7 @@ finalize_subprogram!(builder::DIBuilder, sp::DISubprogram) =
 
 @vocabulary Build replace_type!
 
-"""
+@doc """
     replace_type!(sp::DISubprogram, ty::DISubroutineType)
 
 Replace the type of the given subprogram. Requires LLVM 21+.

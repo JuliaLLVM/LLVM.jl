@@ -5,13 +5,23 @@
 ```@docs
 PassBuilder
 run!
+PassException
 ```
 
 ## Pass managers
 
 ```@docs
 LLVM.PassManager
-add!
+add!(::LLVM.AbstractPassManager, ::Any)
+```
+
+## Passes and pipelines
+
+The functions that return the names of LLVM's passes are listed on the [Passes](passes.md)
+page.
+
+```@docs
+DefaultPipeline
 ```
 
 ## Custom passes

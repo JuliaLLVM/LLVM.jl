@@ -138,15 +138,15 @@ julia> @code_native add(1,2)
 Julia's pointer type `Ptr` only keeps track of the element type, and not the address space.
 Julia has `Core.LLVMPtr` to track address space information, with the necessary codegen
 support, but no utility functions. LLVM.jl provides the functionality that's commonly needed
-when working with pointers. Since these are methods of Base functions like `unsafe_load`,
-they are available as soon as LLVM.jl is loaded, without having to import `LLVM.Interop`:
+when working with pointers. Most of it are methods of Base functions, which are available as
+soon as LLVM.jl is loaded, without having to import `LLVM.Interop`:
 
-- `pointerref`: get the value of memory, at a specific index, with specific alignment
-- `pointerset`: set the value of memory, at a specific index, with specific alignment
-- `unsafe_load` and `unsafe_store!`: higher-level versions of these functions
+- `unsafe_load(ptr, [i=1], [Val(align)])` and `unsafe_store!(ptr, x, [i=1], [Val(align)])`:
+  load or store the `i`th element, with the given alignment (1 by default)
 - basic pointer arithmetic: conversions to/from integers, addition, subtraction,
   comparison, etc.
-- `addrspacecast`: convert between pointers with different address spaces
+- `LLVM.Interop.addrspacecast(Core.LLVMPtr{T,AS}, ptr)`: convert between pointers with
+  different address spaces
 
 ```jldoctest
 julia> a = [1];

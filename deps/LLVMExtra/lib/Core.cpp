@@ -380,6 +380,20 @@ void LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
       ->setAutoClaimResponsibilityForObjectSymbols(AutoClaimObjectSymbols);
 }
 
+// Workaround: RTDyldObjectLinkingLayer registers itself as a resource manager of its
+// execution session, but unlike LinkGraphLinkingLayer, its destructor doesn't deregister
+// it, so the session calls into the destroyed layer when it ends. That's harmless when a
+// JIT owns the layer, as the JIT ends the session first, but not for a layer that was
+// never handed over to a JIT. See JuliaLLVM/LLVM.jl#629.
+void LLVMExtraDisposeRTDyldObjectLinkingLayer(LLVMOrcObjectLayerRef RTDyldObjLinkingLayer) {
+  auto *Layer = unwrapRTDyld(RTDyldObjLinkingLayer);
+  // ResourceManager is a private base of RTDyldObjectLinkingLayer, which only a C-style
+  // cast can convert to (this is well-defined for an unambiguous base, see [expr.cast])
+  Layer->getExecutionSession().deregisterResourceManager(
+      *(orc::ResourceManager *)Layer);
+  delete Layer;
+}
+
 // Mirrors LLJIT::createObjectLinkingLayer.
 void LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(
     LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, const char *TripleStr) {

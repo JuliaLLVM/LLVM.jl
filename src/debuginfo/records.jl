@@ -45,7 +45,7 @@ end
 
 @vocabulary IR DbgRecord
 
-"""
+@doc """
     DbgRecord
 
 A non-instruction debug record attached to a basic block, replacing the
@@ -264,7 +264,7 @@ end # @static version check
 @vocabulary IR DILabel
 @vocabulary Build label!, dbg_label!
 
-"""
+@doc """
     DILabel
 
 A debug-info label, describing a source-level code location by name.
@@ -275,7 +275,7 @@ Requires LLVM 20+.
 end
 register(DILabel, API.LLVMDILabelMetadataKind)
 
-"""
+@doc """
     label!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
            file::DIFile, line::Integer;
            always_preserve::Bool=false) -> DILabel
@@ -290,7 +290,7 @@ function label!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
         file, Cuint(line), always_preserve))
 end
 
-"""
+@doc """
     dbg_label!(builder::DIBuilder, label::DILabel, location::DILocation,
                pos::InsertionPoint{Instruction}) -> DbgRecord
 

@@ -22,6 +22,120 @@ position!(::Function, ::IRBuilder, ::InsertionPoint{Instruction})
 position!(::IRBuilder)
 ```
 
+### Arithmetic and logic
+
+```@docs
+add!(::IRBuilder, ::Value, ::Value)
+nswadd!
+nuwadd!
+fadd!
+sub!
+nswsub!
+nuwsub!
+fsub!
+mul!
+nswmul!
+nuwmul!
+fmul!
+udiv!
+exactudiv!
+sdiv!
+exactsdiv!
+fdiv!
+urem!
+srem!
+frem!
+neg!
+nswneg!
+fneg!
+shl!
+lshr!
+ashr!
+and!
+or!
+xor!
+not!
+binop!
+```
+
+### Conversions
+
+```@docs
+trunc!
+zext!
+sext!
+fptoui!
+fptosi!
+uitofp!
+sitofp!
+fptrunc!
+fpext!
+ptrtoint!
+inttoptr!
+bitcast!
+addrspacecast!
+zextorbitcast!
+sextorbitcast!
+truncorbitcast!
+pointercast!
+intcast!
+fpcast!
+cast!
+```
+
+### Comparisons and selection
+
+```@docs
+icmp!
+fcmp!
+select!
+phi!
+isnull!
+isnotnull!
+```
+
+### Memory
+
+```@docs
+gep!
+inbounds_gep!
+struct_gep!
+ptrdiff!
+malloc!
+array_malloc!
+free!
+memset!
+memcpy!
+memmove!
+globalstring!
+globalstring_ptr!
+```
+
+### Vectors
+
+```@docs
+extract_element!
+insert_element!
+shuffle_vector!
+```
+
+### Calls and control flow
+
+```@docs
+call!
+invoke!
+ret!
+br!
+switch!
+indirectbr!
+unreachable!
+resume!
+landingpad!
+va_arg!
+```
+
+The types of the instructions are listed on the [Instruction types](@ref) page.
+
 ## Insertion points
 
 ```@docs

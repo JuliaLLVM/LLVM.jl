@@ -33,6 +33,7 @@ Value(::Metadata)
 
 ```@docs
 NamedMDNode
+MDKind
 ```
 
 ## Debug information

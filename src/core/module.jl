@@ -155,14 +155,8 @@ not be used after this operation.
 """
 dispose(mod::Module) = mark_dispose(API.LLVMDisposeModule, mod)
 
-function Module(f::Core.Function, args...; kwargs...)
-    mod = Module(args...; kwargs...)
-    try
-        f(mod)
-    finally
-        dispose(mod)
-    end
-end
+Module(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, Module(args...; kwargs...))
 
 function Base.show(io::IO, mod::Module)
     print(io, "LLVM.Module(\"", name(mod), "\")")

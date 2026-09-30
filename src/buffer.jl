@@ -32,14 +32,8 @@ function MemoryBuffer(data::Vector{T}, name::String="", copy::Bool=true) where {
     mark_alloc(membuf)
 end
 
-function MemoryBuffer(f::Core.Function, args...; kwargs...)
-    membuf = MemoryBuffer(args...; kwargs...)
-    try
-        f(membuf)
-    finally
-        dispose(membuf)
-    end
-end
+MemoryBuffer(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, MemoryBuffer(args...; kwargs...))
 
 """
     MemoryBufferFile(path::String)
@@ -62,14 +56,8 @@ function MemoryBufferFile(path::String)
     mark_alloc(MemoryBuffer(out_ref[]))
 end
 
-function MemoryBufferFile(f::Core.Function, args...; kwargs...)
-    membuf = MemoryBufferFile(args...; kwargs...)
-    try
-        f(membuf)
-    finally
-        dispose(membuf)
-    end
-end
+MemoryBufferFile(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, MemoryBufferFile(args...; kwargs...))
 
 """
     dispose(membuf::MemoryBuffer)

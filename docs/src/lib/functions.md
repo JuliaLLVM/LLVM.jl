@@ -23,6 +23,8 @@ Attribute
 EnumAttribute(::Union{Symbol,String}, ::Integer)
 TypeAttribute(::Union{Symbol,String}, ::LLVMType)
 StringAttribute(::AbstractString, ::AbstractString)
+ConstantRangeAttribute
+ConstantRangeListAttribute
 ```
 
 ## Memory effects

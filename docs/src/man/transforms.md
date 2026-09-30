@@ -43,22 +43,26 @@ Refer to the `PassBuilder` docstring for more details.
 
 ## Passes
 
-In LLVM's new pass manager, passes are simply strings, as shown above. In LLVM.jl, we also
-expose objects for each pass, which helps to avoid typos in pass names, and simplifies
-passing arguments to the pass.
+In LLVM's new pass manager, passes are simply strings, as shown above. LLVM.jl also provides
+a function for each pass that returns its string, which helps to avoid typos in pass names,
+and turns keyword arguments into the pass's options.
 
-The `loop-unroll` pass from above, for example, can also be constructed using the
-`LoopUnrollPass` object, which simplifies setting options for the pass:
+The `loop-unroll` pass from above, for example, can also be written using the
+`LoopUnrollPass` function:
 
 ```jldoctest
+julia> LoopUnrollPass(; partial=true)
+"loop-unroll<O0;partial>"
+
 julia> run!(LoopUnrollPass(; partial=true), mod)
 ```
 
+Custom passes implemented in Julia, on the other hand, are objects (see below).
+
 ### Pipelines
 
-Pipelines, such as LLVM's default pipeline, are similarly represented by either strings
-(`"default"`), or objects (`DefaultPipeline`), both of which supporting options (resp.
-`"default<O3>"` and `DefaultPipeline(; opt_level=3)`).
+Pipelines, such as LLVM's default pipeline, are similarly strings (`"default<O3>"`), which
+functions like `DefaultPipeline(; opt_level=3)` can construct.
 
 LLVM's default pipeline doesn't support many options (as opposed to, e.g., Julia's
 pipeline). Instead, the pipeline can be tuned through pipeline tuning keyword arguments that
@@ -92,8 +96,8 @@ julia> @dispose pb=PassBuilder() begin
 
 When not specified, LLVM will use the default alias analyses passes when optimizing code.
 It is possible to customize this selection through the `AAManager` object. This object
-behaves like other pass managers, and alias analysis passes can similarly to regular passes
-be constructed by name or by object:
+behaves like other pass managers, and alias analysis passes can, like regular passes, be
+given by name or by using their functions (e.g., `BasicAA()`):
 
 ```jldoctest
 julia> @dispose pb=PassBuilder() begin

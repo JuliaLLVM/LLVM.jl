@@ -72,12 +72,15 @@ Base.unsafe_convert(::Type{API.LLVMDominatorTreeRef}, domtree::DomTree) =
 
 """
     DomTree(f::Function)
+    DomTree(callback, f::Function)
 
 Create a dominator tree for the function `f`.
 
-This object needs to be disposed of using [`dispose`](@ref).
+This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
 DomTree(f::Function) = mark_alloc(DomTree(API.LLVMCreateDominatorTree(f)))
+
+DomTree(callback::Core.Function, f::Function) = with_disposal(callback, DomTree(f))
 
 """
     dispose(::DomTree)
@@ -109,12 +112,15 @@ Base.unsafe_convert(::Type{API.LLVMPostDominatorTreeRef}, postdomtree::PostDomTr
 
 """
     PostDomTree(f::Function)
+    PostDomTree(callback, f::Function)
 
 Create a post-dominator tree for the function `f`.
 
-This object needs to be disposed of using [`dispose`](@ref).
+This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
 PostDomTree(f::Function) = mark_alloc(PostDomTree(API.LLVMCreatePostDominatorTree(f)))
+
+PostDomTree(callback::Core.Function, f::Function) = with_disposal(callback, PostDomTree(f))
 
 """
     dispose(tree::PostDomTree)

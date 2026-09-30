@@ -175,6 +175,10 @@ function LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(RTDyldObjLinkingLaye
     ccall((:LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, Cstring), RTDyldObjLinkingLayer, Triple)
 end
 
+function LLVMExtraDisposeRTDyldObjectLinkingLayer(RTDyldObjLinkingLayer)
+    ccall((:LLVMExtraDisposeRTDyldObjectLinkingLayer, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef,), RTDyldObjLinkingLayer)
+end
+
 @cenum LLVMCloneFunctionChangeType::UInt32 begin
     LLVMCloneFunctionChangeTypeLocalChangesOnly = 0
     LLVMCloneFunctionChangeTypeGlobalChanges = 1

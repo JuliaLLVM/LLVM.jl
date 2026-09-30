@@ -50,6 +50,14 @@ function kwargs_to_params(kwargs)
 end
 
 export JuliaPipeline
+"""
+    JuliaPipeline(; opt_level=nothing, options...) -> String
+
+Julia's optimization pipeline, as a string for use with [`add!`](@ref LLVM.add!) or
+[`run!`](@ref LLVM.run!), for the optimization level `opt_level` (Julia's default if
+`nothing`). Other keyword arguments become options of the pipeline, e.g.,
+`enable_vector_pipeline=false` or `enable_early_simplifications=false`.
+"""
 function JuliaPipeline(; opt_level=nothing, kwargs...)
     kwargs = Dict{Symbol, Any}(kwargs)
 

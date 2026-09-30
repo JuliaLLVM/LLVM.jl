@@ -53,7 +53,8 @@ target machines that compile code. The builder either targets the host, or is ba
 `tm`, taking ownership of it.
 
 The builder is consumed by [`target_machine_builder!`](@ref); otherwise, it needs to be
-disposed of using `dispose`, which does nothing once it has been consumed.
+disposed of using `dispose` or the do-block form, which do nothing once it has been
+consumed.
 """
 mutable struct TargetMachineBuilder
     ref::API.LLVMOrcJITTargetMachineBuilderRef
@@ -79,6 +80,9 @@ function TargetMachineBuilder(tm::TargetMachine)
     mark_dispose(tm)
     TargetMachineBuilder(tmb)
 end
+
+TargetMachineBuilder(f::Core.Function, args...) =
+    with_disposal(f, TargetMachineBuilder(args...))
 
 dispose(tmb::TargetMachineBuilder) =
     dispose_owned(API.LLVMOrcDisposeJITTargetMachineBuilder, tmb)
@@ -106,11 +110,22 @@ execution_session(lljit::LLJIT) =
 
 An object linking layer, based on RuntimeDyld, for use with
 [`linking_layer_creator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
+
+The layer is consumed by returning it from a linking layer creator, which hands it over to
+the JIT; otherwise, it needs to be disposed of using `dispose` or the do-block form of the
+constructor, which do nothing once it has been consumed.
 """
-@checked struct ObjectLinkingLayer
+mutable struct ObjectLinkingLayer
     ref::API.LLVMOrcObjectLayerRef
+    owned::Bool
+
+    function ObjectLinkingLayer(ref::API.LLVMOrcObjectLayerRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
 end
-Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) = oll.ref
+Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) =
+    check_owned(oll).ref
 
 """
     ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
@@ -156,9 +171,12 @@ function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_tr
     ObjectLinkingLayer(ref)
 end
 
-function dispose(oll::ObjectLinkingLayer)
-    API.LLVMOrcDisposeObjectLayer(oll)
-end
+ObjectLinkingLayer(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, ObjectLinkingLayer(args...; kwargs...))
+
+# LLVMOrcDisposeObjectLayer leaves the layer registered with its execution session (#629)
+dispose(oll::ObjectLinkingLayer) =
+    dispose_owned(API.LLVMExtraDisposeRTDyldObjectLinkingLayer, oll)
 
 function register!(oll::ObjectLinkingLayer, listener::JITEventListener)
     API.LLVMOrcRTDyldObjectLinkingLayerRegisterJITEventListener(oll, listener)
@@ -174,7 +192,7 @@ function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, trip
     ollc = Base.unsafe_pointer_to_objref(ctx)::ObjectLinkingLayerCreator
     try
         layer = ollc.cb(ExecutionSession(es), Base.unsafe_string(triple))::ObjectLinkingLayer
-        return layer.ref
+        return consume!(layer)  # the JIT takes ownership of the layer
     catch err
         _capture_callback_exception!(ollc, err)
         # The C callback has no error return. Give LLJIT a valid default layer
@@ -458,13 +476,17 @@ current process, or in the dynamic library at `path`. That library is loaded whe
 the generator, and stays loaded for the remainder of the process.
 
 The generator is specific to the target of `jit`, whose linker mangling it undoes before
-looking up symbols.
+looking up symbols. The do-block form disposes of the generator afterwards, unless it was
+added to a JITDylib.
 """
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}) =
     process_search_generator(global_prefix(jit))
 
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}, path::AbstractString) =
     library_search_generator(path, global_prefix(jit))
+
+DynamicLibrarySearchGenerator(f::Core.Function, args...) =
+    with_disposal(f, DynamicLibrarySearchGenerator(args...))
 
 function process_search_generator(prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
@@ -629,8 +651,8 @@ end
 # LLVMOrcLLJITAddObjectFileWithRT(J, RT, ObjBuffer)
 
 function add!(lljit::LLJIT, jd::JITDylib, mod::ThreadSafeModule)
-    err = API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, mod)
-    mark_dispose(mod)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, consume!(mod))
     @check err
     return
 end
@@ -679,14 +701,8 @@ function ResourceTracker(jd::JITDylib)
     mark_alloc(ResourceTracker(API.LLVMOrcJITDylibCreateResourceTracker(jd)))
 end
 
-function ResourceTracker(f::Core.Function, jd::JITDylib)
-    rt = ResourceTracker(jd)
-    try
-        f(rt)
-    finally
-        dispose(rt)
-    end
-end
+ResourceTracker(f::Core.Function, jd::JITDylib) =
+    with_disposal(f, ResourceTracker(jd))
 
 function default_resource_tracker(jd::JITDylib)
     # contrary to its documentation, LLVMOrcJITDylibGetDefaultResourceTracker does not
@@ -740,8 +756,8 @@ function add!(lljit::LLJIT, rt::ResourceTracker, obj::MemoryBuffer)
 end
 
 function add!(lljit::LLJIT, rt::ResourceTracker, mod::ThreadSafeModule)
-    err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, mod)
-    mark_dispose(mod)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, consume!(mod))
     @check err
     return
 end
@@ -860,9 +876,9 @@ end
 function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModuleRef},
                         mr::API.LLVMOrcMaterializationResponsibilityRef)
     state = Base.unsafe_pointer_to_objref(ctx)::IRTransform
+    tsm = ThreadSafeModule(unsafe_load(tsm_ref); borrowed=true)
     try
-        state.callback(ThreadSafeModule(unsafe_load(tsm_ref)),
-                       MaterializationResponsibility(mr, false))
+        state.callback(tsm, MaterializationResponsibility(mr, false))
         return API.LLVMErrorRef(C_NULL)
     catch err
         _capture_callback_exception!(state, err)
@@ -875,6 +891,9 @@ function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModul
             "unprintable $(typeof(err))"
         end
         return API.LLVMCreateStringError("exception in ORC IR transform: $msg")
+    finally
+        # the module is only borrowed for the duration of the transformation
+        tsm.borrowed = false
     end
 end
 
@@ -971,9 +990,9 @@ consumed; a responsibility that is borrowed, e.g., by an IR transformation, cann
 emitted.
 """
 function emit!(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    check_consumable(tsm)
     consume!(mr)
-    mark_dispose(tsm)
-    API.LLVMOrcIRTransformLayerEmit(il, mr, tsm)
+    API.LLVMOrcIRTransformLayerEmit(il, mr, consume!(tsm))
 end
 
 
@@ -1235,14 +1254,19 @@ Base.unsafe_convert(::Type{API.LLVMOrcIndirectStubsManagerRef}, ism::IndirectStu
 
 """
     LocalIndirectStubsManager(triple)
+    LocalIndirectStubsManager(f, triple)
 
 Create a manager of indirect stubs for the current process, as used by
-[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`, or by using the
+do-block form, after the last call of a stub it manages.
 """
 function LocalIndirectStubsManager(triple)
     ref = API.LLVMOrcCreateLocalIndirectStubsManager(triple)
     IndirectStubsManager(ref)
 end
+
+LocalIndirectStubsManager(f::Core.Function, triple) =
+    with_disposal(f, LocalIndirectStubsManager(triple))
 
 function dispose(ism::IndirectStubsManager)
     API.LLVMOrcDisposeIndirectStubsManager(ism)
@@ -1255,15 +1279,20 @@ Base.unsafe_convert(::Type{API.LLVMOrcLazyCallThroughManagerRef}, lcm::LazyCallT
 
 """
     LocalLazyCallThroughManager(triple, es::ExecutionSession)
+    LocalLazyCallThroughManager(f, triple, es::ExecutionSession)
 
 Create a manager of lazy call-throughs for the current process, as used by
-[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`, or by using the
+do-block form, after the last call of a stub that uses it.
 """
 function LocalLazyCallThroughManager(triple, es)
     ref = Ref{API.LLVMOrcLazyCallThroughManagerRef}()
     @check API.LLVMOrcCreateLocalLazyCallThroughManager(triple, es, C_NULL, ref)
     LazyCallThroughManager(ref[])
 end
+
+LocalLazyCallThroughManager(f::Core.Function, triple, es) =
+    with_disposal(f, LocalLazyCallThroughManager(triple, es))
 
 function dispose(lcm::LazyCallThroughManager)
     API.LLVMOrcDisposeLazyCallThroughManager(lcm)
@@ -1420,12 +1449,13 @@ function decorate_module(mod)
 end
 
 function add!(jljit::JuliaOJIT, jd::JITDylib, tsm::ThreadSafeModule)
+    check_consumable(tsm)
     # Julia's debug info expects certain symbols to be present
     tsm() do mod
         decorate_module(mod)
     end
-    err = API.JLJITAddLLVMIRModule(jljit, jd, tsm)
-    mark_dispose(tsm)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.JLJITAddLLVMIRModule(jljit, jd, consume!(tsm))
     @check err
     return
 end
@@ -1465,6 +1495,7 @@ Base.unsafe_convert(::Type{API.LLVMOrcIRCompileLayerRef}, il::IRCompileLayer) = 
 
 function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     mr.owned || throw(ArgumentError("cannot consume a materialization responsibility that was already consumed or that is borrowed"))
+    check_consumable(tsm)
     if il.jit isa JuliaOJIT
         # Julia's debug info expects certain symbols to be present
         tsm() do mod
@@ -1472,8 +1503,7 @@ function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::Threa
         end
     end
     consume!(mr)
-    mark_dispose(tsm)
-    API.LLVMOrcIRCompileLayerEmit(il, mr, tsm)
+    API.LLVMOrcIRCompileLayerEmit(il, mr, consume!(tsm))
 end
 
 ir_compile_layer(jljit::JuliaOJIT) = IRCompileLayer(API.JLJITGetIRCompileLayer(jljit), jljit)

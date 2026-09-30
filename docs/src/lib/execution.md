@@ -52,7 +52,7 @@ context(::ThreadSafeContext)
 dispose(::ThreadSafeContext)
 ThreadSafeModule
 ThreadSafeModule(::String)
-ThreadSafeModule(::Module)
+ThreadSafeModule(::LLVM.Module)
 dispose(::ThreadSafeModule)
 ```
 
@@ -66,6 +66,10 @@ linking_layer_creator!
 TargetMachineBuilder
 ObjectLinkingLayer
 ObjectLinkingLayer(::ExecutionSession, ::String)
+GDBRegistrationListener
+IntelJITEventListener
+OProfileJITEventListener
+PerfJITEventListener
 JuliaOJIT
 ExecutionSession
 ```

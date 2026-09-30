@@ -45,12 +45,25 @@ end
     ref::API.LLVMAttributeRef
 end
 
-# ConstantRange attribute kind (e.g. `range`, introduced in LLVM 17).
+"""
+    ConstantRangeAttribute <: Attribute
+    ConstantRangeAttribute(kind, nbits::Integer, lower::AbstractVector{UInt64},
+                           upper::AbstractVector{UInt64})
+
+An attribute whose value is a range of integers of `nbits` bits, like `range`, from
+`lower` (inclusive) to `upper` (exclusive), given as the 64-bit words of the bounds (least
+significant first). Creating one requires LLVM 19+.
+"""
 @checked struct ConstantRangeAttribute <: Attribute
     ref::API.LLVMAttributeRef
 end
 
-# ConstantRangeList attribute kind (e.g. `initializes`, introduced in LLVM 20).
+"""
+    ConstantRangeListAttribute <: Attribute
+
+An attribute whose value is a list of ranges of integers, like `initializes` (LLVM 20+).
+They can't be created using LLVM's C API.
+"""
 @checked struct ConstantRangeListAttribute <: Attribute
     ref::API.LLVMAttributeRef
 end

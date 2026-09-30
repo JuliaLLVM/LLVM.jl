@@ -1,5 +1,9 @@
 # Julia integration
 
+```@docs
+LLVM.Interop
+```
+
 ## Essentials
 
 ```@docs
@@ -26,6 +30,7 @@ LLVM.Interop.@asmcall
 
 ```@docs
 LLVM.Interop.@typed_ccall
+LLVM.Interop.addrspacecast
 ```
 
 ## LLVM intrinsics
@@ -33,4 +38,23 @@ LLVM.Interop.@typed_ccall
 ```@docs
 LLVM.Interop.trap
 LLVM.Interop.assume
+```
+
+## Type-based alias analysis
+
+```@docs
+LLVM.Interop.tbaa_make_child
+LLVM.Interop.tbaa_addrspace
+```
+
+## Passes
+
+```@docs
+LLVM.Interop.JuliaPipeline
+```
+
+```@autodocs
+Modules = [LLVM.Interop]
+Filter = f -> any(((mod, name, kind),) -> mod === LLVM.Interop && getfield(mod, name) === f,
+                  LLVM.pass_functions)
 ```

@@ -435,6 +435,92 @@ end
 
     # unused builders need to be disposed of
     @dispose builder=LLJITBuilder() tmb=TargetMachineBuilder() begin end
+
+    # thread-safe modules are consumed by adding them to a JIT
+    function constant_module(name)
+        tsm = ThreadSafeModule("jit")
+        tsm() do mod
+            fn = LLVM.Function(mod, name, LLVM.FunctionType(LLVM.Int32Type()))
+            @dispose builder=IRBuilder() begin
+                position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
+                ret!(builder, ConstantInt(Int32(42)))
+            end
+        end
+        tsm
+    end
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        jd = lljit.main_dylib
+        tsm = constant_module("consumed")
+        add!(lljit, jd, tsm)
+        @test_throws ArgumentError add!(lljit, jd, tsm)
+        @test_throws ArgumentError tsm(mod -> nothing)
+        dispose(tsm)    # does nothing
+        @dispose tsm=constant_module("scoped") begin
+            add!(lljit, jd, tsm)
+        end
+        @test ccall(pointer(lookup(lljit, "scoped")), Int32, ()) == 42
+
+        # the modules that IR transformations receive are borrowed
+        borrowed = Ref{Any}(nothing)
+        transform!(lljit.ir_transform_layer) do tsm, mr
+            borrowed[] = tsm
+            @test tsm(mod -> mod isa LLVM.Module)
+            @test_throws ArgumentError dispose(tsm)
+            @test_throws ArgumentError add!(lljit, jd, tsm)
+        end
+        add!(lljit, jd, constant_module("transformed"))
+        @test ccall(pointer(lookup(lljit, "transformed")), Int32, ()) == 42
+        # and only during the transformation
+        @test_throws ArgumentError borrowed[](mod -> nothing)
+    end
+
+    # object linking layers are consumed by returning them from a creator
+    layer = Ref{Any}(nothing)
+    builder = LLJITBuilder()
+    linking_layer_creator!(builder) do es, triple
+        layer[] = ObjectLinkingLayer(es, triple)
+    end
+    @dispose lljit=LLJIT(builder) begin
+        @test layer[] isa ObjectLinkingLayer
+        @test_throws ArgumentError register!(layer[], GDBRegistrationListener())
+        dispose(layer[])    # does nothing
+    end
+    @dispose lljit=LLJIT() begin
+        @dispose oll=ObjectLinkingLayer(lljit.execution_session) begin end
+    end
+end
+
+@testset "do-block constructors" begin
+    # every resource can be disposed of using a do-block, also once it has been consumed
+    @test LLJITBuilder(builder -> 42) == 42
+    TargetMachineBuilder() do tmb
+        LLJITBuilder() do builder
+            target_machine_builder!(builder, tmb)
+            LLJIT(builder) do lljit
+                es = lljit.execution_session
+                ObjectLinkingLayer(oll -> nothing, es)
+                DynamicLibrarySearchGenerator(dg -> nothing, lljit)
+                DynamicLibrarySearchGenerator(lljit) do dg
+                    add!(lljit.main_dylib, dg)
+                end
+                @test pointer(lookup(lljit, "jl_apply_generic")) != C_NULL
+                LocalLazyCallThroughManager(lljit.triple, es) do lctm
+                    LocalIndirectStubsManager(lljit.triple) do ism
+                        @test lctm isa LLVM.LazyCallThroughManager
+                        @test ism isa LLVM.IndirectStubsManager
+                    end
+                end
+                ThreadSafeContext() do ts_ctx
+                    ThreadSafeModule("unused") do tsm
+                        @test tsm(mod -> mod.name) == "unused"
+                    end
+                    ThreadSafeModule("added") do tsm
+                        add!(lljit, lljit.main_dylib, tsm)
+                    end
+                end
+            end
+        end
+    end
 end
 
 @testset "Absolute symbols" begin

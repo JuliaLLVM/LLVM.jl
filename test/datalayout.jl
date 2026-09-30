@@ -17,6 +17,10 @@ end
 
     @test dl.byteorder == LLVM.API.LLVMBigEndian
     @test LLVM.pointersize(dl) == LLVM.pointersize(dl, 0) == 4
+    @test LLVM.pointersize(dl) isa Int
+    LLVM.DataLayout("e-p:32:32-p1:64:64") do dl
+        @test LLVM.pointersize(dl, 1) == 8
+    end
 
     @test LLVM.intptr(dl) == LLVM.intptr(dl, 0) == LLVM.Int32Type()
 

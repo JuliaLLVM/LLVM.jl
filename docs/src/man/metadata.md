@@ -148,7 +148,16 @@ This information can be used by debuggers to provide a better debugging experien
 
 Debug information is created with a `DIBuilder`, whose functions (`file!`,
 `compile_unit!`, `subprogram!`, `basic_type!`, `auto_variable!`, `dbg_value!`, ...) are
-part of the `LLVM.Build` vocabulary, and listed in the reference.
+part of the `LLVM.Build` vocabulary, and listed in the reference. Disposing of the builder
+finalizes the debug info; call `finalize!` to do so earlier, e.g., before emitting code.
+Types that refer to themselves are built using temporary nodes (e.g.,
+`replaceable_composite_type!`), which are `TemporaryMDNode`s that need to be replaced with
+`replace_temporary!` before the builder is finalized.
+
+`dbg_declare!` and `dbg_value!` describe the location of a source variable at an insertion
+point. Since LLVM 19, that information is stored in debug records attached to instructions
+(`inst.debug_records`, which contains `DbgRecord`s); older versions of LLVM use calls to
+the `llvm.dbg.*` intrinsics instead.
 
 LLVM represents debug information as a variety of `DI`-prefixed structures, which are
 subtypes of the above metadata types. In LLVM.jl, these structures expose their contents
@@ -164,8 +173,8 @@ as properties:
   lexical blocks in them are `DILocalScope`s, the scopes of locations and local variables
 - `DIGlobalVariableExpression`: `variable`, `expression`
 
-To query the debug info attached to an instruction, one queries the `!dbg` metadata using
-`inst.metadata["dbg"]`.
+The debug location of an instruction is its `inst.debug_location` property, which is also
+available as its `!dbg` metadata, `inst.metadata["dbg"]`.
 
 ```@meta
 DocTestSetup = quote

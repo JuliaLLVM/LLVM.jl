@@ -82,6 +82,9 @@ end
         @test  dominates(domtree, allocinst3, retinst3)
     end
 
+    @test DomTree(dt -> dominates(dt, allocinst1, brinst), fn)
+
+    @test PostDomTree(pdt -> dominates(pdt, brinst, allocinst1), fn)
     @dispose postdomtree = PostDomTree(fn) begin
         @test !dominates(postdomtree, allocinst1, brinst)
         @test !dominates(postdomtree, allocinst1, retinst2)

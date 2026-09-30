@@ -243,6 +243,12 @@ ORC:
   isn't one of the unit's symbols or isn't `materialization_side_effects_only`, absolute
   symbols that are `materialization_side_effects_only`, and lazy reexports that aren't
   callable.
+- Thread-safe modules and object linking layers keep track of being consumed too (by
+  `add!` and `emit!`, and by being returned from a linking layer creator). The thread-safe
+  modules that an IR transformation receives are borrowed: they can't be consumed or
+  disposed of, and can't be used after the transformation returns. Disposing of an object
+  linking layer that wasn't handed over to a JIT no longer crashes when the execution
+  session ends, which works around an LLVM bug (#629) using a new LLVMExtra function.
 
 Targets and execution engines:
 
@@ -327,6 +333,14 @@ Attributes:
 
 New functionality:
 
+- The remaining resources can be created with a do-block that disposes of them
+  afterwards, like the other ones: `PassBuilder`, `DomTree`, `PostDomTree`, `LLJITBuilder`,
+  `TargetMachineBuilder`, `ObjectLinkingLayer`, `DynamicLibrarySearchGenerator`,
+  `LocalIndirectStubsManager`, `LocalLazyCallThroughManager` and `ThreadSafeModule`.
+- `LLVM.Interop.addrspacecast`, which the manual already described, is exported.
+- Every public name is documented, including the functions that return the names of
+  passes, the instruction types, the instruction builders and the constant expressions.
+
 - `get(mod.functions, name, default)`, and similarly for global variables, aliases and
   ifuncs, looks up a value without throwing. `get!(f, mod.functions, name)` looks up a
   function, or calls `f` to declare it (e.g., using a do-block that also adds attributes),
@@ -371,6 +385,10 @@ New functionality:
 
 Bug fixes:
 
+- `LLVM.pointersize` returns an `Int`, like the other size queries of data layouts,
+  instead of a `Cuint`.
+- The docstrings of debug info functionality that is only defined for some versions of
+  LLVM, like `DbgRecord` and `DILabel`, are no longer dropped.
 - Running a `PassBuilder` with custom passes multiple times no longer uses the
   callbacks, and garbage-collected state, of the first run.
 - Array types with 2^32 or more elements can be created, and their `length` is correct

@@ -74,14 +74,8 @@ function dispose(ctx::Context)
     mark_dispose(leak ? Returns(nothing) : API.LLVMContextDispose, ctx)
 end
 
-function Context(f::Core.Function; kwargs...)
-    ctx = Context(; kwargs...)
-    try
-        f(ctx)
-    finally
-        dispose(ctx)
-    end
-end
+Context(f::Core.Function; kwargs...) =
+    with_disposal(f, Context(; kwargs...))
 
 function Base.show(io::IO, ctx::Context)
     @printf(io, "LLVM.Context(%p", ctx.ref)

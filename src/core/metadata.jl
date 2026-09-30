@@ -323,14 +323,8 @@ function TemporaryMDNode(operands::AbstractVector=Metadata[])
     TemporaryMDNode{MDTuple}(API.LLVMTemporaryMDNode(context(), ops, length(ops)))
 end
 
-function TemporaryMDNode(f::Core.Function, args...)
-    temp = TemporaryMDNode(args...)
-    try
-        f(temp)
-    finally
-        dispose(temp)
-    end
-end
+TemporaryMDNode(f::Core.Function, args...) =
+    with_disposal(f, TemporaryMDNode(args...))
 
 function Base.show(io::IO, temp::TemporaryMDNode)
     print(io, typeof(temp), "(")
@@ -414,6 +408,16 @@ end
                MD_section_prefix = 20,
                MD_absolute_symbol = 21,
                MD_associated = 22)
+
+"""
+    MDKind
+
+The kinds of metadata that LLVM knows about, like `MD_dbg` (for `!dbg`) or `MD_tbaa`, which
+index the metadata of instructions and global objects (`inst.metadata[MD_dbg]`) like the
+names of the kinds (`inst.metadata["dbg"]`).
+"""
+MDKind
+
 MDKind(name::String) = MDKind(API.LLVMGetMDKindIDInContext(context(), name, ncodeunits(name)))
 MDKind(kind::MDKind) = kind
 

@@ -51,14 +51,8 @@ Dispose of the given target data layout.
 """
 dispose(dl::DataLayout) = mark_dispose(API.LLVMDisposeTargetData, dl)
 
-function DataLayout(f::Core.Function, args...; kwargs...)
-    dl = DataLayout(args...; kwargs...)
-    try
-        f(dl)
-    finally
-        dispose(dl)
-    end
-end
+DataLayout(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, DataLayout(args...; kwargs...))
 
 Base.string(dl::DataLayout) =
     unsafe_message(API.LLVMCopyStringRepOfTargetData(dl))
@@ -74,10 +68,11 @@ byteorder(dl::DataLayout) = API.LLVMByteOrder(dl)
 """
     pointersize(dl::DataLayout, [addrspace::Integer])
 
-Get the pointer size of the target data layout.
+Get the size of pointers in the given address space (0 by default) for the target data
+layout, in bytes.
 """
 pointersize(dl::DataLayout, addrspace::Integer=0) =
-    API.LLVMPointerSizeForAS(dl, addrspace)
+    Int(API.LLVMPointerSizeForAS(dl, addrspace))
 
 """
     intptr(dl::DataLayout, [addrspace::Integer])

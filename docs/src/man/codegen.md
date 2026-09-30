@@ -61,7 +61,7 @@ With these objects, a number of APIs are available:
 - `target.description`: a textual description of the target
 - `LLVM.hasjit`: whether the target has a JIT
 - `LLVM.hastargetmachine`: whether the target has a target machine
-- `LLVM.hasasmparser`: whether the target has an assembly parser
+- `LLVM.hasasmbackend`: whether the target has an assembly backend, to emit object files
 
 
 ## Target machines

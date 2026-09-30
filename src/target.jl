@@ -1,7 +1,7 @@
 ## target
 
 @public Target,
-        hasjit, hastargetmachine, hasasmparser
+        hasjit, hastargetmachine, hasasmbackend
 
 """
     Target
@@ -77,11 +77,11 @@ Check if this target supports code generation.
 hastargetmachine(t::Target) = API.LLVMTargetHasTargetMachine(t) |> Bool
 
 """
-    hasasmparser(target::Target)
+    hasasmbackend(target::Target)
 
-Check if this target supports assembly parsing.
+Check if this target has an assembly backend, which emits object files.
 """
-hasasmparser(t::Target) = API.LLVMTargetHasAsmBackend(t) |> Bool
+hasasmbackend(t::Target) = API.LLVMTargetHasAsmBackend(t) |> Bool
 
 function Base.show(io::IO, ::MIME"text/plain", target::Target)
   print(io, "LLVM.Target($(name(target))): $(description(target))")

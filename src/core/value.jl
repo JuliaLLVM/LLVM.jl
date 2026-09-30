@@ -34,6 +34,12 @@ The context in which the value was created.
 The uses of the value, as a read-only view that can be iterated. Each [`LLVM.Use`](@ref)
 refers to the `user` that has the value as an operand. Since LLVM 21, constants like
 integers do not keep track of their uses, so their `uses` are always empty.
+
+    val.users
+
+The users of the value, i.e., the `user` of each of its `uses`, as a read-only view that
+can be iterated. Like C++'s `Value::users()`, a user that uses the value multiple times
+(e.g., `add %x, %x`) occurs multiple times.
 """
 abstract type Value end
 @properties Value
@@ -289,3 +295,20 @@ first_use(val::Value) = API.LLVMGetFirstUse(val)
 end
 
 Base.IteratorSize(::Type{ValueUseSet}) = Base.SizeUnknown()
+
+struct ValueUserSet
+    val::Value
+end
+
+users(val::Value) = ValueUserSet(val)
+
+@property Value users
+
+Base.eltype(::ValueUserSet) = User
+
+@inline function Base.iterate(iter::ValueUserSet, state=first_use(iter.val))
+    state == C_NULL ? nothing : (Value(API.LLVMGetUser(state))::User,
+                                 API.LLVMGetNextUse(state))
+end
+
+Base.IteratorSize(::Type{ValueUserSet}) = Base.SizeUnknown()

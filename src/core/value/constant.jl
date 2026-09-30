@@ -10,6 +10,21 @@ abstract type Constant <: User end
 
 unsafe_destroy!(constant::Constant) = API.LLVMDestroyConstant(constant)
 
+@vocabulary IR remove_dead_constant_users!
+
+"""
+    remove_dead_constant_users!(c::Constant)
+
+Remove the constants that use `c`, directly or transitively, but are not used themselves,
+like C++'s `Constant::removeDeadConstantUsers`. These are, e.g., constant expressions that
+remain after replacing or erasing the instructions that used them, and that keep `c` from
+being unused. `c` itself is not removed. Returns `c`.
+"""
+function remove_dead_constant_users!(c::Constant)
+    API.LLVMExtraRemoveDeadConstantUsers(c)
+    return c
+end
+
 # forward declarations
 # not part of a vocabulary, as it would clash with `Base.Module`
 @public Module

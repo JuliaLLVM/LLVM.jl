@@ -328,6 +328,31 @@ end
 
     replace_uses!(valueinst1, valueinst2)
     @test [use.user for use in valueinst2.uses] == [userinst]
+
+    # the users of a value, once per use
+    @test eltype(valueinst2.users) == LLVM.User
+    @test collect(valueinst2.users) == [userinst]
+    twice = mul!(builder, userinst, userinst)
+    @test collect(userinst.users) == [twice, twice]
+end
+
+# removing dead constant users
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    ce = const_addrspacecast(gv, LLVM.PointerType(LLVM.Int32Type(), 1))
+    @test collect(gv.users) == [ce]
+    @test remove_dead_constant_users!(gv) == gv
+    @test isempty(gv.users)
+
+    # constants that are used are kept
+    ce = const_addrspacecast(gv, LLVM.PointerType(LLVM.Int32Type(), 1))
+    other = GlobalVariable(mod, ce.value_type, "other")
+    other.initializer = ce
+    remove_dead_constant_users!(gv)
+    @test collect(gv.users) == [ce]
+
+    # constant data does not track its users since LLVM 21, which is fine
+    remove_dead_constant_users!(ConstantInt(Int32(42)))
 end
 
 # users

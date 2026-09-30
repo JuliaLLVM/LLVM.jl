@@ -73,8 +73,9 @@ instructions will go:
   `builder.insert_block`: the block it inserts into.
 
 The same insertion points are used to move instructions (`move!(inst, pos)`), basic blocks
-(`move!(bb, LLVM.after(other))`), functions and global variables, and to create basic blocks
-(`BasicBlock(LLVM.after(entry), "cont")`). An insertion point is resolved when it is
+(`move!(bb, LLVM.after(other))`), functions and global variables, to create basic blocks
+(`BasicBlock(LLVM.after(entry), "cont")`), and to insert debug records
+(`dbg_value!(dib, val, var, expr, loc, pos)`). An insertion point is resolved when it is
 created: `LLVM.after(inst)` is the position before the next instruction, or the end of the
 block if `inst` is the last one. Like an iterator, an insertion point becomes invalid when
 the instruction it inserts before is erased.

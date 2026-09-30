@@ -14,6 +14,7 @@
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
+#include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
 #if LLVM_VERSION_MAJOR >= 19
 #include <llvm/IR/DebugProgramInstruction.h>
@@ -1279,6 +1280,72 @@ LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before
   readInsertionPoint(B, It, Before, Head);
   return true;
 }
+
+#if LLVM_VERSION_MAJOR >= 19
+// insert a debug record using a DIBuilder function, which is passed the position
+template <typename InsertFn>
+static LLVMDbgRecordRef insertRecordAt(InsertFn Insert, LLVMBasicBlockRef BB,
+                                       LLVMValueRef Before, LLVMBool Head) {
+#if LLVM_VERSION_MAJOR >= 20
+  DbgInstPtr DbgInst = Insert(InsertPosition(insertionPoint(BB, Before, Head)));
+#else
+  // LLVM 19's DIBuilder only inserts before an instruction, or at the end of a block
+  // (before its terminator, but the caller checked that there is none)
+  DbgInstPtr DbgInst = Before ? Insert(unwrap<Instruction>(Before)) : Insert(unwrap(BB));
+#endif
+  // like the C API, this requires the new debug info format
+  assert(isa<DbgRecord *>(DbgInst) && "Function unexpectedly in old debug info format");
+  DbgRecord *DR = cast<DbgRecord *>(DbgInst);
+#if LLVM_VERSION_MAJOR < 20
+  // move the record in front of the other records at that position
+  if (Head) {
+    DR->removeFromParent();
+    unwrap(BB)->insertDbgRecordBefore(DR, insertionPoint(BB, Before, Head));
+  }
+#endif
+  return wrap(DR);
+}
+
+LLVMDbgRecordRef LLVMExtraDIBuilderInsertDeclareRecordAt(
+    LLVMDIBuilderRef Builder, LLVMValueRef Storage, LLVMMetadataRef VarInfo,
+    LLVMMetadataRef Expr, LLVMMetadataRef DL, LLVMBasicBlockRef BB, LLVMValueRef Before,
+    LLVMBool Head) {
+  return insertRecordAt(
+      [&](auto Pos) {
+        return unwrap(Builder)->insertDeclare(unwrap(Storage), unwrap<DILocalVariable>(VarInfo),
+                                              unwrap<DIExpression>(Expr),
+                                              unwrap<DILocation>(DL), Pos);
+      },
+      BB, Before, Head);
+}
+
+LLVMDbgRecordRef LLVMExtraDIBuilderInsertDbgValueRecordAt(
+    LLVMDIBuilderRef Builder, LLVMValueRef Val, LLVMMetadataRef VarInfo,
+    LLVMMetadataRef Expr, LLVMMetadataRef DL, LLVMBasicBlockRef BB, LLVMValueRef Before,
+    LLVMBool Head) {
+  return insertRecordAt(
+      [&](auto Pos) {
+        return unwrap(Builder)->insertDbgValueIntrinsic(
+            unwrap(Val), unwrap<DILocalVariable>(VarInfo), unwrap<DIExpression>(Expr),
+            unwrap<DILocation>(DL), Pos);
+      },
+      BB, Before, Head);
+}
+
+#if LLVM_VERSION_MAJOR >= 20
+LLVMDbgRecordRef LLVMExtraDIBuilderInsertLabelAt(LLVMDIBuilderRef Builder,
+                                                 LLVMMetadataRef LabelInfo,
+                                                 LLVMMetadataRef DL, LLVMBasicBlockRef BB,
+                                                 LLVMValueRef Before, LLVMBool Head) {
+  return insertRecordAt(
+      [&](auto Pos) {
+        return unwrap(Builder)->insertLabel(unwrap<DILabel>(LabelInfo),
+                                            unwrap<DILocation>(DL), Pos);
+      },
+      BB, Before, Head);
+}
+#endif
+#endif
 
 LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other) {
   return unwrap<Instruction>(Inst)->comesBefore(unwrap<Instruction>(Other));

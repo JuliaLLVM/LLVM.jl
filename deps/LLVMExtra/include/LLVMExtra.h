@@ -546,6 +546,24 @@ LLVMBasicBlockRef LLVMExtraGetInsertPoint(LLVMBuilderRef Builder, LLVMValueRef *
 // there is none (e.g., in a block that is terminated by a catchswitch)
 LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before,
                                       LLVMBool *Head);
+#if LLVM_VERSION_MAJOR >= 19
+// insert a debug record at an insertion point, which must not be the end of a terminated
+// block; requires the new debug info format
+LLVMDbgRecordRef LLVMExtraDIBuilderInsertDeclareRecordAt(
+    LLVMDIBuilderRef Builder, LLVMValueRef Storage, LLVMMetadataRef VarInfo,
+    LLVMMetadataRef Expr, LLVMMetadataRef DL, LLVMBasicBlockRef BB, LLVMValueRef Before,
+    LLVMBool Head);
+LLVMDbgRecordRef LLVMExtraDIBuilderInsertDbgValueRecordAt(
+    LLVMDIBuilderRef Builder, LLVMValueRef Val, LLVMMetadataRef VarInfo,
+    LLVMMetadataRef Expr, LLVMMetadataRef DL, LLVMBasicBlockRef BB, LLVMValueRef Before,
+    LLVMBool Head);
+#if LLVM_VERSION_MAJOR >= 20
+LLVMDbgRecordRef LLVMExtraDIBuilderInsertLabelAt(LLVMDIBuilderRef Builder,
+                                                 LLVMMetadataRef LabelInfo,
+                                                 LLVMMetadataRef DL, LLVMBasicBlockRef BB,
+                                                 LLVMValueRef Before, LLVMBool Head);
+#endif
+#endif
 
 // instructions
 LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other);

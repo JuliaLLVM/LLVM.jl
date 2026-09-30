@@ -300,8 +300,8 @@ end
             expr = LLVM.expression!(dib)
             loc = DILocation(2, 1, sp)
 
-            # declare_before!
-            declare_result = LLVM.declare_before!(dib, x_alloca, var, expr, loc, x_alloca)
+            # dbg_declare!
+            declare_result = dbg_declare!(dib, x_alloca, var, expr, loc, LLVM.after(x_alloca))
             if LLVM.version() >= v"19"
                 @test declare_result isa LLVM.DbgRecord
             else
@@ -326,14 +326,15 @@ end
             @test retinst.debug_location === nothing
             retinst.debug_location = loc
 
-            # value_before!
-            val_result = LLVM.value_before!(dib, r, var, expr, loc, retinst)
+            # dbg_value!
+            val_result = dbg_value!(dib, r, var, expr, loc, LLVM.before(retinst))
             if LLVM.version() >= v"19"
                 @test val_result isa LLVM.DbgRecord
                 @test collect(retinst.debug_records) == [val_result]
                 @test val_result.value == r
                 @test val_result.variable == var
-                @test isempty(r.debug_records)
+                # the declaration was at the end of the block, before `r` was added
+                @test collect(r.debug_records) == [declare_result]
             else
                 @test val_result isa Instruction
             end
@@ -352,6 +353,73 @@ end
         # the resulting module must be structurally valid — `verify` checks
         # that subprograms, scopes, locations and dbg records are well-formed
         @test LLVM.verify(mod) === nothing
+    end
+end
+
+@testset "debug record insertion" begin
+    DW_ATE_signed = 0x05
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+        DIBuilder(mod) do dib
+            file = LLVM.file!(dib, "test.jl", "/tmp")
+            LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia, file,
+                               "LLVM.jl Tests")
+            i64 = LLVM.basic_type!(dib, "Int64", 64, DW_ATE_signed)
+            stype = LLVM.subroutine_type!(dib, file, i64, LLVM.Metadata[i64])
+            sp = LLVM.subprogram!(dib, file, "f", file, 1, stype)
+            fn = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type()]))
+            fn.subprogram = sp
+            bb = BasicBlock(fn, "entry")
+            x = fn.parameters[1]
+            a_var = LLVM.auto_variable!(dib, sp, "a", file, 2, i64)
+            b_var = LLVM.auto_variable!(dib, sp, "b", file, 3, i64)
+            expr = LLVM.expression!(dib)
+            loc = DILocation(2, 1, sp)
+
+            position!(builder, LLVM.at_end(bb))
+            a = add!(builder, x, x)
+            # at the end of a block without terminator
+            r0 = dbg_value!(dib, a, a_var, expr, loc, LLVM.at_end(bb))
+            ret = ret!(builder, a)
+            # but not after a terminator
+            @test_throws ArgumentError dbg_value!(dib, a, a_var, expr, loc, LLVM.at_end(bb))
+            @test_throws ArgumentError dbg_value!(dib, a, a_var, expr, loc, LLVM.after(ret))
+            # or for values of another context
+            @dispose ctx2=Context() begin
+                other = ConstantInt(Int64(1))
+                @test_throws ArgumentError dbg_value!(dib, other, a_var, expr, loc,
+                                                      LLVM.before(ret))
+            end
+
+            # before an instruction, records are added after the existing ones
+            r1 = dbg_value!(dib, x, a_var, expr, loc, LLVM.before(ret))
+            r2 = dbg_value!(dib, x, b_var, expr, loc, LLVM.before(ret))
+
+            # at a position before the existing records, each record is inserted in front
+            pos = LLVM.after(a)
+            r3 = dbg_value!(dib, x, a_var, expr, loc, pos)
+            r4 = dbg_value!(dib, x, b_var, expr, loc, pos)
+
+            if LLVM.version() >= v"19"
+                @test all(r -> r isa DbgRecord, (r0, r1, r2, r3, r4))
+                @test collect(ret.debug_records) == [r4, r3, r0, r1, r2]
+            else
+                # debug intrinsics are instructions, so the position is before `r0`
+                @test all(r -> r isa Instruction, (r0, r1, r2, r3, r4))
+                @test collect(bb.instructions) == [a, r3, r4, r0, r1, r2, ret]
+            end
+
+            if LLVM.version() >= v"20"
+                lbl = LLVM.label!(dib, sp, "lbl", file, 4)
+                r5 = dbg_label!(dib, lbl, loc, LLVM.at_begin(bb))
+                @test r5 isa DbgRecord
+                @test collect(a.debug_records) == [r5]
+                @test_throws ArgumentError dbg_label!(dib, lbl, loc, LLVM.at_end(bb))
+            end
+
+            LLVM.finalize_subprogram!(dib, sp)
+        end
+        @test verify(mod) === nothing
     end
 end
 

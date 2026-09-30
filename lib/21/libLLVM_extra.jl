@@ -541,6 +541,18 @@ function LLVMExtraGetFirstInsertionPt(BB, Before, Head)
     ccall((:LLVMExtraGetFirstInsertionPt, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), BB, Before, Head)
 end
 
+function LLVMExtraDIBuilderInsertDeclareRecordAt(Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
+    ccall((:LLVMExtraDIBuilderInsertDeclareRecordAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
+end
+
+function LLVMExtraDIBuilderInsertDbgValueRecordAt(Builder, Val, VarInfo, Expr, DL, BB, Before, Head)
+    ccall((:LLVMExtraDIBuilderInsertDbgValueRecordAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, Val, VarInfo, Expr, DL, BB, Before, Head)
+end
+
+function LLVMExtraDIBuilderInsertLabelAt(Builder, LabelInfo, DL, BB, Before, Head)
+    ccall((:LLVMExtraDIBuilderInsertLabelAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, LabelInfo, DL, BB, Before, Head)
+end
+
 function LLVMExtraInstructionComesBefore(Inst, Other)
     ccall((:LLVMExtraInstructionComesBefore, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef), Inst, Other)
 end

@@ -1384,7 +1384,7 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType())
     f1 = LLVM.Function(mod, "f1", ft)
 
-    push!(mod.metadata["function"].operands, MDNode([f1]))
+    push!(get!(mod.metadata, "function").operands, MDNode([f1]))
     @test Value(mod.metadata["function"].operands[1].operands[1]) == f1
 
     f2 = LLVM.Function(mod, "f2", ft)
@@ -1397,7 +1397,7 @@ end
     ft1 = LLVM.FunctionType(LLVM.VoidType())
     f1 = LLVM.Function(mod, "f1", ft1)
 
-    push!(mod.metadata["function"].operands, MDNode([f1]))
+    push!(get!(mod.metadata, "function").operands, MDNode([f1]))
     @test Value(mod.metadata["function"].operands[1].operands[1]) == f1
 
     ft2 = LLVM.FunctionType(LLVM.Int32Type())
@@ -1602,8 +1602,14 @@ end
         @test valtype(mds) == NamedMDNode
 
         @test !haskey(mds, "SomeMDNode")
-        @test !(node in mds["SomeMDNode"].operands)
-        @test haskey(mds, "SomeMDNode") # getindex is mutating
+        @test_throws KeyError mds["SomeMDNode"]
+        @test get(mds, "SomeMDNode", nothing) === nothing
+        @test isempty(mds) && length(mds) == 0
+        @test !(node in get!(mds, "SomeMDNode").operands)
+        @test haskey(mds, "SomeMDNode")
+        @test get(mds, "SomeMDNode", nothing) == mds["SomeMDNode"]
+        @test length(mds) == 1
+        @test first(mds) == ("SomeMDNode" => mds["SomeMDNode"])
 
         ops = mds["SomeMDNode"].operands
         @test push!(ops, node) === ops
@@ -1806,7 +1812,7 @@ end
     @test convert(String, MDString("é")) == "é"
     mod.name = "módulo"
     @test mod.name == "módulo"
-    push!(mod.metadata["métadonnées"].operands, MDNode([MDString("x")]))
+    push!(get!(mod.metadata, "métadonnées").operands, MDNode([MDString("x")]))
     @test haskey(mod.metadata, "métadonnées")
     mod.flags["drapeau", LLVM.ModuleFlagBehavior.Error] = Metadata(ConstantInt(Int32(1)))
     @test haskey(mod.flags, "drapeau")
@@ -2907,7 +2913,7 @@ end
     @test y.prev == x
     @test y.next === nothing
 
-    foo, bar = mod.metadata["foo"], mod.metadata["bar"]
+    foo, bar = get!(mod.metadata, "foo"), get!(mod.metadata, "bar")
     @test foo.prev === nothing
     @test foo.next == bar
     @test bar.prev == foo

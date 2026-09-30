@@ -28,6 +28,7 @@ write(io::IO, mod::LLVM.Module)
 ```@docs
 sort!(::LLVM.ModuleGlobalSet)
 sort!(::LLVM.ModuleFunctionSet)
+get!(::LLVM.ModuleMetadataIterator, ::String)
 get!(::Base.Callable, ::LLVM.ModuleGlobalSet, ::String)
 get!(::Base.Callable, ::LLVM.ModuleFunctionSet, ::String)
 ```

@@ -1503,7 +1503,7 @@ end
     @test loc.column == 0
 
     scope = loc.scope
-    @test scope isa DISubProgram
+    @test scope isa DISubprogram
     @test scope.line == 0
     @test scope.name == "Float64;"
 

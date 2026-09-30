@@ -7,7 +7,17 @@ MDString(::String)
 convert(::Type{String}, ::MDString)
 MDNode
 MDTuple
-MDNode(::Vector)
+MDTuple(::AbstractVector)
+MDNode(::AbstractVector)
+```
+
+## Temporary nodes
+
+```@docs
+TemporaryMDNode
+TemporaryMDNode(::AbstractVector)
+replace_temporary!
+dispose(::TemporaryMDNode)
 ```
 
 ## Metadata <-> Value
@@ -59,6 +69,7 @@ LLVM.DIGlobalVariable
 
 ```@docs
 DIScope
+DILocalScope
 ```
 
 ### File
@@ -145,20 +156,13 @@ LLVM.enumerator!
 LLVM.enumeration_type!
 LLVM.forward_decl!
 LLVM.replaceable_composite_type!
-LLVM.get_or_create_subrange!
+LLVM.subrange!
 ```
 
 Subroutine types:
 
 ```@docs
 LLVM.subroutine_type!
-```
-
-Array-node helpers:
-
-```@docs
-LLVM.get_or_create_array!
-LLVM.get_or_create_type_array!
 ```
 
 Objective-C:
@@ -172,7 +176,7 @@ LLVM.objc_property!
 ### Subprogram
 
 ```@docs
-DISubProgram
+DISubprogram
 LLVM.subprogram!
 ```
 
@@ -200,9 +204,7 @@ LLVM.temp_global_variable_fwd_decl!
 
 ```@docs
 LLVM.DIImportedEntity
-LLVM.imported_module_from_namespace!
-LLVM.imported_module_from_alias!
-LLVM.imported_module_from_module!
+LLVM.imported_module!
 LLVM.imported_declaration!
 ```
 
@@ -235,14 +237,6 @@ The debug location of an instruction is available as its `debug_location` proper
 ```@docs
 DICompileUnit
 LLVM.compile_unit!
-```
-
-### Mutation helpers
-
-```@docs
-LLVM.temporary_mdnode
-LLVM.dispose_temporary
-LLVM.replace_uses!(::LLVM.Metadata, ::LLVM.Metadata)
 ```
 
 ### Other

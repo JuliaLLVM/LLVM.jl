@@ -5,15 +5,22 @@
 # bare `@static if ...; public foo; end` would fail at parse time. Taking the
 # names through a macro sidesteps that: `foo, bar` parses as a plain tuple,
 # and we splice its members into an `Expr(:public, ...)` the lowerer accepts.
+#
+# The declarations are also recorded in `public_names`, which Julia 1.10 doesn't keep track
+# of, e.g., to check that every public name is documented. They are recorded when the
+# declaring code runs, so that names declared in version-dependent code are only recorded
+# when they exist.
+const public_names = Dict{Core.Module,Vector{Symbol}}()
 macro public(names)
-    @static if VERSION >= v"1.11"
-        syms = names isa Symbol ? (names,) :
-               Meta.isexpr(names, :tuple) ? names.args :
-               error("@public expects a symbol or a comma-separated list of symbols")
-        return esc(Expr(:public, syms...))
-    else
-        return nothing
-    end
+    syms = names isa Symbol ? (names,) :
+           Meta.isexpr(names, :tuple) ? names.args :
+           error("@public expects a symbol or a comma-separated list of symbols")
+    decl = @static VERSION >= v"1.11" ? Expr(:public, syms...) : nothing
+    quote
+        $decl
+        append!(get!(Vector{Symbol}, $public_names, $__module__),
+                $(Expr(:tuple, QuoteNode.(syms)...)))
+    end |> esc
 end
 
 # To avoid clashes, `using LLVM` only brings `@dispose` into scope. The rest of the API is

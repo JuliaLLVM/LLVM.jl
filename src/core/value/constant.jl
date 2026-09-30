@@ -346,6 +346,12 @@ end
 
 @vocabulary IR ConstantDataSequential, ConstantDataArray, ConstantDataVector
 
+"""
+    LLVM.ConstantDataSequential <: LLVM.Constant
+
+Abstract supertype of constant arrays and vectors of simple data values:
+[`ConstantDataArray`](@ref) and [`ConstantDataVector`](@ref).
+"""
 abstract type ConstantDataSequential <: Constant end
 
 # ConstantData can only contain primitive types (1/2/4/8 byte integers, float/half), as
@@ -461,6 +467,13 @@ register(ConstantDataVector, API.LLVMConstantDataVectorValueKind)
 
 @vocabulary IR ConstantAggregateZero
 
+"""
+    ConstantAggregateZero <: LLVM.ConstantData
+
+The `zeroinitializer` of an array, structure or vector type, as created by
+[`null`](@ref) or by LLVM for aggregates whose elements are all zero. Its elements are
+available as the `elements` property, see [`LLVM.ConstantAggregate`](@ref).
+"""
 @checked struct ConstantAggregateZero <: ConstantData
     ref::API.LLVMValueRef
 end
@@ -629,6 +642,13 @@ end
 
 @vocabulary IR ConstantVector
 
+"""
+    ConstantVector <: LLVM.ConstantAggregate
+
+A constant vector of other constants, which LLVM creates for vectors whose elements
+aren't simple data values (see [`ConstantDataVector`](@ref)). Its elements are available as
+the `elements` property, see [`LLVM.ConstantAggregate`](@ref).
+"""
 @checked struct ConstantVector <: ConstantAggregate
     ref::API.LLVMValueRef
 end
@@ -860,6 +880,110 @@ const_nswmul(lhs::Constant, rhs::Constant) =
 const_nuwmul(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstNUWMul(lhs, rhs))
 
+end
+
+# the documentation of the constant expressions that this version of LLVM supports
+let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
+             (:const_not, "`xor val, -1`")],
+    binary = [(:const_add, "`add`"), (:const_nswadd, "`add nsw`"), (:const_nuwadd, "`add nuw`"),
+              (:const_sub, "`sub`"), (:const_nswsub, "`sub nsw`"), (:const_nuwsub, "`sub nuw`"),
+              (:const_mul, "`mul`"), (:const_nswmul, "`mul nsw`"), (:const_nuwmul, "`mul nuw`"),
+              (:const_xor, "`xor`"), (:const_and, "`and`"), (:const_or, "`or`"),
+              (:const_shl, "`shl`"), (:const_lshr, "`lshr`"), (:const_ashr, "`ashr`")],
+    casts = [(:const_trunc, "`trunc`"), (:const_sext, "`sext`"), (:const_zext, "`zext`"),
+             (:const_fptrunc, "`fptrunc`"), (:const_fpext, "`fpext`"),
+             (:const_fptoui, "`fptoui`"), (:const_fptosi, "`fptosi`"),
+             (:const_uitofp, "`uitofp`"), (:const_sitofp, "`sitofp`"),
+             (:const_ptrtoint, "`ptrtoint`"), (:const_inttoptr, "`inttoptr`"),
+             (:const_bitcast, "`bitcast`"), (:const_addrspacecast, "`addrspacecast`"),
+             (:const_zextorbitcast, "`zext` (or `bitcast`, if the types have the same size)"),
+             (:const_sextorbitcast, "`sext` (or `bitcast`, if the types have the same size)"),
+             (:const_truncorbitcast, "`trunc` (or `bitcast`, if the types have the same size)"),
+             (:const_pointercast, "pointer cast (`bitcast`, `addrspacecast` or `ptrtoint`)"),
+             (:const_fpcast, "floating-point cast (`fptrunc` or `fpext`)")],
+    note = "LLVM folds the expression if it can, so the result is a `Constant`, not " *
+           "necessarily a `ConstantExpr`."
+    docs = Pair{Symbol,String}[]
+    for (f, expr) in unary
+        push!(docs, f => """
+                  $f(val::Constant) -> Constant
+
+              Create the constant expression $expr. $note
+              """)
+    end
+    for (f, op) in binary
+        push!(docs, f => """
+                  $f(lhs::Constant, rhs::Constant) -> Constant
+
+              Create the constant expression $op of `lhs` and `rhs`. $note
+              """)
+    end
+    for (f, op) in casts
+        push!(docs, f => """
+                  $f(val::Constant, dest_type::LLVMType) -> Constant
+
+              Create the constant expression that converts `val` to `dest_type` using a $op.
+              $note
+              """)
+    end
+    append!(docs, [
+        :const_intcast => """
+                const_intcast(val::Constant, dest_type::LLVMType, signed::Bool) -> Constant
+
+            Create the constant expression that converts the integer `val` to the integer type
+            `dest_type`, using a `trunc`, or a `sext` or `zext` depending on `signed`. $note
+            """,
+        :const_gep => """
+                const_gep(type::LLVMType, ptr::Constant, indices::AbstractVector{<:Constant})
+                    -> Constant
+                const_inbounds_gep(type::LLVMType, ptr::Constant,
+                                   indices::AbstractVector{<:Constant}) -> Constant
+
+            Create the constant expression `getelementptr` (or `getelementptr inbounds`) that
+            computes the address of an element of the value of `type` at `ptr`, using the
+            0-based `indices`. $note
+            """,
+        :const_shufflevector => """
+                const_shufflevector(v1::Constant, v2::Constant, mask::Constant) -> Constant
+
+            Create the constant expression `shufflevector` of `v1` and `v2`, using the constant
+            vector `mask`. $note
+            """,
+        :const_extractelement => """
+                const_extractelement(vec::Constant, index::Constant) -> Constant
+
+            Create the constant expression `extractelement` of the element at the 0-based `index`
+            of `vec`. $note
+            """,
+        :const_insertelement => """
+                const_insertelement(vec::Constant, elt::Value, index::Constant) -> Constant
+
+            Create the constant expression `insertelement` that replaces the element at the
+            0-based `index` of `vec` by `elt`. $note
+            """,
+        :const_select => """
+                const_select(cond::Constant, then::Value, else::Value) -> Constant
+
+            Create the constant expression `select`, which is `then` if `cond` is true and
+            `else` otherwise. $note
+            """,
+        :const_icmp => """
+                const_icmp(predicate::LLVM.IntPredicate.T, lhs::Constant, rhs::Constant)
+                    -> Constant
+                const_fcmp(predicate::LLVM.RealPredicate.T, lhs::Constant, rhs::Constant)
+                    -> Constant
+
+            Create the constant expression `icmp` or `fcmp` that compares `lhs` and `rhs` using
+            `predicate`. $note
+            """])
+    for (f, doc) in docs
+        isdefined(@__MODULE__, f) || continue
+        @eval @doc $doc $f
+    end
+    for (f, other) in (:const_inbounds_gep => :const_gep, :const_fcmp => :const_icmp)
+        isdefined(@__MODULE__, f) || continue
+        @eval @doc (@doc $other) $f
+    end
 end
 
 # TODO: alignof, sizeof, block_address

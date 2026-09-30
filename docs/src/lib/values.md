@@ -33,6 +33,7 @@ convert(::Type, val::ConstantInt)
 ConstantFP
 convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat}
 ConstantStruct
+LLVM.ConstantDataSequential
 ConstantDataArray
 ConstantDataArray(::LLVMType, ::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
 ConstantDataArray(::AbstractVector)
@@ -42,11 +43,23 @@ ConstantDataVector
 ConstantArray
 ConstantArray(::LLVMType, ::AbstractArray{<:LLVM.Constant,N}) where {N}
 ConstantArray(::AbstractArray)
+ConstantVector
+ConstantAggregateZero
 LLVM.ConstantAggregate
 InlineAsm
-LLVM.ConstantExpr
 convert_users_to_instructions!
 remove_dead_constant_users!
+```
+
+### Constant expressions
+
+```@docs
+LLVM.ConstantExpr
+```
+
+```@autodocs
+Modules = [LLVM]
+Filter = f -> f isa Function && startswith(string(nameof(f)), "const_")
 ```
 
 ## Global values

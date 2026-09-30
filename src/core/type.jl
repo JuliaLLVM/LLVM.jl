@@ -154,6 +154,12 @@ width(inttyp::IntegerType) = Int(API.LLVMGetIntTypeWidth(inttyp))
 
 # NOTE: this type doesn't exist in the LLVM API,
 #       we add it for convenience of typechecking generic values (see execution.jl)
+"""
+    LLVM.FloatingPointType <: LLVMType
+
+Abstract supertype of the floating-point types, like [`LLVM.FloatType`](@ref) and
+[`LLVM.DoubleType`](@ref).
+"""
 abstract type FloatingPointType <: LLVMType end
 
 @vocabulary IR FloatingPointType, HalfType, FloatType, DoubleType, BFloatType, FP128Type,

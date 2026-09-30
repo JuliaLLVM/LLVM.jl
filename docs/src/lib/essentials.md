@@ -9,6 +9,12 @@ LLVM.Passes
 LLVM.ORC
 ```
 
+## Version
+
+```@docs
+LLVM.version
+```
+
 ## Initialization
 
 ```@docs

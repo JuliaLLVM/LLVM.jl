@@ -249,11 +249,28 @@ end
 for op in opcodes
     typename = Symbol(op, :Inst)
     enum = Symbol(:LLVM, op)
+    # the instruction's name in textual IR
+    irname = op === :VAArg ? "va_arg" : op === :AtomicCmpXchg ? "cmpxchg" :
+             op === :AtomicRMW ? "atomicrmw" : lowercase(string(op))
+    doc = if op in (:UserOp1, :UserOp2)
+        """
+            LLVM.$typename <: Instruction
+
+        An instruction that only exists internally, while some of LLVM's passes run.
+        """
+    else
+        """
+            LLVM.$typename <: Instruction
+
+        The type of `$irname` instructions.
+        """
+    end
     @eval begin
         @checked struct $typename <: Instruction
             ref::API.LLVMValueRef
         end
         register($typename, API.$enum)
+        @doc $doc $typename
     end
 end
 @eval @vocabulary IR $(Expr(:tuple, (Symbol(op, :Inst) for op in opcodes)...))

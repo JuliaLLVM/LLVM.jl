@@ -7,6 +7,15 @@
 # define Julia's passes, and LLVM does not depend on it (except for the precompilation
 # workload). Note that loading LLVM.jl also loads Interop, so its methods on types and
 # functions that belong to others (e.g., `unsafe_load(::Core.LLVMPtr)`) are always defined.
+"""
+    LLVM.Interop
+
+Integration of LLVM.jl with Julia: generating functions from LLVM IR (`@llvmgenerated`),
+inline assembly (`@asmcall`), intrinsics (`assume`, `trap`), support for `Core.LLVMPtr`,
+and Julia's own LLVM passes and pipeline (`JuliaPipeline`).
+
+    using LLVM, LLVM.Interop
+"""
 module Interop
 
 using ..LLVM

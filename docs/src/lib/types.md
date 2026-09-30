@@ -15,6 +15,7 @@ LLVM.IntType
 ## Floating-point types
 
 ```@docs
+LLVM.FloatingPointType
 LLVM.HalfType
 LLVM.BFloatType
 LLVM.FloatType

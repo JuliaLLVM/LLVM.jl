@@ -130,6 +130,14 @@ end
 
 # Exception type to preserve original error and backtrace
 @vocabulary Passes PassException
+
+"""
+    PassException
+
+The exception thrown by [`run!`](@ref) when a custom pass (or a custom target transform
+info) threw an exception while LLVM ran it. The original exception is available as its
+`ex` field, and the backtrace of where it was thrown as `processed_bt`.
+"""
 struct PassException <: Exception
     ex::Any
     processed_bt::Vector{Base.StackTraces.StackFrame}
@@ -492,12 +500,16 @@ function kwargs_to_params(kwargs; allow_empty=false)
     "<" * join(params, ";") * ">"
 end
 
-function define_pass(mod, pass_name, class_name, define_class=true)
+# the functions that return the names of passes, for the reference documentation
+const pass_functions = Tuple{Core.Module,Symbol,String}[]
+
+function define_pass(mod, pass_name, class_name, kind, define_class=true)
     # don't re-define passes (some work with multiple types of managers,
     # or could be manually-defined)
     if isdefined(LLVM, class_name)
         return
     end
+    push!(pass_functions, (mod, class_name, kind))
 
     # LLVM's passes are part of the Passes vocabulary, while passes defined elsewhere
     # (e.g., Julia's passes in LLVM.Interop) are exported by their module
@@ -511,8 +523,17 @@ function define_pass(mod, pass_name, class_name, define_class=true)
         end
     end
     if define_class
+        options = occursin('<', pass_name) ? "" : """
+
+            Keyword arguments become options of the pass, e.g., `$class_name(; foo=true, bar=2)`
+            is `"$pass_name<foo;bar=2>"`, while `false` values become `no-` options."""
+        doc = """
+            $class_name(; options...) -> String
+
+        The `$pass_name` $kind, as a string for use with [`add!`](@ref) or [`run!`](@ref)$(kind == "alias analysis" ? " (in an [`AAManager`](@ref))" : "").$options
+        """
         push!(ex.args, :(
-            function $(esc(class_name))(; kwargs...)
+            @doc $doc function $(esc(class_name))(; kwargs...)
                 return $pass_name * kwargs_to_params(kwargs)
             end
         ))
@@ -528,19 +549,19 @@ const loop_passes = String[]
 
 macro module_pass(pass_name, class_name, define_class=true)
     push!(module_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, "module pass", define_class)
 end
 macro cgscc_pass(pass_name, class_name, define_class=true)
     push!(cgscc_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, "CGSCC pass", define_class)
 end
 macro function_pass(pass_name, class_name, define_class=true)
     push!(function_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, "function pass", define_class)
 end
 macro loop_pass(pass_name, class_name, define_class=true)
     push!(loop_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, define_class)
+    define_pass(__module__, pass_name, class_name, "loop pass", define_class)
 end
 
 # module passes
@@ -654,6 +675,13 @@ else
     @module_pass "msan" MemorySanitizerPass
 end
 @module_pass "internalize" InternalizePass false
+"""
+    InternalizePass(; preserved_gvs=String[], options...) -> String
+
+The `internalize` module pass, as a string for use with [`add!`](@ref) or [`run!`](@ref),
+which gives internal linkage to the global values of a module, except for the ones named
+in `preserved_gvs`. Other keyword arguments become options of the pass.
+"""
 function InternalizePass(; preserved_gvs::Vector=String[], kwargs...)
     kwargs = [kwargs...]
 
@@ -671,18 +699,29 @@ function ep_callbacks_pass(name; opt_level=0)
     name * kwargs_to_params(Dict{Symbol,Any}(Symbol("O$opt_level") => true))
 end
 
+macro callbacks_pass(pass_name, name)
+    doc = """
+        $name(; opt_level=0) -> String
+
+    The `$pass_name` pass, as a string for use with [`add!`](@ref) or [`run!`](@ref). It
+    runs the passes that pass builder callbacks (e.g., registered with
+    [`register_callbacks!`](@ref)) add to the corresponding extension point of LLVM's
+    default pipelines, for the optimization level `opt_level`. Requires LLVM 17+.
+    """
+    quote
+        @doc $doc $(esc(name))(; opt_level=0) = ep_callbacks_pass($pass_name; opt_level)
+        push!(pass_functions, ($__module__, $(QuoteNode(name)), "extension point callbacks"))
+    end
+end
+
 # module callbacks
 @static if version() >= v"17"
 @vocabulary Passes PipelineStartCallbacks, PipelineEarlySimplificationCallbacks,
                    OptimizerEarlyCallbacks, OptimizerLastCallbacks
-PipelineStartCallbacks(; opt_level=0) =
-    ep_callbacks_pass("pipeline-start-callbacks"; opt_level)
-PipelineEarlySimplificationCallbacks(; opt_level=0) =
-    ep_callbacks_pass("pipeline-early-simplification-callbacks"; opt_level)
-OptimizerEarlyCallbacks(; opt_level=0) =
-    ep_callbacks_pass("optimizer-early-callbacks"; opt_level)
-OptimizerLastCallbacks(; opt_level=0) =
-    ep_callbacks_pass("optimizer-last-callbacks"; opt_level)
+@callbacks_pass "pipeline-start-callbacks" PipelineStartCallbacks
+@callbacks_pass "pipeline-early-simplification-callbacks" PipelineEarlySimplificationCallbacks
+@callbacks_pass "optimizer-early-callbacks" OptimizerEarlyCallbacks
+@callbacks_pass "optimizer-last-callbacks" OptimizerLastCallbacks
 end
 
 # CGSCC passes
@@ -699,8 +738,7 @@ end
 # CGSCC callbacks
 @static if version() >= v"17"
 @vocabulary Passes CGSCCOptimizerLateCallbacks
-CGSCCOptimizerLateCallbacks(; opt_level=0) =
-    ep_callbacks_pass("cgscc-optimizer-late-callbacks"; opt_level)
+@callbacks_pass "cgscc-optimizer-late-callbacks" CGSCCOptimizerLateCallbacks
 end
 
 # function passes
@@ -754,6 +792,13 @@ end
 end
 @function_pass "infer-address-spaces" InferAddressSpacesPass
 @function_pass "instcombine" InstCombinePass false
+"""
+    InstCombinePass(; options...) -> String
+
+The `instcombine` function pass, as a string for use with [`add!`](@ref) or [`run!`](@ref).
+Keyword arguments become options of the pass. Unlike LLVM's C API, LLVM.jl doesn't enable
+the `verify-fixpoint` option by default (on LLVM 18 and later).
+"""
 function InstCombinePass(; kwargs...)
     kwargs = Dict{Symbol, Any}(kwargs)
     if version() >= v"18"
@@ -881,6 +926,13 @@ end
 @function_pass "ee-instrument" EntryExitInstrumenterPass
 @function_pass "lower-matrix-intrinsics" LowerMatrixIntrinsicsPass
 @function_pass "loop-unroll" LoopUnrollPass false
+"""
+    LoopUnrollPass(; opt_level=0, options...) -> String
+
+The `loop-unroll` function pass, as a string for use with [`add!`](@ref) or
+[`run!`](@ref), for the optimization level `opt_level`. Other keyword arguments become
+options of the pass, e.g., `LoopUnrollPass(; partial=true)` is `"loop-unroll<O0;partial>"`.
+"""
 function LoopUnrollPass(; opt_level=0, kwargs...)
     kwargs = Dict{Symbol, Any}(kwargs)
     kwargs[Symbol("O$opt_level")] = true
@@ -895,16 +947,12 @@ end
 # Function pass callbacks
 @static if version() >= v"17"
 @vocabulary Passes PeepholeCallbacks, ScalarOptimizerLateCallbacks, VectorizerStartCallbacks
-PeepholeCallbacks(; opt_level=0) =
-    ep_callbacks_pass("peephole-callbacks"; opt_level)
-ScalarOptimizerLateCallbacks(; opt_level=0) =
-    ep_callbacks_pass("scalar-optimizer-late-callbacks"; opt_level)
-VectorizerStartCallbacks(; opt_level=0) =
-    ep_callbacks_pass("vectorizer-start-callbacks"; opt_level)
+@callbacks_pass "peephole-callbacks" PeepholeCallbacks
+@callbacks_pass "scalar-optimizer-late-callbacks" ScalarOptimizerLateCallbacks
+@callbacks_pass "vectorizer-start-callbacks" VectorizerStartCallbacks
 @static if version() >= v"21"
     @vocabulary Passes VectorizerEndCallbacks
-    VectorizerEndCallbacks(; opt_level=0) =
-        ep_callbacks_pass("vectorizer-end-callbacks"; opt_level)
+    @callbacks_pass "vectorizer-end-callbacks" VectorizerEndCallbacks
 end
 end # version() >= v"17"
 # loop nest passes
@@ -947,10 +995,8 @@ end
 # loop callbacks
 @static if version() >= v"17"
 @vocabulary Passes LateLoopOptimizationsCallbacks, LoopOptimizerEndCallbacks
-LateLoopOptimizationsCallbacks(; opt_level=0) =
-    ep_callbacks_pass("late-loop-optimizations-callbacks"; opt_level)
-LoopOptimizerEndCallbacks(; opt_level=0) =
-    ep_callbacks_pass("loop-optimizer-end-callbacks"; opt_level)
+@callbacks_pass "late-loop-optimizations-callbacks" LateLoopOptimizationsCallbacks
+@callbacks_pass "loop-optimizer-end-callbacks" LoopOptimizerEndCallbacks
 end
 
 
@@ -973,7 +1019,7 @@ add!(pm::AAManager, aa::AAManager) =
     error("Alias analyses can only be added to the top-level pass builder")
 
 macro aa_pass(pass_name, class_name)
-    define_pass(__module__, pass_name, class_name)
+    define_pass(__module__, pass_name, class_name, "alias analysis")
 end
 
 @aa_pass "basic-aa" BasicAA
@@ -987,6 +1033,15 @@ end
 
 @vocabulary Passes DefaultPipeline
 
+"""
+    DefaultPipeline(; opt_level=0, options...) -> String
+
+LLVM's default optimization pipeline for the optimization level `opt_level` (0 to 3, or
+`"s"` and `"z"` to optimize for size), as a string for use with [`add!`](@ref) or
+[`run!`](@ref), e.g., `"default<O3>"`. Other keyword arguments become options of the
+pipeline, but LLVM's default pipeline takes few: it is tuned using the keyword arguments of
+[`PassBuilder`](@ref) instead.
+"""
 function DefaultPipeline(; opt_level=0, kwargs...)
     kwargs = Dict{Symbol, Any}(kwargs)
 

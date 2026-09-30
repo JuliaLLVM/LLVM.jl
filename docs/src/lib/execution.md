@@ -66,6 +66,10 @@ linking_layer_creator!
 TargetMachineBuilder
 ObjectLinkingLayer
 ObjectLinkingLayer(::ExecutionSession, ::String)
+GDBRegistrationListener
+IntelJITEventListener
+OProfileJITEventListener
+PerfJITEventListener
 JuliaOJIT
 ExecutionSession
 ```

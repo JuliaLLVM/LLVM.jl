@@ -872,3 +872,326 @@ function ptrdiff!(builder::IRBuilder, Ty::LLVMType, LHS::Value, RHS::Value, Name
 end
 
 @specialize
+
+
+## documentation of the instruction builders
+
+# these functions build the instruction at the builder's position, and return it. as the
+# builder folds operations on constants, the ones that compute values return a `Value`.
+const _build_note = """
+The builder folds operations on constants, so the result is a `Value`, not necessarily an
+`Instruction`. `name` is the name of the result."""
+
+for (f, inst) in [(:add!, "an `add`"), (:nswadd!, "an `add nsw`"), (:nuwadd!, "an `add nuw`"),
+                  (:fadd!, "an `fadd`"), (:sub!, "a `sub`"), (:nswsub!, "a `sub nsw`"),
+                  (:nuwsub!, "a `sub nuw`"), (:fsub!, "an `fsub`"), (:mul!, "a `mul`"),
+                  (:nswmul!, "a `mul nsw`"), (:nuwmul!, "a `mul nuw`"), (:fmul!, "an `fmul`"),
+                  (:udiv!, "a `udiv`"), (:exactudiv!, "a `udiv exact`"), (:sdiv!, "an `sdiv`"),
+                  (:exactsdiv!, "an `sdiv exact`"), (:fdiv!, "an `fdiv`"),
+                  (:urem!, "a `urem`"), (:srem!, "an `srem`"), (:frem!, "an `frem`"),
+                  (:shl!, "a `shl`"), (:lshr!, "an `lshr`"), (:ashr!, "an `ashr`"),
+                  (:and!, "an `and`"), (:or!, "an `or`"), (:xor!, "a `xor`")]
+    doc = """
+        $f(builder::IRBuilder, lhs::Value, rhs::Value, [name::String]) -> Value
+
+    Build $inst instruction with operands `lhs` and `rhs`. $_build_note
+    """
+    # `add!` also adds passes to pass managers, so document this method only
+    @eval @doc $doc $f(::IRBuilder, ::Value, ::Value)
+end
+
+for (f, inst) in [(:neg!, "`sub 0, val`"), (:nswneg!, "`sub nsw 0, val`"),
+                  (:fneg!, "`fneg val`"), (:not!, "`xor val, -1`")]
+    doc = """
+        $f(builder::IRBuilder, val::Value, [name::String]) -> Value
+
+    Build $inst. $_build_note
+    """
+    @eval @doc $doc $f
+end
+
+for (f, inst) in [(:trunc!, "a `trunc`"), (:zext!, "a `zext`"), (:sext!, "a `sext`"),
+                  (:fptoui!, "an `fptoui`"), (:fptosi!, "an `fptosi`"),
+                  (:uitofp!, "a `uitofp`"), (:sitofp!, "an `sitofp`"),
+                  (:fptrunc!, "an `fptrunc`"), (:fpext!, "an `fpext`"),
+                  (:ptrtoint!, "a `ptrtoint`"), (:inttoptr!, "an `inttoptr`"),
+                  (:bitcast!, "a `bitcast`"), (:addrspacecast!, "an `addrspacecast`"),
+                  (:zextorbitcast!, "a `zext` (or a `bitcast`, if the types have the same size)"),
+                  (:sextorbitcast!, "a `sext` (or a `bitcast`, if the types have the same size)"),
+                  (:truncorbitcast!, "a `trunc` (or a `bitcast`, if the types have the same size)"),
+                  (:pointercast!, "the cast of a pointer to another pointer (`bitcast` or `addrspacecast`) or integer (`ptrtoint`)"),
+                  (:intcast!, "the cast of an integer to another, sign-extended, integer type (`trunc` or `sext`)"),
+                  (:fpcast!, "the cast of a floating-point value to another floating-point type (`fptrunc` or `fpext`)")]
+    doc = """
+        $f(builder::IRBuilder, val::Value, dest_type::LLVMType, [name::String]) -> Value
+
+    Build $inst instruction that converts `val` to `dest_type`. $_build_note
+    """
+    @eval @doc $doc $f
+end
+
+"""
+    binop!(builder::IRBuilder, opcode::LLVM.Opcode.T, lhs::Value, rhs::Value,
+           [name::String]) -> Value
+
+Build the binary instruction `opcode` (e.g., `LLVM.Opcode.Add`) with operands `lhs` and
+`rhs`. $_build_note
+"""
+binop!
+
+"""
+    cast!(builder::IRBuilder, opcode::LLVM.Opcode.T, val::Value, dest_type::LLVMType,
+          [name::String]) -> Value
+
+Build the cast instruction `opcode` (e.g., `LLVM.Opcode.ZExt`) that converts `val` to
+`dest_type`. $_build_note
+"""
+cast!
+
+"""
+    ret!(builder::IRBuilder) -> Instruction
+    ret!(builder::IRBuilder, val::Value) -> Instruction
+    ret!(builder::IRBuilder, vals::AbstractVector{<:Value}) -> Instruction
+
+Build a `ret` instruction that returns nothing (from a `void` function), `val`, or the
+aggregate of `vals` (from a function that returns a structure).
+"""
+ret!
+
+"""
+    br!(builder::IRBuilder, dest::BasicBlock) -> Instruction
+    br!(builder::IRBuilder, cond::Value, then::BasicBlock, else::BasicBlock) -> Instruction
+
+Build an unconditional `br` instruction to `dest`, or a conditional one that branches to
+`then` if the `i1` value `cond` is true, and to `else` otherwise.
+"""
+br!
+
+"""
+    switch!(builder::IRBuilder, val::Value, default::BasicBlock, [num_cases=10])
+        -> Instruction
+
+Build a `switch` instruction on `val` that branches to `default` if none of its cases
+match. Add cases to the `cases` view of the instruction; `num_cases` is only a hint of how
+many there will be.
+"""
+switch!
+
+"""
+    indirectbr!(builder::IRBuilder, addr::Value, [num_dests=10]) -> Instruction
+
+Build an `indirectbr` instruction that branches to the block address `addr`. Add the
+possible destinations using `LLVM.API.LLVMAddDestination`; `num_dests` is only a hint of
+how many there will be.
+"""
+indirectbr!
+
+"""
+    invoke!(builder::IRBuilder, fn_type::LLVMType, fn::Value, args::AbstractVector{<:Value},
+            normal::BasicBlock, unwind::BasicBlock, [name::String]) -> Instruction
+
+Build an `invoke` instruction that calls `fn`, of function type `fn_type`, with `args`, and
+continues at `normal` when the call returns, or at `unwind` when it unwinds.
+"""
+invoke!
+
+"""
+    resume!(builder::IRBuilder, exn::Value) -> Instruction
+
+Build a `resume` instruction that resumes propagating the exception `exn`.
+"""
+resume!
+
+"""
+    unreachable!(builder::IRBuilder) -> Instruction
+
+Build an `unreachable` instruction.
+"""
+unreachable!
+
+"""
+    extract_element!(builder::IRBuilder, vec::Value, index::Value, [name::String]) -> Value
+
+Build an `extractelement` instruction that gets the element at the 0-based `index` of the
+vector `vec`. $_build_note
+"""
+extract_element!
+
+"""
+    insert_element!(builder::IRBuilder, vec::Value, elt::Value, index::Value,
+                    [name::String]) -> Value
+
+Build an `insertelement` instruction that returns `vec` with the element at the 0-based
+`index` replaced by `elt`. $_build_note
+"""
+insert_element!
+
+"""
+    shuffle_vector!(builder::IRBuilder, v1::Value, v2::Value, mask::Value,
+                    [name::String]) -> Value
+
+Build a `shufflevector` instruction that selects elements of `v1` and `v2` using the
+constant vector `mask`. $_build_note
+"""
+shuffle_vector!
+
+"""
+    malloc!(builder::IRBuilder, type::LLVMType, [name::String]) -> Value
+    array_malloc!(builder::IRBuilder, type::LLVMType, count::Value, [name::String]) -> Value
+
+Build a call to `malloc` that allocates memory for a value, or `count` values, of `type`.
+"""
+malloc!
+
+@doc (@doc malloc!) array_malloc!
+
+"""
+    free!(builder::IRBuilder, ptr::Value) -> Instruction
+
+Build a call to `free` that frees the memory at `ptr`.
+"""
+free!
+
+"""
+    memset!(builder::IRBuilder, ptr::Value, val::Value, len::Value, align::Integer)
+        -> Instruction
+
+Build a call to `llvm.memset` that sets `len` bytes of memory at `ptr`, which is aligned
+to `align` bytes, to the byte `val`.
+"""
+memset!
+
+"""
+    memcpy!(builder::IRBuilder, dst::Value, dst_align::Integer, src::Value,
+            src_align::Integer, size::Value) -> Instruction
+    memmove!(builder::IRBuilder, dst::Value, dst_align::Integer, src::Value,
+             src_align::Integer, size::Value) -> Instruction
+
+Build a call to `llvm.memcpy` or `llvm.memmove` that copies `size` bytes from `src` to
+`dst`, which are aligned to `src_align` and `dst_align` bytes. For `memcpy!`, the memory
+regions must not overlap.
+"""
+memcpy!
+
+@doc (@doc memcpy!) memmove!
+
+"""
+    gep!(builder::IRBuilder, type::LLVMType, ptr::Value, indices::AbstractVector{<:Value},
+         [name::String]) -> Value
+    inbounds_gep!(builder::IRBuilder, type::LLVMType, ptr::Value,
+                  indices::AbstractVector{<:Value}, [name::String]) -> Value
+
+Build a `getelementptr` (or `getelementptr inbounds`) instruction that computes the address
+of an element of the value of `type` at `ptr`, using the 0-based `indices`. $_build_note
+"""
+gep!
+
+@doc (@doc gep!) inbounds_gep!
+
+"""
+    struct_gep!(builder::IRBuilder, type::LLVMType, ptr::Value, index::Integer,
+                [name::String]) -> Value
+
+Build a `getelementptr inbounds` instruction that computes the address of the field with
+the 0-based `index` of the structure of `type` at `ptr`. $_build_note
+"""
+struct_gep!
+
+"""
+    icmp!(builder::IRBuilder, predicate::LLVM.IntPredicate.T, lhs::Value, rhs::Value,
+          [name::String]) -> Value
+    fcmp!(builder::IRBuilder, predicate::LLVM.RealPredicate.T, lhs::Value, rhs::Value,
+          [name::String]) -> Value
+
+Build an `icmp` or `fcmp` instruction that compares `lhs` and `rhs` using `predicate`
+(e.g., `LLVM.IntPredicate.EQ` or `LLVM.RealPredicate.OLT`). $_build_note
+"""
+icmp!
+
+@doc (@doc icmp!) fcmp!
+
+"""
+    phi!(builder::IRBuilder, type::LLVMType, [name::String]) -> Instruction
+
+Build a `phi` instruction of `type`. Add its incoming values using its `incoming` view,
+e.g., `push!(phi.incoming, (val, block))`.
+"""
+phi!
+
+"""
+    select!(builder::IRBuilder, cond::Value, then::Value, else::Value, [name::String])
+        -> Value
+
+Build a `select` instruction that returns `then` if the `i1` value `cond` is true, and
+`else` otherwise. $_build_note
+"""
+select!
+
+"""
+    call!(builder::IRBuilder, fn_type::LLVMType, fn::Value,
+          [args::AbstractVector{<:Value}], [bundles], [name::String]) -> Instruction
+
+Build a `call` instruction that calls `fn`, of function type `fn_type`, with `args`, and
+the operand bundles `bundles` (a vector of `OperandBundle`s, or the operand bundles of
+another call).
+"""
+call!
+
+"""
+    va_arg!(builder::IRBuilder, list::Value, type::LLVMType, [name::String]) -> Instruction
+
+Build a `va_arg` instruction that gets the next argument of `type` from the variable
+argument list `list`.
+"""
+va_arg!
+
+"""
+    landingpad!(builder::IRBuilder, type::LLVMType, personality::Value,
+                num_clauses::Integer, [name::String]) -> Instruction
+
+Build a `landingpad` instruction that returns a value of `type`, and make `personality` the
+personality function of the function that the builder inserts into (its `personality`
+property). Add the clauses of the landing pad using `LLVM.API.LLVMAddClause`; `num_clauses`
+is only a hint of how many there will be.
+"""
+landingpad!
+
+"""
+    globalstring!(mod::LLVM.Module, str::String, [name::String]; addrspace=nothing,
+                  add_null=true) -> GlobalVariable
+    globalstring!(builder::IRBuilder, str::String, [name::String]; kwargs...)
+        -> GlobalVariable
+
+Create a private, constant global variable in `mod` (or the module that `builder` inserts
+into) that holds the bytes of `str`, followed by a null byte if `add_null` is set, in the
+address space `addrspace` (the data layout's default one for globals if `nothing`).
+"""
+globalstring!
+
+"""
+    globalstring_ptr!(args...; kwargs...) -> Constant
+
+Like [`globalstring!`](@ref), but return a pointer to the first byte of the string: with
+typed pointers, an `i8*` instead of a pointer to an array. With opaque pointers, that's the
+global variable itself.
+"""
+globalstring_ptr!
+
+"""
+    isnull!(builder::IRBuilder, val::Value, [name::String]) -> Value
+    isnotnull!(builder::IRBuilder, val::Value, [name::String]) -> Value
+
+Build a comparison that checks whether `val` is, or isn't, null (or zero). $_build_note
+"""
+isnull!
+
+@doc (@doc isnull!) isnotnull!
+
+"""
+    ptrdiff!(builder::IRBuilder, type::LLVMType, lhs::Value, rhs::Value, [name::String])
+        -> Value
+
+Build the computation of the number of elements of `type` between the pointers `lhs` and
+`rhs`, i.e., their difference in bytes divided by the size of `type`. $_build_note
+"""
+ptrdiff!

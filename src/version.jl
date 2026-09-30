@@ -2,6 +2,11 @@
 
 @public version
 
+"""
+    LLVM.version() -> VersionNumber
+
+The version of the LLVM library that LLVM.jl uses, which is the one Julia uses.
+"""
 version() = libllvm_version
 
 """

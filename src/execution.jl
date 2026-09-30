@@ -308,7 +308,22 @@ end
 end
 Base.unsafe_convert(::Type{API.LLVMJITEventListenerRef}, listener::JITEventListener) = listener.ref
 
+"""
+    GDBRegistrationListener()
+    IntelJITEventListener()
+    OProfileJITEventListener()
+    PerfJITEventListener()
+
+Create a listener for the events of a JIT, to register the code that it emits with GDB,
+Intel VTune, OProfile or Linux' `perf`, e.g., using `register!` on an
+[`ObjectLinkingLayer`](@ref). Creating a listener for a profiler that LLVM wasn't built
+with support for throws an `UndefRefError`.
+"""
 GDBRegistrationListener()  = JITEventListener(API.LLVMCreateGDBRegistrationListener())
 IntelJITEventListener()    = JITEventListener(API.LLVMCreateIntelJITEventListener())
 OProfileJITEventListener() = JITEventListener(API.LLVMCreateOProfileJITEventListener())
 PerfJITEventListener()     = JITEventListener(API.LLVMCreatePerfJITEventListener())
+
+for listener in (:IntelJITEventListener, :OProfileJITEventListener, :PerfJITEventListener)
+    @eval @doc (@doc GDBRegistrationListener) $listener
+end

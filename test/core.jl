@@ -99,7 +99,7 @@ end
 
     show(devnull, typ)
 
-    @test !isempty(typ)
+    @test !isemptytype(typ)
 end
 
 # floating-point
@@ -123,7 +123,11 @@ end
 
     ptrtyp = LLVM.PointerType(eltyp)
     if supports_typed_pointers(ctx)
-        @test eltype(ptrtyp) == eltyp
+        @test ptrtyp.element_type == eltyp
+    elseif LLVM.version() < v"17"
+        @test ptrtyp.element_type === nothing
+    else
+        @test !hasproperty(ptrtyp, :element_type)
     end
 
     @test context(ptrtyp) == context(eltyp)
@@ -137,23 +141,27 @@ end
     eltyp = LLVM.Int32Type()
 
     arrtyp = LLVM.ArrayType(eltyp, 2)
-    @test eltype(arrtyp) == eltyp
+    @test arrtyp.element_type == eltyp
     @test context(arrtyp) == context(eltyp)
-    @test !isempty(arrtyp)
+    @test !isemptytype(arrtyp)
 
-    @test length(arrtyp) == 2
+    @test arrtyp.length == 2
+    # LLVM types are not collections
+    @test_throws MethodError length(arrtyp)
 end
 @dispose ctx=Context() begin
     eltyp = LLVM.Int32Type()
 
     arrtyp = LLVM.ArrayType(eltyp, 0)
-    @test isempty(arrtyp)
+    @test isemptytype(arrtyp)
+    @test isemptytype(LLVM.ArrayType(LLVM.StructType(LLVMType[]), 4))
+    @test !isemptytype(eltyp)
 end
 if LLVM.version() >= v"17" && Sys.WORD_SIZE == 64
     # arrays can have more than 2^32 elements
     @dispose ctx=Context() begin
         arrtyp = LLVM.ArrayType(LLVM.Int8Type(), 2^32 + 1)
-        @test length(arrtyp) == 2^32 + 1
+        @test arrtyp.length == 2^32 + 1
         @test string(arrtyp) == "[4294967297 x i8]"
     end
 end
@@ -161,10 +169,10 @@ end
     eltyp = LLVM.Int32Type()
 
     vectyp = LLVM.VectorType(eltyp, 2)
-    @test eltype(vectyp) == eltyp
+    @test vectyp.element_type == eltyp
     @test context(vectyp) == context(eltyp)
 
-    @test length(vectyp) == 2
+    @test vectyp.length == 2
 end
 
 # structure
@@ -2074,7 +2082,7 @@ end
     @test fn isa LLVM.Function
 
     if supports_typed_pointers(ctx)
-        @test eltype(fn.value_type) == ft
+        @test fn.value_type.element_type == ft
     end
     @test isintrinsic(fn)
 
@@ -2102,7 +2110,7 @@ end
     fn = LLVM.Function(mod, intr, [LLVM.DoubleType()])
     @test fn isa LLVM.Function
     if supports_typed_pointers(ctx)
-        @test eltype(fn.value_type) == ft
+        @test fn.value_type.element_type == ft
     end
     @test isintrinsic(fn)
 

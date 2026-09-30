@@ -87,29 +87,19 @@ can be used. This property can be queried using the `isvararg` function.
 
 ## Pointer types
 
-Pointer types are represented by the `LLVM.PointerType` type. Depending on the LLVM version,
-they can be opaque or have an element type that can be queried using the `eltype` function:
-
-```jldoctest
-julia> supports_typed_pointers()
-false
-
-julia> ty = LLVM.PointerType(LLVM.Int1Type())
-ptr
-
-julia> eltype(ty)
-ERROR: Taking the type of an opaque pointer is illegal
-```
+Pointer types are represented by the `LLVM.PointerType` type. Since LLVM 17, all pointers
+are opaque, i.e., they don't have an element type. Older versions of LLVM also support typed
+pointers, whose element type is available as the `element_type` property:
 
 ```julia-repl
 julia> supports_typed_pointers()
-false
+true
 
-julia> ty = LLVM.PointerType()
-ptr
+julia> ty = LLVM.PointerType(LLVM.Int1Type())
+i1*
 
-julia> eltype(ty)
-ERROR: Taking the type of an opaque pointer is illegal
+julia> ty.element_type
+i1
 ```
 
 When constructing a pointer type, you can also set the address space, and query it back
@@ -133,10 +123,10 @@ using the `LLVM.ArrayType` constructor:
 julia> ty = LLVM.ArrayType(LLVM.Int1Type(), 8)
 [8 x i1]
 
-julia> length(ty)
+julia> ty.length
 8
 
-julia> eltype(ty)
+julia> ty.element_type
 i1
 ```
 
@@ -149,10 +139,10 @@ LLVM vectors are similar, but mostly used for SIMD operations:
 julia> ty = LLVM.VectorType(LLVM.Int1Type(), 8)
 <8 x i1>
 
-julia> length(ty)
+julia> ty.length
 8
 
-julia> eltype(ty)
+julia> ty.element_type
 i1
 ```
 

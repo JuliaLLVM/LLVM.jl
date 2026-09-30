@@ -324,13 +324,13 @@ function check_aggregate_indices(typ::LLVMType, indices)
         n = if typ isa StructType
             length(typ.elements)
         elseif typ isa ArrayType
-            length(typ)
+            array_length(typ)
         else
             throw(ArgumentError("Cannot index into non-aggregate type $typ"))
         end
         0 <= idx < n && idx <= typemax(Cuint) ||
             throw(ArgumentError("Index $idx is out of bounds for type $typ"))
-        typ = typ isa StructType ? typ.elements[idx+1] : eltype(typ)
+        typ = typ isa StructType ? typ.elements[idx+1] : element_type(typ)
     end
     return typ
 end
@@ -588,7 +588,7 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     is_stronger(ordering, Unordered) ||
         throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $ordering"))
     T = value_type(Val)
-    scalar_T = T isa VectorType ? eltype(T) : T
+    scalar_T = T isa VectorType ? element_type(T) : T
     if op == API.LLVMAtomicRMWBinOpXchg
         scalar_T isa Union{IntegerType,FloatingPointType,PointerType} ||
             throw(ArgumentError("atomicrmw xchg requires an integer, floating-point or pointer value, got $(string(T))"))

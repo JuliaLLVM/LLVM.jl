@@ -338,7 +338,11 @@ end
 # `@property T name setter` makes it writable by calling `setter(x, v)`. For setters that
 # need to adapt the value, `setter` can be an anonymous function `(x, v) -> ...`, which
 # becomes the body of the setter method (so that its arguments can be typed).
-macro property(T, name::Symbol, setter=nothing)
+macro property(T, name, setter=nothing)
+    # `@property T name => getter` uses a getter that isn't named after the property, e.g.,
+    # when that name is a Base function with another meaning (like `length`)
+    name, getter = Meta.isexpr(name, :call) && name.args[1] === :(=>) ?
+                   (name.args[2], name.args[3]) : (name, name)
     sym = QuoteNode(name)
     setter_method = if setter === nothing
         :(setprop!(x::$T, ::Val{$sym}, v) =
@@ -351,7 +355,7 @@ macro property(T, name::Symbol, setter=nothing)
         :(setprop!(x::$T, ::Val{$sym}, v) = ($setter(x, v); v))
     end
     quote
-        @inline getprop(x::$T, ::Val{$sym}) = $name(x)
+        @inline getprop(x::$T, ::Val{$sym}) = $getter(x)
         $setter_method
         push!(property_registry, ($T, $sym))
     end |> esc

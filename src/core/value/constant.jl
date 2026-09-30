@@ -329,7 +329,7 @@ end
 
 function bitpattern(val::ConstantFP)
     typ = value_type(val)
-    width = fp_width(typ isa VectorType ? eltype(typ) : typ)
+    width = fp_width(typ isa VectorType ? element_type(typ) : typ)
     words = Vector{UInt64}(undef, cld(width, 64))
     API.LLVMExtraConstFPGetBits(val, words)
     bits = zero(UInt128)
@@ -649,7 +649,8 @@ elements(c::AnyConstantAggregate) = ConstantAggregateElementSet(c)
 
 function Base.size(iter::ConstantAggregateElementSet)
     typ = value_type(iter.c)
-    n = typ isa StructType ? length(elements(typ)) : length(typ)
+    n = typ isa StructType ? length(elements(typ)) :
+        typ isa ArrayType ? array_length(typ) : vector_length(typ)
     return (n,)
 end
 

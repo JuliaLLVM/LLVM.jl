@@ -48,7 +48,7 @@ This only works for types created by the Julia compiler (living in its LLVM cont
 """
 isghosttype
 
-isghosttype(@nospecialize(T::LLVMType)) = T == LLVM.VoidType() || isempty(T)
+isghosttype(@nospecialize(T::LLVMType)) = T == LLVM.VoidType() || isemptytype(T)
 function isghosttype(@nospecialize(t::Type))
     if context(; throw_error=false) === nothing
         LLVM.Context() do _

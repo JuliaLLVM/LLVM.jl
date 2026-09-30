@@ -36,7 +36,7 @@ abstract type Instruction <: User end
 @vocabulary IR convert_users_to_instructions!
 
 """
-    convert_users_to_instructions!(consts::Vector{<:Constant};
+    convert_users_to_instructions!(consts::AbstractVector{<:Constant};
                                    func::Union{Nothing,LLVM.Function}=nothing,
                                    remove_dead_constants::Bool=true,
                                    include_self::Bool=false) -> Bool
@@ -50,7 +50,7 @@ Optionally restrict the rewrite to `func`, keep dead constants around
 (`include_self=true`). These three options require LLVM 19 or later; the function itself
 requires LLVM 17 or later.
 """
-function convert_users_to_instructions!(consts::Vector{<:Constant};
+function convert_users_to_instructions!(consts::AbstractVector{<:Constant};
                                         func=nothing,
                                         remove_dead_constants::Bool=true,
                                         include_self::Bool=false)
@@ -64,7 +64,7 @@ function convert_users_to_instructions!(consts::Vector{<:Constant};
     func === nothing || func isa Function ||
         throw(ArgumentError("`func` must be an LLVM.Function or `nothing`"))
     API.LLVMConvertUsersOfConstantsToInstructions(
-        consts, length(consts), something(func, C_NULL),
+        as_vector(consts), length(consts), something(func, C_NULL),
         remove_dead_constants, include_self) |> Bool
 end
 
@@ -570,21 +570,22 @@ register(ConstantStruct, API.LLVMConstantStructValueKind)
 ConstantStructOrAggregateZero(value) = Value(value)::Union{ConstantStruct,ConstantAggregateZero}
 
 """
-    ConstantStruct(values::Vector{<:Constant}, [packed=false])
+    ConstantStruct(values::AbstractVector{<:Constant}; packed=false)
 
 Create an anonymous constant struct of the given values.
 """
-ConstantStruct(values::Vector{<:Constant}; packed::Bool=false) =
-    ConstantStructOrAggregateZero(API.LLVMConstStructInContext(context(), values,
+ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
+    ConstantStructOrAggregateZero(API.LLVMConstStructInContext(context(), as_vector(values),
                                                                length(values), packed))
 
 """
-    ConstantStruct(typ::LLVM.StructType, values::Vector{<:Constant})
+    ConstantStruct(typ::LLVM.StructType, values::AbstractVector{<:Constant})
 
 Create a constant struct of the given type and values.
 """
-ConstantStruct(typ::StructType, values::Vector{<:Constant}) =
-    ConstantStructOrAggregateZero(API.LLVMConstNamedStruct(typ, values, length(values)))
+ConstantStruct(typ::StructType, values::AbstractVector{<:Constant}) =
+    ConstantStructOrAggregateZero(API.LLVMConstNamedStruct(typ, as_vector(values),
+                                                           length(values)))
 
 """
     ConstantStruct(value::T, [name=String(nameof(T)), anonymous=false, packed=false])
@@ -726,12 +727,13 @@ const_nuwsub(lhs::Constant, rhs::Constant) =
 const_xor(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstXor(lhs, rhs))
 
-function const_gep(Ty::LLVMType, val::Constant, Indices::Vector{<:Constant})
-    Value(API.LLVMConstGEP2(Ty, val, Indices, length(Indices)))
+function const_gep(Ty::LLVMType, val::Constant, Indices::AbstractVector{<:Constant})
+    Value(API.LLVMConstGEP2(Ty, val, as_vector(Indices), length(Indices)))
 end
 
-function const_inbounds_gep(Ty::LLVMType, val::Constant, Indices::Vector{<:Constant})
-    Value(API.LLVMConstInBoundsGEP2(Ty, val, Indices, length(Indices)))
+function const_inbounds_gep(Ty::LLVMType, val::Constant,
+                            Indices::AbstractVector{<:Constant})
+    Value(API.LLVMConstInBoundsGEP2(Ty, val, as_vector(Indices), length(Indices)))
 end
 
 const_trunc(val::Constant, ToType::LLVMType) =

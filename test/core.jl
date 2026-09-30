@@ -2985,6 +2985,48 @@ end
 
 end
 
+@testset "collection inputs" begin
+
+# functions that take collections of IR objects accept any vector, like the views of the IR
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    i32 = LLVM.Int32Type()
+    st = LLVM.StructType([i32, i32])
+    ft = LLVM.FunctionType(st, [i32, i32, LLVM.PointerType(i32)])
+    f = LLVM.Function(mod, "f", ft)
+    x, y, ptr = f.parameters
+    entry = BasicBlock(f, "entry")
+    position!(builder, entry)
+
+    idxs = @view LLVM.Value[x, y][1:1]
+    gep = gep!(builder, i32, ptr, idxs)
+    @test gep.operands[2] == x
+    gep = inbounds_gep!(builder, i32, ptr, idxs)
+    @test gep.operands[2] == x
+
+    c = ConstantStruct(@view LLVM.Constant[ConstantInt(Int32(1)), ConstantInt(Int32(2))][1:2])
+    @test ConstantStruct(c.elements) == c
+    @test ConstantStruct(st, c.elements).value_type == st
+    @test const_gep(i32, null(LLVM.PointerType(i32)), @view(LLVM.Constant[ConstantInt(1)][:])) isa Constant
+
+    callee = LLVM.Function(mod, "g", LLVM.FunctionType(LLVM.VoidType()))
+    bundles = [OperandBundle("deopt", LLVM.Value[x])]
+    call = call!(builder, callee.function_type, callee, LLVM.Value[], @view(bundles[1:1]))
+    @test length(call.operand_bundles) == 1
+
+    ret!(builder, @view LLVM.Value[x, y][1:2])
+    @test verify(mod) === nothing
+
+    # dictionaries of values
+    g = clone(f; value_map=IdDict{LLVM.Value,LLVM.Value}(y => ConstantInt(Int32(0))))
+    @test length(g.parameters) == 2
+    @test verify(mod) === nothing
+
+    md = MDNode(@view LLVM.Metadata[MDString("a"), MDString("b")][1:2])
+    @test length(md.operands) == 2
+end
+
+end
+
 end
 
 @testset "renamed functions" begin

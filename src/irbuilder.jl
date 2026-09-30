@@ -188,8 +188,8 @@ ret!(builder::IRBuilder) =
 ret!(builder::IRBuilder, V::Value) =
     Instruction(API.LLVMBuildRet(builder, V))
 
-ret!(builder::IRBuilder, RetVals::Vector{<:Value}) =
-    Instruction(API.LLVMBuildAggregateRet(builder, RetVals, length(RetVals)))
+ret!(builder::IRBuilder, RetVals::AbstractVector{<:Value}) =
+    Instruction(API.LLVMBuildAggregateRet(builder, as_vector(RetVals), length(RetVals)))
 
 br!(builder::IRBuilder, Dest::BasicBlock) =
     Instruction(API.LLVMBuildBr(builder, Dest))
@@ -662,14 +662,15 @@ atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
     Instruction(API.LLVMBuildAtomicCmpXchgSyncScope(builder, Ptr, Cmp, New, SuccessOrdering,
                                                     FailureOrdering, syncscope))
 
-function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value, Indices::Vector{<:Value},
-              Name::String="")
-    Value(API.LLVMBuildGEP2(builder, Ty, Pointer, Indices, length(Indices), Name))
+function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
+              Indices::AbstractVector{<:Value}, Name::String="")
+    Value(API.LLVMBuildGEP2(builder, Ty, Pointer, as_vector(Indices), length(Indices), Name))
 end
 
 function inbounds_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
-                       Indices::Vector{<:Value}, Name::String="")
-    Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, Indices, length(Indices), Name))
+                       Indices::AbstractVector{<:Value}, Name::String="")
+    Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, as_vector(Indices),
+                                    length(Indices), Name))
 end
 
 function struct_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value, Idx, Name::String="")
@@ -760,10 +761,10 @@ function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
 end
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
-               Bundles::Vector{OperandBundle}, Name::String="")
+               Bundles::AbstractVector{OperandBundle}, Name::String="")
     Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, as_vector(Args),
-                                                    length(Args), Bundles, length(Bundles),
-                                                    Name))
+                                                    length(Args), as_vector(Bundles),
+                                                    length(Bundles), Name))
 end
 
 # convenience function to be able to call `call!` with a `call.operand_bundles` argument

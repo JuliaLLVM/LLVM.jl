@@ -121,10 +121,11 @@ julia> inst
 
 Metadata can also be attached to a module, in which case it needs to be grouped in a named
 metadata node (which can only contain other metadata nodes, and not e.g. strings directly).
-The named metadata of a module is available as its `metadata` property, which creates a
-named metadata node when looking up a name that doesn't exist yet. The operands of a named
-metadata node are a mutable view, so operands can be appended with `push!`, replaced by
-assigning to them, and removed with `empty!`:
+The named metadata of a module is available as its `metadata` property, a dictionary-like
+view. Looking up a name that doesn't exist throws a `KeyError`, while `get!` creates an
+empty named metadata node. The operands of a named metadata node are a mutable view, so
+operands can be appended with `push!`, replaced by assigning to them, and removed with
+`empty!`:
 
 ```jldoctest
 julia> md = mod.metadata;
@@ -132,7 +133,7 @@ julia> md = mod.metadata;
 julia> isempty(md)
 true
 
-julia> push!(md["hello"].operands, MDNode([MDString("world")]));
+julia> push!(get!(md, "hello").operands, MDNode([MDString("world")]));
 
 julia> md
 ModuleMetadataIterator for module :

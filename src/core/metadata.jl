@@ -556,30 +556,33 @@ function Base.iterate(iter::ModuleMetadataIterator, state=API.LLVMGetFirstNamedM
     end
 end
 
-function Base.first(iter::ModuleMetadataIterator)
-    ref = API.LLVMGetFirstNamedMetadata(iter.mod)
-    ref == C_NULL && throw(BoundsError(iter))
-    NamedMDNode(iter.mod, ref)
-end
-
-function Base.last(iter::ModuleMetadataIterator)
-    ref = API.LLVMGetLastNamedMetadata(iter.mod)
-    ref == C_NULL && throw(BoundsError(iter))
-    NamedMDNode(iter.mod, ref)
-end
-
 Base.isempty(iter::ModuleMetadataIterator) =
     API.LLVMGetLastNamedMetadata(iter.mod) == C_NULL
 
-Base.IteratorSize(::Type{ModuleMetadataIterator}) = Base.SizeUnknown()
+Base.length(iter::ModuleMetadataIterator) = count(Returns(true), iter)
 
 function Base.haskey(iter::ModuleMetadataIterator, name::String)
     return API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
 function Base.getindex(iter::ModuleMetadataIterator, name::String)
+    ref = API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name))
+    ref == C_NULL && throw(KeyError(name))
+    return NamedMDNode(iter.mod, ref)
+end
+
+function Base.get(iter::ModuleMetadataIterator, name::String, default)
+    ref = API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name))
+    ref == C_NULL ? default : NamedMDNode(iter.mod, ref)
+end
+
+"""
+    get!(mod.metadata, name::String)
+
+Look up the named metadata node called `name`, or create an empty one if the module doesn't
+contain it, e.g., to add metadata to it: `push!(get!(mod.metadata, name).operands, node)`.
+"""
+function Base.get!(iter::ModuleMetadataIterator, name::String)
     ref = API.LLVMGetOrInsertNamedMetadata(iter.mod, name, ncodeunits(name))
-    @assert ref != C_NULL
-    node = NamedMDNode(iter.mod, ref)
-    return node
+    return NamedMDNode(iter.mod, ref)
 end

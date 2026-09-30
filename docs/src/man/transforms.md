@@ -118,7 +118,7 @@ single argument (a module or function), and returns a boolean indicating whether
 module or function was modified. This function is then to be wrapped in a `ModulePass`
 or `FunctionPass` object, and registered with the pass builder:
 
-```jldoctest
+```jldoctest custom_pass
 julia> function custom_module_pass!(mod::LLVM.Module)
          println("Hello, World!")
          return false
@@ -131,6 +131,14 @@ julia> @dispose pb=PassBuilder() begin
          add!(pb, CustomModulePass())
          run!(pb, mod)
        end
+Hello, World!
+```
+
+To run a single custom pass, `run!` can also be called with the pass itself, which
+registers it with a temporary pass builder:
+
+```jldoctest custom_pass
+julia> run!(CustomModulePass(), mod)
 Hello, World!
 ```
 

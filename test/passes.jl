@@ -250,6 +250,27 @@ end
         @test module_pass_calls == 2
         @test function_pass_calls == 1
     end
+
+    # running a single custom pass
+    @dispose ctx=Context() mod=test_module() begin
+        module_pass_calls = 0
+        function_pass_calls = 0
+        @test run!(CustomModulePass(), mod) === nothing
+        @test module_pass_calls == 1
+        # function passes run on every function of a module
+        @test run!(CustomFunctionPass(), mod; verify_each=true) === nothing
+        @test function_pass_calls == 1
+        fn = mod.functions["SomeFunction"]
+        @test run!(CustomFunctionPass(), fn) === nothing
+        @test function_pass_calls == 2
+        # but module passes can't run on a function
+        @test_throws ArgumentError run!(CustomModulePass(), fn)
+        @test module_pass_calls == 1
+        # exceptions are rethrown after LLVM returns
+        @test_throws LLVM.PassException run!(ModulePass("throwing_pass",
+                                                        mod -> error("oops")), mod)
+        @test_throws ArgumentError run!(CustomModulePass(), mod; invalid_option=true)
+    end
 end
 
 @testset "registration callbacks" begin

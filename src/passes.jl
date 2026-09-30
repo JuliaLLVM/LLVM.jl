@@ -479,6 +479,33 @@ function run!(pass::String, args...; kwargs...)
     end
 end
 
+"""
+    run!(pass::CustomPass, target::Union{Module,Function}, [tm::TargetMachine]; kwargs...)
+
+Run a single custom pass on a module or a function, using a temporary pass builder that
+is created with the given keyword arguments (see [`PassBuilder`](@ref)). A function pass
+that runs on a module runs on each of its functions, while a module pass cannot run on a
+function. Like for passes that run in a pipeline, exceptions thrown by the pass are
+rethrown as a [`PassException`](@ref).
+"""
+function run!(pass::CustomPass, target::Union{Module,Function},
+              tm::Union{Nothing,TargetMachine}=nothing; kwargs...)
+    if pass.type === :module && target isa Function
+        throw(ArgumentError("Cannot run module pass $(pass.name) on a function"))
+    end
+    @dispose pb=PassBuilder(; kwargs...) begin
+        register!(pb, pass)
+        if pass.type === :function && target isa Module
+            add!(pb, FunctionPassManager()) do fpm
+                add!(fpm, pass)
+            end
+        else
+            add!(pb, pass)
+        end
+        run!(pb, target, tm)
+    end
+end
+
 
 ## pass definitions
 

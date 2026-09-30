@@ -3,7 +3,7 @@
 # TODO: this is a _very_ ugly wrapper, but hard to improve since we can't deduce the type
 #       of a GenericValue, and need to pass concrete LLVM type objects to the API
 
-@public GenericValue, dispose
+@public GenericValue, dispose, to_float
 
 """
     GenericValue
@@ -73,23 +73,23 @@ Base.convert(::Type{T}, val::GenericValue) where {T<:Unsigned} =
 """
     GenericValue(typ::LLVM.FloatingPointType, N::AbstractFloat)
 
-Create a generic value from a floating point number of the given type.
+Create a generic value from a floating point number of the given type, which needs to be
+`LLVM.FloatType()` or `LLVM.DoubleType()`: generic values only support single and double
+precision floating point numbers.
 """
-GenericValue(typ::FloatingPointType, N::AbstractFloat) =
+GenericValue(typ::Union{LLVMFloat,LLVMDouble}, N::AbstractFloat) =
     mark_alloc(GenericValue(API.LLVMCreateGenericValueOfFloat(typ, convert(Cdouble, N))))
 
-# NOTE: this ugly three-arg convert is needed to match the C API,
-#       which uses the type to call the correct C++ function.
-
 """
-    convert(::Type{<:AbstractFloat}, val::GenericValue, typ::LLVM.FloatingPointType)
+    LLVM.to_float(val::GenericValue, typ::LLVM.FloatingPointType) -> Float64
 
-Convert a generic value to a floating point number of the given type.
-
-Contrary to the integer conversion, the LLVM type is also required to be passed explicitly.
+Get the floating point number stored in a generic value. Unlike integers, generic values
+don't know the type of the floating point number they store, so it needs to be passed
+explicitly: `LLVM.FloatType()` or `LLVM.DoubleType()`. Use
+`convert(T, LLVM.to_float(val, typ))` to get another Julia type.
 """
-Base.convert(::Type{T}, val::GenericValue, typ::LLVMType) where {T<:AbstractFloat} =
-    convert(T, API.LLVMGenericValueToFloat(typ, val))
+to_float(val::GenericValue, typ::Union{LLVMFloat,LLVMDouble}) =
+    API.LLVMGenericValueToFloat(typ, val)
 
 """
     GenericValue(ptr::Ptr)
@@ -129,7 +129,7 @@ the view is not a collection.
     ref::API.LLVMExecutionEngineRef
     mods::Set{Module}
 end
-@public ExecutionEngine
+@public ExecutionEngine, execute
 @properties ExecutionEngine
 
 Base.unsafe_convert(::Type{API.LLVMExecutionEngineRef}, engine::ExecutionEngine) =
@@ -248,13 +248,18 @@ function Base.delete!(engine::ExecutionEngine, mod::Module)
 end
 
 """
-    run(engine::ExecutionEngine, f::Function, [args::Vector{GenericValue}])
+    LLVM.execute(engine::ExecutionEngine, f::LLVM.Function,
+                 [args::AbstractVector{GenericValue}]) -> GenericValue
 
-Run the given function with the given arguments in the execution engine.
+Run the function `f` with the given arguments in the execution engine, and return its
+result. The arguments are only borrowed, while the result needs to be disposed of using
+[`dispose`](@ref dispose(::GenericValue)).
 """
-Base.run(engine::ExecutionEngine, f::Function, args::Vector{GenericValue}=GenericValue[]) =
-    mark_alloc(GenericValue(API.LLVMRunFunction(engine, f,
-                                                length(args), args)))
+function execute(engine::ExecutionEngine, f::Function,
+                 args::AbstractVector{GenericValue}=GenericValue[])
+    vals = convert(Vector{GenericValue}, args)
+    mark_alloc(GenericValue(API.LLVMRunFunction(engine, f, length(vals), vals)))
+end
 
 """
     lookup(engine::ExecutionEngine, fn::String)

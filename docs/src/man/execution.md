@@ -36,16 +36,16 @@ top:
 ## Interpreter
 
 LLVM's interpreter is a simple way to execute LLVM IR code, and can be constructed from just
-a module. Executing code is done using the `run` function, which takes a reference to the
-function to execute, and an array of `GenericValue` arguments, returning a `GenericValue`
-result. These legacy execution engines are not part of any vocabulary, so they are used
+a module. Executing code is done using the `LLVM.execute` function, which takes a reference
+to the function to execute, and an array of `GenericValue` arguments, returning a
+`GenericValue` result (that needs to be disposed of). These legacy execution engines are not part of any vocabulary, so they are used
 qualified:
 
 ```jldoctest
 julia> engine = LLVM.Interpreter(mod);
 
-julia> res = run(engine, add, [LLVM.GenericValue(LLVM.Int64Type(), 1),
-                               LLVM.GenericValue(LLVM.Int64Type(), 2)]);
+julia> res = LLVM.execute(engine, add, [LLVM.GenericValue(LLVM.Int64Type(), 1),
+                                        LLVM.GenericValue(LLVM.Int64Type(), 2)]);
 
 julia> convert(Int, res)
 3
@@ -61,7 +61,7 @@ Interpreting IR is obviously slow, so for all but the simplest programs you'll w
 the JIT engine instead, which is based on LLVM's MCJIT. Usage of the JIT engine is almost
 identical to the interpreter, using `JIT` objects instead.
 
-One crucial difference is that MCJIT does not support the `run` function with arguments.
+One crucial difference is that MCJIT does not support `LLVM.execute` with arguments.
 Instead, you need to look up the address of the compiled function, and call it directly:
 
 ```jldoctest

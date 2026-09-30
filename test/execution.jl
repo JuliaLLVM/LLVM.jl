@@ -18,15 +18,22 @@ end
 
 @dispose ctx=Context() begin
     val = LLVM.GenericValue(LLVM.DoubleType(), Float32(1.1))
-    @test convert(Float32, val, LLVM.DoubleType()) == Float32(1.1)
-    @test convert(Float64, val, LLVM.DoubleType()) == Float64(Float32(1.1))
+    @test convert(Float32, LLVM.to_float(val, LLVM.DoubleType())) == Float32(1.1)
+    @test LLVM.to_float(val, LLVM.DoubleType()) == Float64(Float32(1.1))
+    dispose(val)
+
+    val = LLVM.GenericValue(LLVM.FloatType(), 1.5)
+    @test LLVM.to_float(val, LLVM.FloatType()) === 1.5
+    # other floating-point types aren't supported by the C API
+    @test_throws MethodError LLVM.GenericValue(LLVM.HalfType(), 1.5)
+    @test_throws MethodError LLVM.to_float(val, LLVM.FP128Type())
     dispose(val)
 end
 
 @dispose ctx=Context() begin
     val = LLVM.GenericValue(LLVM.DoubleType(), 1.1)
-    @test convert(Float32, val, LLVM.DoubleType()) == Float32(1.1)
-    @test convert(Float64, val, LLVM.DoubleType()) == 1.1
+    @test convert(Float32, LLVM.to_float(val, LLVM.DoubleType())) == Float32(1.1)
+    @test LLVM.to_float(val, LLVM.DoubleType()) == 1.1
     dispose(val)
 end
 
@@ -124,7 +131,7 @@ end
     let mod = copy(mod)
         fn = mod.functions["add_1"]
         @dispose engine=LLVM.Interpreter(mod) begin
-            res = run(engine, fn, args)
+            res = LLVM.execute(engine, fn, args)
             @test convert(Int, res) == 42
             dispose(res)
         end
@@ -171,7 +178,7 @@ end
         let mod = emit_phi()
             fn = mod.functions["gt"]
             @dispose engine=LLVM.Interpreter(mod) begin
-                res = run(engine, fn, args)
+                res = LLVM.execute(engine, fn, view(args, :))
                 @test convert(Int, res) == true_res
                 dispose(res)
             end

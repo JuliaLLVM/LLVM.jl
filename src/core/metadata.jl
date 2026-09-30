@@ -155,7 +155,7 @@ register(MDString, API.LLVMMDStringMetadataKind)
 Create a new string metadata node from the given Julia string.
 """
 MDString(val::String) =
-    MDString(API.LLVMMDStringInContext2(context(), val, length(val)))
+    MDString(API.LLVMMDStringInContext2(context(), val, ncodeunits(val)))
 
 """
     convert(String, md::MDString)
@@ -285,7 +285,7 @@ Base.convert(::Type{Metadata}, ::Nothing) = MDNull()
                MD_section_prefix = 20,
                MD_absolute_symbol = 21,
                MD_associated = 22)
-MDKind(name::String) = MDKind(API.LLVMGetMDKindIDInContext(context(), name, length(name)))
+MDKind(name::String) = MDKind(API.LLVMGetMDKindIDInContext(context(), name, ncodeunits(name)))
 MDKind(kind::MDKind) = kind
 
 # instructions (using MetadataAsValue values)
@@ -574,11 +574,11 @@ Base.isempty(iter::ModuleMetadataIterator) =
 Base.IteratorSize(::Type{ModuleMetadataIterator}) = Base.SizeUnknown()
 
 function Base.haskey(iter::ModuleMetadataIterator, name::String)
-    return API.LLVMGetNamedMetadata(iter.mod, name, length(name)) != C_NULL
+    return API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
 function Base.getindex(iter::ModuleMetadataIterator, name::String)
-    ref = API.LLVMGetOrInsertNamedMetadata(iter.mod, name, length(name))
+    ref = API.LLVMGetOrInsertNamedMetadata(iter.mod, name, ncodeunits(name))
     @assert ref != C_NULL
     node = NamedMDNode(iter.mod, ref)
     return node

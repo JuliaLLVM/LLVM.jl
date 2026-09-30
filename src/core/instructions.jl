@@ -538,7 +538,7 @@ function SyncScope(name::String)
     if name == "system"
         name = ""
     end
-    SyncScope(API.LLVMGetSyncScopeID(context(), name, length(name)))
+    SyncScope(API.LLVMGetSyncScopeID(context(), name, ncodeunits(name)))
 end
 
 Base.convert(::Type{Cuint}, scope::SyncScope) = scope.id
@@ -1000,8 +1000,8 @@ Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
 Create a new operand bundle with the given tag and arguments.
 """
 function OperandBundle(tag::String, args::AbstractVector{<:Value}=Value[])
-    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, length(tag), as_vector(args),
-                                                       length(args)))
+    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, ncodeunits(tag),
+                                                       as_vector(args), length(args)))
     finalizer(bundle) do obj
         API.LLVMDisposeOperandBundle(obj)
     end

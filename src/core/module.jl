@@ -179,7 +179,7 @@ function name(mod::Module)
 end
 
 name!(mod::Module, str::String) =
-    API.LLVMSetModuleIdentifier(mod, str, Csize_t(length(str)))
+    API.LLVMSetModuleIdentifier(mod, str, Csize_t(ncodeunits(str)))
 
 @property Module name name!
 
@@ -797,17 +797,17 @@ end
 Base.length(iter::ModuleFlagDict) = count(Returns(true), iter)
 
 Base.haskey(iter::ModuleFlagDict, name::String) =
-    API.LLVMGetModuleFlag(iter.mod, name, length(name)) != C_NULL
+    API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name)) != C_NULL
 
 function Base.getindex(iter::ModuleFlagDict, name::String)
-    objref = API.LLVMGetModuleFlag(iter.mod, name, length(name))
+    objref = API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return Metadata(objref)
 end
 
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
                         (name, behavior)::Tuple{String, API.LLVMModuleFlagBehavior})
-    API.LLVMAddModuleFlag(iter.mod, behavior, name, length(name), val)
+    API.LLVMAddModuleFlag(iter.mod, behavior, name, ncodeunits(name), val)
     return iter
 end
 

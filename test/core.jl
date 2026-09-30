@@ -1785,6 +1785,19 @@ end
     @test dest.alignment == 16
 end
 
+# strings are passed to LLVM by their number of bytes, not characters
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    @test convert(String, MDString("é")) == "é"
+    mod.name = "módulo"
+    @test mod.name == "módulo"
+    push!(mod.metadata["métadonnées"].operands, MDNode([MDString("x")]))
+    @test haskey(mod.metadata, "métadonnées")
+    mod.flags["drapeau", LLVM.ModuleFlagBehavior.Error] = Metadata(ConstantInt(Int32(1)))
+    @test haskey(mod.flags, "drapeau")
+    @test SyncScope("portée").name == "portée"
+    @test OperandBundle("étiquette").tag == "étiquette"
+end
+
 # looking up or declaring functions
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())

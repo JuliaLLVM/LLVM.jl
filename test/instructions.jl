@@ -1100,6 +1100,8 @@ end
     @test !hasproperty(instns[3], :fast_math)
     @test_throws "has no property `fast_math`" instns[3].fast_math
     @test_throws "has no property `fast_math`" instns[3].fast_math = (; fast=true)
+    @test supports_fast_math(instns[1])
+    @test !supports_fast_math(instns[3])
 
     # optimize again
     optimize(mod)
@@ -1111,6 +1113,20 @@ end
     instns = collect(bb.instructions)
     @test length(instns) == 1
     @test instns[1] isa LLVM.RetInst
+end
+
+# whether phi, select and call instructions support fast-math flags depends on their type
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.FloatType(), LLVM.Int32Type(), LLVM.Int1Type()])
+    f = LLVM.Function(mod, "f", ft)
+    position!(builder, BasicBlock(f, "entry"))
+    x, y, c = f.parameters
+    fsel = select!(builder, c, x, x)
+    isel = select!(builder, c, y, y)
+    @test supports_fast_math(fsel)
+    @test !supports_fast_math(isel)
+    @test hasproperty(isel, :fast_math)
+    @test_throws ArgumentError isel.fast_math
 end
 end
 

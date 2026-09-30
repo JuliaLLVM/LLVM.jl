@@ -1486,7 +1486,8 @@ The fast-math flags of a floating-point instruction, as a [`FastMathFlags`](@ref
 that can be used to inspect and change individual flags, e.g.,
 `inst.fast_math.nnan = true`. Only available on the instructions that LLVM considers
 floating-point operations; `phi`, `select` and `call` instructions only have fast-math
-flags if they produce a floating-point value, and throw an `ArgumentError` otherwise.
+flags if they produce a floating-point value, and throw an `ArgumentError` otherwise. Use
+[`supports_fast_math`](@ref) to check whether an instruction has fast-math flags.
 
 Assigning replaces all flags: with a named tuple of `Bool`s (e.g., `(; nnan=true,
 ninf=true)`), the flags that are not specified are cleared, while `fast=true` sets all
@@ -1500,6 +1501,17 @@ const FPMathInst = Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemI
                          PHIInst, SelectInst, CallInst,
                          (version() >= v"20" ? (FPTruncInst, FPExtInst) : ())...,
                          (version() >= v"23" ? (UIToFPInst, SIToFPInst) : ())...}
+
+@vocabulary IR supports_fast_math
+
+"""
+    supports_fast_math(inst::Instruction)
+
+Check whether the given instruction supports fast-math flags, i.e., whether it is a
+floating-point operation like C++'s `FPMathOperator`. For `phi`, `select` and `call`
+instructions, this depends on whether they produce a floating-point value.
+"""
+supports_fast_math(inst::Instruction) = Bool(API.LLVMCanValueUseFastMathFlags(inst))
 
 @property FPMathInst fast_math fast_math!
 

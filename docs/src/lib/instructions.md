@@ -113,6 +113,7 @@ LLVM.FPMathInst
 
 ```@docs
 FastMathFlags
+supports_fast_math
 ```
 
 ## Alignment

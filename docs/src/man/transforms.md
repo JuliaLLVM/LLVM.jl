@@ -19,12 +19,12 @@ the legacy pass manager, which LLVM deprecated, is not supported.
 
 ## Pass builders
 
-The core abstraction for running passes is the `NewPMPassBuilder` object, which aggregates
+The core abstraction for running passes is the `PassBuilder` object, which aggregates
 passes via the `add!` function and runs them over a function or module using the `run!`
 function:
 
 ```jldoctest
-julia> @dispose pb=NewPMPassBuilder() begin
+julia> @dispose pb=PassBuilder() begin
          add!(pb, "loop-unroll")
          run!(pb, mod)
        end
@@ -38,7 +38,7 @@ julia> run!("loop-unroll", mod)
 ```
 
 Pass builders also support a number of keyword argument, mostly for debugging purposes.
-Refer to the `NewPMPassBuilder` docstring for more details.
+Refer to the `PassBuilder` docstring for more details.
 
 
 ## Passes
@@ -62,7 +62,7 @@ Pipelines, such as LLVM's default pipeline, are similarly represented by either 
 
 LLVM's default pipeline doesn't support many options (as opposed to, e.g., Julia's
 pipeline). Instead, the pipeline can be tuned through pipeline tuning keyword arguments that
-have to be set on the `PassBuilder` object. Refer to the `NewPMPasBuilder` docstrings
+have to be set on the `PassBuilder` object. Refer to the `PassBuilder` docstrings
 for more details.
 
 
@@ -73,12 +73,12 @@ pass manager to use. When combining multiple types of passes, it is required to 
 construct the appropriate pass manager:
 
 ```jldoctest
-julia> @dispose pb=NewPMPassBuilder() begin
-         add!(pb, NewPMModulePassManager()) do mpm
+julia> @dispose pb=PassBuilder() begin
+         add!(pb, ModulePassManager()) do mpm
            add!(mpm, NoOpModulePass())
-           add!(mpm, NewPMFunctionPassManager()) do fpm
+           add!(mpm, FunctionPassManager()) do fpm
              add!(fpm, NoOpFunctionPass())
-             add!(fpm, NewPMLoopPassManager()) do lpm
+             add!(fpm, LoopPassManager()) do lpm
                add!(lpm, NoOpLoopPass())
              end
            end
@@ -96,8 +96,8 @@ behaves like other pass managers, and alias analysis passes can similarly to reg
 be constructed by name or by object:
 
 ```jldoctest
-julia> @dispose pb=NewPMPassBuilder() begin
-         add!(pb, NewPMAAManager()) do aam
+julia> @dispose pb=PassBuilder() begin
+         add!(pb, AAManager()) do aam
            add!(aam, "basic-aa")
            add!(aam, SCEVAA())
          end
@@ -120,9 +120,9 @@ julia> function custom_module_pass!(mod::LLVM.Module)
          return false
        end;
 
-julia> CustomModulePass() = NewPMModulePass("custom_module_pass", custom_module_pass!);
+julia> CustomModulePass() = ModulePass("custom_module_pass", custom_module_pass!);
 
-julia> @dispose pb=NewPMPassBuilder() begin
+julia> @dispose pb=PassBuilder() begin
          register!(pb, CustomModulePass())
          add!(pb, CustomModulePass())
          run!(pb, mod)
@@ -134,7 +134,7 @@ Passes that are implemented in C++ can be used as well, by registering a native 
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:
 
 ```julia
-@dispose pb=NewPMPassBuilder() begin
+@dispose pb=PassBuilder() begin
     register_callbacks!(pb, cglobal((:registerCallbacks, libfoo)))
     add!(pb, "foo-pass")
     run!(pb, mod)
@@ -169,7 +169,7 @@ enough:
 
 Subtype `AbstractTargetTransformInfo` and override only the queries you care
 about; every other query falls back to a default matching LLVM's
-`TargetTransformInfoImplBase`. Attach the instance to a `NewPMPassBuilder`
+`TargetTransformInfoImplBase`. Attach the instance to a `PassBuilder`
 with `target_transform_info!`:
 
 ```julia
@@ -180,9 +180,9 @@ LLVM.flat_address_space(::MyTTI) = UInt(0)
 LLVM.is_noop_addr_space_cast(::MyTTI, from::Unsigned, to::Unsigned) =
     from == 0 || to == 0
 
-@dispose pb=NewPMPassBuilder() begin
+@dispose pb=PassBuilder() begin
     target_transform_info!(pb, MyTTI())
-    add!(pb, NewPMFunctionPassManager()) do fpm
+    add!(pb, FunctionPassManager()) do fpm
         add!(fpm, InferAddressSpacesPass())
     end
     run!(pb, mod)

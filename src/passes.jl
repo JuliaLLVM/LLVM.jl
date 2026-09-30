@@ -1,10 +1,10 @@
-# (new) pass manager interface
+# pass builders, pass managers and passes
 
 
 ## pass managers
 
-@vocabulary Passes NewPMModulePassManager, NewPMCGSCCPassManager, NewPMFunctionPassManager,
-                   NewPMLoopPassManager, NewPMAAManager
+@vocabulary Passes ModulePassManager, CGSCCPassManager, FunctionPassManager,
+                   LoopPassManager, AAManager
 
 abstract type AbstractPassManager end
 
@@ -25,11 +25,11 @@ See also: [`register!`](@ref)
 add!(pm::AbstractPassManager, pass) = push!(pm.passes, string(pass))
 
 """
-    NewPMModulePassManager()
-    NewPMCGSCCPassManager()
-    NewPMFunctionPassManager()
-    NewPMLoopPassManager(; use_memory_ssa=false)
-    NewPMAAManager()
+    ModulePassManager()
+    CGSCCPassManager()
+    FunctionPassManager()
+    LoopPassManager(; use_memory_ssa=false)
+    AAManager()
 
 Create a new pass manager of the specified type. These objects can be used to construct
 pass pipelines, by `add!`ing passes to them, and finally `add!`ing them to a parent
@@ -39,22 +39,22 @@ Creating a pass manager and adding it to a parent manager or builder can be shor
 using a single `add!`:
 
 ```julia
-add!(parent, NewPMModulePassManager()) do mpm
+add!(parent, ModulePassManager()) do mpm
     add!(mpm, SomeModulePass())
 end
 ```
 
-See also: [`add!`](@ref), [`NewPMPassBuilder`](@ref)
+See also: [`add!`](@ref), [`PassBuilder`](@ref)
 """
-struct NewPMPassManager <: AbstractPassManager
+struct PassManager <: AbstractPassManager
     type::String
     passes::Vector{String}
 
-    NewPMPassManager(type::String) = new(type, [])
+    PassManager(type::String) = new(type, [])
 end
-@vocabulary Passes NewPMPassManager
+@vocabulary Passes PassManager
 
-Base.string(pm::NewPMPassManager) = "$(pm.type)($(join(pm.passes, ",")))"
+Base.string(pm::PassManager) = "$(pm.type)($(join(pm.passes, ",")))"
 
 function add!(f::Base.Callable, parent::AbstractPassManager, nested::AbstractPassManager)
     f(nested)
@@ -63,29 +63,29 @@ function add!(f::Base.Callable, parent::AbstractPassManager, nested::AbstractPas
     end
 end
 
-@doc (@doc NewPMPassManager)
-NewPMModulePassManager() = NewPMPassManager("module")
+@doc (@doc PassManager)
+ModulePassManager() = PassManager("module")
 
-@doc (@doc NewPMPassManager)
-NewPMCGSCCPassManager() = NewPMPassManager("cgscc")
+@doc (@doc PassManager)
+CGSCCPassManager() = PassManager("cgscc")
 
-@doc (@doc NewPMPassManager)
-NewPMFunctionPassManager() = NewPMPassManager("function")
+@doc (@doc PassManager)
+FunctionPassManager() = PassManager("function")
 
-@doc (@doc NewPMPassManager)
-NewPMLoopPassManager(; use_memory_ssa=false) =
-    NewPMPassManager(use_memory_ssa ? "loop-mssa" : "loop")
+@doc (@doc PassManager)
+LoopPassManager(; use_memory_ssa=false) =
+    PassManager(use_memory_ssa ? "loop-mssa" : "loop")
 
 
 ## custom passes
 
 # TODO: support for options
 
-@vocabulary Passes NewPMModulePass, NewPMFunctionPass
+@vocabulary Passes ModulePass, FunctionPass
 
 """
-    NewPMModulePass(name, callback)
-    NewPMFunctionPass(name, callback)
+    ModulePass(name, callback)
+    FunctionPass(name, callback)
 
 Create a new custom pass. The `name` is a string that will be used to identify the pass
 in the pass manager. The `callback` is a function that will be called when the pass is
@@ -101,20 +101,20 @@ LLVM's pass runner.
 
 See also: [`register!`](@ref)
 """
-struct NewPMCustomPass
+struct CustomPass
   type::Symbol
   name::String
   callback::Any
 end
-@vocabulary Passes NewPMCustomPass
+@vocabulary Passes CustomPass
 
-Base.string(pass::NewPMCustomPass) = pass.name
+Base.string(pass::CustomPass) = pass.name
 
-@doc (@doc NewPMCustomPass)
-NewPMModulePass(name, callback)   = NewPMCustomPass(:module, name, callback)
+@doc (@doc CustomPass)
+ModulePass(name, callback)   = CustomPass(:module, name, callback)
 
-@doc (@doc NewPMCustomPass)
-NewPMFunctionPass(name, callback) = NewPMCustomPass(:function, name, callback)
+@doc (@doc CustomPass)
+FunctionPass(name, callback) = CustomPass(:function, name, callback)
 
 # State struct to store callback and any caught exception
 mutable struct CustomPassState
@@ -175,10 +175,10 @@ end
 
 ## pass builder
 
-@vocabulary Passes NewPMPassBuilder, register!, add!, run!
+@vocabulary Passes PassBuilder, register!, add!, run!
 
 """
-    NewPMPassBuilder(; verify_each=false, debug_logging=false, pipeline_tuning_kwargs...)
+    PassBuilder(; verify_each=false, debug_logging=false, pipeline_tuning_kwargs...)
 
 Create a new pass builder. The pass builder is the main object used to construct and run
 pass pipelines. The `verify_each` keyword argument enables module verification after each
@@ -204,10 +204,10 @@ passes or nested pass managers can be added with `add!`, and finally the passes 
 with `run!`:
 
 ```julia
-@dispose pb = NewPMPassBuilder(verify_each=true) begin
+@dispose pb = PassBuilder(verify_each=true) begin
     register!(pb, SomeCustomPass())
     add!(pb, SomeModulePass())
-    add!(pb, NewPMFunctionPassManager()) do fpm
+    add!(pb, FunctionPassManager()) do fpm
         add!(fpm, SomeFunctionPass())
     end
     run!(pb, mod, tm)
@@ -215,7 +215,7 @@ end
 ```
 
 For quickly running a simple pass or pipeline, a shorthand `run!` method is provided that
-obviates the construction of a `NewPMPassBuilder`:
+obviates the construction of a `PassBuilder`:
 
 ```julia
 run!("some-pass", mod, tm; verify_each=true)
@@ -223,23 +223,23 @@ run!("some-pass", mod, tm; verify_each=true)
 
 See also: [`register!`](@ref), [`add!`](@ref), [`run!`](@ref)
 """
-mutable struct NewPMPassBuilder <: AbstractPassManager
+mutable struct PassBuilder <: AbstractPassManager
     opts::API.LLVMPassBuilderOptionsRef
     passes::Vector{String}
     aa_passes::Vector{String}
-    custom_passes::Vector{NewPMCustomPass}
+    custom_passes::Vector{CustomPass}
     custom_tti::Union{AbstractTargetTransformInfo,Nothing}
     registration_callbacks::Vector{Ptr{Cvoid}}
 end
 
-Base.string(pm::NewPMPassBuilder) = join(pm.passes, ",")
+Base.string(pm::PassBuilder) = join(pm.passes, ",")
 
-Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::NewPMPassBuilder) =
+Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::PassBuilder) =
     mark_use(pb).opts
 
-function NewPMPassBuilder(; kwargs...)
+function PassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
-    obj = mark_alloc(NewPMPassBuilder(opts, [], [], [], nothing, []))
+    obj = mark_alloc(PassBuilder(opts, [], [], [], nothing, []))
 
     # dispose of the options if a keyword argument is invalid
     try
@@ -278,7 +278,7 @@ function NewPMPassBuilder(; kwargs...)
     return obj
 end
 
-function dispose(pb::NewPMPassBuilder)
+function dispose(pb::PassBuilder)
     API.LLVMDisposePassBuilderOptions(pb.opts)
     mark_dispose(pb)
 end
@@ -289,16 +289,16 @@ end
 Register a custom pass with the pass builder. This is necessary before the pass can be
 used in a pass pipeline.
 
-See also: [`NewPMModulePass`](@ref), [`NewPMFunctionPass`](@ref)
+See also: [`ModulePass`](@ref), [`FunctionPass`](@ref)
 """
-function register!(pb::NewPMPassBuilder, pass::NewPMCustomPass)
+function register!(pb::PassBuilder, pass::CustomPass)
     push!(pb.custom_passes, pass)
 end
 
 @vocabulary Passes register_callbacks!
 
 """
-    register_callbacks!(pb::NewPMPassBuilder, callback::Ptr{Cvoid})
+    register_callbacks!(pb::PassBuilder, callback::Ptr{Cvoid})
 
 Register a native callback that is called with LLVM's C++ `PassBuilder` (as a `void *`)
 when the pass builder is used to run passes. This makes it possible to use passes that are
@@ -315,7 +315,7 @@ loaded while the pass builder is used. Callbacks are called in the order they we
 registered, after LLVM.jl registers Julia's passes, and must not throw Julia exceptions. To
 implement a pass in Julia instead, use [`register!`](@ref).
 """
-function register_callbacks!(pb::NewPMPassBuilder, callback::Ptr{Cvoid})
+function register_callbacks!(pb::PassBuilder, callback::Ptr{Cvoid})
     callback == C_NULL && throw(ArgumentError("Registration callback cannot be NULL"))
     push!(pb.registration_callbacks, callback)
     return pb
@@ -335,8 +335,8 @@ function install_custom_tti!(exts::API.LLVMPassBuilderExtensionsRef,
 end
 
 """
-    target_transform_info!(pb::NewPMPassBuilder, tti::AbstractTargetTransformInfo)
-    target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
+    target_transform_info!(pb::PassBuilder, tti::AbstractTargetTransformInfo)
+    target_transform_info!(pb::PassBuilder, ::Nothing)
 
 Attach an [`AbstractTargetTransformInfo`](@ref) subtype instance to the pass
 builder, replacing any previously-attached custom TTI. Pass `nothing` to
@@ -344,19 +344,19 @@ revert to LLVM's native TTI (derived from the `TargetMachine`, if any;
 otherwise `TargetTransformInfoImplBase` with full `DataLayout`/`Module`-aware
 defaults).
 """
-function target_transform_info!(pb::NewPMPassBuilder,
+function target_transform_info!(pb::PassBuilder,
                                 tti::AbstractTargetTransformInfo)
     pb.custom_tti = tti
     return pb
 end
 
-function target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
+function target_transform_info!(pb::PassBuilder, ::Nothing)
     pb.custom_tti = nothing
     return pb
 end
 
 """
-    run!(pb::NewPMPassBuilder, mod::Module, [tm::TargetMachine])
+    run!(pb::PassBuilder, mod::Module, [tm::TargetMachine])
     run!(pipeline::String, mod::Module, [tm::TargetMachine])
 
 Run passes on a module. The passes are specified by a pass builder or a string that
@@ -364,7 +364,7 @@ represents a pass pipeline. The target machine is used to optimize the passes.
 """
 run!
 
-function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{Nothing,TargetMachine}=nothing)
+function run!(pb::PassBuilder, target::Union{Module,Function}, tm::Union{Nothing,TargetMachine}=nothing)
     isempty(pb.passes) && return
     pipeline = join(pb.passes, ",")
     aa_pipeline = join(pb.aa_passes, ",")
@@ -383,7 +383,7 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
     end
 end
 
-function run_passes!(pb::NewPMPassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
+function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                      target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
                      pipeline::String, aa_pipeline::String)
     # Create state objects to hold callbacks and any caught exceptions
@@ -456,7 +456,7 @@ function run_passes!(pb::NewPMPassBuilder, exts::API.LLVMPassBuilderExtensionsRe
 end
 
 function run!(pass::String, args...; kwargs...)
-    @dispose pb=NewPMPassBuilder(; kwargs...) begin
+    @dispose pb=PassBuilder(; kwargs...) begin
         add!(pb, pass)
         run!(pb, args...)
     end
@@ -543,13 +543,13 @@ end
 @module_pass "called-value-propagation" CalledValuePropagationPass
 @module_pass "canonicalize-aliases" CanonicalizeAliasesPass
 @module_pass "cg-profile" CGProfilePass
-@module_pass "check-debugify" NewPMCheckDebugifyPass
+@module_pass "check-debugify" CheckDebugifyPass
 @module_pass "constmerge" ConstantMergePass
 @module_pass "coro-early" CoroEarlyPass
 @module_pass "coro-cleanup" CoroCleanupPass
 @module_pass "cross-dso-cfi" CrossDSOCFIPass
 @module_pass "deadargelim" DeadArgumentEliminationPass
-@module_pass "debugify" NewPMDebugifyPass
+@module_pass "debugify" DebugifyPass
 @module_pass "dot-callgraph" CallGraphDOTPrinterPass
 @module_pass "elim-avail-extern" EliminateAvailableExternallyPass
 @module_pass "extract-blocks" BlockExtractorPass
@@ -944,17 +944,17 @@ end
 
 ## alias analyses
 
-@doc (@doc NewPMPassManager)
-struct NewPMAAManager <: AbstractPassManager
+@doc (@doc PassManager)
+struct AAManager <: AbstractPassManager
     passes::Vector{String}
 
-    NewPMAAManager() = new([])
+    AAManager() = new([])
 end
 
-Base.string(pb::NewPMAAManager) = join(pb.passes, ",")
+Base.string(pb::AAManager) = join(pb.passes, ",")
 
-add!(pb::NewPMPassBuilder, aa::NewPMAAManager) = push!(pb.aa_passes, string(aa))
-add!(pm::NewPMAAManager, aa::NewPMAAManager) =
+add!(pb::PassBuilder, aa::AAManager) = push!(pb.aa_passes, string(aa))
+add!(pm::AAManager, aa::AAManager) =
     error("Alias analyses can only be added to the top-level pass builder")
 
 macro aa_pass(pass_name, class_name)

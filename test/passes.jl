@@ -21,7 +21,7 @@ end
 
 @testset "pass builder" begin
     # invalid options are rejected (without leaking the options)
-    @test_throws ArgumentError NewPMPassBuilder(; invalid_option=true)
+    @test_throws ArgumentError PassBuilder(; invalid_option=true)
 
     @dispose ctx=Context() begin
         # single pass
@@ -54,7 +54,7 @@ end
         end
 
         # custom pipelines
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+        @dispose pb=PassBuilder() mod=test_module() begin
             # by string
             add!(pb, "no-op-module")
 
@@ -71,7 +71,7 @@ end
 
         # options
         @dispose mod=test_module() begin
-            @dispose pb=NewPMPassBuilder(verify_each=true) begin
+            @dispose pb=PassBuilder(verify_each=true) begin
                 add!(pb, "no-op-module")
                 @test run!(pb, mod) === nothing
             end
@@ -92,9 +92,9 @@ end
 @testset "pass manager" begin
     @dispose ctx=Context() begin
         # pass manager interface
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
+        @dispose pb=PassBuilder() mod=test_module() begin
             add!(pb, "no-op-module")
-            add!(pb, NewPMModulePassManager()) do mpm
+            add!(pb, ModulePassManager()) do mpm
                 # by string
                 add!(mpm, "no-op-module")
 
@@ -114,12 +114,12 @@ end
         end
 
         # nested pass managers
-        @dispose pb=NewPMPassBuilder() mod=test_module() begin
-            add!(pb, NewPMModulePassManager()) do mpm
+        @dispose pb=PassBuilder() mod=test_module() begin
+            add!(pb, ModulePassManager()) do mpm
                 add!(mpm, "no-op-module")
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, "no-op-function")
-                    add!(fpm, NewPMLoopPassManager()) do lpm
+                    add!(fpm, LoopPassManager()) do lpm
                         add!(lpm, "no-op-loop")
                     end
                 end
@@ -144,14 +144,14 @@ end
                 # then a no-op one that would trigger an error in case of type mismatches.
                 # use a fresh module per run so instrumentation passes (tsan/asan/hwasan)
                 # don't trip their redundant-instrumentation check on the second invocation.
-                @dispose pb=NewPMPassBuilder() mod=test_module() begin
+                @dispose pb=PassBuilder() mod=test_module() begin
                     add!(pb, pass)
                     add!(pb, "no-op-$typ")
                     @test run!(pb, mod) === nothing
                 end
 
                 # same, but to catch type mismatches in the other direction
-                @dispose pb=NewPMPassBuilder() mod=test_module() begin
+                @dispose pb=PassBuilder() mod=test_module() begin
                     add!(pb, "no-op-$typ")
                     add!(pb, pass)
                     @test run!(pb, mod) === nothing
@@ -218,15 +218,15 @@ end
         function_pass_calls += 1
         return false
     end
-    CustomModulePass() = NewPMModulePass("custom_module_pass", custom_module_pass!)
-    CustomFunctionPass() = NewPMFunctionPass("custom_function_pass", custom_function_pass!)
+    CustomModulePass() = ModulePass("custom_module_pass", custom_module_pass!)
+    CustomFunctionPass() = FunctionPass("custom_function_pass", custom_function_pass!)
 
-    @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder() begin
+    @dispose ctx=Context() mod=test_module() pb=PassBuilder() begin
         register!(pb, CustomModulePass())
         register!(pb, CustomFunctionPass())
 
         add!(pb, CustomModulePass())
-        add!(pb, NewPMFunctionPassManager()) do fpm
+        add!(pb, FunctionPassManager()) do fpm
             add!(fpm, CustomFunctionPass())
         end
         add!(pb, CustomModulePass())
@@ -247,7 +247,7 @@ end
         end
         registration_calls
     end
-    @dispose ctx=Context() mod=LLVM.Module("test") pb=NewPMPassBuilder() begin
+    @dispose ctx=Context() mod=LLVM.Module("test") pb=PassBuilder() begin
         callback = @eval @cfunction(count_registration, Cvoid, (Ptr{Cvoid},))
         @test register_callbacks!(pb, callback) === pb
         @test_throws ArgumentError register_callbacks!(pb, C_NULL)
@@ -295,9 +295,9 @@ end
     struct BaselineTTI <: LLVM.AbstractTargetTransformInfo end
 
     @dispose ctx=Context() mod=make_mod() begin
-        @dispose pb=NewPMPassBuilder() begin
+        @dispose pb=PassBuilder() begin
             target_transform_info!(pb, BaselineTTI())
-            add!(pb, NewPMFunctionPassManager()) do fpm
+            add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
             end
             run!(pb, mod)
@@ -312,9 +312,9 @@ end
         from == 0 || to == 0
 
     @dispose ctx=Context() mod=make_mod() begin
-        @dispose pb=NewPMPassBuilder() begin
+        @dispose pb=PassBuilder() begin
             target_transform_info!(pb, FlatZeroTTI())
-            add!(pb, NewPMFunctionPassManager()) do fpm
+            add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
             end
             run!(pb, mod)
@@ -347,9 +347,9 @@ end
         from == 0 || to == 0
 
     @dispose ctx=Context() mod=make_mod() begin
-        @dispose pb=NewPMPassBuilder() begin
+        @dispose pb=PassBuilder() begin
             target_transform_info!(pb, FlatZeroUIntTTI())
-            add!(pb, NewPMFunctionPassManager()) do fpm
+            add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
             end
             run!(pb, mod)
@@ -374,9 +374,9 @@ end
             (t.calls[] += 1; typemax(UInt))
 
         @dispose ctx=Context() mod=make_mod() begin
-            @dispose pb=NewPMPassBuilder() begin
+            @dispose pb=PassBuilder() begin
                 target_transform_info!(pb, CountingTTI(calls))
-                add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(pb, FunctionPassManager()) do fpm
                     add!(fpm, InferAddressSpacesPass())
                 end
                 run!(pb, mod)
@@ -387,10 +387,10 @@ end
 
     # `target_transform_info!(pb, nothing)` reverts to LLVM's native TTI.
     @dispose ctx=Context() mod=make_mod() begin
-        @dispose pb=NewPMPassBuilder() begin
+        @dispose pb=PassBuilder() begin
             target_transform_info!(pb, FlatZeroTTI())
             target_transform_info!(pb, nothing)
-            add!(pb, NewPMFunctionPassManager()) do fpm
+            add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
             end
             run!(pb, mod)
@@ -410,9 +410,9 @@ end
 
     @dispose ctx=Context() mod=make_mod() begin
         calls = Ref(0)
-        @dispose pb=NewPMPassBuilder() begin
+        @dispose pb=PassBuilder() begin
             target_transform_info!(pb, BoomTTI(calls))
-            add!(pb, NewPMFunctionPassManager()) do fpm
+            add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, InferAddressSpacesPass())
                 add!(fpm, InferAddressSpacesPass())
             end
@@ -429,8 +429,8 @@ end
             error("test error from pass")
         end
 
-        @dispose pb=NewPMPassBuilder() begin
-            pass = NewPMModulePass("throwing-pass", throwing_pass!)
+        @dispose pb=PassBuilder() begin
+            pass = ModulePass("throwing-pass", throwing_pass!)
             register!(pb, pass)
             add!(pb, pass)
 
@@ -449,10 +449,10 @@ end
             error("function pass error")
         end
 
-        @dispose pb=NewPMPassBuilder() begin
-            pass = NewPMFunctionPass("throwing-fn-pass", throwing_fn_pass!)
+        @dispose pb=PassBuilder() begin
+            pass = FunctionPass("throwing-fn-pass", throwing_fn_pass!)
             register!(pb, pass)
-            add!(pb, NewPMFunctionPassManager()) do fpm
+            add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, pass)
                 add!(fpm, pass)
             end
@@ -468,8 +468,8 @@ end
             throw(ArgumentError("specific error message"))
         end
 
-        @dispose pb=NewPMPassBuilder() begin
-            register!(pb, NewPMModulePass("msg-pass", pass_with_message!))
+        @dispose pb=PassBuilder() begin
+            register!(pb, ModulePass("msg-pass", pass_with_message!))
             add!(pb, "msg-pass")
 
             try
@@ -495,9 +495,9 @@ end
             error("later error")
         end
 
-        @dispose pb=NewPMPassBuilder() begin
-            register!(pb, NewPMModulePass("success-pass", success_pass!))
-            register!(pb, NewPMModulePass("throw-pass", throwing_pass!))
+        @dispose pb=PassBuilder() begin
+            register!(pb, ModulePass("success-pass", success_pass!))
+            register!(pb, ModulePass("throw-pass", throwing_pass!))
             add!(pb, "success-pass")
             add!(pb, "throw-pass")
 
@@ -516,8 +516,8 @@ end
             return false
         end
 
-        @dispose pb=NewPMPassBuilder() begin
-            register!(pb, NewPMModulePass("counting-pass", counting_pass!))
+        @dispose pb=PassBuilder() begin
+            register!(pb, ModulePass("counting-pass", counting_pass!))
             add!(pb, "counting-pass")
             run!(pb, mod)
             GC.gc(true)
@@ -538,7 +538,7 @@ end
 
 @testset "julia" begin
     @testset "passes" begin
-        @dispose ctx=Context() pb=NewPMPassBuilder() begin
+        @dispose ctx=Context() pb=PassBuilder() begin
             basicSimplifyCFGOptions =
                 (forward_switch_cond=true,
                    switch_range_to_icmp=true,
@@ -548,15 +548,15 @@ end
                    switch_range_to_icmp=true,
                    switch_to_lookup=true,
                    hoist_common_insts=true)
-            add!(pb, NewPMModulePassManager()) do mpm
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+            add!(pb, ModulePassManager()) do mpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, GCInvariantVerifierPass())
                 end
                 add!(mpm, VerifierPass())
                 add!(mpm, ForceFunctionAttrsPass())
                 add!(mpm, Annotation2MetadataPass())
                 add!(mpm, ConstantMergePass())
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, LowerExpectIntrinsicPass())
                     add!(fpm, PropagateJuliaAddrspacesPass())
                     add!(fpm, SimplifyCFGPass(; basicSimplifyCFGOptions...))
@@ -564,15 +564,15 @@ end
                     add!(fpm, SROAPass())
                 end
                 add!(mpm, AlwaysInlinerPass())
-                add!(mpm, NewPMCGSCCPassManager()) do cgpm
-                    add!(cgpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, CGSCCPassManager()) do cgpm
+                    add!(cgpm, FunctionPassManager()) do fpm
                         add!(fpm, AllocOptPass())
                         add!(fpm, Float2IntPass())
                         add!(fpm, LowerConstantIntrinsicsPass())
                     end
                 end
                 add!(mpm, CPUFeaturesPass())
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, SROAPass())
                     add!(fpm, InstCombinePass())
                     add!(fpm, JumpThreadingPass())
@@ -581,12 +581,12 @@ end
                     add!(fpm, EarlyCSEPass())
                     add!(fpm, AllocOptPass())
                 end
-                add!(mpm, NewPMFunctionPassManager()) do fpm
-                    add!(fpm, NewPMLoopPassManager()) do lpm
+                add!(mpm, FunctionPassManager()) do fpm
+                    add!(fpm, LoopPassManager()) do lpm
                         add!(lpm, LowerSIMDLoopPass())
                         add!(lpm, LoopRotatePass())
                     end
-                    add!(fpm, NewPMLoopPassManager(use_memory_ssa=true)) do lpm
+                    add!(fpm, LoopPassManager(use_memory_ssa=true)) do lpm
                         add!(lpm, LICMPass())
                         add!(lpm, JuliaLICMPass())
                         add!(lpm, SimpleLoopUnswitchPass())
@@ -594,7 +594,7 @@ end
                         add!(lpm, JuliaLICMPass())
                     end
                     add!(fpm, IRCEPass())
-                    add!(fpm, NewPMLoopPassManager()) do lpm
+                    add!(fpm, LoopPassManager()) do lpm
                         add!(lpm, LoopInstSimplifyPass())
                         add!(lpm, LoopIdiomRecognizePass())
                         add!(lpm, IndVarSimplifyPass())
@@ -615,7 +615,7 @@ end
                     add!(fpm, DSEPass())
                     add!(fpm, SimplifyCFGPass(; aggressiveSimplifyCFGOptions...))
                     add!(fpm, AllocOptPass())
-                    add!(fpm, NewPMLoopPassManager()) do lpm
+                    add!(fpm, LoopPassManager()) do lpm
                         add!(lpm, LoopDeletionPass())
                         add!(lpm, LoopInstSimplifyPass())
                     end
@@ -631,14 +631,14 @@ end
                     add!(fpm, LoopUnrollPass())
                     add!(fpm, WarnMissedTransformationsPass())
                 end
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     if VERSION < v"1.13.0-DEV.36"
                         add!(fpm, LowerExcHandlersPass())
                     end
                     add!(fpm, GCInvariantVerifierPass())
                 end
                 add!(mpm, RemoveNIPass())
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, LateLowerGCPass())
                     if VERSION >= v"1.11.0-DEV.208"
                         add!(fpm, FinalLowerGCPass())
@@ -650,26 +650,26 @@ end
                 if VERSION < v"1.11.0-DEV.208"
                     add!(mpm, FinalLowerGCPass())
                 end
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, GVNPass())
                     add!(fpm, SCCPPass())
                     add!(fpm, DCEPass())
                 end
                 add!(mpm, LowerPTLSPass())
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, InstCombinePass())
                     add!(fpm, SimplifyCFGPass(; aggressiveSimplifyCFGOptions...))
                 end
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     if VERSION < v"1.12.0-DEV.1390"
                         add!(fpm, CombineMulAddPass())
                     end
                     add!(fpm, DivRemPairsPass())
                 end
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, AnnotationRemarksPass())
                 end
-                add!(mpm, NewPMFunctionPassManager()) do fpm
+                add!(mpm, FunctionPassManager()) do fpm
                     add!(fpm, DemoteFloat16Pass())
                     add!(fpm, GVNPass())
                 end
@@ -703,11 +703,11 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
                 mod.functions["dead_func"].linkage = LLVM.API.LLVMInternalLinkage
 
                 custom_pass!(fn::LLVM.Function) = false
-                CustomPass() = NewPMFunctionPass("custom-pass", custom_pass!)
-                @dispose pb=NewPMPassBuilder() begin
+                CustomPass() = FunctionPass("custom-pass", custom_pass!)
+                @dispose pb=PassBuilder() begin
                     register!(pb, CustomPass())
                     add!(pb, NoOpModulePass())
-                    add!(pb, NewPMFunctionPassManager()) do fpm
+                    add!(pb, FunctionPassManager()) do fpm
                         add!(fpm, NoOpFunctionPass())
                         add!(fpm, CustomPass())
                     end
@@ -715,7 +715,7 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
                     run!(pb, mod)
                 end
 
-                @dispose pb=NewPMPassBuilder() begin
+                @dispose pb=PassBuilder() begin
                     add!(pb, EarlyCSEPass())
                     run!(pb, mod.functions["SomeFunction"])
                 end
@@ -746,7 +746,7 @@ end
 
 @testset "alias analyses" begin
     # default pipeline
-    @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(debug_logging=true) begin
+    @dispose ctx=Context() mod=test_module() pb=PassBuilder(debug_logging=true) begin
         add!(pb, "aa-eval")
 
         io = IOCapture.capture() do
@@ -759,8 +759,8 @@ end
     end
 
     # custom pipeline
-    @dispose ctx=Context() mod=test_module() pb=NewPMPassBuilder(debug_logging=true) begin
-        add!(pb, NewPMAAManager()) do aam
+    @dispose ctx=Context() mod=test_module() pb=PassBuilder(debug_logging=true) begin
+        add!(pb, AAManager()) do aam
             # by string
             add!(aam, "basic-aa")
 
@@ -827,7 +827,7 @@ end
             t = LLVM.Target(triple=triple)
             tm = LLVM.TargetMachine(t, triple, "sm_80")
             try
-                @dispose pb=NewPMPassBuilder(debug_logging=true) mod=test_module() begin
+                @dispose pb=PassBuilder(debug_logging=true) mod=test_module() begin
                     add!(pb, "pipeline-start-callbacks<O3>")
                     cap = IOCapture.capture() do
                         run!(pb, mod, tm)

@@ -58,12 +58,12 @@ end
 """
     LLVM.Passes
 
-Optimization passes and pipelines: the `NewPMPassBuilder`, pass managers, pass constructors
+Optimization passes and pipelines: the `PassBuilder`, pass managers, pass constructors
 like `InstCombinePass`, custom passes and pipeline callbacks.
 
     using LLVM, LLVM.Passes
 
-    @dispose pb=NewPMPassBuilder() begin
+    @dispose pb=PassBuilder() begin
         add!(pb, InstCombinePass())
         run!(pb, mod)
     end

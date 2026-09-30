@@ -3,21 +3,21 @@
 ## Pass builders
 
 ```@docs
-NewPMPassBuilder
+PassBuilder
 run!
 ```
 
 ## Pass managers
 
 ```@docs
-LLVM.NewPMPassManager
+LLVM.PassManager
 add!
 ```
 
 ## Custom passes
 
 ```@docs
-LLVM.NewPMCustomPass
+LLVM.CustomPass
 register!
 register_callbacks!
 ```

@@ -139,14 +139,14 @@ LLVM.Int128Type
 ```
 
 ```@docs
-NewPMModulePassManager
-NewPMCGSCCPassManager
-NewPMFunctionPassManager
-NewPMLoopPassManager
-NewPMAAManager
+ModulePassManager
+CGSCCPassManager
+FunctionPassManager
+LoopPassManager
+AAManager
 ```
 
 ```@docs
-NewPMModulePass
-NewPMFunctionPass
+ModulePass
+FunctionPass
 ```

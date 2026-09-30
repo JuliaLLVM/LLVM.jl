@@ -118,6 +118,7 @@ CustomDefinitionGenerator
 ### Materialization
 
 ```@docs
+MaterializationUnit
 CustomMaterializationUnit
 MaterializationResponsibility
 emit!(::IRTransformLayer, ::MaterializationResponsibility, ::ThreadSafeModule)

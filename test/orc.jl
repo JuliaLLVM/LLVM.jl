@@ -332,6 +332,87 @@ end
     @test !(mu in LLVM.CUSTOM_MU_ROOTS)
 end
 
+@testset "Ownership" begin
+    data = Ref{Int32}(42)
+    ptr = pointer_from_objref(data)
+    @dispose lljit=LLJIT() begin
+        jd = lljit.main_dylib
+
+        # defining a unit consumes it
+        mu = absolute_symbols(mangle(lljit, "owned1") => ptr)
+        @test mu isa MaterializationUnit
+        define!(jd, mu)
+        @test_throws ArgumentError define!(jd, mu)
+        dispose(mu)     # does nothing
+        @test pointer(lookup(lljit, "owned1")) == ptr
+
+        # also when defining it fails
+        mu = absolute_symbols(mangle(lljit, "owned1") => ptr)
+        @test_throws LLVMException define!(jd, mu)
+        @test_throws ArgumentError define!(jd, mu)
+        dispose(mu)
+
+        # units that aren't defined need to be disposed of, so @dispose works either way
+        @dispose mu=absolute_symbols(mangle(lljit, "unused") => ptr) begin end
+        @dispose mu=absolute_symbols(mangle(lljit, "owned2") => ptr) begin
+            define!(jd, mu)
+        end
+        @test pointer(lookup(lljit, "owned2")) == ptr
+
+        # disposing of an unused custom unit unroots its callbacks
+        mu = CustomMaterializationUnit("unusedMU",
+                                       [mangle(lljit, "custom") => symbol_flags(callable=true)],
+                                       mr -> nothing, (jd, sym) -> nothing)
+        @test mu in LLVM.CUSTOM_MU_ROOTS
+        dispose(mu)
+        @test !(mu in LLVM.CUSTOM_MU_ROOTS)
+        dispose(mu)
+        @test_throws ArgumentError define!(jd, mu)
+
+        # a defined one stays rooted until it's materialized
+        materialized = Ref(false)
+        mu = CustomMaterializationUnit("rootedMU",
+                                       [mangle(lljit, "rooted") => symbol_flags(callable=true)],
+                                       mr -> (materialized[] = true; error("not materializing")),
+                                       (jd, sym) -> nothing)
+        define!(jd, mu)
+        dispose(mu)
+        @test mu in LLVM.CUSTOM_MU_ROOTS
+        mu = nothing
+        GC.gc(true)
+        @test_throws LLVMException lookup(lljit, "rooted")
+        @test materialized[]
+
+        # adding a generator consumes it
+        dg = DynamicLibrarySearchGenerator(lljit)
+        add!(jd, dg)
+        @test_throws ArgumentError add!(jd, dg)
+        dispose(dg)
+        dg = CustomDefinitionGenerator((args...) -> nothing)
+        add!(jd, dg)
+        @test_throws ArgumentError add!(jd, dg)
+        dispose(dg)
+        @test dg in LLVM.CUSTOM_DG_ROOTS
+    end
+
+    # target machine builders are consumed by JIT builders, which are consumed by the JIT
+    builder = LLJITBuilder()
+    tmb = TargetMachineBuilder()
+    target_machine_builder!(builder, tmb)
+    @test_throws ArgumentError target_machine_builder!(builder, tmb)
+    dispose(tmb)
+    lljit = LLJIT(builder)
+    @test_throws ArgumentError LLJIT(builder)
+    @dispose tmb=TargetMachineBuilder() begin
+        @test_throws ArgumentError target_machine_builder!(builder, tmb)
+    end
+    dispose(builder)
+    dispose(lljit)
+
+    # unused builders need to be disposed of
+    @dispose builder=LLJITBuilder() tmb=TargetMachineBuilder() begin end
+end
+
 @testset "Absolute symbols" begin
     @dispose lljit=LLJIT() begin
         jd = lljit.main_dylib

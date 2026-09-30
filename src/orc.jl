@@ -7,10 +7,42 @@
 @vocabulary ORC CustomDefinitionGenerator, check_callback_error!
 @vocabulary ORC lookup_dylib, ResourceTracker, transfer!
 @vocabulary ORC IRTransformLayer, IRCompileLayer, transform!
-@vocabulary ORC MaterializationResponsibility, CustomMaterializationUnit, emit!
+@vocabulary ORC MaterializationResponsibility, MaterializationUnit, CustomMaterializationUnit, emit!
 @vocabulary ORC LocalIndirectStubsManager, LocalLazyCallThroughManager, lazy_reexports
 
 include("executionengine/utils.jl")
+
+
+## ownership
+
+# ORC objects that an operation hands over to LLVM (e.g., a materialization unit that is
+# added to a JITDylib) keep track of whether their handle still owns them, like a C++
+# `unique_ptr` that has been moved from. A consumed handle can't be used anymore, and
+# disposing of it does nothing, so that it's safe to dispose of it unconditionally.
+function check_owned(obj)
+    obj.owned ||
+        throw(ArgumentError("This $(nameof(typeof(obj))) has been consumed or disposed of"))
+    return mark_use(obj)
+end
+
+# hand the object over to LLVM, returning its reference
+function consume!(obj)
+    check_owned(obj)
+    obj.owned = false
+    mark_dispose(obj)
+    return obj.ref
+end
+
+# dispose of the object using `f(ref)`, unless it was consumed already
+function dispose_owned(f, obj)
+    obj.owned || return
+    obj.owned = false
+    mark_dispose(obj -> f(obj.ref), obj)
+    return
+end
+
+
+## target machine builder
 
 """
     TargetMachineBuilder()
@@ -19,12 +51,21 @@ include("executionengine/utils.jl")
 Create a builder of target machines, as used by an [`LLJITBuilder`](@ref) to create the
 target machines that compile code. The builder either targets the host, or is based on
 `tm`, taking ownership of it.
+
+The builder is consumed by [`target_machine_builder!`](@ref); otherwise, it needs to be
+disposed of using `dispose`, which does nothing once it has been consumed.
 """
-@checked struct TargetMachineBuilder
+mutable struct TargetMachineBuilder
     ref::API.LLVMOrcJITTargetMachineBuilderRef
+    owned::Bool
+
+    function TargetMachineBuilder(ref::API.LLVMOrcJITTargetMachineBuilderRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
 end
 Base.unsafe_convert(::Type{API.LLVMOrcJITTargetMachineBuilderRef},
-                    tmb::TargetMachineBuilder) = tmb.ref
+                    tmb::TargetMachineBuilder) = check_owned(tmb).ref
 
 
 function TargetMachineBuilder()
@@ -39,9 +80,8 @@ function TargetMachineBuilder(tm::TargetMachine)
     TargetMachineBuilder(tmb)
 end
 
-function dispose(tmb::TargetMachineBuilder)
-    API.LLVMOrcDisposeJITTargetMachineBuilder(tmb)
-end
+dispose(tmb::TargetMachineBuilder) =
+    dispose_owned(API.LLVMOrcDisposeJITTargetMachineBuilder, tmb)
 
 include("executionengine/lljit.jl")
 
@@ -335,29 +375,33 @@ disposed of with [`dispose`](@ref dispose(::DefinitionGenerator)).
 
 See also: [`DynamicLibrarySearchGenerator`](@ref), [`CustomDefinitionGenerator`](@ref).
 """
-@checked struct DefinitionGenerator
+mutable struct DefinitionGenerator
     ref::API.LLVMOrcDefinitionGeneratorRef
+    owned::Bool
+
+    function DefinitionGenerator(ref::API.LLVMOrcDefinitionGeneratorRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
 end
-Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) = dg.ref
+Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) =
+    check_owned(dg).ref
 
 """
     dispose(dg::DefinitionGenerator)
 
-Dispose of a definition generator that was not added to a JITDylib.
+Dispose of a definition generator, unless it was added to a JITDylib (which owns it then).
 """
-function dispose(dg::DefinitionGenerator)
-    mark_dispose(API.LLVMOrcDisposeDefinitionGenerator, dg)
-end
+dispose(dg::DefinitionGenerator) = dispose_owned(API.LLVMOrcDisposeDefinitionGenerator, dg)
 
 """
     add!(jd::JITDylib, dg::DefinitionGenerator)
 
 Attach the definition generator `dg` to `jd`. The JITDylib takes ownership of the
-generator, which should not be used or disposed of afterwards.
+generator, so `dg` can't be added again, and disposing of it does nothing.
 """
 function add!(jd::JITDylib, dg::DefinitionGenerator)
-    API.LLVMOrcJITDylibAddGenerator(jd, dg)
-    mark_dispose(dg)
+    API.LLVMOrcJITDylibAddGenerator(jd, consume!(dg))
     return
 end
 
@@ -382,14 +426,14 @@ function process_search_generator(prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
     @check API.LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(ref, prefix, C_NULL,
                                                                     C_NULL)
-    mark_alloc(DefinitionGenerator(ref[]))
+    DefinitionGenerator(ref[])
 end
 
 function library_search_generator(path, prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
     @check API.LLVMOrcCreateDynamicLibrarySearchGeneratorForPath(ref, path, prefix, C_NULL,
                                                                  C_NULL)
-    mark_alloc(DefinitionGenerator(ref[]))
+    DefinitionGenerator(ref[])
 end
 
 function __try_to_generate(generator::API.LLVMOrcDefinitionGeneratorRef, ctx::Ptr{Cvoid},
@@ -453,7 +497,8 @@ JITDylib again, as that may deadlock. Asynchronous generation (suspending the lo
 not supported.
 
 The generator is used like a [`DefinitionGenerator`](@ref): attach it to a JITDylib
-with `add!`, which keeps it alive for the lifetime of that JITDylib, or `dispose` it.
+with `add!`, which keeps it alive for the lifetime of that JITDylib, or `dispose` it. Its
+callback stays rooted until LLVM destroys the generator.
 """
 mutable struct CustomDefinitionGenerator
     callback
@@ -475,7 +520,7 @@ mutable struct CustomDefinitionGenerator
                         API.LLVMOrcCLookupSet, Csize_t)),
             Base.pointer_from_objref(this),
             @cfunction(__dispose_generator, Cvoid, (Ptr{Cvoid},)))
-        this.dg = mark_alloc(DefinitionGenerator(ref))
+        this.dg = DefinitionGenerator(ref)
         return this
     end
 end
@@ -920,26 +965,50 @@ end
 abstract type AbstractMaterializationUnit end
 
 """
+    MaterializationUnit
+
+A unit that promises to define a set of symbols, and that materializes their definitions
+when one of them is looked up, as created by [`absolute_symbols`](@ref) and
+[`lazy_reexports`](@ref) (see [`CustomMaterializationUnit`](@ref) for units implemented
+in Julia).
+
+A unit is consumed by adding it to a JITDylib with [`define!`](@ref); otherwise, it needs
+to be disposed of using `dispose`, which does nothing once it has been consumed.
+"""
+mutable struct MaterializationUnit <: AbstractMaterializationUnit
+    ref::API.LLVMOrcMaterializationUnitRef
+    owned::Bool
+
+    function MaterializationUnit(ref::API.LLVMOrcMaterializationUnitRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
+end
+Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::MaterializationUnit) =
+    check_owned(mu).ref
+
+dispose(mu::MaterializationUnit) = dispose_owned(API.LLVMOrcDisposeMaterializationUnit, mu)
+
+"""
     define!(jd::JITDylib, mu)
 
-Add the materialization unit `mu` to `jd`. The unit is consumed, even if this throws: on
-failure (e.g., because one of its symbols is already defined in `jd`) it is disposed of
-before the error is rethrown as an [`LLVMException`](@ref).
+Add the materialization unit `mu` to `jd`, which takes ownership of it. The unit is
+consumed even if this throws: on failure (e.g., because one of its symbols is already
+defined in `jd`) it is disposed of before the error is rethrown as an
+[`LLVMException`](@ref).
 """
 function define!(jd::JITDylib, mu::AbstractMaterializationUnit)
-    err = API.LLVMOrcJITDylibDefine(jd, mu)
+    ref = consume!(materialization_unit(mu))
+    err = API.LLVMOrcJITDylibDefine(jd, ref)
     if err != C_NULL
         # on failure, ownership of the materialization unit stays with us
-        API.LLVMOrcDisposeMaterializationUnit(mu)
+        API.LLVMOrcDisposeMaterializationUnit(ref)
         throw(convert(LLVMException, LLVMError(err)))
     end
     return
 end
 
-@checked struct MaterializationUnit <: AbstractMaterializationUnit
-    ref::API.LLVMOrcMaterializationUnitRef
-end
-Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::MaterializationUnit) = mu.ref
+materialization_unit(mu::MaterializationUnit) = mu
 
 
 mutable struct CustomMaterializationUnit <: AbstractMaterializationUnit
@@ -952,6 +1021,8 @@ mutable struct CustomMaterializationUnit <: AbstractMaterializationUnit
     end
 end
 Base.cconvert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::CustomMaterializationUnit) = mu.mu
+materialization_unit(mu::CustomMaterializationUnit) = mu.mu
+dispose(mu::CustomMaterializationUnit) = dispose(mu.mu)
 
 # LLVM only holds a raw pointer to custom materialization units, so root them until LLVM
 # either materializes or destroys them.
@@ -974,6 +1045,7 @@ function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibi
         _capture_callback_exception!(mu, err)
         # only fail materialization if the responsibility wasn't handed off already
         if responsibility.owned
+            responsibility.owned = false
             API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
             API.LLVMOrcDisposeMaterializationResponsibility(mr)
         end
@@ -1015,6 +1087,10 @@ generating IR and emitting it with `emit!(layer, mr, tsm)`; its
 [`requested_symbols`](@ref LLVM.MaterializationResponsibility) property tells which symbols were
 requested. If a symbol is overridden by another definition before it was materialized,
 `discard(jd, name)` is called instead.
+
+Like other [`MaterializationUnit`](@ref)s, the unit is consumed by [`define!`](@ref), and
+needs to be disposed of otherwise. Its callbacks stay rooted until LLVM materializes or
+destroys the unit.
 
 If `materialize` throws, materialization of the symbols fails, and lookups report an LLVM
 error. Retrieve the original exception by calling [`check_callback_error!`](@ref) on the
@@ -1331,6 +1407,7 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcIRCompileLayerRef}, il::IRCompileLayer) = il.ref
 
 function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    mr.owned || throw(ArgumentError("cannot consume a materialization responsibility that was already consumed or that is borrowed"))
     if il.jit isa JuliaOJIT
         # Julia's debug info expects certain symbols to be present
         tsm() do mod

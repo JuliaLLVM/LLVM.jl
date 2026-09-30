@@ -5,6 +5,9 @@ let jljit=JuliaOJIT()
 end
 
 JuliaOJIT() do jljit
+    @dispose dl=LLVM.DataLayout(jljit) begin
+        @test string(dl) == jljit.datalayout_string
+    end
 end
 
 let ctx = ThreadSafeContext()
@@ -217,7 +220,7 @@ end
 
                 ts_mod = ThreadSafeModule("jit")
                 ts_mod() do mod
-                    dl = jljit.datalayout
+                    dl = jljit.datalayout_string
                     if LLVM.version() >= v"20"
                         # XXX: LLVM 20 removed the ability to replace a data layout,
                         #      resulting in Julia's JIT having a different DL from the TM's.

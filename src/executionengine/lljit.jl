@@ -32,10 +32,11 @@ constructors.
 
 The target triple that the JIT compiles code for. Modules added to the JIT should use it.
 
-    jit.datalayout
+    jit.datalayout_string
 
 The data layout that the JIT compiles code for, as a string. Modules added to the JIT
-should use it.
+should use it (`mod.datalayout = jit.datalayout_string`). Use `DataLayout(jit)` to query
+the layout.
 
     jit.global_prefix
 
@@ -158,12 +159,12 @@ function triple(lljit::LLJIT)
     Base.unsafe_string(cstr)
 end
 
-function datalayout(lljit::LLJIT)
+function datalayout_string(lljit::LLJIT)
     Base.unsafe_string(API.LLVMOrcLLJITGetDataLayoutStr(lljit))
 end
 
 @property LLJIT triple
-@property LLJIT datalayout
+@property LLJIT datalayout_string
 
 function global_prefix(lljit::LLJIT)
     return API.LLVMOrcLLJITGetGlobalPrefix(lljit)
@@ -203,12 +204,12 @@ function triple(jljit::JuliaOJIT)
     Base.unsafe_string(cstr)
 end
 
-function datalayout(jljit::JuliaOJIT)
+function datalayout_string(jljit::JuliaOJIT)
     Base.unsafe_string(API.JLJITGetDataLayoutString(jljit))
 end
 
 @property JuliaOJIT triple
-@property JuliaOJIT datalayout
+@property JuliaOJIT datalayout_string
 
 function global_prefix(jljit::JuliaOJIT)
     return API.JLJITGetGlobalPrefix(jljit)
@@ -229,3 +230,14 @@ function JuliaOJIT(f::Core.Function)
         dispose(jljit)
     end
 end
+
+
+"""
+    DataLayout(jit::Union{LLJIT,JuliaOJIT})
+
+Create a data layout from the one that `jit` compiles code for, e.g., to query the sizes
+of types.
+
+This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
+"""
+DataLayout(jit::Union{LLJIT,JuliaOJIT}) = DataLayout(jit.datalayout_string)

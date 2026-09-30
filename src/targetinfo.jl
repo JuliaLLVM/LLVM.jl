@@ -170,8 +170,8 @@ function rewrite_intrinsic_with_address_space end
         -> Vector{Int}
 
 Operand indices of intrinsic `iid` that are flat-address-space pointer
-operands. Capped at 32 entries by the underlying C API. If not defined, falls
-back to LLVM's baseline.
+operands. The underlying C API supports at most 32 entries; returning more
+throws an error. If not defined, falls back to LLVM's baseline.
 """
 function collect_flat_address_operands end
 
@@ -332,7 +332,9 @@ function custom_tti_collect_flat_address_operands_callback(
     end
     try
         ops = collect_flat_address_operands(state.tti, UInt(iid))::AbstractVector
-        n = min(length(ops), Int(max_count))
+        n = length(ops)
+        n <= max_count ||
+            throw(ArgumentError("collect_flat_address_operands returned $n operands, but at most $max_count are supported"))
         for i in 1:n
             unsafe_store!(out_ops, Cint(ops[i]), i)
         end

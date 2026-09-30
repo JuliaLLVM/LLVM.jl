@@ -322,6 +322,23 @@ end
         @test !has_addrspacecast(mod)
     end
 
+    # Operand lists that don't fit the C API's buffer are reported, not truncated.
+    struct ManyOperandsTTI <: LLVM.AbstractTargetTransformInfo end
+    LLVM.collect_flat_address_operands(::ManyOperandsTTI, ::UInt) = collect(0:40)
+    let state = LLVM.CustomTTIState(ManyOperandsTTI())
+        ops = Vector{Cint}(undef, 32)
+        count = Ref{Cuint}()
+        GC.@preserve state ops count begin
+            ret = LLVM.custom_tti_collect_flat_address_operands_callback(
+                Cuint(0), pointer(ops), Cuint(32),
+                Base.unsafe_convert(Ptr{Cuint}, count), pointer_from_objref(state))
+        end
+        @test !Bool(ret)
+        @test count[] == 0
+        @test state.exception !== nothing
+        @test first(state.exception) isa ArgumentError
+    end
+
     # Overrides are found when they are specialized on the argument types that the
     # callbacks pass (they used to be ignored unless they accepted any `Unsigned`).
     struct FlatZeroUIntTTI <: LLVM.AbstractTargetTransformInfo end

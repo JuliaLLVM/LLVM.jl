@@ -538,7 +538,7 @@ function SyncScope(name::String)
     if name == "system"
         name = ""
     end
-    SyncScope(API.LLVMGetSyncScopeID(context(), name, length(name)))
+    SyncScope(API.LLVMGetSyncScopeID(context(), name, ncodeunits(name)))
 end
 
 Base.convert(::Type{Cuint}, scope::SyncScope) = scope.id
@@ -861,11 +861,7 @@ function called_function(inst::CallBase)
 end
 
 function called_type(inst::CallBase)
-    @static if version() >= v"11"
-        LLVMType(API.LLVMGetCalledFunctionType(inst))
-    else
-        value_type(called_operand(inst))
-    end
+    LLVMType(API.LLVMGetCalledFunctionType(inst))
 end
 
 @property CallBase called_operand called_operand!
@@ -882,7 +878,7 @@ arguments(inst::CallBase) = CallArgumentSet(inst)
 
 Base.size(iter::CallArgumentSet) = (Int(API.LLVMGetNumArgOperands(iter.inst)),)
 
-Base.IndexStyle(::CallArgumentSet) = IndexLinear()
+Base.IndexStyle(::Type{CallArgumentSet}) = IndexLinear()
 
 # the arguments are the first operands of a call site
 function Base.getindex(iter::CallArgumentSet, i::Int)
@@ -915,7 +911,7 @@ argument_attributes(instr::CallBase) = CallSiteArgumentAttrSets(instr)
 Base.size(iter::CallSiteArgumentAttrSets) =
     (Int(API.LLVMGetNumArgOperands(iter.instr)),)
 
-Base.IndexStyle(::CallSiteArgumentAttrSets) = IndexLinear()
+Base.IndexStyle(::Type{CallSiteArgumentAttrSets}) = IndexLinear()
 
 function Base.getindex(iter::CallSiteArgumentAttrSets, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -1000,8 +996,8 @@ Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
 Create a new operand bundle with the given tag and arguments.
 """
 function OperandBundle(tag::String, args::AbstractVector{<:Value}=Value[])
-    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, length(tag), as_vector(args),
-                                                       length(args)))
+    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, ncodeunits(tag),
+                                                       as_vector(args), length(args)))
     finalizer(bundle) do obj
         API.LLVMDisposeOperandBundle(obj)
     end
@@ -1015,9 +1011,9 @@ operand_bundles(inst::CallBase) = OperandBundleIterator(inst)
 
 @property CallBase operand_bundles
 
-Base.size(iter::OperandBundleIterator) = (API.LLVMGetNumOperandBundles(iter.inst),)
+Base.size(iter::OperandBundleIterator) = (Int(API.LLVMGetNumOperandBundles(iter.inst)),)
 
-Base.IndexStyle(::OperandBundleIterator) = IndexLinear()
+Base.IndexStyle(::Type{OperandBundleIterator}) = IndexLinear()
 
 function Base.getindex(iter::OperandBundleIterator, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -1043,9 +1039,10 @@ inputs(bundle::OperandBundle) = OperandBundleInputIterator(bundle)
 
 @property OperandBundle inputs
 
-Base.size(iter::OperandBundleInputIterator) = (API.LLVMGetNumOperandBundleArgs(iter.bundle),)
+Base.size(iter::OperandBundleInputIterator) =
+    (Int(API.LLVMGetNumOperandBundleArgs(iter.bundle)),)
 
-Base.IndexStyle(::OperandBundleInputIterator) = IndexLinear()
+Base.IndexStyle(::Type{OperandBundleInputIterator}) = IndexLinear()
 
 function Base.getindex(iter::OperandBundleInputIterator, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -1103,7 +1100,7 @@ case_values(switch::SwitchInst) = SwitchCaseValueSet(switch)
 
 Base.size(iter::SwitchCaseValueSet) = (length(successors(iter.switch)) - 1,)
 
-Base.IndexStyle(::SwitchCaseValueSet) = IndexLinear()
+Base.IndexStyle(::Type{SwitchCaseValueSet}) = IndexLinear()
 
 # the C API indexes cases by the index of their successor
 function Base.getindex(iter::SwitchCaseValueSet, i::Int)
@@ -1144,9 +1141,9 @@ cases(switch::SwitchInst) = SwitchCaseSet(switch)
 
 @property SwitchInst cases
 
-Base.size(iter::SwitchCaseSet) = (API.LLVMGetNumSuccessors(iter.switch) - 1,)
+Base.size(iter::SwitchCaseSet) = (Int(API.LLVMGetNumSuccessors(iter.switch)) - 1,)
 
-Base.IndexStyle(::SwitchCaseSet) = IndexLinear()
+Base.IndexStyle(::Type{SwitchCaseSet}) = IndexLinear()
 
 # the C API indexes cases by the index of their successor
 function Base.getindex(iter::SwitchCaseSet, i::Int)
@@ -1236,9 +1233,9 @@ successors(term::Instruction) = TerminatorSuccessorSet(term)
 
 @property TerminatorInst successors
 
-Base.size(iter::TerminatorSuccessorSet) = (API.LLVMGetNumSuccessors(iter.term),)
+Base.size(iter::TerminatorSuccessorSet) = (Int(API.LLVMGetNumSuccessors(iter.term)),)
 
-Base.IndexStyle(::TerminatorSuccessorSet) = IndexLinear()
+Base.IndexStyle(::Type{TerminatorSuccessorSet}) = IndexLinear()
 
 function Base.getindex(iter::TerminatorSuccessorSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -1264,9 +1261,9 @@ incoming(phi::PHIInst) = PhiIncomingSet(phi)
 
 @property PHIInst incoming
 
-Base.size(iter::PhiIncomingSet) = (API.LLVMCountIncoming(iter.phi),)
+Base.size(iter::PhiIncomingSet) = (Int(API.LLVMCountIncoming(iter.phi)),)
 
-Base.IndexStyle(::PhiIncomingSet) = IndexLinear()
+Base.IndexStyle(::Type{PhiIncomingSet}) = IndexLinear()
 
 function Base.getindex(iter::PhiIncomingSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -1627,7 +1624,7 @@ indices(inst::Union{ExtractValueInst,InsertValueInst}) = AggregateIndexSet(inst)
 
 Base.size(iter::AggregateIndexSet) = (Int(API.LLVMGetNumIndices(iter.inst)),)
 
-Base.IndexStyle(::AggregateIndexSet) = IndexLinear()
+Base.IndexStyle(::Type{AggregateIndexSet}) = IndexLinear()
 
 function Base.getindex(iter::AggregateIndexSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))

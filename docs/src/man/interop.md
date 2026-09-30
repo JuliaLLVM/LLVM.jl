@@ -156,7 +156,7 @@ julia> ptr = Core.LLVMPtr{Int,0}(pointer(a));
 julia> unsafe_load(ptr)
 1
 
-julia> unsafe_store!(ptr, 42)
+julia> unsafe_store!(ptr, 42);
 
 julia> a
 1-element Vector{Int64}:

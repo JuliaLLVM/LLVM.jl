@@ -33,9 +33,9 @@ operands(user::User) = UserOperandSet(user)
 
 @property User operands
 
-Base.size(iter::UserOperandSet) = (API.LLVMGetNumOperands(iter.user),)
+Base.size(iter::UserOperandSet) = (Int(API.LLVMGetNumOperands(iter.user)),)
 
-Base.IndexStyle(::UserOperandSet) = IndexLinear()
+Base.IndexStyle(::Type{UserOperandSet}) = IndexLinear()
 
 function Base.getindex(iter::UserOperandSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))

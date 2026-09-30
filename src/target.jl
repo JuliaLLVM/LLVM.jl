@@ -101,7 +101,7 @@ Get an iterator over the available targets.
 """
 targets() = TargetIterator()
 
-Base.eltype(::TargetIterator) = Target
+Base.eltype(::Type{TargetIterator}) = Target
 
 function Base.iterate(iter::TargetIterator, state=API.LLVMGetFirstTarget())
     state == C_NULL ? nothing : (Target(state), API.LLVMGetNextTarget(state))

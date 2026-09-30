@@ -218,6 +218,21 @@ if version() >= v"19"
     function ConstantRangeAttribute(kind::Union{Symbol,String}, nbits::Integer,
                                     lower::Vector{UInt64}, upper::Vector{UInt64})
         enum_kind = checked_attribute_kind_id(kind, :range)
+        # LLVM reads the words of both bounds, cld(nbits, 64) each (ignoring bits beyond
+        # nbits), and asserts that the range is valid and not the full range
+        0 < nbits <= typemax(Cuint) ||
+            throw(ArgumentError("Invalid number of bits for a range: $nbits"))
+        nwords = cld(nbits, 64)
+        length(lower) == length(upper) == nwords ||
+            throw(ArgumentError("The bounds of a $nbits-bit range need $nwords words each, got $(length(lower)) and $(length(upper))"))
+        bound(words) = foldl((x, (i, w)) -> x | big(w) << (64*(i-1)), enumerate(words);
+                             init=big(0)) & (big(1) << nbits - 1)
+        lo, hi = bound(lower), bound(upper)
+        if lo == hi
+            lo == 0 || lo == big(1) << nbits - 1 ||
+                throw(ArgumentError("The bounds of a range can only be equal to denote the empty range (0, 0)"))
+            lo == 0 || throw(ArgumentError("A range attribute cannot be the full range"))
+        end
         return ConstantRangeAttribute(
             API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
                                                  lower, upper))
@@ -240,7 +255,7 @@ kind(attr::ConstantRangeListAttribute) = attribute_kind_name(attribute_kind_id(a
 # attribute) or `C_NULL`, and `remove_attribute!(set, kind)`.
 abstract type AttributeSet end
 
-Base.eltype(::AttributeSet) = Attribute
+Base.eltype(::Type{<:AttributeSet}) = Attribute
 
 # LLVM only supports fetching all attributes at once
 function Base.iterate(iter::AttributeSet, (attrs, i)=(collect(iter), 1))

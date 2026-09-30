@@ -464,6 +464,29 @@ end
         @test convert(T, constval) == typemax(T)
     end
 
+    # values that are wider than 64 bits
+    let
+        typ = LLVM.IntType(128)
+        for val in (Int128(0), Int128(-1), typemin(Int128), typemax(Int128),
+                    Int128(2)^100, -Int128(2)^100)
+            constval = ConstantInt(typ, val)
+            @test convert(Int128, constval) == val
+            @test convert(UInt128, constval) == val % UInt128
+        end
+        @test string(ConstantInt(typ, Int128(-1))) == "i128 -1"
+        @test convert(Int128, ConstantInt(typemax(UInt128))) == -1
+        @test convert(UInt128, ConstantInt(typemax(UInt128))) == typemax(UInt128)
+        @test convert(BigInt, ConstantInt(LLVM.IntType(200), BigInt(2)^150)) == BigInt(2)^150
+        # widths that aren't a multiple of 64 bits
+        for bits in (65, 100)
+            t = LLVM.IntType(bits)
+            @test convert(Int128, ConstantInt(t, Int128(-2))) == -2
+            @test convert(Int128, ConstantInt(t, -Int128(2)^(bits-1))) == -Int128(2)^(bits-1)
+            @test convert(UInt128, ConstantInt(t, Int128(-1))) == UInt128(2)^bits - 1
+        end
+        @test_throws InexactError convert(Int64, ConstantInt(typ, Int128(2)^100))
+    end
+
     end
 
 
@@ -1383,6 +1406,22 @@ end
     @test Value(mod.metadata["function"].operands[1].operands[1]) == f2
 end
 
+# values of different types in function-local metadata
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])
+    f = LLVM.Function(mod, "f", ft)
+    position!(builder, BasicBlock(f, "entry"))
+    x, y = f.parameters
+    inst = ret!(builder)
+    inst.metadata["foo"] = MDNode([Metadata(x)])
+    if LLVM.version() >= v"18"
+        replace_metadata_uses!(x, y)
+        @test Value(inst.metadata["foo"].operands[1]) == y
+    else
+        @test_throws ArgumentError replace_metadata_uses!(x, y)
+    end
+end
+
 @dispose ctx=Context() begin
     str = MDString("foo")
     node = MDNode([str])
@@ -1760,6 +1799,19 @@ end
     @test dest.threadlocal
     @test dest.externally_initialized
     @test dest.alignment == 16
+end
+
+# strings are passed to LLVM by their number of bytes, not characters
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    @test convert(String, MDString("é")) == "é"
+    mod.name = "módulo"
+    @test mod.name == "módulo"
+    push!(mod.metadata["métadonnées"].operands, MDNode([MDString("x")]))
+    @test haskey(mod.metadata, "métadonnées")
+    mod.flags["drapeau", LLVM.ModuleFlagBehavior.Error] = Metadata(ConstantInt(Int32(1)))
+    @test haskey(mod.flags, "drapeau")
+    @test SyncScope("portée").name == "portée"
+    @test OperandBundle("étiquette").tag == "étiquette"
 end
 
 # looking up or declaring functions
@@ -2157,6 +2209,18 @@ end
                 @test any(a -> a isa ConstantRangeAttribute, collected)
                 delete!(fn.return_attributes, attr)
             end
+            # the bounds need as many words as the width requires
+            @test_throws ArgumentError ConstantRangeAttribute("range", 32, UInt64[], UInt64[])
+            @test_throws ArgumentError ConstantRangeAttribute("range", 128, UInt64[0], UInt64[1])
+            @test_throws ArgumentError ConstantRangeAttribute("range", 0, UInt64[], UInt64[])
+            # equal bounds only denote the empty range, as the full range is not allowed
+            @test_throws ArgumentError ConstantRangeAttribute("range", 32, UInt64[5], UInt64[5])
+            @test_throws ArgumentError ConstantRangeAttribute("range", 32, UInt64[typemax(UInt32)],
+                                                              UInt64[typemax(UInt32)])
+            @test ConstantRangeAttribute("range", 32, UInt64[0], UInt64[0]) isa
+                  ConstantRangeAttribute
+            @test ConstantRangeAttribute("range", 128, UInt64[0, 0], UInt64[1, 0]) isa
+                  ConstantRangeAttribute
         end
     end
 
@@ -2672,6 +2736,30 @@ end
 
 
 @testset "collection views" begin
+
+# views implement the traits of Julia's collection interfaces on their type
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
+    f = LLVM.Function(mod, "f", ft)
+    bb = BasicBlock(f, "entry")
+    position!(builder, bb)
+    x = f.parameters[1]
+    call = call!(builder, ft, f, [x])
+    ret!(builder, call)
+
+    for view in (f.parameters, f.blocks, f.parameter_attributes, call.operands,
+                 call.arguments, call.argument_attributes, call.operand_bundles,
+                 bb.terminator.successors, ft.parameters)
+        T = typeof(view)
+        @test IndexStyle(T) == IndexLinear()
+        @test size(view) isa Tuple{Int}
+        @test eltype(T) != Any
+    end
+    for view in (mod.functions, mod.globals, bb.instructions, x.uses, x.users,
+                 f.function_attributes)
+        @test eltype(typeof(view)) != Any
+    end
+end
 
 # the operands of a metadata node are a mutable view
 @dispose ctx=Context() begin

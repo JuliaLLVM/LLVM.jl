@@ -179,7 +179,7 @@ function name(mod::Module)
 end
 
 name!(mod::Module, str::String) =
-    API.LLVMSetModuleIdentifier(mod, str, Csize_t(length(str)))
+    API.LLVMSetModuleIdentifier(mod, str, Csize_t(ncodeunits(str)))
 
 @property Module name name!
 
@@ -426,7 +426,7 @@ globals(mod::Module) = ModuleGlobalSet(mod)
 
 @property Module globals
 
-Base.eltype(::ModuleGlobalSet) = GlobalVariable
+Base.eltype(::Type{ModuleGlobalSet}) = GlobalVariable
 
 @inline function Base.iterate(iter::ModuleGlobalSet, state=API.LLVMGetFirstGlobal(iter.mod))
     state == C_NULL ? nothing : (GlobalVariable(state), API.LLVMGetNextGlobal(state))
@@ -544,7 +544,7 @@ functions(mod::Module) = ModuleFunctionSet(mod)
 
 @property Module functions
 
-Base.eltype(::ModuleFunctionSet) = Function
+Base.eltype(::Type{ModuleFunctionSet}) = Function
 
 @inline function Base.iterate(iter::ModuleFunctionSet, state=API.LLVMGetFirstFunction(iter.mod))
     state == C_NULL ? nothing : (Function(state), API.LLVMGetNextFunction(state))
@@ -652,7 +652,7 @@ aliases(mod::Module) = ModuleAliasSet(mod)
 
 @property Module aliases
 
-Base.eltype(::ModuleAliasSet) = GlobalAlias
+Base.eltype(::Type{ModuleAliasSet}) = GlobalAlias
 
 function Base.iterate(iter::ModuleAliasSet, state=API.LLVMGetFirstGlobalAlias(iter.mod))
     state == C_NULL ? nothing : (GlobalAlias(state), API.LLVMGetNextGlobalAlias(state))
@@ -714,7 +714,7 @@ ifuncs(mod::Module) = ModuleIFuncSet(mod)
 
 @property Module ifuncs
 
-Base.eltype(::ModuleIFuncSet) = GlobalIFunc
+Base.eltype(::Type{ModuleIFuncSet}) = GlobalIFunc
 
 function Base.iterate(iter::ModuleIFuncSet, state=API.LLVMGetFirstGlobalIFunc(iter.mod))
     state == C_NULL ? nothing : (GlobalIFunc(state), API.LLVMGetNextGlobalIFunc(state))
@@ -797,17 +797,17 @@ end
 Base.length(iter::ModuleFlagDict) = count(Returns(true), iter)
 
 Base.haskey(iter::ModuleFlagDict, name::String) =
-    API.LLVMGetModuleFlag(iter.mod, name, length(name)) != C_NULL
+    API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name)) != C_NULL
 
 function Base.getindex(iter::ModuleFlagDict, name::String)
-    objref = API.LLVMGetModuleFlag(iter.mod, name, length(name))
+    objref = API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return Metadata(objref)
 end
 
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
                         (name, behavior)::Tuple{String, API.LLVMModuleFlagBehavior})
-    API.LLVMAddModuleFlag(iter.mod, behavior, name, length(name), val)
+    API.LLVMAddModuleFlag(iter.mod, behavior, name, ncodeunits(name), val)
     return iter
 end
 

@@ -287,7 +287,7 @@ parameters(ft::FunctionType) = FunctionTypeParameterSet(ft)
 
 Base.size(iter::FunctionTypeParameterSet) = (Int(API.LLVMCountParamTypes(iter.typ)),)
 
-Base.IndexStyle(::FunctionTypeParameterSet) = IndexLinear()
+Base.IndexStyle(::Type{FunctionTypeParameterSet}) = IndexLinear()
 
 # LLVM only supports fetching all parameter types at once. since types are immutable,
 # fetching them once when iterating does not change the semantics of the view.
@@ -357,15 +357,11 @@ function PointerType(addrspace=0)
     return PointerType(API.LLVMPointerTypeInContext(context(), addrspace))
 end
 
-if version() >= v"13"
-    isopaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool
+isopaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool
 
-    function Base.eltype(typ::PointerType)
-        isopaque(typ) && throw(error("Taking the type of an opaque pointer is illegal"))
-        invoke(eltype, Tuple{LLVMType}, typ)
-    end
-else
-    isopaque(ptrtyp::PointerType) = false
+function Base.eltype(typ::PointerType)
+    isopaque(typ) && throw(error("Taking the type of an opaque pointer is illegal"))
+    invoke(eltype, Tuple{LLVMType}, typ)
 end
 
 """
@@ -562,7 +558,7 @@ elements(typ::StructType) = StructTypeElementSet(typ)
 
 Base.size(iter::StructTypeElementSet) = (Int(API.LLVMCountStructElementTypes(iter.typ)),)
 
-Base.IndexStyle(::StructTypeElementSet) = IndexLinear()
+Base.IndexStyle(::Type{StructTypeElementSet}) = IndexLinear()
 
 function Base.getindex(iter::StructTypeElementSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -666,27 +662,11 @@ Base.show(io::IO, iter::ContextTypeDict) = print(io, "ContextTypeDict(", iter.ct
 Base.show(io::IO, ::MIME"text/plain", iter::ContextTypeDict) = show(io, iter)
 
 function Base.haskey(iter::ContextTypeDict, name::String)
-    @static if version() >= v"12"
-        API.LLVMGetTypeByName2(iter.ctx, name) != C_NULL
-    else
-        context!(iter.ctx) do
-            @dispose mod=Module("dummy") begin
-                API.LLVMGetTypeByName(mod, name) != C_NULL
-            end
-        end
-    end
+    API.LLVMGetTypeByName2(iter.ctx, name) != C_NULL
 end
 
 function Base.getindex(iter::ContextTypeDict, name::String)
-    objref = @static if version() >= v"12"
-        API.LLVMGetTypeByName2(iter.ctx, name)
-    else
-        context!(iter.ctx) do
-            @dispose mod=Module("dummy") begin
-                API.LLVMGetTypeByName(mod, name)
-            end
-        end
-    end
+    objref = API.LLVMGetTypeByName2(iter.ctx, name)
     objref == C_NULL && throw(KeyError(name))
     return LLVMType(objref)
 end

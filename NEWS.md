@@ -152,6 +152,36 @@ Pass managers:
 - `ExpandReductionsPass()` (`expand-reductions`) is available on every supported version of
   LLVM; LLVM itself only registers it with the new pass manager since LLVM 21.
 
+Insertion points:
+
+- Where to insert or move IR objects is an `InsertionPoint`, created with
+  `LLVM.before(x)`, `LLVM.after(x)`, `LLVM.at_begin(c)`, `LLVM.at_end(c)` and
+  `LLVM.after_phis(bb)`. These factories are public, but not part of a vocabulary.
+  Positions are resolved when they are created, and follow LLVM's rules for debug
+  records: `before(inst)` inserts after the debug records attached to `inst`, while
+  `after(prev)` and `at_begin(bb)` insert before them.
+- `position!(builder, pos)` positions a builder at an insertion point, replacing
+  `position!(builder, inst)` and `position!(builder, bb)`, which didn't make clear where
+  instructions would go (`LLVM.before(inst)` and `LLVM.at_end(bb)`, respectively).
+  `LLVM.after(inst)` also works for the last instruction of a block, `LLVM.at_begin(bb)`
+  positions before any PHI nodes, and `LLVM.after_phis(bb)` at the first position where
+  other instructions can go, like C++'s `getFirstInsertionPt`. `builder.position` is the
+  insertion point of a builder, and `builder.insert_block` the block, replacing
+  `position(builder)`. `position!(builder, pos) do ... end` positions a builder
+  temporarily, and restores its position and debug location afterwards.
+- `move!(x, pos)` moves an instruction, basic block, function or global variable to an
+  insertion point, replacing `move_before` and `move_after`. Instructions and blocks that
+  are not part of a block or function are inserted, which replaces `insert!(builder, inst)`
+  (use `move!(inst, builder.position)`), and they can be moved to another block or
+  function.
+- `BasicBlock(pos, name)` creates a block at an insertion point, replacing
+  `BasicBlock(bb, name)`, which inserted before `bb`.
+- `dbg_declare!`, `dbg_value!` and `dbg_label!` insert debug records (or intrinsics, before
+  LLVM 19) at an insertion point, replacing `declare_before!`, `declare_at_end!`,
+  `value_before!`, `value_at_end!`, `label_before!` and `label_at_end!`. The end of a block
+  is always its literal end, so records can't be inserted after a terminator; before,
+  `declare_at_end!` inserted before the terminator and `value_at_end!` after it.
+
 Types, constants and data layouts:
 
 - LLVM types and constants no longer implement Base's collection functions, which
@@ -230,13 +260,10 @@ New functionality:
   that aren't needed to create it (calling convention, section, function attributes, ...),
   like C++'s `copyAttributesFrom`, e.g., to replace a function by one with a different
   signature.
-- `position!(builder, inst; after=true)` positions a builder after an instruction (at the
-  end of the block if it is the last one). `extract_value!` and `insert_value!` accept a
-  vector of indices to access nested elements, and check the indices. `exactudiv!` builds
-  an exact unsigned division.
-- `move_before` and `move_after` move instructions, `comes_before` orders them, and
-  `may_read_from_memory`, `may_write_to_memory` and `may_have_side_effects` query what they
-  may do. `take_name!(val, from)` transfers a name, and `strip_pointer_casts` and
+- `extract_value!` and `insert_value!` accept a vector of indices to access nested
+  elements, and check the indices. `exactudiv!` builds an exact unsigned division.
+- `comes_before` orders instructions, and `may_read_from_memory`, `may_write_to_memory` and
+  `may_have_side_effects` query what they may do. `take_name!(val, from)` transfers a name, and `strip_pointer_casts` and
   `strip_pointer_casts_and_aliases` look through casts and aliases.
 - `val.users` is a view of the users of a value, and `remove_dead_constant_users!(c)`
   removes constant expressions that use a constant but are unused themselves.
@@ -280,6 +307,11 @@ Bug fixes:
   longer loops forever on older versions when the new value isn't a global value.
 - `PassBuilder` no longer leaks its options when given an invalid keyword argument.
 - `unsafe_store!` on `Core.LLVMPtr` returns the pointer, like Base.
+- `erase!` on an instruction or basic block that isn't part of a block or function, and
+  `clone(bb; dest=nothing)` on LLVM 18 and later, no longer crash.
+- Moving basic blocks (now using `move!`) works for detached blocks, which crashed, and
+  before a block of another function, which corrupted the IR: the block was listed in the
+  other function, but kept its old parent.
 
 Other changes:
 

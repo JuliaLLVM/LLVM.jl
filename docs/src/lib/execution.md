@@ -100,8 +100,8 @@ mangle
 intern
 retain
 release
-symbol_flags
-define
+SymbolFlags
+define!
 absolute_symbols
 ```
 
@@ -118,9 +118,10 @@ CustomDefinitionGenerator
 ### Materialization
 
 ```@docs
+MaterializationUnit
 CustomMaterializationUnit
 MaterializationResponsibility
-emit(::IRTransformLayer, ::MaterializationResponsibility, ::ThreadSafeModule)
+emit!(::IRTransformLayer, ::MaterializationResponsibility, ::ThreadSafeModule)
 IRTransformLayer
 transform!
 IRCompileLayer
@@ -133,5 +134,5 @@ LocalIndirectStubsManager
 
 ```@docs
 LLVM.CallbackException
-check_callback_error
+check_callback_error!
 ```

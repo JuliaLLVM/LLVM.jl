@@ -2,15 +2,47 @@
 @vocabulary ORC TargetMachineBuilder, target_machine_builder!, linking_layer_creator!
 @vocabulary ORC mangle, lookup, intern
 @vocabulary ORC ObjectLinkingLayer, register!
-@vocabulary ORC LLVMSymbol, retain, release, symbol_flags, define, absolute_symbols
+@vocabulary ORC LLVMSymbol, retain, release, SymbolFlags, define!, absolute_symbols
 @vocabulary ORC DefinitionGenerator, DynamicLibrarySearchGenerator
-@vocabulary ORC CustomDefinitionGenerator, check_callback_error
+@vocabulary ORC CustomDefinitionGenerator, check_callback_error!
 @vocabulary ORC lookup_dylib, ResourceTracker, transfer!
 @vocabulary ORC IRTransformLayer, IRCompileLayer, transform!
-@vocabulary ORC MaterializationResponsibility, CustomMaterializationUnit
+@vocabulary ORC MaterializationResponsibility, MaterializationUnit, CustomMaterializationUnit, emit!
 @vocabulary ORC LocalIndirectStubsManager, LocalLazyCallThroughManager, lazy_reexports
 
 include("executionengine/utils.jl")
+
+
+## ownership
+
+# ORC objects that an operation hands over to LLVM (e.g., a materialization unit that is
+# added to a JITDylib) keep track of whether their handle still owns them, like a C++
+# `unique_ptr` that has been moved from. A consumed handle can't be used anymore, and
+# disposing of it does nothing, so that it's safe to dispose of it unconditionally.
+function check_owned(obj)
+    obj.owned ||
+        throw(ArgumentError("This $(nameof(typeof(obj))) has been consumed or disposed of"))
+    return mark_use(obj)
+end
+
+# hand the object over to LLVM, returning its reference
+function consume!(obj)
+    check_owned(obj)
+    obj.owned = false
+    mark_dispose(obj)
+    return obj.ref
+end
+
+# dispose of the object using `f(ref)`, unless it was consumed already
+function dispose_owned(f, obj)
+    obj.owned || return
+    obj.owned = false
+    mark_dispose(obj -> f(obj.ref), obj)
+    return
+end
+
+
+## target machine builder
 
 """
     TargetMachineBuilder()
@@ -19,12 +51,21 @@ include("executionengine/utils.jl")
 Create a builder of target machines, as used by an [`LLJITBuilder`](@ref) to create the
 target machines that compile code. The builder either targets the host, or is based on
 `tm`, taking ownership of it.
+
+The builder is consumed by [`target_machine_builder!`](@ref); otherwise, it needs to be
+disposed of using `dispose`, which does nothing once it has been consumed.
 """
-@checked struct TargetMachineBuilder
+mutable struct TargetMachineBuilder
     ref::API.LLVMOrcJITTargetMachineBuilderRef
+    owned::Bool
+
+    function TargetMachineBuilder(ref::API.LLVMOrcJITTargetMachineBuilderRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
 end
 Base.unsafe_convert(::Type{API.LLVMOrcJITTargetMachineBuilderRef},
-                    tmb::TargetMachineBuilder) = tmb.ref
+                    tmb::TargetMachineBuilder) = check_owned(tmb).ref
 
 
 function TargetMachineBuilder()
@@ -39,9 +80,8 @@ function TargetMachineBuilder(tm::TargetMachine)
     TargetMachineBuilder(tmb)
 end
 
-function dispose(tmb::TargetMachineBuilder)
-    API.LLVMOrcDisposeJITTargetMachineBuilder(tmb)
-end
+dispose(tmb::TargetMachineBuilder) =
+    dispose_owned(API.LLVMOrcDisposeJITTargetMachineBuilder, tmb)
 
 include("executionengine/lljit.jl")
 
@@ -254,22 +294,66 @@ end
 ## symbol flags
 
 """
-    symbol_flags(; exported=true, callable=false, weak=false,
-                      materialization_side_effects_only=false, target_flags=0)
+    SymbolFlags(; exported=true, callable=false, weak=false,
+                materialization_side_effects_only=false, target_flags=0)
 
-Create the flags of a JIT symbol definition, as used by [`absolute_symbols`](@ref),
-[`CustomMaterializationUnit`](@ref) and [`lazy_reexports`](@ref).
+The flags of a JIT symbol definition, as used by [`absolute_symbols`](@ref),
+[`CustomMaterializationUnit`](@ref) and [`lazy_reexports`](@ref): whether the symbol is
+`exported` from its JITDylib, whether it is `callable` (a function), whether it is `weak`
+(and can be overridden by another definition), and whether it only stands for the side
+effects of materializing it, without an address. `target_flags` are specific to the target
+(e.g., whether an ARM function uses the Thumb instruction set), and must fit in a byte.
 """
-function symbol_flags(; exported::Bool=true, callable::Bool=false, weak::Bool=false,
-                      materialization_side_effects_only::Bool=false,
-                      target_flags::Integer=0)
-    flags = UInt8(0)
-    exported && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsExported))
-    weak && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsWeak))
-    callable && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsCallable))
-    materialization_side_effects_only &&
-        (flags |= UInt8(API.LLVMJITSymbolGenericFlagsMaterializationSideEffectsOnly))
-    return API.LLVMJITSymbolFlags(flags, target_flags)
+struct SymbolFlags
+    exported::Bool
+    callable::Bool
+    weak::Bool
+    materialization_side_effects_only::Bool
+    target_flags::UInt8
+end
+
+function SymbolFlags(; exported::Bool=true, callable::Bool=false, weak::Bool=false,
+                     materialization_side_effects_only::Bool=false,
+                     target_flags::Integer=0)
+    0 <= target_flags <= typemax(UInt8) ||
+        throw(ArgumentError("target_flags must be between 0 and 255, got $target_flags"))
+    SymbolFlags(exported, callable, weak, materialization_side_effects_only,
+                UInt8(target_flags))
+end
+
+function Base.show(io::IO, flags::SymbolFlags)
+    default = SymbolFlags()
+    kwargs = String[]
+    for field in fieldnames(SymbolFlags)
+        val = getfield(flags, field)
+        val == getfield(default, field) && continue
+        push!(kwargs, "$field=$(val isa Bool ? val : Int(val))")
+    end
+    print(io, "SymbolFlags(", join(kwargs, ", "), ")")
+end
+
+function Base.convert(::Type{API.LLVMJITSymbolFlags}, flags::SymbolFlags)
+    generic = UInt8(0)
+    flags.exported && (generic |= UInt8(API.LLVMJITSymbolGenericFlagsExported))
+    flags.weak && (generic |= UInt8(API.LLVMJITSymbolGenericFlagsWeak))
+    flags.callable && (generic |= UInt8(API.LLVMJITSymbolGenericFlagsCallable))
+    flags.materialization_side_effects_only &&
+        (generic |= UInt8(API.LLVMJITSymbolGenericFlagsMaterializationSideEffectsOnly))
+    return API.LLVMJITSymbolFlags(generic, flags.target_flags)
+end
+
+check_symbol_flags(flags::SymbolFlags) = flags
+check_symbol_flags(flags) =
+    throw(ArgumentError("symbol flags must be SymbolFlags, got a $(typeof(flags))"))
+
+# check the names of a symbol map before any of them is handed over to LLVM
+function check_symbol_names(names, what="symbol")
+    for name in names
+        name isa LLVMSymbol ||
+            throw(ArgumentError("$what names must be LLVMSymbols, got a $(typeof(name))"))
+    end
+    allunique(names) || throw(ArgumentError("duplicate $what names"))
+    return
 end
 
 """
@@ -335,29 +419,33 @@ disposed of with [`dispose`](@ref dispose(::DefinitionGenerator)).
 
 See also: [`DynamicLibrarySearchGenerator`](@ref), [`CustomDefinitionGenerator`](@ref).
 """
-@checked struct DefinitionGenerator
+mutable struct DefinitionGenerator
     ref::API.LLVMOrcDefinitionGeneratorRef
+    owned::Bool
+
+    function DefinitionGenerator(ref::API.LLVMOrcDefinitionGeneratorRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
 end
-Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) = dg.ref
+Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) =
+    check_owned(dg).ref
 
 """
     dispose(dg::DefinitionGenerator)
 
-Dispose of a definition generator that was not added to a JITDylib.
+Dispose of a definition generator, unless it was added to a JITDylib (which owns it then).
 """
-function dispose(dg::DefinitionGenerator)
-    mark_dispose(API.LLVMOrcDisposeDefinitionGenerator, dg)
-end
+dispose(dg::DefinitionGenerator) = dispose_owned(API.LLVMOrcDisposeDefinitionGenerator, dg)
 
 """
     add!(jd::JITDylib, dg::DefinitionGenerator)
 
 Attach the definition generator `dg` to `jd`. The JITDylib takes ownership of the
-generator, which should not be used or disposed of afterwards.
+generator, so `dg` can't be added again, and disposing of it does nothing.
 """
 function add!(jd::JITDylib, dg::DefinitionGenerator)
-    API.LLVMOrcJITDylibAddGenerator(jd, dg)
-    mark_dispose(dg)
+    API.LLVMOrcJITDylibAddGenerator(jd, consume!(dg))
     return
 end
 
@@ -382,14 +470,14 @@ function process_search_generator(prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
     @check API.LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(ref, prefix, C_NULL,
                                                                     C_NULL)
-    mark_alloc(DefinitionGenerator(ref[]))
+    DefinitionGenerator(ref[])
 end
 
 function library_search_generator(path, prefix)
     ref = Ref{API.LLVMOrcDefinitionGeneratorRef}()
     @check API.LLVMOrcCreateDynamicLibrarySearchGeneratorForPath(ref, path, prefix, C_NULL,
                                                                  C_NULL)
-    mark_alloc(DefinitionGenerator(ref[]))
+    DefinitionGenerator(ref[])
 end
 
 function __try_to_generate(generator::API.LLVMOrcDefinitionGeneratorRef, ctx::Ptr{Cvoid},
@@ -405,7 +493,7 @@ function __try_to_generate(generator::API.LLVMOrcDefinitionGeneratorRef, ctx::Pt
         return API.LLVMErrorRef(C_NULL)
     catch err
         # Julia exceptions cannot unwind through LLVM, so report the failure to ORC
-        # and keep the exception around for check_callback_error.
+        # and keep the exception around for check_callback_error!.
         _capture_callback_exception!(dg, err)
         msg = try
             sprint(showerror, err)
@@ -438,13 +526,14 @@ mirror those of LLVM's `DefinitionGenerator::tryToGenerate`:
   linker-mangled names of the symbols that were not found, each paired with a flag
   indicating whether the symbol is required or only weakly referenced.
 
-`f` should define the symbols it can provide in `jd`, e.g., using [`define`](@ref).
-Symbols it does not define are left to other generators and JITDylibs in the search order.
+`f` should define the symbols it can provide in `jd`, e.g., using [`define!`](@ref).
+Symbols it does not define are left to other generators and JITDylibs in the search order,
+and its return value is ignored.
 The names in `lookup_set` are only valid during the call; retain them with `retain`
 before handing them to functions that take ownership, like `absolute_symbols`.
 
 If `f` throws, the lookup fails with an LLVM error that includes the exception message. The
-original exception can be retrieved by calling `check_callback_error` on the generator,
+original exception can be retrieved by calling `check_callback_error!` on the generator,
 which rethrows it as a [`CallbackException`](@ref).
 
 `f` runs synchronously on the thread performing the lookup, while LLVM holds locks that
@@ -453,7 +542,8 @@ JITDylib again, as that may deadlock. Asynchronous generation (suspending the lo
 not supported.
 
 The generator is used like a [`DefinitionGenerator`](@ref): attach it to a JITDylib
-with `add!`, which keeps it alive for the lifetime of that JITDylib, or `dispose` it.
+with `add!`, which keeps it alive for the lifetime of that JITDylib, or `dispose` it. Its
+callback stays rooted until LLVM destroys the generator.
 """
 mutable struct CustomDefinitionGenerator
     callback
@@ -475,7 +565,7 @@ mutable struct CustomDefinitionGenerator
                         API.LLVMOrcCLookupSet, Csize_t)),
             Base.pointer_from_objref(this),
             @cfunction(__dispose_generator, Cvoid, (Ptr{Cvoid},)))
-        this.dg = mark_alloc(DefinitionGenerator(ref))
+        this.dg = DefinitionGenerator(ref)
         return this
     end
 end
@@ -487,7 +577,7 @@ add!(jd::JITDylib, dg::CustomDefinitionGenerator) = add!(jd, dg.dg)
 dispose(dg::CustomDefinitionGenerator) = dispose(dg.dg)
 
 """
-    check_callback_error(obj)
+    check_callback_error!(obj)
 
 Rethrow the first exception that was captured from a Julia callback of `obj` (e.g., a
 [`CustomDefinitionGenerator`](@ref) or [`CustomMaterializationUnit`](@ref)) as a
@@ -497,9 +587,9 @@ Exceptions cannot propagate through LLVM, so callbacks that throw are reported t
 failures instead, typically resulting in a generic error from the operation that triggered
 the callback.
 """
-function check_callback_error end
+function check_callback_error! end
 
-function check_callback_error(dg::CustomDefinitionGenerator)
+function check_callback_error!(dg::CustomDefinitionGenerator)
     exception = _take_callback_exception!(dg)
     exception === nothing && return nothing
     err, bt = exception
@@ -809,7 +899,7 @@ ownership. The transformation is kept alive for as long as the JIT, and should b
 before any code is added to it. It may be called on whichever thread materializes code.
 
 If `f` throws, materialization of the module fails, and the original exception can be
-retrieved by calling [`check_callback_error`](@ref) on the layer.
+retrieved by calling [`check_callback_error!`](@ref) on the layer.
 """
 function transform!(f, il::IRTransformLayer)
     state = IRTransform(f)
@@ -824,7 +914,7 @@ function transform!(f, il::IRTransformLayer)
     return
 end
 
-function check_callback_error(il::IRTransformLayer)
+function check_callback_error!(il::IRTransformLayer)
     for state in il.jit.roots
         state isa IRTransform || continue
         exception = _take_callback_exception!(state)
@@ -842,7 +932,7 @@ end
 
 The responsibility for materializing a set of symbols, as passed to the callback of a
 [`CustomMaterializationUnit`](@ref). It is fulfilled by emitting code that defines
-these symbols, e.g., using [`emit`](@ref).
+these symbols, e.g., using [`emit!`](@ref).
 
 # Properties
 
@@ -873,14 +963,14 @@ function consume!(mr::MaterializationResponsibility)
 end
 
 """
-    emit(layer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    emit!(layer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
 
 Emit the IR module `tsm` through `layer` (an [`IRTransformLayer`](@ref) or
 `IRCompileLayer`) to fulfill the responsibility `mr`. Both `mr` and `tsm` are
 consumed; a responsibility that is borrowed, e.g., by an IR transformation, cannot be
 emitted.
 """
-function emit(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+function emit!(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     consume!(mr)
     mark_dispose(tsm)
     API.LLVMOrcIRTransformLayerEmit(il, mr, tsm)
@@ -920,26 +1010,50 @@ end
 abstract type AbstractMaterializationUnit end
 
 """
-    define(jd::JITDylib, mu)
+    MaterializationUnit
 
-Add the materialization unit `mu` to `jd`. The unit is consumed, even if this throws: on
-failure (e.g., because one of its symbols is already defined in `jd`) it is disposed of
-before the error is rethrown as an [`LLVMException`](@ref).
+A unit that promises to define a set of symbols, and that materializes their definitions
+when one of them is looked up, as created by [`absolute_symbols`](@ref) and
+[`lazy_reexports`](@ref) (see [`CustomMaterializationUnit`](@ref) for units implemented
+in Julia).
+
+A unit is consumed by adding it to a JITDylib with [`define!`](@ref); otherwise, it needs
+to be disposed of using `dispose`, which does nothing once it has been consumed.
 """
-function define(jd::JITDylib, mu::AbstractMaterializationUnit)
-    err = API.LLVMOrcJITDylibDefine(jd, mu)
+mutable struct MaterializationUnit <: AbstractMaterializationUnit
+    ref::API.LLVMOrcMaterializationUnitRef
+    owned::Bool
+
+    function MaterializationUnit(ref::API.LLVMOrcMaterializationUnitRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
+end
+Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::MaterializationUnit) =
+    check_owned(mu).ref
+
+dispose(mu::MaterializationUnit) = dispose_owned(API.LLVMOrcDisposeMaterializationUnit, mu)
+
+"""
+    define!(jd::JITDylib, mu)
+
+Add the materialization unit `mu` to `jd`, which takes ownership of it. The unit is
+consumed even if this throws: on failure (e.g., because one of its symbols is already
+defined in `jd`) it is disposed of before the error is rethrown as an
+[`LLVMException`](@ref).
+"""
+function define!(jd::JITDylib, mu::AbstractMaterializationUnit)
+    ref = consume!(materialization_unit(mu))
+    err = API.LLVMOrcJITDylibDefine(jd, ref)
     if err != C_NULL
         # on failure, ownership of the materialization unit stays with us
-        API.LLVMOrcDisposeMaterializationUnit(mu)
+        API.LLVMOrcDisposeMaterializationUnit(ref)
         throw(convert(LLVMException, LLVMError(err)))
     end
     return
 end
 
-@checked struct MaterializationUnit <: AbstractMaterializationUnit
-    ref::API.LLVMOrcMaterializationUnitRef
-end
-Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::MaterializationUnit) = mu.ref
+materialization_unit(mu::MaterializationUnit) = mu
 
 
 mutable struct CustomMaterializationUnit <: AbstractMaterializationUnit
@@ -952,13 +1066,15 @@ mutable struct CustomMaterializationUnit <: AbstractMaterializationUnit
     end
 end
 Base.cconvert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::CustomMaterializationUnit) = mu.mu
+materialization_unit(mu::CustomMaterializationUnit) = mu.mu
+dispose(mu::CustomMaterializationUnit) = dispose(mu.mu)
 
 # LLVM only holds a raw pointer to custom materialization units, so root them until LLVM
 # either materializes or destroys them.
 const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
 const CUSTOM_MU_LOCK = ReentrantLock()
 
-function check_callback_error(mu::CustomMaterializationUnit)
+function check_callback_error!(mu::CustomMaterializationUnit)
     exception = _take_callback_exception!(mu)
     exception === nothing && return nothing
     err, bt = exception
@@ -974,6 +1090,7 @@ function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibi
         _capture_callback_exception!(mu, err)
         # only fail materialization if the responsibility wasn't handed off already
         if responsibility.owned
+            responsibility.owned = false
             API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
             API.LLVMOrcDisposeMaterializationResponsibility(mr)
         end
@@ -1003,50 +1120,66 @@ function __destroy(ctx::Ptr{Cvoid})
 end
 
 """
-    CustomMaterializationUnit(name, symbols, materialize, discard, [init])
+    CustomMaterializationUnit(name, symbols, materialize, discard; init=nothing)
 
 Create a materialization unit that promises to define `symbols`, a collection of
-`name => flags` pairs mapping each [`LLVMSymbol`](@ref) to flags created by
-[`symbol_flags`](@ref). Add it to a JITDylib with [`define`](@ref).
+`name => flags` pairs mapping each [`LLVMSymbol`](@ref) to its [`SymbolFlags`](@ref).
+Add it to a JITDylib with [`define!`](@ref).
 
 When any of these symbols is looked up, `materialize(mr)` is called with a
 `MaterializationResponsibility` for the symbols, which it should fulfill, e.g., by
-generating IR and emitting it with `emit(layer, mr, tsm)`; its
+generating IR and emitting it with `emit!(layer, mr, tsm)`; its
 [`requested_symbols`](@ref LLVM.MaterializationResponsibility) property tells which symbols were
 requested. If a symbol is overridden by another definition before it was materialized,
 `discard(jd, name)` is called instead.
 
+Like other [`MaterializationUnit`](@ref)s, the unit is consumed by [`define!`](@ref), and
+needs to be disposed of otherwise. Its callbacks stay rooted until LLVM materializes or
+destroys the unit.
+
 If `materialize` throws, materialization of the symbols fails, and lookups report an LLVM
-error. Retrieve the original exception by calling [`check_callback_error`](@ref) on the
+error. Retrieve the original exception by calling [`check_callback_error!`](@ref) on the
 unit. An exception in `discard` is only reported that way.
 
 The unit takes ownership of the symbol names. `init` can be used to specify an
-initializer symbol, which takes ownership of an additional reference.
+initializer symbol (an [`LLVMSymbol`](@ref)), which needs to be one of the `symbols`,
+with flags that have `materialization_side_effects_only` set. The unit takes ownership of
+an additional reference to it.
 """
 function CustomMaterializationUnit(name, symbols::Union{AbstractVector{<:Pair},AbstractDict},
-                                   materialize, discard, init=C_NULL)
+                                   materialize, discard;
+                                   init::Union{Nothing,LLVMSymbol}=nothing)
     # validate everything before taking ownership of the names
-    syms = LLVMSymbol[first(pair) for pair in symbols]
-    allunique(syms) || throw(ArgumentError("duplicate symbol names"))
-    symbols = [API.LLVMOrcCSymbolFlagsMapPair(sym, flags) for (sym, flags) in symbols]
-    CustomMaterializationUnit(name, symbols, materialize, discard, init)
-end
+    check_symbol_names([first(pair) for pair in symbols])
+    pairs = API.LLVMOrcCSymbolFlagsMapPair[
+        API.LLVMOrcCSymbolFlagsMapPair(sym, convert(API.LLVMJITSymbolFlags,
+                                                    check_symbol_flags(flags)))
+        for (sym, flags) in symbols]
+    if init !== nothing
+        # LLVM asserts that the initializer is one of the symbols, and requires it to
+        # only have side effects
+        i = findfirst(pair -> first(pair) == init, collect(symbols))
+        i === nothing &&
+            throw(ArgumentError("the initializer symbol needs to be one of the symbols"))
+        last(collect(symbols)[i]).materialization_side_effects_only ||
+            throw(ArgumentError("the initializer symbol needs to be materialization_side_effects_only"))
+    end
+    init_ref = init === nothing ? API.LLVMOrcSymbolStringPoolEntryRef(C_NULL) : init.ref
 
-# raw form, taking a collection of `API.LLVMOrcCSymbolFlagsMapPair`s
-function CustomMaterializationUnit(name, symbols, materialize, discard, init=C_NULL)
     this = CustomMaterializationUnit(materialize, discard)
-    @lock CUSTOM_MU_LOCK push!(CUSTOM_MU_ROOTS, this)
-
+    # LLVM doesn't call back before the unit is defined or disposed of, so only root the
+    # unit once it has been created, so that a failure to create it doesn't leak the root
     ref = API.LLVMOrcCreateCustomMaterializationUnit(
         name,
-        Base.pointer_from_objref(this), # escaping this, rooted in CUSTOM_MU_ROOTS
-        symbols,
-        length(symbols),
-        init,
+        Base.pointer_from_objref(this), # escaping this, rooted in CUSTOM_MU_ROOTS below
+        pairs,
+        length(pairs),
+        init_ref,
         @cfunction(__materialize, Cvoid, (Ptr{Cvoid}, API.LLVMOrcMaterializationResponsibilityRef)),
         @cfunction(__discard, Cvoid, (Ptr{Cvoid}, API.LLVMOrcJITDylibRef, API.LLVMOrcSymbolStringPoolEntryRef) ),
         @cfunction(__destroy, Cvoid, (Ptr{Cvoid},))
     )
+    @lock CUSTOM_MU_LOCK push!(CUSTOM_MU_ROOTS, this)
     this.mu = MaterializationUnit(ref)
     return this
 end
@@ -1059,14 +1192,15 @@ end
 Create a materialization unit that defines each symbol `name` (a [`LLVMSymbol`](@ref))
 at a fixed `address` (a pointer, integer, or [`OrcTargetAddress`](@ref)), e.g., to make
 host functions or data available to JIT-compiled code. Symbols default to being exported;
-pass `flags` created by [`symbol_flags`](@ref) to change that. The pairs can also be
-passed as a collection, e.g., a vector or a dictionary.
+pass [`SymbolFlags`](@ref) to change that (absolute symbols have an address, so they can't
+be `materialization_side_effects_only`). The pairs can also be passed as a collection,
+e.g., a vector or a dictionary.
 
 The unit takes ownership of the symbol names, and should be added to a JITDylib using
-[`define`](@ref):
+[`define!`](@ref):
 
 ```julia
-define(jd, absolute_symbols(mangle(lljit, "counter") => pointer(counter)))
+define!(jd, absolute_symbols(mangle(lljit, "counter") => pointer(counter)))
 ```
 """
 absolute_symbols(pair::Pair{LLVMSymbol}, pairs::Pair{LLVMSymbol}...) =
@@ -1074,25 +1208,25 @@ absolute_symbols(pair::Pair{LLVMSymbol}, pairs::Pair{LLVMSymbol}...) =
 
 function absolute_symbols(pairs::Union{AbstractVector{<:Pair},AbstractDict})
     # validate everything before taking ownership of the names
-    syms = LLVMSymbol[first(pair) for pair in pairs]
-    allunique(syms) || throw(ArgumentError("duplicate symbol names"))
-    symbols = map(collect(pairs)) do (sym, def)
-        address, flags = def isa Tuple ? def : (def, symbol_flags())
-        API.LLVMOrcCSymbolMapPair(sym, API.LLVMJITEvaluatedSymbol(_target_address(address),
-                                                                 flags))
+    check_symbol_names([first(pair) for pair in pairs])
+    symbols = API.LLVMOrcCSymbolMapPair[]
+    for (sym, def) in pairs
+        address, flags = def isa Tuple{Any,Any} ? def : (def, SymbolFlags())
+        # LLVM asserts when resolving such symbols
+        check_symbol_flags(flags).materialization_side_effects_only &&
+            throw(ArgumentError("absolute symbols can't be materialization_side_effects_only"))
+        push!(symbols, API.LLVMOrcCSymbolMapPair(sym, API.LLVMJITEvaluatedSymbol(
+            target_address(address), convert(API.LLVMJITSymbolFlags,
+                                             check_symbol_flags(flags)))))
     end
-    absolute_symbols(symbols)
+    MaterializationUnit(API.LLVMOrcAbsoluteSymbols(symbols, length(symbols)))
 end
 
-_target_address(ptr::Ptr) = API.LLVMOrcJITTargetAddress(reinterpret(UInt, ptr))
-_target_address(addr::Integer) = API.LLVMOrcJITTargetAddress(addr)
-_target_address(addr::OrcTargetAddress) = addr.ptr
-
-# raw form, taking a collection of `API.LLVMOrcCSymbolMapPair`s
-function absolute_symbols(symbols)
-    ref = API.LLVMOrcAbsoluteSymbols(symbols, length(symbols))
-    MaterializationUnit(ref)
-end
+target_address(ptr::Ptr) = API.LLVMOrcJITTargetAddress(reinterpret(UInt, ptr))
+target_address(addr::Integer) = API.LLVMOrcJITTargetAddress(addr)
+target_address(addr::OrcTargetAddress) = addr.ptr
+target_address(addr) = throw(ArgumentError(
+    "symbol addresses must be pointers, integers or OrcTargetAddresses, got a $(typeof(addr))"))
 
 @checked struct IndirectStubsManager
     ref::API.LLVMOrcIndirectStubsManagerRef
@@ -1140,7 +1274,8 @@ end
 
 Create a materialization unit that defines lazy reexports of symbols in `source_jd`.
 `aliases` is a collection of `alias => target` or `alias => (target, flags)` pairs of
-[`LLVMSymbol`](@ref)s, with `flags` defaulting to an exported and callable symbol.
+[`LLVMSymbol`](@ref)s, with [`SymbolFlags`](@ref) that default to an exported and
+callable symbol. Lazy reexports need to be callable.
 
 Looking up an alias does not materialize its target. Instead, the alias resolves to a stub
 (managed by the indirect stubs manager `ism`) that calls into the lazy call-through manager
@@ -1153,21 +1288,19 @@ aliases share a target, retain the target an additional time for every extra ali
 function lazy_reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager,
                         jd::JITDylib, aliases::Union{AbstractVector{<:Pair},AbstractDict})
     # validate everything before taking ownership of the names
-    syms = LLVMSymbol[first(pair) for pair in aliases]
-    allunique(syms) || throw(ArgumentError("duplicate alias names"))
-    aliases = map(collect(aliases)) do (alias, def)
-        target, flags = def isa Tuple ? def : (def, symbol_flags(callable=true))
-        API.LLVMOrcCSymbolAliasMapPair(alias,
-            API.LLVMOrcCSymbolAliasMapEntry(target, flags))
+    check_symbol_names([first(pair) for pair in aliases], "alias")
+    entries = API.LLVMOrcCSymbolAliasMapPair[]
+    for (alias, def) in aliases
+        target, flags = def isa Tuple{Any,Any} ? def : (def, SymbolFlags(callable=true))
+        target isa LLVMSymbol ||
+            throw(ArgumentError("alias targets must be LLVMSymbols, got a $(typeof(target))"))
+        # LLVM asserts that lazy reexports are callable
+        check_symbol_flags(flags).callable ||
+            throw(ArgumentError("lazy reexports must be callable"))
+        push!(entries, API.LLVMOrcCSymbolAliasMapPair(alias,
+            API.LLVMOrcCSymbolAliasMapEntry(target, convert(API.LLVMJITSymbolFlags, flags))))
     end
-    lazy_reexports(lctm, ism, jd, aliases)
-end
-
-# raw form, taking a collection of `API.LLVMOrcCSymbolAliasMapPair`s
-function lazy_reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager,
-                        jd::JITDylib, aliases)
-    ref = API.LLVMOrcLazyReexports(lctm, ism, jd, aliases, length(aliases))
-    MaterializationUnit(ref)
+    MaterializationUnit(API.LLVMOrcLazyReexports(lctm, ism, jd, entries, length(entries)))
 end
 
 
@@ -1321,7 +1454,7 @@ JITDylibs (or only the one returned by `JITDylib(jljit)` if `external_jd_only` i
     IRCompileLayer
 
 The layer of Julia's JIT that compiles IR modules, available as the `ir_compile_layer`
-property of a [`JuliaOJIT`](@ref), for use with [`emit`](@ref).
+property of a [`JuliaOJIT`](@ref), for use with [`emit!`](@ref).
 """
 @checked struct IRCompileLayer
     ref::API.LLVMOrcIRCompileLayerRef
@@ -1330,7 +1463,8 @@ end
 
 Base.unsafe_convert(::Type{API.LLVMOrcIRCompileLayerRef}, il::IRCompileLayer) = il.ref
 
-function emit(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    mr.owned || throw(ArgumentError("cannot consume a materialization responsibility that was already consumed or that is borrowed"))
     if il.jit isa JuliaOJIT
         # Julia's debug info expects certain symbols to be present
         tsm() do mod

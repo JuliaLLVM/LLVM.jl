@@ -121,7 +121,7 @@ end
             for (name, flags) in lookup_set
                 name == gv_name || continue
                 retain(name)   # borrowed, but absolute_symbols takes ownership
-                define(jd, absolute_symbols(name => pointer_from_objref(data)))
+                define!(jd, absolute_symbols(name => pointer_from_objref(data)))
             end
         end
         @test dg in LLVM.CUSTOM_DG_ROOTS
@@ -141,8 +141,8 @@ end
         GC.@preserve data begin
             @test ccall(pointer(lookup(lljit, "load_gv")), Int32, ()) == 42
         end
-        @test only(requests).kind == LLVM.API.LLVMOrcLookupKindStatic
-        @test only(requests).names == [string(gv_name) => LLVM.API.LLVMOrcSymbolLookupFlagsRequiredSymbol]
+        @test only(requests).kind == LLVM.LookupKind.Static
+        @test only(requests).names == [string(gv_name) => LLVM.SymbolLookupFlags.RequiredSymbol]
 
         # direct lookups, of symbols that are already defined
         GC.@preserve data begin
@@ -153,7 +153,7 @@ end
         # symbols that the generator does not define remain undefined
         @test_throws LLVMException lookup(lljit, "undefined")
         @test length(requests) == 2
-        @test requests[2].jd_flags == LLVM.API.LLVMOrcJITDylibLookupFlagsMatchAllSymbols
+        @test requests[2].jd_flags == LLVM.JITDylibLookupFlags.MatchAllSymbols
 
         # weak references are allowed to remain undefined
         # (older versions of LLVM request them as if they were required, and RuntimeDyld,
@@ -173,7 +173,7 @@ end
             add!(lljit, jd, ts_mod)
             @test ccall(pointer(lookup(lljit, "get_weak")), Ptr{Int32}, ()) == C_NULL
             @test requests[end].names == [string(weak_name) =>
-                                          LLVM.API.LLVMOrcSymbolLookupFlagsWeaklyReferencedSymbol]
+                                          LLVM.SymbolLookupFlags.WeaklyReferencedSymbol]
         end
 
         release(gv_name)
@@ -204,14 +204,14 @@ end
         @test occursin("definition generator error", err.info)
 
         try
-            check_callback_error(dg)
+            check_callback_error!(dg)
             @test false
         catch err
             @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
             @test !isempty(err.processed_bt)
         end
-        @test check_callback_error(dg) === nothing
+        @test check_callback_error!(dg) === nothing
     end
 end
 
@@ -259,22 +259,18 @@ end
 @testset "Materialization callback errors" begin
     @dispose lljit=LLJIT() begin
         jd = lljit.main_dylib
-        flags = LLVM.API.LLVMJITSymbolFlags(
-            LLVM.API.LLVMJITSymbolGenericFlagsCallable |
-            LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-        sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(lljit, "throws"), flags)
-
+        symbols = [mangle(lljit, "throws") => SymbolFlags(callable=true)]
         mu = CustomMaterializationUnit(
-            "throwingMU", Ref(sym),
+            "throwingMU", symbols,
             mr -> throw(ArgumentError("materialization callback error")),
             (jd, sym) -> nothing)
-        define(jd, mu)
+        define!(jd, mu)
         @test mu in LLVM.CUSTOM_MU_ROOTS
 
         @test_throws LLVMException lookup(lljit, "throws")
         @test !(mu in LLVM.CUSTOM_MU_ROOTS)
         try
-            check_callback_error(mu)
+            check_callback_error!(mu)
             @test false
         catch err
             @test err isa LLVM.CallbackException
@@ -282,7 +278,7 @@ end
             @test occursin("materialization callback error", string(err.ex))
             @test !isempty(err.processed_bt)
         end
-        @test check_callback_error(mu) === nothing
+        @test check_callback_error!(mu) === nothing
     end
 end
 
@@ -301,35 +297,144 @@ end
                     ret!(builder, ConstantInt(Int32(42)))
                 end
             end
-            emit(lljit.ir_transform_layer, mr, ts_mod)
+            emit!(lljit.ir_transform_layer, mr, ts_mod)
             # the responsibility has been consumed
             @dispose unused=ThreadSafeModule("jit") begin
-                @test_throws ArgumentError emit(lljit.ir_transform_layer, mr, unused)
+                @test_throws ArgumentError emit!(lljit.ir_transform_layer, mr, unused)
             end
             error("materializer error after emitting")
         end
-        symbols = [mangle(lljit, "emitted") => symbol_flags(callable=true)]
+        symbols = [mangle(lljit, "emitted") => SymbolFlags(callable=true)]
         mu = CustomMaterializationUnit("emittingMU", symbols, materialize,
                                             (jd, sym) -> nothing)
-        define(jd, mu)
+        define!(jd, mu)
 
         # the code was emitted, so the lookup succeeds
         @test ccall(pointer(lookup(lljit, "emitted")), Int32, ()) == 42
-        @test_throws LLVM.CallbackException check_callback_error(mu)
+        @test_throws LLVM.CallbackException check_callback_error!(mu)
     end
 end
 
 @testset "Unmaterialized units" begin
     local mu
     @dispose lljit=LLJIT() begin
-        symbols = [mangle(lljit, "unused") => symbol_flags(callable=true)]
+        symbols = [mangle(lljit, "unused") => SymbolFlags(callable=true)]
         mu = CustomMaterializationUnit("unusedMU", symbols, mr -> nothing,
                                             (jd, sym) -> nothing)
-        define(lljit.main_dylib, mu)
+        define!(lljit.main_dylib, mu)
         @test mu in LLVM.CUSTOM_MU_ROOTS
     end
     # destroying the JITDylib destroys the unit
     @test !(mu in LLVM.CUSTOM_MU_ROOTS)
+end
+
+@testset "Ownership" begin
+    data = Ref{Int32}(42)
+    ptr = pointer_from_objref(data)
+    @dispose lljit=LLJIT() begin
+        jd = lljit.main_dylib
+
+        # defining a unit consumes it
+        mu = absolute_symbols(mangle(lljit, "owned1") => ptr)
+        @test mu isa MaterializationUnit
+        define!(jd, mu)
+        @test_throws ArgumentError define!(jd, mu)
+        dispose(mu)     # does nothing
+        @test pointer(lookup(lljit, "owned1")) == ptr
+
+        # also when defining it fails
+        mu = absolute_symbols(mangle(lljit, "owned1") => ptr)
+        @test_throws LLVMException define!(jd, mu)
+        @test_throws ArgumentError define!(jd, mu)
+        dispose(mu)
+
+        # units that aren't defined need to be disposed of, so @dispose works either way
+        @dispose mu=absolute_symbols(mangle(lljit, "unused") => ptr) begin end
+        @dispose mu=absolute_symbols(mangle(lljit, "owned2") => ptr) begin
+            define!(jd, mu)
+        end
+        @test pointer(lookup(lljit, "owned2")) == ptr
+
+        # disposing of an unused custom unit unroots its callbacks
+        mu = CustomMaterializationUnit("unusedMU",
+                                       [mangle(lljit, "custom") => SymbolFlags(callable=true)],
+                                       mr -> nothing, (jd, sym) -> nothing)
+        @test mu in LLVM.CUSTOM_MU_ROOTS
+        dispose(mu)
+        @test !(mu in LLVM.CUSTOM_MU_ROOTS)
+        dispose(mu)
+        @test_throws ArgumentError define!(jd, mu)
+
+        # the initializer symbol takes an additional reference
+        init = mangle(lljit, "with_init")
+        retain(init)
+        init_flags = SymbolFlags(materialization_side_effects_only=true)
+        mu = CustomMaterializationUnit("initMU", [init => init_flags], mr -> nothing,
+                                       (jd, sym) -> nothing; init)
+        dispose(mu)     # releases both references
+        # which needs to be one of the symbols, and only have side effects
+        init = mangle(lljit, "bad_init")
+        other = mangle(lljit, "other")
+        @test_throws ArgumentError CustomMaterializationUnit("initMU", [other => init_flags],
+                                                             mr -> nothing, (jd, sym) -> nothing;
+                                                             init)
+        @test_throws ArgumentError CustomMaterializationUnit("initMU", [init => SymbolFlags()],
+                                                             mr -> nothing, (jd, sym) -> nothing;
+                                                             init)
+        release(other)
+        release(init)
+
+        # a unit that can't be created isn't rooted
+        nroots = length(LLVM.CUSTOM_MU_ROOTS)
+        sym = mangle(lljit, "bad_name")
+        @test_throws ArgumentError CustomMaterializationUnit("bad\0name",
+                                                             [sym => SymbolFlags()],
+                                                             mr -> nothing, (jd, sym) -> nothing)
+        @test length(LLVM.CUSTOM_MU_ROOTS) == nroots
+        release(sym)
+
+        # a defined one stays rooted until it's materialized
+        materialized = Ref(false)
+        mu = CustomMaterializationUnit("rootedMU",
+                                       [mangle(lljit, "rooted") => SymbolFlags(callable=true)],
+                                       mr -> (materialized[] = true; error("not materializing")),
+                                       (jd, sym) -> nothing)
+        define!(jd, mu)
+        dispose(mu)
+        @test mu in LLVM.CUSTOM_MU_ROOTS
+        mu = nothing
+        GC.gc(true)
+        @test_throws LLVMException lookup(lljit, "rooted")
+        @test materialized[]
+
+        # adding a generator consumes it
+        dg = DynamicLibrarySearchGenerator(lljit)
+        add!(jd, dg)
+        @test_throws ArgumentError add!(jd, dg)
+        dispose(dg)
+        dg = CustomDefinitionGenerator((args...) -> nothing)
+        add!(jd, dg)
+        @test_throws ArgumentError add!(jd, dg)
+        dispose(dg)
+        @test dg in LLVM.CUSTOM_DG_ROOTS
+    end
+
+    # target machine builders are consumed by JIT builders, which are consumed by the JIT
+    builder = LLJITBuilder()
+    tmb = TargetMachineBuilder()
+    target_machine_builder!(builder, tmb)
+    @test_throws ArgumentError target_machine_builder!(builder, tmb)
+    dispose(tmb)
+    lljit = LLJIT(builder)
+    @test_throws ArgumentError LLJIT(builder)
+    @dispose tmb=TargetMachineBuilder() begin
+        @test_throws ArgumentError target_machine_builder!(builder, tmb)
+    end
+    dispose(builder)
+    dispose(lljit)
+
+    # unused builders need to be disposed of
+    @dispose builder=LLJITBuilder() tmb=TargetMachineBuilder() begin end
 end
 
 @testset "Absolute symbols" begin
@@ -338,22 +443,22 @@ end
         data = Ref{Int32}(42)
         ptr = pointer_from_objref(data)
 
-        define(jd, absolute_symbols(mangle(lljit, "gv") => ptr))
+        define!(jd, absolute_symbols(mangle(lljit, "gv") => ptr))
         @test pointer(lookup(lljit, "gv")) == ptr
 
         # multiple symbols, flags, and collections
-        define(jd, absolute_symbols([
+        define!(jd, absolute_symbols([
             mangle(lljit, "gv1") => ptr + 1,
-            mangle(lljit, "gv2") => (UInt(ptr) + 2, symbol_flags(callable=true)),
+            mangle(lljit, "gv2") => (UInt(ptr) + 2, SymbolFlags(callable=true)),
         ]))
-        define(jd, absolute_symbols(
+        define!(jd, absolute_symbols(
             Dict(mangle(lljit, "gv3") => OrcTargetAddress(ptr + 3))))
         @test pointer(lookup(lljit, "gv1")) == ptr + 1
         @test pointer(lookup(lljit, "gv2")) == ptr + 2
         @test pointer(lookup(lljit, "gv3")) == ptr + 3
 
         # duplicate definitions are rejected
-        @test_throws LLVMException define(jd,
+        @test_throws LLVMException define!(jd,
             absolute_symbols(mangle(lljit, "gv") => ptr + 4))
         @test pointer(lookup(lljit, "gv")) == ptr
         sym = mangle(lljit, "dup")
@@ -375,13 +480,51 @@ end
         release(sym)
     end
 
-    flags = symbol_flags()
-    @test flags.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsExported)
-    @test flags.TargetFlags == 0
-    flags = symbol_flags(exported=false, callable=true, weak=true, target_flags=1)
-    @test flags.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsCallable) |
-                                UInt8(LLVM.API.LLVMJITSymbolGenericFlagsWeak)
-    @test flags.TargetFlags == 1
+    flags = SymbolFlags()
+    @test flags.exported && !flags.callable && !flags.weak
+    @test flags.target_flags == 0
+    @test sprint(show, flags) == "SymbolFlags()"
+    raw = convert(LLVM.API.LLVMJITSymbolFlags, flags)
+    @test raw.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsExported)
+    @test raw.TargetFlags == 0
+
+    flags = SymbolFlags(exported=false, callable=true, weak=true, target_flags=1)
+    @test sprint(show, flags) == "SymbolFlags(exported=false, callable=true, weak=true, target_flags=1)"
+    raw = convert(LLVM.API.LLVMJITSymbolFlags, flags)
+    @test raw.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsCallable) |
+                              UInt8(LLVM.API.LLVMJITSymbolGenericFlagsWeak)
+    @test raw.TargetFlags == 1
+    @test_throws ArgumentError SymbolFlags(target_flags=256)
+
+    # raw C API structures are rejected before the names are handed over to LLVM
+    @dispose lljit=LLJIT() begin
+        sym = mangle(lljit, "raw")
+        raw_flags = convert(LLVM.API.LLVMJITSymbolFlags, SymbolFlags())
+        @test_throws MethodError absolute_symbols(Ref(LLVM.API.LLVMOrcCSymbolMapPair(
+            sym, LLVM.API.LLVMJITEvaluatedSymbol(0, raw_flags))))
+        @test_throws ArgumentError absolute_symbols([sym => (0, raw_flags)])
+        @test_throws ArgumentError absolute_symbols([sym => "0x0"])
+        @test_throws ArgumentError absolute_symbols(["raw" => 0])
+        @test_throws ArgumentError absolute_symbols(
+            [sym => (0, SymbolFlags(materialization_side_effects_only=true))])
+        nroots = length(LLVM.CUSTOM_MU_ROOTS)
+        @test_throws ArgumentError CustomMaterializationUnit("rawMU", [sym => raw_flags],
+                                                             mr -> nothing, (jd, s) -> nothing)
+        @test_throws MethodError CustomMaterializationUnit("rawMU", Ref(sym => raw_flags),
+                                                           mr -> nothing, (jd, s) -> nothing)
+        @test length(LLVM.CUSTOM_MU_ROOTS) == nroots
+        lctm = LocalLazyCallThroughManager(lljit.triple, lljit.execution_session)
+        ism = LocalIndirectStubsManager(lljit.triple)
+        try
+            # lazy reexports need to be callable
+            @test_throws ArgumentError lazy_reexports(lctm, ism, lljit.main_dylib,
+                                                      [sym => (sym, SymbolFlags())])
+        finally
+            dispose(lctm)
+            dispose(ism)
+        end
+        release(sym)
+    end
 end
 
 @testset "Lookup in JITDylib" begin
@@ -511,13 +654,13 @@ end
             lookup(lljit, "failing")
         end
         try
-            check_callback_error(il)
+            check_callback_error!(il)
             @test false
         catch err
             @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
         end
-        @test check_callback_error(il) === nothing
+        @test check_callback_error!(il) === nothing
         @test length(lljit.roots) == 2
     end
 end
@@ -539,7 +682,7 @@ end
             verify(mod)
 
             @dispose tm=LLVM.JITTargetMachine() begin
-                emit(tm, mod, LLVM.API.LLVMObjectFile)
+                LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
         add!(lljit, jd, MemoryBuffer(obj))
@@ -575,22 +718,14 @@ end
             verify(mod)
 
             @dispose tm=LLVM.JITTargetMachine() begin
-                emit(tm, mod, LLVM.API.LLVMObjectFile)
+                LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
 
         data = Ref{Int32}(42)
         GC.@preserve data begin
-            address = LLVM.API.LLVMOrcJITTargetAddress(
-                reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
-            flags = LLVM.API.LLVMJITSymbolFlags(
-                LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-            name = mangle(lljit, "gv")
-            symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
-            gv = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
-
-            mu = absolute_symbols(Ref(gv))
-            define(jd, mu)
+            ptr = Base.unsafe_convert(Ptr{Int32}, data)
+            define!(jd, absolute_symbols(mangle(lljit, "gv") => ptr))
 
             add!(lljit, jd, MemoryBuffer(obj))
 
@@ -711,7 +846,7 @@ end
             entry_sym = "foo_entry"
             mu = lazy_reexports(lctm, ism, jd,
                                      [mangle(lljit, entry_sym) => mangle(lljit, "foo")])
-            define(jd, mu)
+            define!(jd, mu)
 
             # 2. Lookup address of entry symbol
             addr = lookup(lljit, entry_sym)
@@ -754,7 +889,7 @@ end
                 end
 
                 il = lljit.ir_transform_layer
-                emit(il, mr, ts_mod)
+                emit!(il, mr, ts_mod)
 
                 return nothing
             end
@@ -762,9 +897,9 @@ end
             function discard(jd, sym)
             end
 
-            symbols = [mangle(lljit, "foo") => symbol_flags(callable=true)]
+            symbols = [mangle(lljit, "foo") => SymbolFlags(callable=true)]
             mu = CustomMaterializationUnit("fooMU", symbols, materialize, discard)
-            define(jd, mu)
+            define!(jd, mu)
 
             @test ccall(pointer(addr), Int32, (Int32, Int32), 1, 2) == 3
             foo = mangle(lljit, "foo")

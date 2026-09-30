@@ -37,14 +37,14 @@ end
 
         ret!(builder)
 
-        asm = String(convert(Vector{UInt8}, emit(tm, mod, LLVM.API.LLVMAssemblyFile)))
+        asm = String(convert(Vector{UInt8}, LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile)))
 
         mktemp() do path, io
-            emit(tm, mod, LLVM.API.LLVMAssemblyFile, path)
+            LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile, path)
             @test asm == read(path, String)
         end
 
-        @test_throws LLVMException emit(tm, mod, LLVM.API.LLVMAssemblyFile, "/")
+        @test_throws LLVMException LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile, "/")
     end
 
     dispose(LLVM.DataLayout(tm))

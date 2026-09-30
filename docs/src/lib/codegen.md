@@ -20,7 +20,7 @@ LLVM.host_cpu_name
 LLVM.host_cpu_features
 LLVM.normalize(::String)
 LLVM.asm_verbosity!
-emit
+LLVM.emit
 LLVM.JITTargetMachine
 ```
 

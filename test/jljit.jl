@@ -104,7 +104,7 @@ end
             for (sym, flags) in lookup_set
                 sym == mangled || continue
                 retain(sym)
-                define(jd, absolute_symbols(sym => pointer_from_objref(data)))
+                define!(jd, absolute_symbols(sym => pointer_from_objref(data)))
             end
         end
         add!(jd, dg)
@@ -134,7 +134,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 verify(mod)
 
                 @dispose tm=LLVM.JITTargetMachine() begin
-                    emit(tm, mod, LLVM.API.LLVMObjectFile)
+                    LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
                 end
             end
             add!(jljit, jd, MemoryBuffer(obj))
@@ -165,22 +165,14 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 verify(mod)
 
                 @dispose tm=LLVM.JITTargetMachine() begin
-                    emit(tm, mod, LLVM.API.LLVMObjectFile)
+                    LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
                 end
             end
 
             data = Ref{Int32}(42)
             GC.@preserve data begin
-                address = LLVM.API.LLVMOrcJITTargetAddress(
-                    reinterpret(UInt, Base.unsafe_convert(Ptr{Int32}, data)))
-                flags = LLVM.API.LLVMJITSymbolFlags(
-                    LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-                name = mangle(jljit, "gv")
-                symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
-                gv = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
-
-                mu = absolute_symbols(Ref(gv))
-                define(jd, mu)
+                ptr = Base.unsafe_convert(Ptr{Int32}, data)
+                define!(jd, absolute_symbols(mangle(jljit, "gv") => ptr))
 
                 add!(jljit, jd, MemoryBuffer(obj))
 
@@ -207,24 +199,15 @@ end
         try
             # 1. define entry symbol
             entry_sym = "foo_entry"
-            flags = LLVM.API.LLVMJITSymbolFlags(
-                LLVM.API.LLVMJITSymbolGenericFlagsCallable |
-                LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
-            entry = LLVM.API.LLVMOrcCSymbolAliasMapPair(
-                mangle(jljit, entry_sym),
-                LLVM.API.LLVMOrcCSymbolAliasMapEntry(
-                    mangle(jljit, "foo"), flags))
-
-            mu = lazy_reexports(lctm, ism, jd, Ref(entry))
-            define(jd, mu)
+            mu = lazy_reexports(lctm, ism, jd,
+                                [mangle(jljit, entry_sym) => mangle(jljit, "foo")])
+            define!(jd, mu)
 
             # 2. Lookup address of entry symbol
             addr = lookup(jljit, jd, entry_sym)
             @test pointer(addr) != C_NULL
 
             # 3. add MU that will call back into the compiler
-            sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(jljit, "foo"), flags)
-
             function materialize(mr)
                 syms = mr.requested_symbols
                 @assert length(syms) == 1
@@ -259,7 +242,7 @@ end
                 end
 
                 il = jljit.ir_compile_layer
-                emit(il, mr, ts_mod)
+                emit!(il, mr, ts_mod)
 
                 return nothing
             end
@@ -267,8 +250,9 @@ end
             function discard(jd, sym)
             end
 
-            mu = CustomMaterializationUnit("fooMU", Ref(sym), materialize, discard)
-            define(jd, mu)
+            symbols = [mangle(jljit, "foo") => SymbolFlags(callable=true)]
+            mu = CustomMaterializationUnit("fooMU", symbols, materialize, discard)
+            define!(jd, mu)
 
             @test ccall(pointer(addr), Int32, (Int32, Int32), 1, 2) == 3
         finally

@@ -3,13 +3,21 @@
 
 Create a builder to customize the construction of an [`LLJIT`](@ref), e.g., using
 [`target_machine_builder!`](@ref) or [`linking_layer_creator!`](@ref). The builder is consumed
-when constructing the JIT; otherwise, it needs to be disposed of using `dispose`.
+when constructing the JIT; otherwise, it needs to be disposed of using `dispose`, which
+does nothing once it has been consumed.
 """
-@checked struct LLJITBuilder
+mutable struct LLJITBuilder
     ref::API.LLVMOrcLLJITBuilderRef
     roots::Vector{Any}
+    owned::Bool
+
+    function LLJITBuilder(ref::API.LLVMOrcLLJITBuilderRef, roots::Vector{Any})
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, roots, true))
+    end
 end
-Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) = mark_use(builder).ref
+Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) =
+    check_owned(builder).ref
 
 """
     LLJIT
@@ -46,7 +54,7 @@ The main [`JITDylib`](@ref) of the JIT, which `lookup(lljit, name)` searches.
 
 The [`IRTransformLayer`](@ref) of the JIT, which transforms IR modules before they are
 compiled. Modules added with `add!` pass through this layer, as can modules emitted by a
-materialization unit with [`emit`](@ref). By default, it does not change modules; use
+materialization unit with [`emit!`](@ref). By default, it does not change modules; use
 [`transform!`](@ref) to install a transformation.
 """
 @checked mutable struct LLJIT
@@ -58,22 +66,19 @@ LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, Any[])
 
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
 
-function LLJITBuilder()
-    ref = API.LLVMOrcCreateLLJITBuilder()
-    mark_alloc(LLJITBuilder(ref, []))
-end
+LLJITBuilder() = LLJITBuilder(API.LLVMOrcCreateLLJITBuilder(), Any[])
 
-function dispose(builder::LLJITBuilder)
-    mark_dispose(API.LLVMOrcDisposeLLJITBuilder, builder)
-end
+dispose(builder::LLJITBuilder) = dispose_owned(API.LLVMOrcDisposeLLJITBuilder, builder)
 
 """
     target_machine_builder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
 
-Use `tmb` to create the JIT's target machines, taking ownership of it.
+Use `tmb` to create the JIT's target machines, consuming it.
 """
 function target_machine_builder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
-    API.LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder, tmb)
+    check_owned(builder)
+    API.LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder, consume!(tmb))
+    return
 end
 
 """
@@ -98,9 +103,8 @@ Create an LLJIT as configured by `builder`, taking ownership of the builder.
 """
 function LLJIT(builder::LLJITBuilder)
     ref = Ref{API.LLVMOrcLLJITRef}()
-    err = API.LLVMOrcCreateLLJIT(ref, builder)
-    # LLVMOrcCreateLLJIT consumes the builder on both success and failure.
-    mark_dispose(builder)
+    # LLVMOrcCreateLLJIT consumes the builder on both success and failure
+    err = API.LLVMOrcCreateLLJIT(ref, consume!(builder))
     @check err
 
     lljit = mark_alloc(LLJIT(ref[]))
@@ -131,13 +135,13 @@ ownership of it. The do-block form disposes of the JIT after calling `f(lljit)`.
 """
 function LLJIT(; tm::Union{Nothing, TargetMachine} = nothing)
     builder = LLJITBuilder()
-    if tm === nothing
-        tmb = TargetMachineBuilder()
-    else
-        tmb = TargetMachineBuilder(tm)
+    try
+        tmb = tm === nothing ? TargetMachineBuilder() : TargetMachineBuilder(tm)
+        target_machine_builder!(builder, tmb)
+        LLJIT(builder)
+    finally
+        dispose(builder)    # does nothing once the JIT has consumed the builder
     end
-    target_machine_builder!(builder, tmb)
-    LLJIT(builder)
 end
 
 function LLJIT(f::Core.Function, args...; kwargs...)

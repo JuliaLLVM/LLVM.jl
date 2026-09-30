@@ -309,10 +309,11 @@ it atomic. `cmpxchg` instructions have separate `success_ordering` and `failure_
 properties instead, which can be combined using [`merged_ordering`](@ref).
 
     inst.syncscope
-    inst.syncscope = scope::SyncScope
+    inst.syncscope = scope::Union{SyncScope,AbstractString,Symbol}
 
 The synchronization scope of an atomic load, store, fence, `atomicrmw` or `cmpxchg`
-instruction.
+instruction, which belongs to the context of the instruction. A scope can be assigned by
+name (e.g., `inst.syncscope = "agent"`), which is looked up in the instruction's context.
 
     rmw.binop
 
@@ -523,41 +524,52 @@ end
 """
     SyncScope
 
-A synchronization scope for atomic operations.
+A synchronization scope for atomic operations. Synchronization scopes belong to a context,
+and can only be used with instructions of that context.
 
 # Properties
 
     scope.name
 
-The name of the synchronization scope, as known by the current context.
+The name of the synchronization scope.
+
+    scope.context
+
+The context that the synchronization scope belongs to. The scope doesn't keep it alive,
+so it can only be used for as long as the context is.
 """
 struct SyncScope
     id::Cuint
+    context_ref::API.LLVMContextRef     # borrowed
+
+    # scope IDs are specific to a context (except for the first ones, which are fixed)
+    SyncScope(id::Integer, ctx::Context) = new(id, ctx.ref)
 end
 @properties SyncScope
 
 """
-    SyncScope(name::String)
+    SyncScope(name::AbstractString; context=context())
 
-Create a synchronization scope with the given name. This can be a well-known scope such as
-`"singlethread"` or `"system"`, or a target-specific scope.
+Get the synchronization scope with the given name in `context`, by default the active
+context. This can be a well-known scope such as `"singlethread"` or `"system"`, or a
+target-specific scope, e.g., `"agent"`.
 """
-function SyncScope(name::String)
+function SyncScope(name::AbstractString; context::Context=LLVM.context())
     # the default, system syncscope gets encoded as an empty string
-    if name == "system"
-        name = ""
-    end
-    SyncScope(API.LLVMGetSyncScopeID(context(), name, ncodeunits(name)))
+    str = name == "system" ? "" : String(name)
+    SyncScope(API.LLVMGetSyncScopeID(context, str, ncodeunits(str)), context)
 end
 
-Base.convert(::Type{Cuint}, scope::SyncScope) = scope.id
+context(scope::SyncScope) = Context(scope.context_ref)
 
-# scope IDs are specific to a context, but the first ones are fixed
+@property SyncScope context
+
+# the first scope IDs are fixed
 function _name(scope::SyncScope)
     scope.id == 0 && return "singlethread"
     scope.id == 1 && return "system"
     len = Ref{Csize_t}()
-    ptr = convert(Ptr{UInt8}, API.LLVMExtraGetSyncScopeName(context(), scope, len))
+    ptr = convert(Ptr{UInt8}, API.LLVMExtraGetSyncScopeName(context(scope), scope.id, len))
     ptr == C_NULL && return nothing
     return unsafe_string(ptr, len[])
 end
@@ -571,8 +583,7 @@ end
 @property SyncScope name
 
 function Base.show(io::IO, scope::SyncScope)
-    str = if scope.id <= 1 ||
-             (context(; throw_error=false) !== nothing && isdefined(API, :libLLVMExtra))
+    str = if scope.id <= 1 || isdefined(API, :libLLVMExtra)
         _name(scope)
     end
     if str === nothing
@@ -582,15 +593,24 @@ function Base.show(io::IO, scope::SyncScope)
     end
 end
 
+function check_context(scope::SyncScope, ctx::Context)
+    scope.context_ref == ctx.ref ||
+        throw(ArgumentError("$scope belongs to another context; use `SyncScope(scope.name; context)` to get the scope with the same name in another context"))
+    return scope
+end
+
 function syncscope(inst::AtomicInst)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
-    SyncScope(API.LLVMGetAtomicSyncScopeID(inst))
+    SyncScope(API.LLVMGetAtomicSyncScopeID(inst), context(inst))
 end
 
 function syncscope!(inst::AtomicInst, scope::SyncScope)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
-    API.LLVMSetAtomicSyncScopeID(inst, scope)
+    check_context(scope, context(inst))
+    API.LLVMSetAtomicSyncScopeID(inst, scope.id)
 end
+syncscope!(inst::AtomicInst, name::Union{AbstractString,Symbol}) =
+    syncscope!(inst, SyncScope(String(name); context=context(inst)))
 
 @property AtomicInst syncscope syncscope!
 

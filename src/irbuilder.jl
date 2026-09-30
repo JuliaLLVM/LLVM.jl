@@ -477,10 +477,13 @@ const Acquire = API.LLVMAtomicOrderingAcquire
 const Release = API.LLVMAtomicOrderingRelease
 const AcquireRelease = API.LLVMAtomicOrderingAcquireRelease
 
-# `nothing` is the default, system scope
-atomic_scope(::Nothing) = SyncScope(1)
-atomic_scope(scope::SyncScope) = scope
-atomic_scope(name::Union{AbstractString,Symbol}) = SyncScope(String(name))
+# the synchronization scope for an instruction created by `builder`, validated before
+# creating the instruction. `nothing` is the default, system scope.
+atomic_scope(builder::IRBuilder, ::Nothing) = SyncScope(1, context(builder))
+atomic_scope(builder::IRBuilder, scope::SyncScope) =
+    check_context(scope, context(builder))
+atomic_scope(builder::IRBuilder, name::Union{AbstractString,Symbol}) =
+    SyncScope(String(name); context=context(builder))
 
 # atomic accesses must be of a byte-sized power-of-two size. only integers are checked, as
 # the size of other types can depend on the data layout.
@@ -493,11 +496,12 @@ function check_atomic_type(@nospecialize(T::LLVMType), what::String)
     end
 end
 
+# `scope` is `nothing` or a validated synchronization scope
 function set_access_flags!(inst::Instruction, ordering, scope, align, volatile)
     align === nothing || alignment!(inst, align)
     if ordering != NotAtomic
         ordering!(inst, ordering)
-        scope === nothing || syncscope!(inst, atomic_scope(scope))
+        scope === nothing || syncscope!(inst, scope)
     end
     volatile && volatile!(inst, true)
     return inst
@@ -509,18 +513,19 @@ end
           volatile=false)
 
 Load a value of type `T` from `ptr`. The load is atomic if an `ordering` other than
-`not_atomic` is given, in the synchronization `scope` (a [`SyncScope`](@ref), its name, or
-`nothing` for the default system scope). By default, the load is aligned to the ABI
-alignment of `T`.
+`not_atomic` is given, in the synchronization `scope` (a [`SyncScope`](@ref) of the
+builder's context, the name of one, or `nothing` for the default system scope). By
+default, the load is aligned to the ABI alignment of `T`.
 """
 function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::String="";
                ordering::API.LLVMAtomicOrdering=NotAtomic, scope=nothing, align=nothing,
                volatile::Bool=false)
+    scope = scope === nothing ? nothing : atomic_scope(builder, scope)
     if ordering != NotAtomic
         (ordering == Release || ordering == AcquireRelease) &&
             throw(ArgumentError("Atomic loads cannot have release semantics, got $ordering"))
         check_atomic_type(Ty, "An atomic load")
-    elseif scope !== nothing && atomic_scope(scope) != SyncScope(1)
+    elseif scope !== nothing && scope.id != 1
         throw(ArgumentError("Non-atomic loads cannot have a synchronization scope"))
     end
     check_alignment(align)
@@ -538,11 +543,12 @@ Store `val` to `ptr`. See [`load!`](@ref) for the meaning of the keyword argumen
 function store!(builder::IRBuilder, Val::Value, Ptr::Value;
                 ordering::API.LLVMAtomicOrdering=NotAtomic, scope=nothing, align=nothing,
                 volatile::Bool=false)
+    scope = scope === nothing ? nothing : atomic_scope(builder, scope)
     if ordering != NotAtomic
         (ordering == Acquire || ordering == AcquireRelease) &&
             throw(ArgumentError("Atomic stores cannot have acquire semantics, got $ordering"))
         check_atomic_type(value_type(Val), "An atomic store")
-    elseif scope !== nothing && atomic_scope(scope) != SyncScope(1)
+    elseif scope !== nothing && scope.id != 1
         throw(ArgumentError("Non-atomic stores cannot have a synchronization scope"))
     end
     check_alignment(align)
@@ -563,14 +569,15 @@ function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering,
         Instruction(API.LLVMBuildFence(builder, ordering, singleThread, Name))
     else
         singleThread && throw(ArgumentError("Cannot specify both singleThread and a scope"))
-        fence!(builder, ordering, atomic_scope(scope), Name)
+        fence!(builder, ordering, atomic_scope(builder, scope), Name)
     end
 end
 
 function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope::SyncScope,
                 Name::String="")
     check_fence_ordering(ordering)
-    Instruction(API.LLVMBuildFenceSyncScope(builder, ordering, syncscope, Name))
+    check_context(syncscope, context(builder))
+    Instruction(API.LLVMBuildFenceSyncScope(builder, ordering, syncscope.id, Name))
 end
 
 check_available(op::API.LLVMAtomicRMWBinOp) =
@@ -582,7 +589,8 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     check_available(op)
     # only LLVMExtra's builder knows about operations that the C API doesn't define yet
     if version() < v"19" && Integer(op) > Integer(API.LLVMAtomicRMWBinOpFMin)
-        scope = SyncScope(singleThread ? 0 : 1)     # SyncScope::SingleThread or ::System
+        # SyncScope::SingleThread or ::System
+        scope = SyncScope(singleThread ? 0 : 1, context(builder))
         return atomic_rmw!(builder, op, Ptr, Val, ordering, scope)
     end
     Instruction(API.LLVMBuildAtomicRMW(builder, op, Ptr, Val, ordering, singleThread))
@@ -591,14 +599,17 @@ end
 function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                      ordering::API.LLVMAtomicOrdering, syncscope::SyncScope)
     check_available(op)
+    check_context(syncscope, context(builder))
     @static if v"16" <= version() < v"19"
         # operations that this C API doesn't define have to be passed as integers
         if Integer(op) > Integer(API.LLVMAtomicRMWBinOpFMin)
             return Instruction(API.LLVMExtraBuildAtomicRMWSyncScope(builder, Integer(op), Ptr,
-                                                                   Val, ordering, syncscope))
+                                                                   Val, ordering,
+                                                                   syncscope.id))
         end
     end
-    Instruction(API.LLVMBuildAtomicRMWSyncScope(builder, op, Ptr, Val, ordering, syncscope))
+    Instruction(API.LLVMBuildAtomicRMWSyncScope(builder, op, Ptr, Val, ordering,
+                                                syncscope.id))
 end
 
 """
@@ -634,7 +645,7 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     inst = if scope === nothing
         atomic_rmw!(builder, op, Ptr, Val, ordering, false)
     else
-        atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(scope))
+        atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(builder, scope))
     end
     align === nothing || alignment!(inst, align)
     volatile && volatile!(inst, true)
@@ -672,7 +683,8 @@ function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
     inst = if scope === nothing
         atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure, false)
     else
-        atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure, atomic_scope(scope))
+        atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure,
+                        atomic_scope(builder, scope))
     end
     align === nothing || alignment!(inst, align)
     volatile && volatile!(inst, true)
@@ -686,11 +698,13 @@ atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
     Instruction(API.LLVMBuildAtomicCmpXchg(builder, Ptr, Cmp, New, SuccessOrdering,
                                            FailureOrdering, SingleThread))
 
-atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
-                SuccessOrdering::API.LLVMAtomicOrdering,
-                FailureOrdering::API.LLVMAtomicOrdering, syncscope::SyncScope) =
+function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
+                         SuccessOrdering::API.LLVMAtomicOrdering,
+                         FailureOrdering::API.LLVMAtomicOrdering, syncscope::SyncScope)
+    check_context(syncscope, context(builder))
     Instruction(API.LLVMBuildAtomicCmpXchgSyncScope(builder, Ptr, Cmp, New, SuccessOrdering,
-                                                    FailureOrdering, syncscope))
+                                                    FailureOrdering, syncscope.id))
+end
 
 function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
               Indices::AbstractVector{<:Value}, Name::String="")

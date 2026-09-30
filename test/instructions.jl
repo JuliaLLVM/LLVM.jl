@@ -290,9 +290,11 @@
     @test sprint(show, atomic_rmw_inst.syncscope) == "SyncScope(\"agent\")"
     for str in ("singlethread", "system", "agent")
         @test SyncScope(str).name == str
+        @test SyncScope(SubString(str)) == SyncScope(str)
     end
-    @test_throws ArgumentError SyncScope(1000).name
-    @test sprint(show, SyncScope(1000)) == "SyncScope(target-specific scope 1000)"
+    @test SyncScope("agent").context == ctx
+    @test_throws ArgumentError LLVM.SyncScope(1000, ctx).name
+    @test sprint(show, LLVM.SyncScope(1000, ctx)) == "SyncScope(target-specific scope 1000)"
 
     atomic_cmpxchg_inst = atomic_cmpxchg!(builder, ptr1, int1, int2,
         LLVM.API.LLVMAtomicOrderingSequentiallyConsistent, LLVM.API.LLVMAtomicOrderingAcquire, single_thread)
@@ -546,6 +548,99 @@
     position!(builder)
 end
 
+end
+
+
+@testset "synchronization scopes" begin
+    ir = """
+        define void @f(ptr %p) {
+          %x = cmpxchg ptr %p, i32 0, i32 1 syncscope("agent") monotonic monotonic
+          ret void
+        }"""
+    @dispose ctx=Context() begin
+        typed_ir = supports_typed_pointers(ctx) ? replace(ir, "ptr" => "i32*") : ir
+        mod = parse(LLVM.Module, typed_ir)
+        inst = first(first(mod.functions["f"].blocks).instructions)
+        scope = inst.syncscope
+        @test scope.name == "agent"
+        @test scope.context == ctx
+        @test scope == SyncScope("agent")
+
+        @dispose ctx2=Context() begin
+            # the scope is resolved in the instruction's context, not the active one
+            SyncScope("workgroup")
+            @test inst.syncscope.name == "agent"
+            @test sprint(show, inst.syncscope) == "SyncScope(\"agent\")"
+            @test inst.syncscope == scope
+
+            # scopes with the same name in different contexts are different
+            other = SyncScope("agent")
+            @test other.context == ctx2
+            @test other != scope
+            @test SyncScope("agent"; context=ctx) == scope
+
+            # and can't be used with instructions of another context, not even the
+            # well-known ones
+            for name in ("agent", "system", "singlethread")
+                @test_throws "another context" inst.syncscope = SyncScope(name)
+            end
+            @test inst.syncscope == scope
+            inst.syncscope = SyncScope("workgroup"; context=ctx)
+            @test inst.syncscope.name == "workgroup"
+            # names are looked up in the instruction's context
+            inst.syncscope = "agent"
+            @test inst.syncscope == scope
+            inst.syncscope = :workgroup
+            @test inst.syncscope == SyncScope("workgroup"; context=ctx)
+            inst.syncscope = "agent"
+
+            # or with a builder of another context
+            foreign_scopes = (other, SyncScope("system"))
+            context!(ctx) do
+            @dispose builder=IRBuilder() begin
+                fn = mod.functions["f"]
+                bb = first(fn.blocks)
+                ptr = fn.parameters[1]
+                position!(builder, LLVM.before(inst))
+                n = count(Returns(true), bb.instructions)
+                MO = LLVM.API.LLVMAtomicOrderingMonotonic
+                i32 = LLVM.Int32Type()
+                val = ConstantInt(i32, 0)
+                for scope in foreign_scopes
+                    @test_throws "another context" load!(builder, i32, ptr;
+                                                         ordering=MO, scope)
+                    @test_throws "another context" store!(builder, val, ptr;
+                                                          ordering=MO, scope)
+                    @test_throws "another context" fence!(builder,
+                        LLVM.API.LLVMAtomicOrderingAcquire, scope)
+                    @test_throws "another context" fence!(builder,
+                        LLVM.API.LLVMAtomicOrderingAcquire; scope)
+                    @test_throws "another context" atomic_rmw!(builder,
+                        LLVM.API.LLVMAtomicRMWBinOpAdd, ptr, val, MO, scope)
+                    @test_throws "another context" atomic_rmw!(builder,
+                        LLVM.API.LLVMAtomicRMWBinOpAdd, ptr, val, MO; scope)
+                    @test_throws "another context" atomic_cmpxchg!(builder, ptr, val, val,
+                                                                   MO, MO, scope)
+                    @test_throws "another context" atomic_cmpxchg!(builder, ptr, val, val,
+                                                                   MO; scope)
+                    # also for non-atomic accesses
+                    @test_throws "another context" load!(builder, i32, ptr; scope)
+                end
+                # nothing was emitted
+                @test count(Returns(true), bb.instructions) == n
+
+                # names are resolved in the builder's context
+                ld = load!(builder, i32, ptr; ordering=MO, scope="agent")
+                @test ld.syncscope == scope
+                ld = load!(builder, i32, ptr; ordering=MO, scope=:agent)
+                @test ld.syncscope == scope
+                ld = load!(builder, i32, ptr; scope="system")
+                @test !isatomic(ld)
+            end
+            end
+        end
+        dispose(mod)
+    end
 end
 
 

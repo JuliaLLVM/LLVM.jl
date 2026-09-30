@@ -370,6 +370,11 @@
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
     @test !LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOp(1000))
 
+    # operations can be named on every version of LLVM
+    @test parse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
+    @test parse(LLVM.AtomicRMWBinOp.T, "fminimumnum") == LLVM.API.LLVMAtomicRMWBinOpFMinimumNum
+    @test_throws ArgumentError parse(LLVM.AtomicRMWBinOp.T, "fmaximumnumber")
+
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"
 

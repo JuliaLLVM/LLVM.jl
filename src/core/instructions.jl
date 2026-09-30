@@ -422,7 +422,9 @@ const RMW_BINOP_NAMES = Dict(
     "usub_cond" => API.LLVMAtomicRMWBinOpUSubCond,
     "usub_sat" => API.LLVMAtomicRMWBinOpUSubSat,
     "fmaximum" => API.LLVMAtomicRMWBinOpFMaximum,
-    "fminimum" => API.LLVMAtomicRMWBinOpFMinimum)
+    "fminimum" => API.LLVMAtomicRMWBinOpFMinimum,
+    "fmaximumnum" => API.LLVMAtomicRMWBinOpFMaximumNum,
+    "fminimumnum" => API.LLVMAtomicRMWBinOpFMinimumNum)
 
 """
     parse(LLVM.AtomicRMWBinOp.T, name::AbstractString)
@@ -440,7 +442,8 @@ end
 is_fp_rmw(op::API.LLVMAtomicRMWBinOp) =
     op in (API.LLVMAtomicRMWBinOpFAdd, API.LLVMAtomicRMWBinOpFSub,
            API.LLVMAtomicRMWBinOpFMax, API.LLVMAtomicRMWBinOpFMin,
-           API.LLVMAtomicRMWBinOpFMaximum, API.LLVMAtomicRMWBinOpFMinimum)
+           API.LLVMAtomicRMWBinOpFMaximum, API.LLVMAtomicRMWBinOpFMinimum,
+           API.LLVMAtomicRMWBinOpFMaximumNum, API.LLVMAtomicRMWBinOpFMinimumNum)
 
 # the lattice of orderings, from llvm/Support/AtomicOrdering.h
 const ORDERING_LATTICE = let

@@ -440,6 +440,30 @@ function Base.parse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString)
     return op
 end
 
+@public irname
+
+const RMW_BINOP_IRNAMES = Dict(op => name for (name, op) in RMW_BINOP_NAMES)
+const ORDERING_IRNAMES = Dict(
+    API.LLVMAtomicOrderingNotAtomic => "not_atomic",
+    API.LLVMAtomicOrderingUnordered => "unordered",
+    API.LLVMAtomicOrderingMonotonic => "monotonic",
+    API.LLVMAtomicOrderingAcquire => "acquire",
+    API.LLVMAtomicOrderingRelease => "release",
+    API.LLVMAtomicOrderingAcquireRelease => "acq_rel",
+    API.LLVMAtomicOrderingSequentiallyConsistent => "seq_cst")
+
+"""
+    LLVM.irname(op::LLVM.AtomicRMWBinOp.T)
+    LLVM.irname(ordering::LLVM.AtomicOrdering.T)
+
+Get the name of an `atomicrmw` operation or an atomic ordering as used in LLVM IR, e.g.,
+`"uinc_wrap"` or `"acq_rel"`. This is the inverse of `parse`, and works for every
+operation, whether or not the version of LLVM in use supports it (see
+[`LLVM.isavailable`](@ref)).
+"""
+irname(op::API.LLVMAtomicRMWBinOp) = RMW_BINOP_IRNAMES[op]
+irname(ordering::API.LLVMAtomicOrdering) = ORDERING_IRNAMES[ordering]
+
 is_fp_rmw(op::API.LLVMAtomicRMWBinOp) =
     op in (API.LLVMAtomicRMWBinOpFAdd, API.LLVMAtomicRMWBinOpFSub,
            API.LLVMAtomicRMWBinOpFMax, API.LLVMAtomicRMWBinOpFMin,
@@ -675,6 +699,12 @@ The pointer operand of a memory access, i.e., the address of the memory that it 
 
 The value operand of a `store` or `atomicrmw` instruction, i.e., the value that is stored
 or combined with the value in memory.
+
+    cmpxchg.compare_operand
+    cmpxchg.new_value_operand
+
+The operands of a `cmpxchg` instruction: the value that the memory is compared with, and
+the value that is stored if they are equal.
 
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
@@ -1640,6 +1670,12 @@ value_operand(inst::StoreInst) = Value(API.LLVMGetOperand(inst, 0))
 value_operand(inst::AtomicRMWInst) = Value(API.LLVMGetOperand(inst, 1))
 
 @property Union{StoreInst,AtomicRMWInst} value_operand
+
+compare_operand(inst::AtomicCmpXchgInst) = Value(API.LLVMGetOperand(inst, 1))
+new_value_operand(inst::AtomicCmpXchgInst) = Value(API.LLVMGetOperand(inst, 2))
+
+@property AtomicCmpXchgInst compare_operand
+@property AtomicCmpXchgInst new_value_operand
 
 allocated_type(inst::AllocaInst) = LLVMType(API.LLVMGetAllocatedType(inst))
 

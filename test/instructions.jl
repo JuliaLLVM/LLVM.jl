@@ -309,6 +309,10 @@
     @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingAcquire
     atomic_cmpxchg_inst.failure_ordering = LLVM.API.LLVMAtomicOrderingMonotonic
     @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingMonotonic
+    @test atomic_cmpxchg_inst.pointer_operand == ptr1
+    @test atomic_cmpxchg_inst.compare_operand == int1
+    @test atomic_cmpxchg_inst.new_value_operand == int2
+    @test_throws "read-only" atomic_cmpxchg_inst.compare_operand = int2
     @test !atomic_cmpxchg_inst.weak
     atomic_cmpxchg_inst.weak = true
     @test atomic_cmpxchg_inst.weak
@@ -376,6 +380,21 @@
     @test parse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
     @test parse(LLVM.AtomicRMWBinOp.T, "fminimumnum") == LLVM.API.LLVMAtomicRMWBinOpFMinimumNum
     @test_throws ArgumentError parse(LLVM.AtomicRMWBinOp.T, "fmaximumnumber")
+    for name in ("xchg", "add", "sub", "and", "nand", "or", "xor", "max", "min", "umax",
+                 "umin", "fadd", "fsub", "fmax", "fmin", "uinc_wrap", "udec_wrap",
+                 "usub_cond", "usub_sat", "fmaximum", "fminimum", "fmaximumnum",
+                 "fminimumnum")
+        @test LLVM.irname(parse(LLVM.AtomicRMWBinOp.T, name)) == name
+    end
+    @test LLVM.irname(LLVM.AtomicRMWBinOp.UIncWrap) == "uinc_wrap"
+    for name in ("not_atomic", "unordered", "monotonic", "acquire", "release", "acq_rel",
+                 "seq_cst")
+        @test LLVM.irname(parse(LLVM.AtomicOrdering.T, name)) == name
+    end
+    @test LLVM.irname(parse(LLVM.AtomicOrdering.T, "acquire_release")) == "acq_rel"
+    # the IR name is what LLVM prints
+    @test occursin(" $(LLVM.irname(atomic_rmw_inst.binop)) ", string(atomic_rmw_inst))
+    @test occursin(" $(LLVM.irname(atomic_rmw_inst.ordering))", string(atomic_rmw_inst))
 
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"

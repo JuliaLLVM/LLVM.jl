@@ -59,6 +59,39 @@ end
     @test !isghosttype(NonGhostType2)
 end
 
+# isghosttype(::Type) implements the rule of Julia's code generator, so compare it to the
+# type that the code generator produces
+@eval struct GhostWrapper
+    x::Nothing
+    y::GhostType
+end
+@eval struct GhostParametric{T}
+    x::T
+end
+let captured = 1
+    global ghost_types = [
+        Nothing, Missing, Tuple{}, NamedTuple{()}, GhostType, GhostWrapper,
+        NTuple{3,Nothing}, Tuple{Nothing,GhostType}, Some{Nothing}, GhostParametric{Nothing},
+        Val{1}, Val{:x}, typeof(sin), typeof(() -> 1), Base.Fix1{typeof(+),Nothing},
+        Union{}, Core.TypeofBottom, Type{Union{}},
+        Int, Bool, Float32, Ptr{Int}, Ptr{Nothing}, Complex{Int}, Tuple{Int,Nothing},
+        GhostParametric{Int}, Some{Int}, typeof(() -> captured), NonGhostType1,
+        NonGhostType2, Base.RefValue{Nothing}, Symbol, String, Vector{Int}, Vector,
+        Any, Type, Type{Int}, Type{Nothing}, DataType, UnionAll, Union{Int,Nothing},
+        Union{Nothing,Missing}, Union{Val{1},Val{2}}, Integer, Tuple, Tuple{Vararg{Int}},
+    ]
+end
+for T in ghost_types
+    codegen = @dispose ctx=Context() begin
+        isghosttype(convert(LLVMType, T; allow_boxed=true))
+    end
+    @test (T, isghosttype(T)) == (T, codegen)
+end
+
+# the check can be constant-folded
+@test only(Base.return_types(() -> Val(isghosttype(Nothing)))) === Val{true}
+@test only(Base.return_types(() -> Val(isghosttype(Int)))) === Val{false}
+
 end
 
 @testset "llvmgenerated" begin

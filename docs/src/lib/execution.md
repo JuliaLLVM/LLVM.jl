@@ -17,7 +17,7 @@ convert(::Type{T}, val::LLVM.GenericValue) where {T <: Integer}
 ## Floating Point
 
 ```@docs
-LLVM.GenericValue(::Union{LLVM.LLVMFloat,LLVM.LLVMDouble}, ::AbstractFloat)
+LLVM.GenericValue(::Union{LLVM.FloatType,LLVM.DoubleType}, ::AbstractFloat)
 LLVM.to_float
 ```
 

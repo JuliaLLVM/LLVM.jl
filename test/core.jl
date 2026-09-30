@@ -103,6 +103,28 @@ end
 end
 
 # floating-point
+@dispose ctx=Context() begin
+    for (T, str) in [(LLVM.HalfType, "half"), (LLVM.BFloatType, "bfloat"),
+                     (LLVM.FloatType, "float"), (LLVM.DoubleType, "double"),
+                     (LLVM.FP128Type, "fp128"), (LLVM.X86FP80Type, "x86_fp80"),
+                     (LLVM.PPCFP128Type, "ppc_fp128")]
+        typ = T()
+        @test typ isa T
+        @test typ isa LLVM.FloatingPointType
+        @test isconcretetype(T)
+        @test context(typ) == ctx
+        @test string(typ) == str
+        # type references are wrapped in the concrete type of their kind
+        @test LLVMType(Base.unsafe_convert(LLVM.API.LLVMTypeRef, typ)) isa T
+        @test endswith(sprint(show, typ), "$(nameof(T))($str)")
+    end
+    # dispatch on the kind of floating-point type, without comparing with a type that
+    # belongs to a specific context
+    kind(::LLVM.DoubleType) = :double
+    kind(::LLVM.FloatingPointType) = :other
+    @test kind(LLVM.DoubleType()) == :double
+    @test kind(LLVM.FloatType()) == :other
+end
 
 # function
 @dispose ctx=Context() begin

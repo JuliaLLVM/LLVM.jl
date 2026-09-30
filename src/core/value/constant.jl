@@ -288,13 +288,13 @@ Base.convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat} =
 
 # bit patterns
 
-fp_width(::LLVMHalf) = 16
-fp_width(::LLVMBFloat) = 16
-fp_width(::LLVMFloat) = 32
-fp_width(::LLVMDouble) = 64
-fp_width(::LLVMX86FP80) = 80
-fp_width(::LLVMFP128) = 128
-fp_width(::LLVMPPCFP128) = 128
+fp_width(::HalfType) = 16
+fp_width(::BFloatType) = 16
+fp_width(::FloatType) = 32
+fp_width(::DoubleType) = 64
+fp_width(::X86FP80Type) = 80
+fp_width(::FP128Type) = 128
+fp_width(::PPCFP128Type) = 128
 
 # the smallest unsigned integer that can hold a floating-point value of the given width
 fp_container(width::Int) =
@@ -385,11 +385,11 @@ function ConstantDataArray(typ::LLVMType, data::AbstractVector{T}) where {T <: U
     # the element types supported by ConstantDataSequential
     bits = if typ isa IntegerType && width(typ) in (8, 16, 32, 64)
         width(typ)
-    elseif typ isa Union{LLVMHalf, LLVMBFloat}
+    elseif typ isa Union{HalfType, BFloatType}
         16
-    elseif typ isa LLVMFloat
+    elseif typ isa FloatType
         32
-    elseif typ isa LLVMDouble
+    elseif typ isa DoubleType
         64
     else
         throw(ArgumentError("ConstantDataArray does not support elements of type $typ; use ConstantArray instead"))

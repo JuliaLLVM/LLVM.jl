@@ -861,11 +861,7 @@ function called_function(inst::CallBase)
 end
 
 function called_type(inst::CallBase)
-    @static if version() >= v"11"
-        LLVMType(API.LLVMGetCalledFunctionType(inst))
-    else
-        value_type(called_operand(inst))
-    end
+    LLVMType(API.LLVMGetCalledFunctionType(inst))
 end
 
 @property CallBase called_operand called_operand!

@@ -314,13 +314,11 @@ function JITDylib(es::ExecutionSession, name; bare=false)
     end
     JITDylib(ref)
 end
-if version() >= v"13"
 Base.string(jd::JITDylib) = unsafe_message(API.LLVMDumpJitDylibToString(jd))
 
 function Base.show(io::IO, ::MIME"text/plain", jd::JITDylib)
     output = string(jd)
     print(io, output)
-end
 end
 
 ## definition generators

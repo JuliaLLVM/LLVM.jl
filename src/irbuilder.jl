@@ -494,11 +494,7 @@ function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::String
         throw(ArgumentError("Non-atomic loads cannot have a synchronization scope"))
     end
     check_alignment(align)
-    inst = @static if version() >= v"11"
-        Instruction(API.LLVMBuildLoad2(builder, Ty, PointerVal, Name))
-    else
-        Instruction(API.LLVMBuildLoad(builder, PointerVal, Name))
-    end
+    inst = Instruction(API.LLVMBuildLoad2(builder, Ty, PointerVal, Name))
     set_access_flags!(inst, ordering, scope, align, volatile)
 end
 
@@ -668,28 +664,16 @@ atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
 
 function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value, Indices::Vector{<:Value},
               Name::String="")
-    @static if version() >= v"11"
-        Value(API.LLVMBuildGEP2(builder, Ty, Pointer, Indices, length(Indices), Name))
-    else
-        Value(API.LLVMBuildGEP(builder, Pointer, Indices, length(Indices), Name))
-    end
+    Value(API.LLVMBuildGEP2(builder, Ty, Pointer, Indices, length(Indices), Name))
 end
 
 function inbounds_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
                        Indices::Vector{<:Value}, Name::String="")
-    @static if version() >= v"11"
-        Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, Indices, length(Indices), Name))
-    else
-        Value(API.LLVMBuildInBoundsGEP(builder, Pointer, Indices, length(Indices), Name))
-    end
+    Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, Indices, length(Indices), Name))
 end
 
 function struct_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value, Idx, Name::String="")
-    @static if version() >= v"11"
-        Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, Idx, Name))
-    else
-        Value(API.LLVMBuildStructGEP(builder, Pointer, Idx, Name))
-    end
+    Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, Idx, Name))
 end
 
 # conversion operations
@@ -772,12 +756,7 @@ select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::String=""
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
                Args::AbstractVector{<:Value}=Value[], Name::String="")
-    @static if version() >= v"11"
-        Instruction(API.LLVMBuildCall2(builder, Ty, Fn, as_vector(Args), length(Args),
-                                       Name))
-    else
-        Instruction(API.LLVMBuildCall(builder, Fn, as_vector(Args), length(Args), Name))
-    end
+    Instruction(API.LLVMBuildCall2(builder, Ty, Fn, as_vector(Args), length(Args), Name))
 end
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},

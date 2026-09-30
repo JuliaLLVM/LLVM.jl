@@ -220,6 +220,30 @@ Debug information:
   `subroutine_type!` accepts `nothing` as a parameter type, for variadic subroutines, and
   rejects parameter types that aren't `DIType`s, which LLVM doesn't check.
 
+ORC:
+
+- Functions that consume their arguments have a `!`: `define!(jd, mu)` replaces
+  `define`, and `emit!(layer, mr, tsm)` replaces `emit` for the JIT's layers.
+  `check_callback_error!` replaces `check_callback_error`, since it clears the exception it
+  rethrows. `LLVM.ORC` no longer exports the target machine's `emit`, which needs to be
+  qualified (`LLVM.emit(tm, mod, filetype)`), like the rest of the target machine API.
+- Materialization units, definition generators, target machine builders and `LLJITBuilder`s
+  keep track of whether LLVM has taken them over (by `define!`, `add!(jd, dg)`,
+  `target_machine_builder!` and `LLJIT(builder)`). Using them afterwards throws an
+  `ArgumentError`, and disposing of them does nothing, where it used to free them twice.
+  `MaterializationUnit` is public, and materialization units that aren't defined can be
+  disposed of, which for a `CustomMaterializationUnit` also releases its callbacks.
+- `SymbolFlags(; exported, callable, weak, materialization_side_effects_only,
+  target_flags)` replaces `symbol_flags`, which returned the C API's `LLVMJITSymbolFlags`.
+  `absolute_symbols`, `lazy_reexports` and `CustomMaterializationUnit` only take `name =>
+  definition` pairs, and check them before taking ownership of the names; the methods that
+  took the C API's symbol map structures (and passed anything else to LLVM unchecked) have
+  been removed. The initializer symbol of a `CustomMaterializationUnit` is the `init`
+  keyword argument. Definitions that LLVM asserts on are rejected: an initializer that
+  isn't one of the unit's symbols or isn't `materialization_side_effects_only`, absolute
+  symbols that are `materialization_side_effects_only`, and lazy reexports that aren't
+  callable.
+
 Types, constants and data layouts:
 
 - LLVM types and constants no longer implement Base's collection functions, which

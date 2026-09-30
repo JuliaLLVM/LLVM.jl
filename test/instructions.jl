@@ -720,19 +720,6 @@ end
     @test !comes_before(a, a)
     @test_throws ArgumentError comes_before(a, c)
 
-    # moving instructions, also to other blocks
-    move_before(b, a)
-    @test collect(entry.instructions)[1:2] == [b, a]
-    move_after(b, a)
-    @test collect(entry.instructions)[1:2] == [a, b]
-    move_before(b, c)
-    @test collect(exit.instructions) == [b, c, ret]
-    move_after(b, ld)
-    @test collect(exit.instructions) == [c, ret]
-    @test b.parent == entry
-    move_before(a, a)
-    @test first(entry.instructions) == a
-    verify(mod)
 
     # memory effects
     @test !may_read_from_memory(a) && !may_write_to_memory(a) && !may_have_side_effects(a)

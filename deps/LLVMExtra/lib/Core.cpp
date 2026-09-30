@@ -174,53 +174,36 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef GV) {
   return wrap(Ftype);
 }
 
-void LLVMMoveFunctionBefore(LLVMValueRef Fn, LLVMValueRef MovePos) {
+void LLVMExtraMoveFunction(LLVMValueRef Fn, LLVMModuleRef Mod, LLVMValueRef Before) {
   Function *F = unwrap<Function>(Fn);
-  Function *Pos = unwrap<Function>(MovePos);
-  if (F == Pos)
+  Module *M = unwrap(Mod);
+  if (Before == Fn)
     return;
-  Module *M = Pos->getParent();
-  M->getFunctionList().splice(Pos->getIterator(), F->getParent()->getFunctionList(),
-                              F->getIterator());
+  auto Pos = Before ? unwrap<Function>(Before)->getIterator() : M->getFunctionList().end();
+  if (Module *Parent = F->getParent())
+    M->getFunctionList().splice(Pos, Parent->getFunctionList(), F->getIterator());
+  else
+    M->getFunctionList().insert(Pos, F);
 }
 
-void LLVMMoveFunctionAfter(LLVMValueRef Fn, LLVMValueRef MovePos) {
-  Function *F = unwrap<Function>(Fn);
-  Function *Pos = unwrap<Function>(MovePos);
-  if (F == Pos)
-    return;
-  Module *M = Pos->getParent();
-  M->getFunctionList().splice(std::next(Pos->getIterator()),
-                              F->getParent()->getFunctionList(), F->getIterator());
-}
-
-void LLVMMoveGlobalBefore(LLVMValueRef GlobalVar, LLVMValueRef MovePos) {
+void LLVMExtraMoveGlobal(LLVMValueRef GlobalVar, LLVMModuleRef Mod, LLVMValueRef Before) {
   GlobalVariable *GV = unwrap<GlobalVariable>(GlobalVar);
-  GlobalVariable *Pos = unwrap<GlobalVariable>(MovePos);
-  if (GV == Pos)
+  Module *M = unwrap(Mod);
+  if (Before == GlobalVar)
     return;
-  Module *M = Pos->getParent();
 #if LLVM_VERSION_MAJOR >= 17
-  GV->removeFromParent();
-  M->insertGlobalVariable(Pos->getIterator(), GV);
+  if (GV->getParent())
+    GV->removeFromParent();
+  M->insertGlobalVariable(Before ? unwrap<GlobalVariable>(Before)->getIterator()
+                                 : M->global_end(),
+                          GV);
 #else
-  M->getGlobalList().splice(Pos->getIterator(), GV->getParent()->getGlobalList(),
-                            GV->getIterator());
-#endif
-}
-
-void LLVMMoveGlobalAfter(LLVMValueRef GlobalVar, LLVMValueRef MovePos) {
-  GlobalVariable *GV = unwrap<GlobalVariable>(GlobalVar);
-  GlobalVariable *Pos = unwrap<GlobalVariable>(MovePos);
-  if (GV == Pos)
-    return;
-  Module *M = Pos->getParent();
-#if LLVM_VERSION_MAJOR >= 17
-  GV->removeFromParent();
-  M->insertGlobalVariable(std::next(Pos->getIterator()), GV);
-#else
-  M->getGlobalList().splice(std::next(Pos->getIterator()),
-                            GV->getParent()->getGlobalList(), GV->getIterator());
+  auto Pos = Before ? unwrap<GlobalVariable>(Before)->getIterator()
+                    : M->getGlobalList().end();
+  if (Module *Parent = GV->getParent())
+    M->getGlobalList().splice(Pos, Parent->getGlobalList(), GV->getIterator());
+  else
+    M->getGlobalList().insert(Pos, GV);
 #endif
 }
 
@@ -1191,20 +1174,73 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
 // instructions
 //
 
-void LLVMExtraMoveInstructionBefore(LLVMValueRef Inst, LLVMValueRef MovePos) {
-  Instruction *I = unwrap<Instruction>(Inst);
-  Instruction *Pos = unwrap<Instruction>(MovePos);
-  if (I == Pos)
-    return;
-  I->moveBefore(*Pos->getParent(), Pos->getIterator());
+//
+// insertion points
+//
+// An insertion point is a block, the instruction to insert before (NULL for the end of the
+// block), and on LLVM 19+ the head bit of the iterator, which selects whether to insert
+// before the debug records attached to that instruction (or trailing the block).
+
+static BasicBlock::iterator insertionPoint(LLVMBasicBlockRef BB, LLVMValueRef Before,
+                                           LLVMBool Head) {
+  BasicBlock::iterator It =
+      Before ? unwrap<Instruction>(Before)->getIterator() : unwrap(BB)->end();
+#if LLVM_VERSION_MAJOR >= 19
+  It.setHeadBit(Head);
+#endif
+  return It;
 }
 
-void LLVMExtraMoveInstructionAfter(LLVMValueRef Inst, LLVMValueRef MovePos) {
+static void readInsertionPoint(BasicBlock *BB, BasicBlock::iterator It, LLVMValueRef *Before,
+                               LLVMBool *Head) {
+  *Before = It == BB->end() ? nullptr : wrap(&*It);
+#if LLVM_VERSION_MAJOR >= 19
+  *Head = It.getHeadBit();
+#else
+  *Head = false;
+#endif
+}
+
+void LLVMExtraMoveInstruction(LLVMValueRef Inst, LLVMBasicBlockRef BB, LLVMValueRef Before,
+                              LLVMBool Head) {
   Instruction *I = unwrap<Instruction>(Inst);
-  Instruction *Pos = unwrap<Instruction>(MovePos);
-  if (I == Pos)
+  BasicBlock *B = unwrap(BB);
+  if (Before == Inst) {
+#if LLVM_VERSION_MAJOR >= 19
+    // moving an instruction ahead of its own debug records: splicing an instruction
+    // before itself isn't allowed, so move it before the next one instead
+    if (Head)
+      I->moveBefore(*B, insertionPoint(BB, wrap(I->getNextNode()), true));
+#endif
     return;
-  I->moveAfter(Pos);
+  }
+  BasicBlock::iterator It = insertionPoint(BB, Before, Head);
+  if (I->getParent())
+    I->moveBefore(*B, It);
+  else
+#if LLVM_VERSION_MAJOR >= 16
+    I->insertInto(B, It);
+#else
+    B->getInstList().insert(It, I);
+#endif
+}
+
+void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlockRef Before) {
+  BasicBlock *B = unwrap(BB);
+  Function *F = unwrap<Function>(Fn);
+  if (Before == BB)
+    return;
+  if (Function *Parent = B->getParent()) {
+    // unlike BasicBlock::moveBefore, splice into the destination function
+    auto Pos = Before ? unwrap(Before)->getIterator() : F->end();
+#if LLVM_VERSION_MAJOR >= 16
+    F->splice(Pos, Parent, B->getIterator());
+#else
+    F->getBasicBlockList().splice(Pos, Parent->getBasicBlockList(), B->getIterator());
+#endif
+  } else {
+    B->insertInto(F, Before ? unwrap(Before) : nullptr);
+  }
 }
 
 void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB) {
@@ -1213,6 +1249,18 @@ void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB) {
     B->eraseFromParent();
   else
     delete B;
+}
+
+LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before,
+                                      LLVMBool *Head) {
+  BasicBlock *B = unwrap(BB);
+  BasicBlock::iterator It = B->getFirstInsertionPt();
+  // the end of a terminated block is not a legal insertion point, which happens when the
+  // terminator is an EH pad (e.g., a catchswitch)
+  if (It == B->end() && B->getTerminator())
+    return false;
+  readInsertionPoint(B, It, Before, Head);
+  return true;
 }
 
 LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other) {

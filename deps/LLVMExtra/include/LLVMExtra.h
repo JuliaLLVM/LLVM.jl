@@ -41,16 +41,11 @@ void LLVMDestroyConstant(LLVMValueRef Const);
 LLVMTypeRef LLVMGetFunctionType(LLVMValueRef Fn);
 LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 
-// Reordering of module contents
-//
-// Move a function/global variable to the position before/after another one in
-// its module's list, for example to give the module a deterministic layout.
-// Both values must belong to the same module. Moving a value relative to
-// itself is a no-op.
-void LLVMMoveFunctionBefore(LLVMValueRef Fn, LLVMValueRef MovePos);
-void LLVMMoveFunctionAfter(LLVMValueRef Fn, LLVMValueRef MovePos);
-void LLVMMoveGlobalBefore(LLVMValueRef GlobalVar, LLVMValueRef MovePos);
-void LLVMMoveGlobalAfter(LLVMValueRef GlobalVar, LLVMValueRef MovePos);
+// Move a function or global variable to the position before `Before` (NULL for the end) in
+// the given module's list, or insert it there if it isn't part of a module. Moving a value
+// before itself is a no-op.
+void LLVMExtraMoveFunction(LLVMValueRef Fn, LLVMModuleRef Mod, LLVMValueRef Before);
+void LLVMExtraMoveGlobal(LLVMValueRef GlobalVar, LLVMModuleRef Mod, LLVMValueRef Before);
 
 // Replace constant-expression/aggregate users of the given constants with
 // equivalent instructions at each point of use; phi operands are materialized
@@ -529,12 +524,24 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        LLVMValueRef EltVal, const unsigned *Idxs,
                                        unsigned NumIdxs, const char *Name);
 
+// insertion points: a block, the instruction to insert before (NULL for the end of the
+// block), and whether to insert before the debug records at that position (the head bit
+// of the iterator, which is ignored before LLVM 19)
+//
+// move an instruction to an insertion point, or insert it there if it isn't part of a block
+void LLVMExtraMoveInstruction(LLVMValueRef Inst, LLVMBasicBlockRef BB, LLVMValueRef Before,
+                              LLVMBool Head);
+// move a basic block before `Before` (NULL for the end) in the given function, which may
+// differ from its current one, or insert it there if it isn't part of a function
+void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlockRef Before);
 // delete a basic block, also if it isn't part of a function
 void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB);
+// the first insertion point of a block after its PHI nodes and EH pads; returns false if
+// there is none (e.g., in a block that is terminated by a catchswitch)
+LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before,
+                                      LLVMBool *Head);
 
 // instructions
-void LLVMExtraMoveInstructionBefore(LLVMValueRef Inst, LLVMValueRef MovePos);
-void LLVMExtraMoveInstructionAfter(LLVMValueRef Inst, LLVMValueRef MovePos);
 LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other);
 LLVMBool LLVMExtraMayReadFromMemory(LLVMValueRef Inst);
 LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst);

@@ -4,7 +4,7 @@
 BasicBlock
 BasicBlock(name::String)
 BasicBlock(f::LLVM.Function, name::String)
-BasicBlock(bb::BasicBlock, name::String)
+BasicBlock(pos::InsertionPoint{BasicBlock}, name::String)
 ```
 
 ## Operations
@@ -12,6 +12,6 @@ BasicBlock(bb::BasicBlock, name::String)
 ```@docs
 remove!(::BasicBlock)
 erase!(::BasicBlock)
-move_before(::BasicBlock, ::BasicBlock)
-move_after(::BasicBlock, ::BasicBlock)
 ```
+
+Basic blocks are moved using [`move!`](@ref).

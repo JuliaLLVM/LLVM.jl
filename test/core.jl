@@ -1678,11 +1678,15 @@ end
     gvs = mod.globals
 
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
-    move_before(b, c)
+    @test move!(b, LLVM.before(c)) === b
     @test [gv.name for gv in gvs] == ["b", "c", "a"]
-    move_after(b, a)
+    move!(b, LLVM.after(a))
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
-    move_before(a, a)
+    move!(a, LLVM.before(a))
+    @test [gv.name for gv in gvs] == ["c", "a", "b"]
+    move!(b, LLVM.at_begin(gvs))
+    @test [gv.name for gv in gvs] == ["b", "c", "a"]
+    move!(b, LLVM.at_end(gvs))
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
     @test length(collect(gvs)) == 3
 
@@ -1883,11 +1887,15 @@ end
     fns = mod.functions
 
     @test [f.name for f in fns] == ["c", "a", "b"]
-    move_before(b, c)
+    @test move!(b, LLVM.before(c)) === b
     @test [f.name for f in fns] == ["b", "c", "a"]
-    move_after(b, a)
+    move!(b, LLVM.after(a))
     @test [f.name for f in fns] == ["c", "a", "b"]
-    move_after(a, a)
+    move!(a, LLVM.after(a))
+    @test [f.name for f in fns] == ["c", "a", "b"]
+    move!(b, LLVM.at_begin(fns))
+    @test [f.name for f in fns] == ["b", "c", "a"]
+    move!(b, LLVM.at_end(fns))
     @test [f.name for f in fns] == ["c", "a", "b"]
     @test length(collect(fns)) == 3
 
@@ -2568,7 +2576,7 @@ end
     @test_throws BoundsError first(bb2.instructions)
     @test_throws BoundsError last(bb2.instructions)
 
-    bb1 = BasicBlock(bb2, "SomeBasicBlock")
+    bb1 = BasicBlock(LLVM.before(bb2), "SomeBasicBlock")
     @test bb2.parent == fn
     position!(builder, bb1)
     brinst = br!(builder, bb2)
@@ -2589,6 +2597,10 @@ end
     bb3 = BasicBlock("YetAnotherBasicBlock")
     @test bb3.parent == nothing
     @test bb3.terminator == nothing
+    move!(bb3, LLVM.at_end(fn))
+    @test bb3.parent == fn
+    remove!(bb3)
+    @test bb3.parent == nothing
     # blocks that aren't part of a function can be erased
     erase!(bb3)
 
@@ -2615,10 +2627,10 @@ end
         @test first(bbs) == bb1
         @test last(bbs) == bb2
 
-        move_before(bb2, bb1)
+        @test move!(bb2, LLVM.before(bb1)) === bb2
         @test collect(bbs) == [bb2, bb1]
 
-        move_after(bb2, bb1)
+        move!(bb2, LLVM.after(bb1))
         @test collect(bbs) == [bb1, bb2]
 
         @test bb1 in bbs
@@ -2847,7 +2859,7 @@ end
     entry = BasicBlock(fn, "entry")
     exit = BasicBlock(fn, "exit")
     @test bbs[2] == exit
-    middle = BasicBlock(exit, "middle")
+    middle = BasicBlock(LLVM.before(exit), "middle")
     @test bbs == [entry, middle, exit]
     @test bbs[2] == middle
     @test bbs[3] == exit

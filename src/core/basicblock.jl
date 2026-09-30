@@ -1,5 +1,4 @@
-@vocabulary IR BasicBlock, remove!, erase!,
-               move_before, move_after
+@vocabulary IR BasicBlock, remove!, erase!
 
 """
     BasicBlock
@@ -74,15 +73,6 @@ BasicBlock(f::Function, name::String;) =
     BasicBlock(API.LLVMAppendBasicBlockInContext(context(f), f, name))
 
 """
-    BasicBlock(bb::BasicBlock, name::String)
-
-Create a new, empty basic block with the given name, and insert it before the given basic
-block.
-"""
-BasicBlock(bb::BasicBlock, name::String) =
-    BasicBlock(API.LLVMInsertBasicBlockInContext(context(bb), bb, name))
-
-"""
     remove!(bb::BasicBlock)
 
 Remove the given basic block from its parent function, but do not free the object.
@@ -117,22 +107,6 @@ end
 @property BasicBlock terminator
 
 name(bb::BasicBlock) = unsafe_string(API.LLVMGetBasicBlockName(bb))
-
-"""
-    move_before(bb::BasicBlock, pos::BasicBlock)
-
-Move the given basic block before the given position.
-"""
-move_before(bb::BasicBlock, pos::BasicBlock) =
-    API.LLVMMoveBasicBlockBefore(bb, pos)
-
-"""
-    move_after(bb::BasicBlock, pos::BasicBlock)
-
-Move the given basic block after the given position.
-"""
-move_after(bb::BasicBlock, pos::BasicBlock) =
-    API.LLVMMoveBasicBlockAfter(bb, pos)
 
 
 ## instruction iteration

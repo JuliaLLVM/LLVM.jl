@@ -151,9 +151,9 @@ julia> collect(mod.globals)
 
 In addition to iterating the globals of a module, it is possible to move from one global to
 the previous or next one using respectively the `gv.prev` and `gv.next` properties.
-Global variables can be reordered with `move_before` and `move_after`, or sorted in place
-with `sort!(mod.globals)`. The latter defaults to sorting by name, which is useful for
-producing deterministic module layouts.
+Global variables can be reordered with `move!` (e.g., `move!(gv, LLVM.before(other))`), or
+sorted in place with `sort!(mod.globals)`. The latter defaults to sorting by name, which is
+useful for producing deterministic module layouts.
 
 ### Functions
 
@@ -168,9 +168,9 @@ julia> collect(mod.functions)
 ```
 
 Again, it is possible to move from one function to the previous or next one using
-respectively the `f.prev` and `f.next` properties. Functions can be reordered with
-`move_before` and `move_after`, or sorted by name with `sort!(mod.functions)` to produce a
-deterministic module layout.
+respectively the `f.prev` and `f.next` properties. Functions can be reordered with `move!`
+(e.g., `move!(f, LLVM.at_begin(mod.functions))`), or sorted by name with
+`sort!(mod.functions)` to produce a deterministic module layout.
 
 ### Aliases and ifuncs
 

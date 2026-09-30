@@ -83,7 +83,7 @@ be used as inputs to other instructions.
 
 The basic blocks of the function, in order, as a read-only view that always reflects the
 current body of the function. Create a `BasicBlock` to add one, and use operations like
-`remove!` or `move_before` to change the list of blocks. Indexing the view walks the list
+`remove!` or `move!` to change the list of blocks. Indexing the view walks the list
 of blocks, so iterate instead of indexing each block. While iterating over the view, it is
 safe to remove or erase the block that was just returned, but not other blocks.
 
@@ -171,22 +171,6 @@ Remove the given function from its parent module and free the object.
     This function is unsafe because it does not check if the function is used elsewhere.
 """
 erase!(f::Function) = API.LLVMDeleteFunction(f)
-
-"""
-    move_before(f::Function, pos::Function)
-
-Move the function `f` before the function `pos` in the function list of the containing
-module. Both functions must reside in the same module.
-"""
-move_before(f::Function, pos::Function) = API.LLVMMoveFunctionBefore(f, pos)
-
-"""
-    move_after(f::Function, pos::Function)
-
-Move the function `f` after the function `pos` in the function list of the containing
-module. Both functions must reside in the same module.
-"""
-move_after(f::Function, pos::Function) = API.LLVMMoveFunctionAfter(f, pos)
 
 function personality(f::Function)
     has_personality = API.LLVMHasPersonalityFn(f) |> Bool

@@ -15,9 +15,10 @@ characteristics.
     mod.metadata
 
 The named metadata of the module, as a dictionary-like view that maps names to
-[`NamedMDNode`](@ref)s. Indexing the view with a name that isn't present creates an empty
-named metadata node, so use `haskey` to check whether one exists. To add metadata, append
-to the operands of the named metadata node: `push!(mod.metadata[name].operands, node)`.
+[`NamedMDNode`](@ref)s, which supports `haskey`, `get` and iteration. Use
+[`get!`](@ref get!(::LLVM.ModuleMetadataIterator, ::String)) to look up a named metadata
+node, or create it if it doesn't exist yet, e.g., to add metadata to it:
+`push!(get!(mod.metadata, name).operands, node)`.
 
     mod.name
     mod.name = name::String
@@ -528,7 +529,7 @@ function Base.sort!(iter::ModuleGlobalSet; by=name, kwargs...)
     elements = collect(iter)
     sort!(elements; by, kwargs...)
     for i in 2:length(elements)
-        move_after(elements[i], elements[i-1])
+        move!(elements[i], after(elements[i-1]))
     end
     iter
 end
@@ -636,7 +637,7 @@ function Base.sort!(iter::ModuleFunctionSet; by=name, kwargs...)
     elements = collect(iter)
     sort!(elements; by, kwargs...)
     for i in 2:length(elements)
-        move_after(elements[i], elements[i-1])
+        move!(elements[i], after(elements[i-1]))
     end
     iter
 end
@@ -836,8 +837,7 @@ function sdk_version(mod::Module)
     c = context!(context(mod)) do
         Value(md)
     end
-    entries = collect(c)
-    VersionNumber(map(val->convert(Int, val), entries)...)
+    VersionNumber(map(val->convert(Int, val), elements(c))...)
 end
 
 @property Module sdk_version sdk_version!

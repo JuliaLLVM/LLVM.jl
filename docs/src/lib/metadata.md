@@ -217,15 +217,14 @@ LLVM.temp_macro_file!
 
 ### Instruction-level insertion
 
-The `declare_*!` / `value_*!` methods return an `Instruction` on LLVM ≤ 18
-(legacy `llvm.dbg.*` intrinsics) and a `LLVM.DbgRecord` on LLVM ≥ 19
-(the new `#dbg_*` record format).
+Debug records are inserted at an [`InsertionPoint`](@ref). The functions that insert them
+return an `Instruction` on LLVM ≤ 18 (legacy `llvm.dbg.*` intrinsics) and a
+`LLVM.DbgRecord` on LLVM ≥ 19 (the new `#dbg_*` record format). On LLVM 20 and later,
+`dbg_label!(dib, label, location, pos)` inserts a label record.
 
 ```@docs
-LLVM.declare_before!
-LLVM.declare_at_end!
-LLVM.value_before!
-LLVM.value_at_end!
+dbg_declare!
+dbg_value!
 ```
 
 The debug location of an instruction is available as its `debug_location` property (see

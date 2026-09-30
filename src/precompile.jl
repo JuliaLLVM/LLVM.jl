@@ -35,7 +35,7 @@
             jf = LLVM.Function(mod, "sum", ft)
             @dispose builder=IRBuilder() begin
                 bb = BasicBlock(jf, "entry")
-                position!(builder, bb)
+                position!(builder, at_end(bb))
                 ret!(builder, add!(builder, parameters(jf)[1], parameters(jf)[2]))
             end
             verify(mod)
@@ -62,7 +62,7 @@
                 f = LLVM.Function(mod, "sum", ft)
                 @dispose builder=IRBuilder() begin
                     bb = BasicBlock(f, "entry")
-                    position!(builder, bb)
+                    position!(builder, at_end(bb))
                     ret!(builder, add!(builder, parameters(f)[1], parameters(f)[2]))
                 end
                 verify(mod)

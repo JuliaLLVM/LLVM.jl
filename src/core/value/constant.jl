@@ -36,7 +36,7 @@ abstract type Instruction <: User end
 @vocabulary IR convert_users_to_instructions!
 
 """
-    convert_users_to_instructions!(consts::Vector{<:Constant};
+    convert_users_to_instructions!(consts::AbstractVector{<:Constant};
                                    func::Union{Nothing,LLVM.Function}=nothing,
                                    remove_dead_constants::Bool=true,
                                    include_self::Bool=false) -> Bool
@@ -50,7 +50,7 @@ Optionally restrict the rewrite to `func`, keep dead constants around
 (`include_self=true`). These three options require LLVM 19 or later; the function itself
 requires LLVM 17 or later.
 """
-function convert_users_to_instructions!(consts::Vector{<:Constant};
+function convert_users_to_instructions!(consts::AbstractVector{<:Constant};
                                         func=nothing,
                                         remove_dead_constants::Bool=true,
                                         include_self::Bool=false)
@@ -64,7 +64,7 @@ function convert_users_to_instructions!(consts::Vector{<:Constant};
     func === nothing || func isa Function ||
         throw(ArgumentError("`func` must be an LLVM.Function or `nothing`"))
     API.LLVMConvertUsersOfConstantsToInstructions(
-        consts, length(consts), something(func, C_NULL),
+        as_vector(consts), length(consts), something(func, C_NULL),
         remove_dead_constants, include_self) |> Bool
 end
 
@@ -329,7 +329,7 @@ end
 
 function bitpattern(val::ConstantFP)
     typ = value_type(val)
-    width = fp_width(typ isa VectorType ? eltype(typ) : typ)
+    width = fp_width(typ isa VectorType ? element_type(typ) : typ)
     words = Vector{UInt64}(undef, cld(width, 64))
     API.LLVMExtraConstFPGetBits(val, words)
     bits = zero(UInt128)
@@ -348,41 +348,17 @@ end
 
 abstract type ConstantDataSequential <: Constant end
 
-# ConstantData can only contain primitive types (1/2/4/8 byte integers, float/half),
-# as opposed to ConstantAggregate which can contain arbitrary LLVM values.
-#
-# however, LLVM seems to use both array types interchangeably, e.g., constructing
-# a ConstArray through LLVMConstArray may return a ConstantDataArray (presumably as an
-# optimization, when the data can be represented as densely packed primitive values).
-# because of that, ConstantDataArray and ConstantArray need to behave the same way,
-# concretely, indexing a ConstantDataArray has to return LLVM constant values...
-#
-# XXX: maybe we should just not expose ConstantDataArray then?
-#      one advantage of keeping them separate is that creating a ConstantDataArray
-#      is much cheaper (we should also be able to iterate much more efficiently,
-#      but cannot support that as explained above).
-
-# array interface
-Base.eltype(cda::ConstantDataSequential) = eltype(value_type(cda))
-Base.length(cda::ConstantDataSequential) = length(value_type(cda))
-Base.size(cda::ConstantDataSequential) = (length(cda),)
-function Base.getindex(cda::ConstantDataSequential, idx::Integer)
-    @boundscheck 1 <= idx <= length(cda) || throw(BoundsError(cda, idx))
-    Value(API.LLVMGetAggregateElement(cda, idx-1))
-end
-function Base.collect(cda::ConstantDataSequential)
-    constants = Array{Value}(undef, length(cda))
-    for i in 1:length(cda)
-        @inbounds constants[i] = cda[i]
-    end
-    return constants
-end
+# ConstantData can only contain primitive types (1/2/4/8 byte integers, float/half), as
+# opposed to ConstantAggregate which can contain arbitrary LLVM values. LLVM uses them
+# interchangeably, e.g., LLVMConstArray returns a ConstantDataArray when the elements are
+# simple data, so both are accessed using the `elements` property.
 
 """
     ConstantDataArray <: LLVM.ConstantDataSequential
 
 A constant array of simple data values, i.e., whose element type is a simple 1/2/4/8-byte
-integer or half/bfloat/float/double, and whose elements are just simple data values
+integer or half/bfloat/float/double, and whose elements are just simple data values. Its
+elements are available as the `elements` property, see [`LLVM.ConstantAggregate`](@ref).
 
 See also: [`ConstantArray`](@ref)
 """
@@ -472,7 +448,8 @@ end
     ConstantDataVector <: LLVM.ConstantDataSequential
 
 A constant vector of simple data values, i.e., whose element type is a simple 1/2/4/8-byte
-integer or half/bfloat/float/double, and whose elements are just simple data values
+integer or half/bfloat/float/double, and whose elements are just simple data values. Its
+elements are available as the `elements` property, see [`LLVM.ConstantAggregate`](@ref).
 """
 @checked struct ConstantDataVector <: ConstantDataSequential
     ref::API.LLVMValueRef
@@ -489,21 +466,31 @@ register(ConstantDataVector, API.LLVMConstantDataVectorValueKind)
 end
 register(ConstantAggregateZero, API.LLVMConstantAggregateZeroValueKind)
 
-# array interface
-# FIXME: can we reuse the ::ConstantArray functionality with ConstantAggregateZero values?
-#        probably works fine if we just get rid of the refcheck
-Base.eltype(caz::ConstantAggregateZero) = eltype(value_type(caz))
-Base.size(caz::ConstantAggregateZero) = (0,)
-Base.length(caz::ConstantAggregateZero) = 0
-Base.axes(caz::ConstantAggregateZero) = (Base.OneTo(0),)
-Base.collect(caz::ConstantAggregateZero) = Value[]
-
 
 ## regular aggregate
 
-# Abstract supertype for all constant aggregate values, which are aggregates of other
-# constants, stored as operands.
+"""
+    LLVM.ConstantAggregate <: LLVM.Constant
+
+Abstract supertype of constant arrays, structs and vectors whose elements are other
+constants: [`ConstantArray`](@ref), [`ConstantStruct`](@ref) and `ConstantVector`.
+
+# Properties
+
+    c.elements
+
+The elements of an aggregate constant, as a read-only vector of constants, e.g., `i32 2`
+for the second element of `[3 x i32] [i32 1, i32 2, i32 3]`. This property is also
+available for arrays and vectors of simple data (`ConstantDataArray` and
+`ConstantDataVector`) and for `zeroinitializer` (`ConstantAggregateZero`), which LLVM uses
+to represent aggregate constants whose elements are simple data or zero. Nested aggregates
+are elements themselves, i.e., the elements of a constant of type `[2 x [2 x i32]]` are two
+constants of type `[2 x i32]`.
+
+The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
+"""
 abstract type ConstantAggregate <: Constant end
+@vocabulary IR ConstantAggregate
 
 # arrays
 
@@ -512,10 +499,8 @@ abstract type ConstantAggregate <: Constant end
 """
     ConstantArray <: LLVM.ConstantAggregate
 
-A constant array of values.
-
-This type implements the Julia array interface, so (to some extent) it can be used as a
-regular Julia array.
+A constant array of values. Its elements are available as the `elements` property, see
+[`LLVM.ConstantAggregate`](@ref).
 """
 @checked struct ConstantArray <: ConstantAggregate
     ref::API.LLVMValueRef
@@ -568,51 +553,6 @@ Create a constant array of values from a Julia array, using the appropriate cons
 """
 ConstantArray(::AbstractArray)
 
-"""
-    collect(ca::ConstantArray)
-
-Convert a constant array back to a Julia array.
-"""
-function Base.collect(ca::ConstantArray)
-    constants = Array{Value}(undef, size(ca))
-    for I in CartesianIndices(size(ca))
-        @inbounds constants[I] = ca[Tuple(I)...]
-    end
-    return constants
-end
-
-# array interface
-Base.eltype(ca::ConstantArray) = eltype(value_type(ca))
-function Base.size(ca::ConstantArray)
-    dims = Int[]
-    typ = value_type(ca)
-    while typ isa ArrayType
-        push!(dims, length(typ))
-        typ = eltype(typ)
-    end
-    return Tuple(dims)
-end
-Base.length(ca::ConstantArray) = prod(size(ca))
-Base.axes(ca::ConstantArray) = Base.OneTo.(size(ca))
-
-function Base.getindex(ca::ConstantArray, idx::Integer...)
-    # multidimensional arrays are represented by arrays of arrays,
-    # which we need to 'peel back' by looking at the operand sets.
-    # for the final dimension, we use LLVMGetAggregateElement
-    @boundscheck Base.checkbounds_indices(Bool, axes(ca), idx) ||
-        throw(BoundsError(ca, idx))
-    I = CartesianIndices(size(ca))[idx...]
-    for i in Tuple(I)
-        if isempty(operands(ca))
-            # packed data (ConstantDataArray) or a zero/undef/poison aggregate
-            ca = Value(API.LLVMGetAggregateElement(ca, i-1))
-        else
-            ca = (Base.@_propagate_inbounds_meta; operands(ca)[i])
-        end
-    end
-    return ca
-end
-
 # structs
 
 @vocabulary IR ConstantStruct
@@ -630,21 +570,22 @@ register(ConstantStruct, API.LLVMConstantStructValueKind)
 ConstantStructOrAggregateZero(value) = Value(value)::Union{ConstantStruct,ConstantAggregateZero}
 
 """
-    ConstantStruct(values::Vector{<:Constant}, [packed=false])
+    ConstantStruct(values::AbstractVector{<:Constant}; packed=false)
 
 Create an anonymous constant struct of the given values.
 """
-ConstantStruct(values::Vector{<:Constant}; packed::Bool=false) =
-    ConstantStructOrAggregateZero(API.LLVMConstStructInContext(context(), values,
+ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
+    ConstantStructOrAggregateZero(API.LLVMConstStructInContext(context(), as_vector(values),
                                                                length(values), packed))
 
 """
-    ConstantStruct(typ::LLVM.StructType, values::Vector{<:Constant})
+    ConstantStruct(typ::LLVM.StructType, values::AbstractVector{<:Constant})
 
 Create a constant struct of the given type and values.
 """
-ConstantStruct(typ::StructType, values::Vector{<:Constant}) =
-    ConstantStructOrAggregateZero(API.LLVMConstNamedStruct(typ, values, length(values)))
+ConstantStruct(typ::StructType, values::AbstractVector{<:Constant}) =
+    ConstantStructOrAggregateZero(API.LLVMConstNamedStruct(typ, as_vector(values),
+                                                           length(values)))
 
 """
     ConstantStruct(value::T, [name=String(nameof(T)), anonymous=false, packed=false])
@@ -692,6 +633,34 @@ end
     ref::API.LLVMValueRef
 end
 register(ConstantVector, API.LLVMConstantVectorValueKind)
+
+
+## aggregate elements
+
+struct ConstantAggregateElementSet <: AbstractVector{Constant}
+    c::Constant
+end
+
+const AnyConstantAggregate =
+    Union{ConstantAggregate, ConstantDataSequential, ConstantAggregateZero}
+
+elements(c::AnyConstantAggregate) = ConstantAggregateElementSet(c)
+
+@property AnyConstantAggregate elements
+
+function Base.size(iter::ConstantAggregateElementSet)
+    typ = value_type(iter.c)
+    n = typ isa StructType ? length(elements(typ)) :
+        typ isa ArrayType ? array_length(typ) : vector_length(typ)
+    return (n,)
+end
+
+Base.IndexStyle(::Type{ConstantAggregateElementSet}) = IndexLinear()
+
+function Base.getindex(iter::ConstantAggregateElementSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Value(API.LLVMGetAggregateElement(iter.c, i-1))::Constant
+end
 
 
 ## constant expressions
@@ -758,12 +727,13 @@ const_nuwsub(lhs::Constant, rhs::Constant) =
 const_xor(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstXor(lhs, rhs))
 
-function const_gep(Ty::LLVMType, val::Constant, Indices::Vector{<:Constant})
-    Value(API.LLVMConstGEP2(Ty, val, Indices, length(Indices)))
+function const_gep(Ty::LLVMType, val::Constant, Indices::AbstractVector{<:Constant})
+    Value(API.LLVMConstGEP2(Ty, val, as_vector(Indices), length(Indices)))
 end
 
-function const_inbounds_gep(Ty::LLVMType, val::Constant, Indices::Vector{<:Constant})
-    Value(API.LLVMConstInBoundsGEP2(Ty, val, Indices, length(Indices)))
+function const_inbounds_gep(Ty::LLVMType, val::Constant,
+                            Indices::AbstractVector{<:Constant})
+    Value(API.LLVMConstInBoundsGEP2(Ty, val, as_vector(Indices), length(Indices)))
 end
 
 const_trunc(val::Constant, ToType::LLVMType) =
@@ -1157,22 +1127,6 @@ Remove the global variable from its parent module and delete it.
     elsewhere.
 """
 erase!(gv::GlobalVariable) = API.LLVMDeleteGlobal(gv)
-
-"""
-    move_before(gv::GlobalVariable, pos::GlobalVariable)
-
-Move the global variable `gv` before the global variable `pos` in the global list of the
-containing module. Both global variables must reside in the same module.
-"""
-move_before(gv::GlobalVariable, pos::GlobalVariable) = API.LLVMMoveGlobalBefore(gv, pos)
-
-"""
-    move_after(gv::GlobalVariable, pos::GlobalVariable)
-
-Move the global variable `gv` after the global variable `pos` in the global list of the
-containing module. Both global variables must reside in the same module.
-"""
-move_after(gv::GlobalVariable, pos::GlobalVariable) = API.LLVMMoveGlobalAfter(gv, pos)
 
 function initializer(gv::GlobalVariable)
     init = API.LLVMGetInitializer(gv)

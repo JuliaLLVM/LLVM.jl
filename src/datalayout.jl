@@ -1,7 +1,7 @@
 ## data layout
 
-@public DataLayout, dispose, pointersize, intptr, storage_size, abi_size, abi_alignment,
-        frame_alignment, preferred_alignment, element_at, offsetof
+@public DataLayout, dispose, pointersize, intptr, bit_size, storage_size, abi_size,
+        abi_alignment, frame_alignment, preferred_alignment, element_at, offsetof
 
 """
     DataLayout
@@ -92,33 +92,38 @@ globals_addrspace(dl::DataLayout) = API.LLVMGlobalsAddressSpace(dl) |> Int
 @property DataLayout globals_addrspace
 
 """
-    sizeof(dl::DataLayout, typ::LLVMType)
+    bit_size(dl::DataLayout, typ::LLVMType)
 
-Get the size of the given type in bytes for the target data layout.
+Get the size of the given type in bits for the target data layout, like C++'s
+`DataLayout::getTypeSizeInBits`, e.g., 1 for `i1`.
+
+See also: [`storage_size`](@ref), [`abi_size`](@ref).
 """
-Base.sizeof(dl::DataLayout, typ::LLVMType) = Int(API.LLVMSizeOfTypeInBits(dl, typ) / 8)
+bit_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMSizeOfTypeInBits(dl, typ))
 
 """
     storage_size(dl::DataLayout, typ::LLVMType)
 
-Get the storage size of the given type in bytes for the target data layout.
+Get the number of bytes that storing a value of the given type may overwrite, for the
+target data layout, like C++'s `DataLayout::getTypeStoreSize`, e.g., 1 for `i1` and 2 for
+`i9`.
 """
-storage_size(dl::DataLayout, typ::LLVMType) = API.LLVMStoreSizeOfType(dl, typ)
+storage_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMStoreSizeOfType(dl, typ))
 
 """
     abi_size(dl::DataLayout, typ::LLVMType)
 
-Get the ABI size of the given type in bytes for the target data layout.
+Get the offset in bytes between successive values of the given type in memory, including
+alignment padding, for the target data layout, like C++'s `DataLayout::getTypeAllocSize`.
 """
-abi_size(dl::DataLayout, typ::LLVMType) = API.LLVMABISizeOfType(dl, typ)
+abi_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMABISizeOfType(dl, typ))
 
 """
     abi_alignment(dl::DataLayout, typ::LLVMType)
 
 Get the ABI alignment of the given type in bytes for the target data layout.
 """
-abi_alignment(dl::DataLayout, typ::LLVMType) =
-    API.LLVMABIAlignmentOfType(dl, typ)
+abi_alignment(dl::DataLayout, typ::LLVMType) = Int(API.LLVMABIAlignmentOfType(dl, typ))
 
 """
     frame_alignment(dl::DataLayout, typ::LLVMType)
@@ -126,7 +131,7 @@ abi_alignment(dl::DataLayout, typ::LLVMType) =
 Get the call frame alignment of the given type in bytes for the target data layout.
 """
 frame_alignment(dl::DataLayout, typ::LLVMType) =
-    API.LLVMCallFrameAlignmentOfType(dl, typ)
+    Int(API.LLVMCallFrameAlignmentOfType(dl, typ))
 
 
 """
@@ -139,26 +144,33 @@ data layout.
 preferred_alignment(::DataLayout, ::Union{LLVMType, GlobalVariable})
 
 preferred_alignment(dl::DataLayout, typ::LLVMType) =
-    API.LLVMPreferredAlignmentOfType(dl, typ)
+    Int(API.LLVMPreferredAlignmentOfType(dl, typ))
 preferred_alignment(dl::DataLayout, var::GlobalVariable) =
-    API.LLVMPreferredAlignmentOfGlobal(dl, var)
+    Int(API.LLVMPreferredAlignmentOfGlobal(dl, var))
 
 """
     element_at(dl::DataLayout, typ::StructType, offset::Integer)
 
-Get the element at the given offset in a struct type for the target data layout.
+Get the index of the element of a struct type that contains the given byte offset, for the
+target data layout. Like the `elements` of the struct type, elements are numbered from 1.
 
 See also: [`offsetof`](@ref).
 """
-element_at(dl::DataLayout, typ::StructType, offset::Integer) =
-    API.LLVMElementAtOffset(dl, typ, Culonglong(offset))
+function element_at(dl::DataLayout, typ::StructType, offset::Integer)
+    0 <= offset < abi_size(dl, typ) ||
+        throw(ArgumentError("Offset $offset is outside of struct type $typ"))
+    Int(API.LLVMElementAtOffset(dl, typ, Culonglong(offset))) + 1
+end
 
 """
-    offsetof(dl::DataLayout, typ::StructType, element::Integer)
+    offsetof(dl::DataLayout, typ::StructType, i::Integer)
 
-Get the offset of the given element in a struct type for the target data layout.
+Get the byte offset of the `i`th element of a struct type, for the target data layout.
+Like the `elements` of the struct type, elements are numbered from 1.
 
 See also: [`element_at`](@ref).
 """
-offsetof(dl::DataLayout, typ::StructType, element::Integer) =
-    API.LLVMOffsetOfElement(dl, typ, element)
+function offsetof(dl::DataLayout, typ::StructType, i::Integer)
+    1 <= i <= length(elements(typ)) || throw(BoundsError(elements(typ), i))
+    Int(API.LLVMOffsetOfElement(dl, typ, i - 1))
+end

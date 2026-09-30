@@ -147,35 +147,24 @@ remove!(inst::Instruction) = API.LLVMInstructionRemoveFromParent(inst)
 """
     erase!(inst::Instruction)
 
-Remove the given instruction from the containing basic block and delete the object.
+Remove the given instruction from the containing basic block, if any, and delete the
+object.
 
 !!! warning
 
     This function is unsafe because it does not check if the instruction is used elsewhere.
 """
-erase!(inst::Instruction) = API.LLVMInstructionEraseFromParent(inst)
+function erase!(inst::Instruction)
+    if API.LLVMGetInstructionParent(inst) == C_NULL
+        # e.g., a copy, or an instruction that was removed from its block
+        API.LLVMDeleteInstruction(inst)
+    else
+        API.LLVMInstructionEraseFromParent(inst)
+    end
+end
 
 @vocabulary IR comes_before, may_read_from_memory, may_write_to_memory,
                may_have_side_effects
-
-"""
-    move_before(inst::Instruction, pos::Instruction)
-
-Move the given instruction before the given position, which can be in another basic block
-of the same function. It is up to the caller to keep the IR valid, e.g., to keep the
-instruction dominating its uses, and PHI nodes at the start of a block.
-"""
-move_before(inst::Instruction, pos::Instruction) =
-    API.LLVMExtraMoveInstructionBefore(check_attached(inst), check_attached(pos))
-
-"""
-    move_after(inst::Instruction, pos::Instruction)
-
-Move the given instruction after the given position, which can be in another basic block of
-the same function. See [`move_before`](@ref move_before(::Instruction, ::Instruction)).
-"""
-move_after(inst::Instruction, pos::Instruction) =
-    API.LLVMExtraMoveInstructionAfter(check_attached(inst), check_attached(pos))
 
 function check_attached(inst::Instruction)
     API.LLVMGetInstructionParent(inst) == C_NULL &&
@@ -779,6 +768,15 @@ call site, which do not include those of the called function.
 
 See also the `return_attributes` and `argument_attributes` properties.
 
+    call.memory_effects
+    call.memory_effects = effects::Union{MemoryEffects,FunctionMemoryEffects}
+
+The memory effects of a `call`, `invoke` or `callbr` instruction, as described by the
+`memory` attribute of the call site, or `MemoryEffects(:readwrite)` if it doesn't have one.
+Like the `function_attributes` of the call, this does not include the effects of the called
+function. The effects are returned as a [`FunctionMemoryEffects`](@ref) view, like the
+`memory_effects` of a function.
+
     call.argument_attributes
 
 The attributes of the arguments of a `call`, `invoke` or `callbr` instruction, as a vector
@@ -958,6 +956,17 @@ function MemoryEffects(iter::CallSiteAttrSet)
     ref = API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, memory_kind())
     ref == C_NULL && return MemoryEffects(:readwrite)
     return MemoryEffects(EnumAttribute(ref))
+end
+
+memory_effects(call::CallBase) = FunctionMemoryEffects(function_attributes(call))
+
+function memory_effects!(call::CallBase, effects::AnyMemoryEffects)
+    push!(function_attributes(call), EnumAttribute(MemoryEffects(effects)))
+    return
+end
+
+@static if version() >= v"16"
+    @property CallBase memory_effects memory_effects!
 end
 
 # operand bundles

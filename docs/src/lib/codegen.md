@@ -31,7 +31,7 @@ LLVM.DataLayout
 dispose(::LLVM.DataLayout)
 LLVM.pointersize
 LLVM.intptr
-sizeof(::LLVM.DataLayout, ::LLVMType)
+LLVM.bit_size
 LLVM.storage_size
 LLVM.abi_size
 LLVM.abi_alignment

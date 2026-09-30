@@ -23,12 +23,7 @@ function create_entry_block_allocation(cg::CodeGen, fn::LLVM.Function, varname::
     local alloc
     LLVM.@dispose builder=LLVM.IRBuilder() begin
         # Set the builder at the start of the function
-        entry_block = fn.entry
-        if isempty(entry_block.instructions)
-            LLVM.position!(builder, entry_block)
-        else
-            LLVM.position!(builder, first(entry_block.instructions))
-        end
+        LLVM.position!(builder, LLVM.at_begin(fn.entry))
         alloc = LLVM.alloca!(builder, LLVM.DoubleType(), varname)
     end
     return alloc
@@ -116,7 +111,7 @@ function codegen(cg::CodeGen, expr::FunctionAST)
     the_function = codegen(cg, expr.proto)
 
     entry = LLVM.BasicBlock(the_function, "entry")
-    LLVM.position!(cg.builder, entry)
+    LLVM.position!(cg.builder, LLVM.at_end(entry))
 
     new_scope(cg) do
         for (i, param) in enumerate(the_function.parameters)
@@ -134,7 +129,7 @@ function codegen(cg::CodeGen, expr::FunctionAST)
 end
 
 function codegen(cg::CodeGen, expr::IfExprAST)
-    func = LLVM.position(cg.builder).parent
+    func = cg.builder.insert_block.parent
     then = LLVM.BasicBlock(func, "then")
     elsee = LLVM.BasicBlock(func, "else")
     merge = LLVM.BasicBlock(func, "ifcont")
@@ -148,19 +143,19 @@ function codegen(cg::CodeGen, expr::IfExprAST)
         LLVM.br!(cg.builder, condv, then, elsee)
 
         # then
-        LLVM.position!(cg.builder, then)
+        LLVM.position!(cg.builder, LLVM.at_end(then))
         thencg = codegen(cg, expr.then)
         LLVM.br!(cg.builder, merge)
-        then_block = position(cg.builder)
+        then_block = cg.builder.insert_block
 
         # else
-        LLVM.position!(cg.builder, elsee)
+        LLVM.position!(cg.builder, LLVM.at_end(elsee))
         elsecg = codegen(cg, expr.elsee)
         LLVM.br!(cg.builder, merge)
-        else_block = position(cg.builder)
+        else_block = cg.builder.insert_block
 
         # merge
-        LLVM.position!(cg.builder, merge)
+        LLVM.position!(cg.builder, LLVM.at_end(merge))
         phi = LLVM.phi!(cg.builder, LLVM.DoubleType(), "iftmp")
         append!(phi.incoming, [(thencg, then_block), (elsecg, else_block)])
     end
@@ -171,7 +166,7 @@ end
 function codegen(cg::CodeGen, expr::ForExprAST)
     new_scope(cg) do
         # Allocate loop variable
-        startblock = position(cg.builder)
+        startblock = cg.builder.insert_block
         func = startblock.parent
         alloc = create_entry_block_allocation(cg, func, expr.varname)
         current_scope(cg)[expr.varname] = alloc
@@ -181,7 +176,7 @@ function codegen(cg::CodeGen, expr::ForExprAST)
         # Loop block
         loopblock = LLVM.BasicBlock(func, "loop")
         LLVM.br!(cg.builder, loopblock)
-        LLVM.position!(cg.builder, loopblock)
+        LLVM.position!(cg.builder, LLVM.at_end(loopblock))
 
         # Code for loop block
         codegen(cg, expr.body)
@@ -195,11 +190,11 @@ function codegen(cg::CodeGen, expr::ForExprAST)
         endd = LLVM.fcmp!(cg.builder, LLVM.API.LLVMRealONE, endd,
             LLVM.ConstantFP(LLVM.DoubleType(), 0.0))
 
-        loopendblock = position(cg.builder)
+        loopendblock = cg.builder.insert_block
         afterblock = LLVM.BasicBlock(func, "afterloop")
 
         LLVM.br!(cg.builder, endd, loopblock, afterblock)
-        LLVM.position!(cg.builder, afterblock)
+        LLVM.position!(cg.builder, LLVM.at_end(afterblock))
     end
 
     # loops return 0.0 for now
@@ -215,7 +210,7 @@ function codegen(cg::CodeGen, expr::VarExprAST)
             V = LLVM.GlobalVariable(cg.mod, LLVM.DoubleType(), varname)
             V.initializer = initval
         else
-            func = LLVM.position(cg.builder).parent
+            func = cg.builder.insert_block.parent
             V = create_entry_block_allocation(cg, func, varname)
             LLVM.store!(cg.builder, initval, V)
         end

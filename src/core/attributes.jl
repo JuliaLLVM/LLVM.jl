@@ -216,7 +216,8 @@ end
 
 if version() >= v"19"
     function ConstantRangeAttribute(kind::Union{Symbol,String}, nbits::Integer,
-                                    lower::Vector{UInt64}, upper::Vector{UInt64})
+                                    lower::AbstractVector{UInt64},
+                                    upper::AbstractVector{UInt64})
         enum_kind = checked_attribute_kind_id(kind, :range)
         # LLVM reads the words of both bounds, cld(nbits, 64) each (ignoring bits beyond
         # nbits), and asserts that the range is valid and not the full range
@@ -235,7 +236,7 @@ if version() >= v"19"
         end
         return ConstantRangeAttribute(
             API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
-                                                 lower, upper))
+                                                 as_vector(lower), as_vector(upper)))
     end
 end
 

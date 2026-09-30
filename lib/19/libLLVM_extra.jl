@@ -83,20 +83,12 @@ function LLVMGetGlobalValueType(Fn)
     ccall((:LLVMGetGlobalValueType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
-function LLVMMoveFunctionBefore(Fn, MovePos)
-    ccall((:LLVMMoveFunctionBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, MovePos)
+function LLVMExtraMoveFunction(Fn, Mod, Before)
+    ccall((:LLVMExtraMoveFunction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMModuleRef, LLVMValueRef), Fn, Mod, Before)
 end
 
-function LLVMMoveFunctionAfter(Fn, MovePos)
-    ccall((:LLVMMoveFunctionAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, MovePos)
-end
-
-function LLVMMoveGlobalBefore(GlobalVar, MovePos)
-    ccall((:LLVMMoveGlobalBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, MovePos)
-end
-
-function LLVMMoveGlobalAfter(GlobalVar, MovePos)
-    ccall((:LLVMMoveGlobalAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, MovePos)
+function LLVMExtraMoveGlobal(GlobalVar, Mod, Before)
+    ccall((:LLVMExtraMoveGlobal, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMModuleRef, LLVMValueRef), GlobalVar, Mod, Before)
 end
 
 function LLVMConvertUsersOfConstantsToInstructions(Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
@@ -545,7 +537,6 @@ function LLVMExtraDbgVariableRecordGetNumValues(Rec)
     ccall((:LLVMExtraDbgVariableRecordGetNumValues, libLLVMExtra), Cuint, (LLVMDbgRecordRef,), Rec)
 end
 
-
 function LLVMExtraGetAttributeKindName(KindID, Len)
     ccall((:LLVMExtraGetAttributeKindName, libLLVMExtra), Cstring, (Cuint, Ptr{Csize_t}), KindID, Len)
 end
@@ -574,12 +565,36 @@ function LLVMExtraBuildInsertValue(B, AggVal, EltVal, Idxs, NumIdxs, Name)
     ccall((:LLVMExtraBuildInsertValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, EltVal, Idxs, NumIdxs, Name)
 end
 
-function LLVMExtraMoveInstructionBefore(Inst, MovePos)
-    ccall((:LLVMExtraMoveInstructionBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Inst, MovePos)
+function LLVMExtraMoveInstruction(Inst, BB, Before, Head)
+    ccall((:LLVMExtraMoveInstruction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
 end
 
-function LLVMExtraMoveInstructionAfter(Inst, MovePos)
-    ccall((:LLVMExtraMoveInstructionAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Inst, MovePos)
+function LLVMExtraMoveBasicBlock(BB, Fn, Before)
+    ccall((:LLVMExtraMoveBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef, LLVMValueRef, LLVMBasicBlockRef), BB, Fn, Before)
+end
+
+function LLVMExtraDeleteBasicBlock(BB)
+    ccall((:LLVMExtraDeleteBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef,), BB)
+end
+
+function LLVMExtraPositionBuilder(Builder, BB, Before, Head)
+    ccall((:LLVMExtraPositionBuilder, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, BB, Before, Head)
+end
+
+function LLVMExtraGetInsertPoint(Builder, Before, Head)
+    ccall((:LLVMExtraGetInsertPoint, libLLVMExtra), LLVMBasicBlockRef, (LLVMBuilderRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), Builder, Before, Head)
+end
+
+function LLVMExtraGetFirstInsertionPt(BB, Before, Head)
+    ccall((:LLVMExtraGetFirstInsertionPt, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), BB, Before, Head)
+end
+
+function LLVMExtraDIBuilderInsertDeclareRecordAt(Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
+    ccall((:LLVMExtraDIBuilderInsertDeclareRecordAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
+end
+
+function LLVMExtraDIBuilderInsertDbgValueRecordAt(Builder, Val, VarInfo, Expr, DL, BB, Before, Head)
+    ccall((:LLVMExtraDIBuilderInsertDbgValueRecordAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, Val, VarInfo, Expr, DL, BB, Before, Head)
 end
 
 function LLVMExtraInstructionComesBefore(Inst, Other)
@@ -625,3 +640,4 @@ end
 function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
 end
+

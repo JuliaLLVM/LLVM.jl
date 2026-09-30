@@ -20,15 +20,16 @@ SomeBlock:                                        ; No predecessors!
 ```
 
 A detached basic block often not what you want; using the `BasicBlock(::Function)`
-constructor you can instead append to a function, or insert before another block using the
-`BasicBlock(::BasicBlock)` constructor.
+constructor you can instead append to a function, or insert it at another position using an
+insertion point, e.g., `BasicBlock(LLVM.after(entry), "cont")`.
 
 Basic blocks support a couple of specific APIs:
 
 - `bb.name`: the name of the basic block.
 - `bb.parent`: the parent function of the basic block, or `nothing` if it is detached.
 - `bb.terminator`: the terminator instruction of the block, or `nothing` if it has none.
-- `move_before`/`move_after`: move the block before or after another block.
+- `move!(bb, pos)`: move the block to an insertion point, e.g., `LLVM.before(other)` or
+  `LLVM.at_end(f)`, also in another function. A detached block is inserted there.
 - `remove!`/`erase!`: delete the basic block from its parent function, or additionally also
   delete the block itself.
 

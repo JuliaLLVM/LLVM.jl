@@ -83,7 +83,7 @@ be used as inputs to other instructions.
 
 The basic blocks of the function, in order, as a read-only view that always reflects the
 current body of the function. Create a `BasicBlock` to add one, and use operations like
-`remove!` or `move_before` to change the list of blocks. Indexing the view walks the list
+`remove!` or `move!` to change the list of blocks. Indexing the view walks the list
 of blocks, so iterate instead of indexing each block. While iterating over the view, it is
 safe to remove or erase the block that was just returned, but not other blocks.
 
@@ -171,22 +171,6 @@ Remove the given function from its parent module and free the object.
     This function is unsafe because it does not check if the function is used elsewhere.
 """
 erase!(f::Function) = API.LLVMDeleteFunction(f)
-
-"""
-    move_before(f::Function, pos::Function)
-
-Move the function `f` before the function `pos` in the function list of the containing
-module. Both functions must reside in the same module.
-"""
-move_before(f::Function, pos::Function) = API.LLVMMoveFunctionBefore(f, pos)
-
-"""
-    move_after(f::Function, pos::Function)
-
-Move the function `f` after the function `pos` in the function list of the containing
-module. Both functions must reside in the same module.
-"""
-move_after(f::Function, pos::Function) = API.LLVMMoveFunctionAfter(f, pos)
 
 function personality(f::Function)
     has_personality = API.LLVMHasPersonalityFn(f) |> Bool
@@ -305,7 +289,7 @@ considered, and not, e.g., those of the called function. To set the memory effec
 the corresponding attribute: `push!(attrs, EnumAttribute(effects))`, which replaces any
 existing one.
 
-See also the `memory_effects` property of functions.
+See also the `memory_effects` property of functions and calls.
 """
 function MemoryEffects(iter::FunctionAttrSet)
     check_memory_effects_index(iter.idx)
@@ -320,26 +304,25 @@ end
 """
     FunctionMemoryEffects
 
-The memory effects of a function, as returned by its `memory_effects` property. This is a
-view of the function's `memory` attribute, which supports the same operations as a
-[`MemoryEffects`](@ref) value: indexing (`effects[:argmem]`), the `access` property, `|`
-and `&`, and comparing to other effects. In addition, the access kind of a single location
-can be changed in place, which replaces the `memory` attribute of the function:
+The memory effects of a function or a call, as returned by their `memory_effects` property.
+This is a view of the `memory` attribute in their function attributes, which supports the
+same operations as a [`MemoryEffects`](@ref) value: indexing (`effects[:argmem]`), the
+`access` property, `|` and `&`, and comparing to other effects. In addition, the access
+kind of a single location can be changed in place, which replaces the `memory` attribute:
 
 ```julia
 f.memory_effects[:argmem] = :read
 ```
 
 Use `MemoryEffects(effects)` to get the current effects as a value, which doesn't change
-along with the function.
+along with the function or call.
 """
-struct FunctionMemoryEffects
-    f::Function
+struct FunctionMemoryEffects{T<:AttributeSet}
+    attrs::T
 end
 @properties FunctionMemoryEffects
 
-MemoryEffects(effects::FunctionMemoryEffects) =
-    MemoryEffects(function_attributes(getfield(effects, :f)))
+MemoryEffects(effects::FunctionMemoryEffects) = MemoryEffects(getfield(effects, :attrs))
 
 Base.getindex(effects::FunctionMemoryEffects, loc::Symbol) = MemoryEffects(effects)[loc]
 
@@ -347,7 +330,7 @@ function Base.setindex!(effects::FunctionMemoryEffects, kind::Symbol, loc::Symbo
     pos = memory_location_pos(loc)
     data = MemoryEffects(effects).data & ~(UInt32(0x3) << pos)
     data |= memory_access_value(kind) << pos
-    memory_effects!(getfield(effects, :f), MemoryEffects(data))
+    push!(getfield(effects, :attrs), EnumAttribute(MemoryEffects(data)))
     return effects
 end
 
@@ -364,14 +347,17 @@ Base.:(==)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) === Memo
 Base.hash(effects::FunctionMemoryEffects, h::UInt) = hash(MemoryEffects(effects), h)
 Base.show(io::IO, effects::FunctionMemoryEffects) = show(io, MemoryEffects(effects))
 
-memory_effects(f::Function) = FunctionMemoryEffects(f)
+memory_effects(f::Function) = FunctionMemoryEffects(function_attributes(f))
 
 function memory_effects!(f::Function, effects::AnyMemoryEffects)
     push!(function_attributes(f), EnumAttribute(MemoryEffects(effects)))
     return
 end
 
-@property Function memory_effects memory_effects!
+# the `memory` attribute exists since LLVM 16
+@static if version() >= v"16"
+    @property Function memory_effects memory_effects!
+end
 
 check_memory_effects_index(idx::API.LLVMAttributeIndex) =
     idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex) ||

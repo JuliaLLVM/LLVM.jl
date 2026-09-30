@@ -3,7 +3,6 @@
 ```@docs
 LLVMType
 issized
-eltype(::LLVMType)
 ```
 
 ## Integer types
@@ -43,15 +42,13 @@ isopaque(::LLVM.PointerType)
 
 ```@docs
 LLVM.ArrayType
-length(::LLVM.ArrayType)
-isempty(::LLVM.ArrayType)
+isemptytype
 ```
 
 ## Vector types
 
 ```@docs
 LLVM.VectorType
-length(::LLVM.VectorType)
 ```
 
 ## Structure types

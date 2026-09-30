@@ -133,7 +133,7 @@ end
             gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
             load_gv = LLVM.Function(mod, "load_gv", LLVM.FunctionType(LLVM.Int32Type()))
             @dispose builder=IRBuilder() begin
-                position!(builder, BasicBlock(load_gv, "entry"))
+                position!(builder, LLVM.at_end(BasicBlock(load_gv, "entry")))
                 ret!(builder, load!(builder, LLVM.Int32Type(), gv))
             end
         end
@@ -166,7 +166,7 @@ end
                 get_weak = LLVM.Function(mod, "get_weak",
                                          LLVM.FunctionType(weak.value_type))
                 @dispose builder=IRBuilder() begin
-                    position!(builder, BasicBlock(get_weak, "entry"))
+                    position!(builder, LLVM.at_end(BasicBlock(get_weak, "entry")))
                     ret!(builder, weak)
                 end
             end
@@ -237,7 +237,7 @@ end
             # generate IR
             @dispose builder=IRBuilder() begin
                 entry = BasicBlock(wrapper, "entry")
-                position!(builder, entry)
+                position!(builder, LLVM.at_end(entry))
 
                 tmp = call!(builder, ft, fn, [wrapper.parameters...])
                 ret!(builder, tmp)
@@ -297,7 +297,7 @@ end
                 mod.datalayout = lljit.datalayout
                 fn = LLVM.Function(mod, "emitted", LLVM.FunctionType(LLVM.Int32Type()))
                 @dispose builder=IRBuilder() begin
-                    position!(builder, BasicBlock(fn, "entry"))
+                    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
                     ret!(builder, ConstantInt(Int32(42)))
                 end
             end
@@ -393,7 +393,7 @@ end
         ts_mod() do mod
             fn = LLVM.Function(mod, "other_fn", LLVM.FunctionType(LLVM.Int32Type()))
             @dispose builder=IRBuilder() begin
-                position!(builder, BasicBlock(fn, "entry"))
+                position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
                 ret!(builder, ConstantInt(Int32(42)))
             end
         end
@@ -415,7 +415,7 @@ end
         ts_mod() do mod
             fn = LLVM.Function(mod, name, LLVM.FunctionType(LLVM.Int32Type()))
             @dispose builder=IRBuilder() begin
-                position!(builder, BasicBlock(fn, "entry"))
+                position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
                 ret!(builder, ConstantInt(Int32(val)))
             end
         end
@@ -477,7 +477,7 @@ end
         ts_mod() do mod
             fn = LLVM.Function(mod, name, LLVM.FunctionType(LLVM.Int32Type()))
             @dispose builder=IRBuilder() begin
-                position!(builder, BasicBlock(fn, "entry"))
+                position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
                 ret!(builder, ConstantInt(Int32(val)))
             end
         end
@@ -533,7 +533,7 @@ end
 
             @dispose builder=IRBuilder() begin
                 entry = BasicBlock(fn, "entry")
-                position!(builder, entry)
+                position!(builder, LLVM.at_end(entry))
                 ret!(builder)
             end
             verify(mod)
@@ -568,7 +568,7 @@ end
 
             @dispose builder=IRBuilder() begin
                 entry = BasicBlock(fn, "entry")
-                position!(builder, entry)
+                position!(builder, LLVM.at_end(entry))
                 val = load!(builder, LLVM.Int32Type(), gv)
                 ret!(builder, val)
             end
@@ -625,7 +625,7 @@ end
 
                 @dispose builder=IRBuilder() begin
                     entry = BasicBlock(fn, "entry")
-                    position!(builder, entry)
+                    position!(builder, LLVM.at_end(entry))
                     ret!(builder, fadd!(builder, fn.parameters[1], ConstantFP(T, 1.25)))
                 end
                 verify(mod)
@@ -746,7 +746,7 @@ end
                     # generate IR
                     @dispose builder=IRBuilder() begin
                         entry = BasicBlock(fn, "entry")
-                        position!(builder, entry)
+                        position!(builder, LLVM.at_end(entry))
 
                         tmp = add!(builder, fn.parameters...)
                         ret!(builder, tmp)

@@ -42,7 +42,7 @@ ConstantDataVector
 ConstantArray
 ConstantArray(::LLVMType, ::AbstractArray{<:LLVM.Constant,N}) where {N}
 ConstantArray(::AbstractArray)
-collect(::ConstantArray)
+LLVM.ConstantAggregate
 InlineAsm
 LLVM.ConstantExpr
 convert_users_to_instructions!
@@ -64,9 +64,9 @@ Global variables are a specific kind of global values, and have additional APIs:
 ```@docs
 GlobalVariable
 erase!(::GlobalVariable)
-move_before(::GlobalVariable, ::GlobalVariable)
-move_after(::GlobalVariable, ::GlobalVariable)
 ```
+
+Global variables are reordered using [`move!`](@ref).
 
 ### Global aliases
 

@@ -16,8 +16,9 @@ threads simultaneously.
 
     ctx.types
 
-The named types of the context, as a dictionary-like view that supports looking up a type
-by its name (`haskey` and indexing). LLVM does not support iterating these types.
+The named types of the context, as a view that supports looking up a type by its name
+(`haskey`, `get` and indexing). LLVM does not support iterating these types, so the view
+is not a collection.
 """
 @checked struct Context
     ref::API.LLVMContextRef

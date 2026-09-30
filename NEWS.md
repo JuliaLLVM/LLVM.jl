@@ -77,9 +77,9 @@ Properties:
   `NamedTuple(inst.fast_math)` replaces `fast_math(inst)`.
 - The memory effects of a function are a `FunctionMemoryEffects` view of its `memory`
   attribute, which can be modified in place (`f.memory_effects[:argmem] = :read`) or
-  replaced (`f.memory_effects = MemoryEffects(...)`). Call sites use
-  `MemoryEffects(call.function_attributes)` and `push!(call.function_attributes,
-  EnumAttribute(effects))` instead of `memory_effects` and `memory_effects!`.
+  replaced (`f.memory_effects = MemoryEffects(...)`). Calls have the same property,
+  `call.memory_effects`, for the `memory` attribute of the call site, replacing
+  `memory_effects` and `memory_effects!` on call site attributes.
 - Module-level inline assembly is a collection: `push!(mod.inline_asm, asm)` appends,
   `empty!` clears, and `String(mod.inline_asm)` returns its text, replacing `inline_asm`
   and `inline_asm!`. This anticipates LLVM 24, which represents it as a list of fragments.
@@ -152,6 +152,63 @@ Pass managers:
 - `ExpandReductionsPass()` (`expand-reductions`) is available on every supported version of
   LLVM; LLVM itself only registers it with the new pass manager since LLVM 21.
 
+Insertion points:
+
+- Where to insert or move IR objects is an `InsertionPoint`, created with
+  `LLVM.before(x)`, `LLVM.after(x)`, `LLVM.at_begin(c)`, `LLVM.at_end(c)` and
+  `LLVM.after_phis(bb)`. These factories are public, but not part of a vocabulary.
+  Positions are resolved when they are created, and follow LLVM's rules for debug
+  records: `before(inst)` inserts after the debug records attached to `inst`, while
+  `after(prev)` and `at_begin(bb)` insert before them.
+- `position!(builder, pos)` positions a builder at an insertion point, replacing
+  `position!(builder, inst)` and `position!(builder, bb)`, which didn't make clear where
+  instructions would go (`LLVM.before(inst)` and `LLVM.at_end(bb)`, respectively).
+  `LLVM.after(inst)` also works for the last instruction of a block, `LLVM.at_begin(bb)`
+  positions before any PHI nodes, and `LLVM.after_phis(bb)` at the first position where
+  other instructions can go, like C++'s `getFirstInsertionPt`. `builder.position` is the
+  insertion point of a builder, and `builder.insert_block` the block, replacing
+  `position(builder)`. `position!(builder, pos) do ... end` positions a builder
+  temporarily, and restores its position and debug location afterwards.
+- `move!(x, pos)` moves an instruction, basic block, function or global variable to an
+  insertion point, replacing `move_before` and `move_after`. Instructions and blocks that
+  are not part of a block or function are inserted, which replaces `insert!(builder, inst)`
+  (use `move!(inst, builder.position)`), and they can be moved to another block or
+  function.
+- `BasicBlock(pos, name)` creates a block at an insertion point, replacing
+  `BasicBlock(bb, name)`, which inserted before `bb`.
+- `dbg_declare!`, `dbg_value!` and `dbg_label!` insert debug records (or intrinsics, before
+  LLVM 19) at an insertion point, replacing `declare_before!`, `declare_at_end!`,
+  `value_before!`, `value_at_end!`, `label_before!` and `label_at_end!`. The end of a block
+  is always its literal end, so records can't be inserted after a terminator; before,
+  `declare_at_end!` inserted before the terminator and `value_at_end!` after it.
+
+Types, constants and data layouts:
+
+- LLVM types and constants no longer implement Base's collection functions, which
+  returned LLVM objects where Julia expects Julia types, and whose results depended on
+  LLVM's constant folding. The element type and length of array and vector types are
+  `ty.element_type` and `ty.length`, and the element type of a typed pointer is
+  `ptrtyp.element_type` (`nothing` for an opaque pointer), replacing `eltype` and
+  `length`. `isemptytype(ty)` replaces `isempty(ty)`.
+- `c.elements` is a read-only vector of the elements of an aggregate constant: arrays,
+  structs and vectors, their simple data variants (`ConstantDataArray` and
+  `ConstantDataVector`), and `zeroinitializer`. It replaces indexing, `length`, `size`,
+  `eltype` and `collect` on constants, which for a `zeroinitializer` (e.g., what
+  `ConstantArray([0, 0, 0])` folds to) had no elements. `LLVM.ConstantAggregate` is public.
+- `LLVM.bit_size(dl, ty)` returns the size of a type in bits, replacing `sizeof(dl, ty)`,
+  which divided by 8 as a float and threw for `i1`. The size and alignment queries of data
+  layouts return `Int`s. `LLVM.element_at` returns, and `LLVM.offsetof` takes, a 1-based
+  element index, like the `elements` of the struct type, and they check their arguments.
+- `mod.metadata[name]` throws a `KeyError` for missing named metadata instead of creating
+  it; use `get!(mod.metadata, name)`, or `get`. The view supports `length`, and `first`
+  returns a `name => node` pair.
+- `ctx.types` and `engine.functions` only support lookups (`[name]`, `haskey` and `get`),
+  since LLVM can't enumerate them; `ctx.types` is no longer an `AbstractDict`.
+- Functions that take vectors of IR objects accept any `AbstractVector`, like the views of
+  the IR (e.g., `gep!`, `ret!`, `call!` with operand bundles, `ConstantStruct`,
+  `const_gep`, `MDNode` and the `DIBuilder` functions), and `clone` accepts any
+  `AbstractDict` as its value map.
+
 Enumerations:
 
 - The enums of the C API, which LLVM.jl uses for enum-valued state, are available using
@@ -203,13 +260,10 @@ New functionality:
   that aren't needed to create it (calling convention, section, function attributes, ...),
   like C++'s `copyAttributesFrom`, e.g., to replace a function by one with a different
   signature.
-- `position!(builder, inst; after=true)` positions a builder after an instruction (at the
-  end of the block if it is the last one). `extract_value!` and `insert_value!` accept a
-  vector of indices to access nested elements, and check the indices. `exactudiv!` builds
-  an exact unsigned division.
-- `move_before` and `move_after` move instructions, `comes_before` orders them, and
-  `may_read_from_memory`, `may_write_to_memory` and `may_have_side_effects` query what they
-  may do. `take_name!(val, from)` transfers a name, and `strip_pointer_casts` and
+- `extract_value!` and `insert_value!` accept a vector of indices to access nested
+  elements, and check the indices. `exactudiv!` builds an exact unsigned division.
+- `comes_before` orders instructions, and `may_read_from_memory`, `may_write_to_memory` and
+  `may_have_side_effects` query what they may do. `take_name!(val, from)` transfers a name, and `strip_pointer_casts` and
   `strip_pointer_casts_and_aliases` look through casts and aliases.
 - `val.users` is a view of the users of a value, and `remove_dead_constant_users!(c)`
   removes constant expressions that use a constant but are unused themselves.
@@ -253,6 +307,11 @@ Bug fixes:
   longer loops forever on older versions when the new value isn't a global value.
 - `PassBuilder` no longer leaks its options when given an invalid keyword argument.
 - `unsafe_store!` on `Core.LLVMPtr` returns the pointer, like Base.
+- `erase!` on an instruction or basic block that isn't part of a block or function, and
+  `clone(bb; dest=nothing)` on LLVM 18 and later, no longer crash.
+- Moving basic blocks (now using `move!`) works for detached blocks, which crashed, and
+  before a block of another function, which corrupted the IR: the block was listed in the
+  other function, but kept its old parent.
 
 Other changes:
 

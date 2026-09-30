@@ -11,8 +11,8 @@
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     entrybb = BasicBlock(fn, "entry")
-    position!(builder, entrybb)
-    @test position(builder) == entrybb
+    position!(builder, LLVM.at_end(entrybb))
+    @test builder.insert_block == entrybb
 
     @test builder.debug_location === nothing
     LLVM.DIBuilder(mod) do dib
@@ -416,12 +416,12 @@
     ptr1 = fn.parameters[5]
     if supports_typed_pointers(ctx)
         typ1 = ptr1.value_type
-        ptr2 = LLVM.PointerType(eltype(typ1), 2)
+        ptr2 = LLVM.PointerType(typ1.element_type, 2)
         addrspacecastinst = addrspacecast!(builder, ptr1, ptr2)
         @check_ir addrspacecastinst "addrspacecast i32* %4 to i32 addrspace(2)*"
     else
         ptr2 = LLVM.PointerType(2)
-        @test_throws ErrorException eltype(ptr2)
+        @test !hasproperty(ptr2, :element_type) || ptr2.element_type === nothing
         addrspacecastinst = addrspacecast!(builder, ptr1, ptr2)
         @check_ir addrspacecastinst "addrspacecast ptr %4 to ptr addrspace(2)"
     end
@@ -551,7 +551,7 @@ end
     g = LLVM.Function(mod, "g", ft)
     h = LLVM.Function(mod, "h", LLVM.FunctionType(LLVM.Int32Type()))
     caller = LLVM.Function(mod, "caller", LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(ft)]))
-    position!(builder, BasicBlock(caller, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(caller, "entry")))
 
     # direct calls
     call = call!(builder, ft, f)
@@ -585,7 +585,7 @@ end
     inner = LLVM.StructType([LLVM.Int8Type(), LLVM.Int16Type()])
     outer = LLVM.StructType([LLVM.Int32Type(), inner])
     f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int8Type(), [outer]))
-    position!(builder, BasicBlock(f, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
     agg = f.parameters[1]
 
     ev = extract_value!(builder, agg, 1)
@@ -620,77 +620,6 @@ end
 end
 end
 
-@testset "positioning" begin
-@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
-    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))
-    bb = BasicBlock(f, "entry")
-    position!(builder, bb)
-    x = f.parameters[1]
-    a = add!(builder, x, x)
-    ret = ret!(builder, a)
-
-    # after an instruction in the middle of a block
-    position!(builder, a; after=true)
-    b = mul!(builder, a, a)
-    @test a.next == b
-    @test b.next == ret
-
-    # after the last instruction of a block, i.e., at the end of the block
-    position!(builder, ret; after=true)
-    c = exactudiv!(builder, a, a)
-    @check_ir c "udiv exact i32"
-    @test ret.next == c
-    erase!(c)
-
-    # before an instruction
-    position!(builder, a)
-    d = sub!(builder, x, x)
-    @test d.next == a
-
-    # instructions need to be part of a block
-    remove!(d)
-    @test_throws ArgumentError position!(builder, d; after=true)
-    insert!(builder, d)
-    @test d.next == a
-
-    verify(mod)
-end
-
-# positioning after an instruction inserts before the debug records of the next one
-if LLVM.version() >= v"19"
-@dispose ctx=Context() builder=IRBuilder() begin
-    mod = parse(LLVM.Module, """
-        define void @f(i32 %x) !dbg !5 {
-          %p = alloca i32, align 4
-            #dbg_value(i32 %x, !9, !DIExpression(), !10)
-          ret void, !dbg !10
-        }
-
-        !llvm.dbg.cu = !{!0}
-        !llvm.module.flags = !{!3}
-
-        !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
-        !1 = !DIFile(filename: "test.c", directory: "/tmp")
-        !3 = !{i32 2, !"Debug Info Version", i32 3}
-        !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
-        !6 = !DISubroutineType(types: !7)
-        !7 = !{null}
-        !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
-        !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
-        !10 = !DILocation(line: 2, column: 1, scope: !5)
-        """)
-    f = mod.functions["f"]
-    alloca, ret = f.entry.instructions
-    position!(builder, alloca; after=true)
-    inst = add!(builder, f.parameters[1], f.parameters[1])
-    @test alloca.next == inst
-    @test isempty(inst.debug_records)
-    @test length(collect(ret.debug_records)) == 1
-    dispose(mod)
-end
-end
-end
-
 @testset "operations" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type(), LLVM.PointerType(LLVM.Int32Type())])
@@ -698,13 +627,13 @@ end
     entry = BasicBlock(f, "entry")
     exit = BasicBlock(f, "exit")
     x, ptr = f.parameters
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     a = add!(builder, x, x, "a")
     b = mul!(builder, x, x, "b")
     ld = load!(builder, LLVM.Int32Type(), ptr)
     st = store!(builder, a, ptr)
     br!(builder, exit)
-    position!(builder, exit)
+    position!(builder, LLVM.at_end(exit))
     c = sub!(builder, a, b, "c")
     ret = ret!(builder, c)
 
@@ -714,19 +643,6 @@ end
     @test !comes_before(a, a)
     @test_throws ArgumentError comes_before(a, c)
 
-    # moving instructions, also to other blocks
-    move_before(b, a)
-    @test collect(entry.instructions)[1:2] == [b, a]
-    move_after(b, a)
-    @test collect(entry.instructions)[1:2] == [a, b]
-    move_before(b, c)
-    @test collect(exit.instructions) == [b, c, ret]
-    move_after(b, ld)
-    @test collect(exit.instructions) == [c, ret]
-    @test b.parent == entry
-    move_before(a, a)
-    @test first(entry.instructions) == a
-    verify(mod)
 
     # memory effects
     @test !may_read_from_memory(a) && !may_write_to_memory(a) && !may_have_side_effects(a)
@@ -734,7 +650,7 @@ end
     @test !may_read_from_memory(st) && may_write_to_memory(st) && may_have_side_effects(st)
 
     # transferring names
-    position!(builder, ret)
+    position!(builder, LLVM.before(ret))
     d = sub!(builder, a, b)
     @test take_name!(d, c) == d
     @test d.name == "c"
@@ -770,7 +686,7 @@ end
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
     bb = BasicBlock(f, "entry")
-    position!(builder, bb)
+    position!(builder, LLVM.at_end(bb))
     x = f.parameters[1]
     for i in 1:10
         add!(builder, x, ConstantInt(Int32(i)))
@@ -787,7 +703,7 @@ end
 
     # the same holds for blocks
     for i in 1:3
-        position!(builder, BasicBlock(f, "unreachable$i"))
+        position!(builder, LLVM.at_end(BasicBlock(f, "unreachable$i")))
         unreachable!(builder)
     end
     for bb in f.blocks
@@ -903,7 +819,7 @@ end
     @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
         ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()])
         fn = LLVM.Function(mod, "SomeFunction", ft)
-        position!(builder, BasicBlock(fn, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
         a, b = fn.parameters
 
         # nuw and nsw
@@ -1096,7 +1012,7 @@ end
             f = mod.functions["x"]
             ft = f.function_type
             @dispose builder=IRBuilder() begin
-                position!(builder, inst)
+                position!(builder, LLVM.before(inst))
                 inst = call!(builder, ft, f, Value[], [bundle1])
 
                 bundles = inst.operand_bundles
@@ -1127,7 +1043,7 @@ end
     fun = LLVM.Function(mod, "add_sub", fun_type)
     @dispose builder=IRBuilder() begin
         entry = BasicBlock(fun, "entry")
-        position!(builder, entry)
+        position!(builder, LLVM.at_end(entry))
         # add and substract 42
 
         a = fadd!(builder, fun.parameters[1], LLVM.ConstantFP(Float32(42.)), "a")
@@ -1136,7 +1052,7 @@ end
 
         # support for removing/insertion
         remove!(retinst)
-        insert!(builder, retinst)
+        move!(retinst, builder.position)
     end
     verify(mod)
 
@@ -1188,7 +1104,7 @@ end
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.FloatType(), LLVM.Int32Type(), LLVM.Int1Type()])
     f = LLVM.Function(mod, "f", ft)
-    position!(builder, BasicBlock(f, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
     x, y, c = f.parameters
     fsel = select!(builder, c, x, x)
     isel = select!(builder, c, y, y)

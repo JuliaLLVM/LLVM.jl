@@ -11,7 +11,7 @@
         # generate IR
         @dispose builder=IRBuilder() begin
             entry = BasicBlock(f, "entry")
-            position!(builder, entry)
+            position!(builder, LLVM.at_end(entry))
             ptr = const_inttoptr(
                 ConstantInt(0xdeadbeef%UInt),
                 LLVM.PointerType(LLVM.Int32Type()))
@@ -202,7 +202,53 @@ end
             verify(f2)
         end
 
+        # clone without inserting the block into a function
+        let bb_clone = clone(bb; dest=nothing)
+            @test bb_clone.parent === nothing
+            @test first(collect(bb_clone.instructions)[2].operands) ==
+                  first(bb_clone.instructions)
+            erase!(bb_clone)
+        end
+
         dispose(mod)
+
+        # debug records in cloned blocks refer to the cloned instructions
+        if LLVM.version() >= v"19"
+            mod = parse(LLVM.Module, """
+                define void @f(i32 %x) !dbg !5 {
+                entry:
+                  br label %body
+                body:
+                  %a = add i32 %x, 1
+                    #dbg_value(i32 %a, !9, !DIExpression(), !10)
+                  ret void, !dbg !10
+                }
+
+                !llvm.dbg.cu = !{!0}
+                !llvm.module.flags = !{!3}
+
+                !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+                !1 = !DIFile(filename: "test.c", directory: "/tmp")
+                !3 = !{i32 2, !"Debug Info Version", i32 3}
+                !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+                !6 = !DISubroutineType(types: !7)
+                !7 = !{null}
+                !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+                !9 = !DILocalVariable(name: "a", scope: !5, file: !1, line: 2, type: !8)
+                !10 = !DILocation(line: 2, column: 1, scope: !5)
+                """)
+            body = mod.functions["f"].blocks[2]
+            detached = clone(body; dest=nothing)
+            # also when cloning a block that isn't part of a function itself
+            detached2 = clone(detached; dest=nothing)
+            for bb in (detached, detached2)
+                a, ret = bb.instructions
+                @test only(collect(ret.debug_records)).value == a
+            end
+            erase!(detached2)
+            erase!(detached)
+            dispose(mod)
+        end
     end
 
 end

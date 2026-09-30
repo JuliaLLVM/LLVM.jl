@@ -99,7 +99,7 @@ end
 
     show(devnull, typ)
 
-    @test !isempty(typ)
+    @test !isemptytype(typ)
 end
 
 # floating-point
@@ -123,7 +123,11 @@ end
 
     ptrtyp = LLVM.PointerType(eltyp)
     if supports_typed_pointers(ctx)
-        @test eltype(ptrtyp) == eltyp
+        @test ptrtyp.element_type == eltyp
+    elseif LLVM.version() < v"17"
+        @test ptrtyp.element_type === nothing
+    else
+        @test !hasproperty(ptrtyp, :element_type)
     end
 
     @test context(ptrtyp) == context(eltyp)
@@ -137,23 +141,27 @@ end
     eltyp = LLVM.Int32Type()
 
     arrtyp = LLVM.ArrayType(eltyp, 2)
-    @test eltype(arrtyp) == eltyp
+    @test arrtyp.element_type == eltyp
     @test context(arrtyp) == context(eltyp)
-    @test !isempty(arrtyp)
+    @test !isemptytype(arrtyp)
 
-    @test length(arrtyp) == 2
+    @test arrtyp.length == 2
+    # LLVM types are not collections
+    @test_throws MethodError length(arrtyp)
 end
 @dispose ctx=Context() begin
     eltyp = LLVM.Int32Type()
 
     arrtyp = LLVM.ArrayType(eltyp, 0)
-    @test isempty(arrtyp)
+    @test isemptytype(arrtyp)
+    @test isemptytype(LLVM.ArrayType(LLVM.StructType(LLVMType[]), 4))
+    @test !isemptytype(eltyp)
 end
 if LLVM.version() >= v"17" && Sys.WORD_SIZE == 64
     # arrays can have more than 2^32 elements
     @dispose ctx=Context() begin
         arrtyp = LLVM.ArrayType(LLVM.Int8Type(), 2^32 + 1)
-        @test length(arrtyp) == 2^32 + 1
+        @test arrtyp.length == 2^32 + 1
         @test string(arrtyp) == "[4294967297 x i8]"
     end
 end
@@ -161,10 +169,10 @@ end
     eltyp = LLVM.Int32Type()
 
     vectyp = LLVM.VectorType(eltyp, 2)
-    @test eltype(vectyp) == eltyp
+    @test vectyp.element_type == eltyp
     @test context(vectyp) == context(eltyp)
 
-    @test length(vectyp) == 2
+    @test vectyp.length == 2
 end
 
 # structure
@@ -228,9 +236,6 @@ end
     st = LLVM.StructType("SomeType")
 
     let ts = ctx.types
-        @test keytype(ts) == String
-        @test valtype(ts) == LLVMType
-
         @test haskey(ts, "SomeType")
         @test ts["SomeType"] == st
 
@@ -249,7 +254,7 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     @test entry.name == "entry"
 
     typ = LLVM.Int32Type()
@@ -298,7 +303,7 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     valueinst1 = add!(builder, fn.parameters[1],
                       ConstantInt(Int32(1)))
@@ -571,36 +576,38 @@ end
         vec = Int128[1,2,3,4]
         ca = ConstantArray(vec)
         @test ca isa ConstantArray
-        @test size(vec) == size(ca)
-        @test length(vec) == length(ca)
-        @test ca[1] == ConstantInt(vec[1])
-        @test collect(ca) == ConstantInt.(vec)
+        @test length(ca.elements) == 4
+        @test ca.elements[1] == ConstantInt(vec[1])
+        @test collect(ca.elements) == ConstantInt.(vec)
+        @test eltype(ca.elements) == LLVM.Constant
     end
     let
-        # tests for ConstantAggregateZero, constructed indirectly.
-        # should behave similarly to ConstantArray since it can get returned there.
+        # LLVM represents aggregates of zeros as a ConstantAggregateZero, whose elements
+        # are available too
         ca = ConstantArray(Int[])
         @test ca isa ConstantAggregateZero
-        @test size(ca) == (0,)
-        @test length(ca) == 0
-        @test isempty(collect(ca))
+        @test isempty(ca.elements)
+
+        ca = ConstantArray(Int[0, 0, 0])
+        @test ca isa ConstantAggregateZero
+        @test collect(ca.elements) == fill(ConstantInt(0), 3)
     end
 
-    # multidimensional
+    # multidimensional arrays are arrays of arrays
     let
         vec = rand(Int, 2,3,4)
         ca = ConstantArray(vec)
-        @test size(vec) == size(ca)
-        @test length(vec) == length(ca)
-        @test collect(ca) == ConstantInt.(vec)
+        @test length(ca.elements) == 2
+        @test ca.elements[2].value_type == LLVM.ArrayType(LLVM.ArrayType(LLVM.Int64Type(), 4), 3)
+        @test ca.elements[2].elements[3].elements[4] == ConstantInt(vec[2,3,4])
     end
 
-    # multidimensional, with rows that aren't stored as packed data
+    # with rows that aren't stored as packed data
     let
         mod = parse(LLVM.Module, "@g = global [2 x [2 x i32]] [[2 x i32] zeroinitializer, [2 x i32] [i32 1, i32 2]]")
         ca = mod.globals["g"].initializer
         @test ca isa ConstantArray
-        @test convert.(Int, collect(ca)) == [0 0; 1 2]
+        @test [convert(Int, x) for row in ca.elements for x in row.elements] == [0, 0, 1, 2]
         dispose(mod)
     end
 
@@ -671,7 +678,7 @@ end
         cda = ConstantDataArray(eltyp, vec)
         @test cda isa ConstantDataArray
         @test cda.value_type == LLVM.ArrayType(eltyp, 4)
-        @test collect(cda) == ConstantInt.(vec)
+        @test collect(cda.elements) == ConstantInt.(vec)
     end
 
     # strings
@@ -689,8 +696,8 @@ end
         vec = T[1,2,3,4]
         cda = ConstantDataArray(vec)
         @test cda isa ConstantDataArray
-        @test size(vec) == size(cda)
-        @test collect(cda) == ConstantInt.(vec)
+        @test length(cda.elements) == length(vec)
+        @test collect(cda.elements) == ConstantInt.(vec)
     end
     for T in [Float32, Float64, BFloat16]
         vec = if T == BFloat16
@@ -702,16 +709,16 @@ end
         end
         cda = ConstantDataArray(vec)
         @test cda isa ConstantDataArray
-        @test size(vec) == size(cda)
-        @test collect(cda) == ConstantFP.(vec)
+        @test length(cda.elements) == length(vec)
+        @test collect(cda.elements) == ConstantFP.(vec)
     end
 
     # from vectors that aren't stored contiguously
     for vec in [Int32(1):Int32(3), view(Int32[1,0,2,0,3], 1:2:5),
                 reinterpret(Int32, Int64[1, 2])]
         cda = ConstantDataArray(vec)
-        @test size(cda) == size(vec)
-        @test collect(cda) == ConstantInt.(vec)
+        @test length(cda.elements) == length(vec)
+        @test collect(cda.elements) == ConstantInt.(vec)
     end
 
     # unsupported element types
@@ -905,7 +912,7 @@ if LLVM.version() >= v"17"
     gv = GlobalVariable(mod, T_arr, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     loadinst = load!(builder, T_i32, ce)
     ret!(builder, loadinst)
@@ -930,7 +937,7 @@ end
     gv = GlobalVariable(mod, T_i32, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ret!(builder, load!(builder, T_i32, gv))
 
     @test !convert_users_to_instructions!(LLVM.Constant[gv])
@@ -949,11 +956,11 @@ end
     left = BasicBlock(fn, "left")
     merge = BasicBlock(fn, "merge")
 
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     br!(builder, fn.parameters[1], left, merge)
-    position!(builder, left)
+    position!(builder, LLVM.at_end(left))
     br!(builder, merge)
-    position!(builder, merge)
+    position!(builder, LLVM.at_end(merge))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     phi = phi!(builder, T_ptr)
     append!(phi.incoming, [(ce, left), (null(T_ptr), entry)])
@@ -978,12 +985,12 @@ if LLVM.version() >= v"19"
     idxs = LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))]
 
     f1 = LLVM.Function(mod, "f1", ft)
-    position!(builder, BasicBlock(f1, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f1, "entry")))
     l1 = load!(builder, T_i32, const_gep(T_arr, gv, idxs))
     ret!(builder, l1)
 
     f2 = LLVM.Function(mod, "f2", ft)
-    position!(builder, BasicBlock(f2, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f2, "entry")))
     l2 = load!(builder, T_i32, const_gep(T_arr, gv, idxs))
     ret!(builder, l2)
 
@@ -1000,7 +1007,7 @@ end
     gv = GlobalVariable(mod, T_arr, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(1))])
     loadinst = load!(builder, T_i32, ce)
     ret!(builder, loadinst)
@@ -1021,7 +1028,7 @@ end
     gv = GlobalVariable(mod, T_arr, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     ret!(builder, load!(builder, T_i32, ce))
 
@@ -1246,7 +1253,7 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
     @dispose builder=IRBuilder() begin
-        position!(builder, BasicBlock(fn, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
         ret!(builder)
     end
     fa = GlobalAlias(mod, fn, "SomeFunctionAlias")
@@ -1289,7 +1296,7 @@ end
     @dispose builder=IRBuilder() begin
         for (f, ret) in ((impl, ConstantInt(Int32(0))), (other_impl, ConstantInt(Int32(1))),
                          (resolver_fn, impl), (other_resolver_fn, other_impl))
-            position!(builder, BasicBlock(f, "entry"))
+            position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
             ret!(builder, ret)
         end
     end
@@ -1325,11 +1332,11 @@ end
     ft = LLVM.FunctionType(LLVM.Int32Type())
     fn = LLVM.Function(mod, "SomeFunction", ft)
     resolver_fn = LLVM.Function(mod, "resolver", LLVM.FunctionType(fn.value_type))
-    position!(builder, BasicBlock(resolver_fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(resolver_fn, "entry")))
     ret!(builder, fn)
     ifunc = GlobalIFunc(mod, ft, resolver_fn, "SomeIFunc")
 
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ld = load!(builder, LLVM.Int32Type(), ga)
     call = call!(builder, ft, ifunc)
     ret!(builder, add!(builder, ld, call))
@@ -1384,7 +1391,7 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType())
     f1 = LLVM.Function(mod, "f1", ft)
 
-    push!(mod.metadata["function"].operands, MDNode([f1]))
+    push!(get!(mod.metadata, "function").operands, MDNode([f1]))
     @test Value(mod.metadata["function"].operands[1].operands[1]) == f1
 
     f2 = LLVM.Function(mod, "f2", ft)
@@ -1397,7 +1404,7 @@ end
     ft1 = LLVM.FunctionType(LLVM.VoidType())
     f1 = LLVM.Function(mod, "f1", ft1)
 
-    push!(mod.metadata["function"].operands, MDNode([f1]))
+    push!(get!(mod.metadata, "function").operands, MDNode([f1]))
     @test Value(mod.metadata["function"].operands[1].operands[1]) == f1
 
     ft2 = LLVM.FunctionType(LLVM.Int32Type())
@@ -1410,7 +1417,7 @@ end
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])
     f = LLVM.Function(mod, "f", ft)
-    position!(builder, BasicBlock(f, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
     x, y = f.parameters
     inst = ret!(builder)
     inst.metadata["foo"] = MDNode([Metadata(x)])
@@ -1602,8 +1609,14 @@ end
         @test valtype(mds) == NamedMDNode
 
         @test !haskey(mds, "SomeMDNode")
-        @test !(node in mds["SomeMDNode"].operands)
-        @test haskey(mds, "SomeMDNode") # getindex is mutating
+        @test_throws KeyError mds["SomeMDNode"]
+        @test get(mds, "SomeMDNode", nothing) === nothing
+        @test isempty(mds) && length(mds) == 0
+        @test !(node in get!(mds, "SomeMDNode").operands)
+        @test haskey(mds, "SomeMDNode")
+        @test get(mds, "SomeMDNode", nothing) == mds["SomeMDNode"]
+        @test length(mds) == 1
+        @test first(mds) == ("SomeMDNode" => mds["SomeMDNode"])
 
         ops = mds["SomeMDNode"].operands
         @test push!(ops, node) === ops
@@ -1665,11 +1678,15 @@ end
     gvs = mod.globals
 
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
-    move_before(b, c)
+    @test move!(b, LLVM.before(c)) === b
     @test [gv.name for gv in gvs] == ["b", "c", "a"]
-    move_after(b, a)
+    move!(b, LLVM.after(a))
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
-    move_before(a, a)
+    move!(a, LLVM.before(a))
+    @test [gv.name for gv in gvs] == ["c", "a", "b"]
+    move!(b, LLVM.at_begin(gvs))
+    @test [gv.name for gv in gvs] == ["b", "c", "a"]
+    move!(b, LLVM.at_end(gvs))
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
     @test length(collect(gvs)) == 3
 
@@ -1687,7 +1704,7 @@ end
     ft = LLVM.FunctionType(gv.value_type)
     resolver_fn = LLVM.Function(mod, "resolver", ft)
     @dispose builder=IRBuilder() begin
-        position!(builder, BasicBlock(resolver_fn, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(resolver_fn, "entry")))
         ret!(builder, null(gv.value_type))
     end
 
@@ -1806,7 +1823,7 @@ end
     @test convert(String, MDString("é")) == "é"
     mod.name = "módulo"
     @test mod.name == "módulo"
-    push!(mod.metadata["métadonnées"].operands, MDNode([MDString("x")]))
+    push!(get!(mod.metadata, "métadonnées").operands, MDNode([MDString("x")]))
     @test haskey(mod.metadata, "métadonnées")
     mod.flags["drapeau", LLVM.ModuleFlagBehavior.Error] = Metadata(ConstantInt(Int32(1)))
     @test haskey(mod.flags, "drapeau")
@@ -1870,11 +1887,15 @@ end
     fns = mod.functions
 
     @test [f.name for f in fns] == ["c", "a", "b"]
-    move_before(b, c)
+    @test move!(b, LLVM.before(c)) === b
     @test [f.name for f in fns] == ["b", "c", "a"]
-    move_after(b, a)
+    move!(b, LLVM.after(a))
     @test [f.name for f in fns] == ["c", "a", "b"]
-    move_after(a, a)
+    move!(a, LLVM.after(a))
+    @test [f.name for f in fns] == ["c", "a", "b"]
+    move!(b, LLVM.at_begin(fns))
+    @test [f.name for f in fns] == ["b", "c", "a"]
+    move!(b, LLVM.at_end(fns))
     @test [f.name for f in fns] == ["c", "a", "b"]
     @test length(collect(fns)) == 3
 
@@ -1895,7 +1916,7 @@ end
     fn = LLVM.Function(source_mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     ret!(builder)
 
@@ -1935,7 +1956,7 @@ end
     fn = LLVM.Function(source_mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     ret!(builder)
 
@@ -2069,7 +2090,7 @@ end
     @test fn isa LLVM.Function
 
     if supports_typed_pointers(ctx)
-        @test eltype(fn.value_type) == ft
+        @test fn.value_type.element_type == ft
     end
     @test isintrinsic(fn)
 
@@ -2097,7 +2118,7 @@ end
     fn = LLVM.Function(mod, intr, [LLVM.DoubleType()])
     @test fn isa LLVM.Function
     if supports_typed_pointers(ctx)
-        @test eltype(fn.value_type) == ft
+        @test fn.value_type.element_type == ft
     end
     @test isintrinsic(fn)
 
@@ -2131,7 +2152,7 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
     caller = LLVM.Function(mod, "CallSomeFunction", ft)
     top = LLVM.BasicBlock(caller, "top")
-    position!(builder, top)
+    position!(builder, LLVM.at_end(top))
     instr = call!(builder, ft, fn, LLVM.Value[ fn.parameters... ])
 
     let attrs = fn.function_attributes, instr_attrs = instr.function_attributes
@@ -2252,7 +2273,7 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(LLVM.Int8Type())])
     fn = LLVM.Function(mod, "SomeFunction", ft)
     caller = LLVM.Function(mod, "CallSomeFunction", ft)
-    position!(builder, LLVM.BasicBlock(caller, "top"))
+    position!(builder, LLVM.at_end(LLVM.BasicBlock(caller, "top")))
     instr = call!(builder, ft, fn, LLVM.Value[caller.parameters[1]])
 
     @test_throws ArgumentError EnumAttribute(:nonexisting)
@@ -2450,7 +2471,7 @@ if LLVM.version() >= v"16"
         @test_throws ArgumentError MemoryEffects(fn.return_attributes)
 
         caller = LLVM.Function(mod, "SomeCaller", ft)
-        position!(builder, BasicBlock(caller, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(caller, "entry")))
         call = call!(builder, ft, fn, [caller.parameters[1]])
         ret!(builder)
 
@@ -2463,10 +2484,26 @@ if LLVM.version() >= v"16"
         @test occursin("memory(none)", string(mod))     # nothing else has these effects
         @test_throws ArgumentError MemoryEffects(call.argument_attributes[1])
 
+        # which are available as a view too
+        @test call.memory_effects isa FunctionMemoryEffects
+        @test call.memory_effects == MemoryEffects(:none)
+        call.memory_effects[:argmem] = :read
+        @test call.memory_effects == MemoryEffects(argmem=:read)
+        @test length(call.function_attributes) == 1
+        call.memory_effects = fn.memory_effects
+        @test call.memory_effects == MemoryEffects(argmem=:read)
+        fn.memory_effects = MemoryEffects(:none)
+        @test call.memory_effects == MemoryEffects(argmem=:read)
+        @test occursin("call void @SomeFunction(i32 %0) #", string(call))
+
         @test verify(mod) === nothing
     end
 else
     @test_throws ArgumentError MemoryEffects(:read)
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
+        @test !hasproperty(fn, :memory_effects)
+    end
 end
 
 # parameter iteration
@@ -2539,11 +2576,11 @@ end
     @test_throws BoundsError first(bb2.instructions)
     @test_throws BoundsError last(bb2.instructions)
 
-    bb1 = BasicBlock(bb2, "SomeBasicBlock")
+    bb1 = BasicBlock(LLVM.before(bb2), "SomeBasicBlock")
     @test bb2.parent == fn
-    position!(builder, bb1)
+    position!(builder, LLVM.at_end(bb1))
     brinst = br!(builder, bb2)
-    position!(builder, bb2)
+    position!(builder, LLVM.at_end(bb2))
     retinst = ret!(builder)
     @test !isempty(bb2.instructions)
     @test collect(bb2.predecessors) == [bb1]
@@ -2560,7 +2597,12 @@ end
     bb3 = BasicBlock("YetAnotherBasicBlock")
     @test bb3.parent == nothing
     @test bb3.terminator == nothing
-    # XXX: can we insert this block into the function?
+    move!(bb3, LLVM.at_end(fn))
+    @test bb3.parent == fn
+    remove!(bb3)
+    @test bb3.parent == nothing
+    # blocks that aren't part of a function can be erased
+    erase!(bb3)
 
     # instruction iteration
     let insts = bb1.instructions
@@ -2585,10 +2627,10 @@ end
         @test first(bbs) == bb1
         @test last(bbs) == bb2
 
-        move_before(bb2, bb1)
+        @test move!(bb2, LLVM.before(bb1)) === bb2
         @test collect(bbs) == [bb2, bb1]
 
-        move_after(bb2, bb1)
+        move!(bb2, LLVM.after(bb1))
         @test collect(bbs) == [bb1, bb2]
 
         @test bb1 in bbs
@@ -2617,7 +2659,7 @@ end
     bb2 = BasicBlock(fn, "then")
     bb3 = BasicBlock(fn, "else")
 
-    position!(builder, bb1)
+    position!(builder, LLVM.at_end(bb1))
     addinst = add!(builder, fn.parameters[1], fn.parameters[2])
     brinst = br!(builder, fn.parameters[1], bb2, bb3)
     @test brinst.opcode == LLVM.API.LLVMBr
@@ -2637,10 +2679,10 @@ end
         @test @allocated(walk(bb1)) <= 4 * sizeof(Int) * nvals
     end
 
-    position!(builder, bb2)
+    position!(builder, LLVM.at_end(bb2))
     retinst = ret!(builder)
 
-    position!(builder, bb3)
+    position!(builder, LLVM.at_end(bb3))
     retinst = ret!(builder)
 
     # terminators
@@ -2742,7 +2784,7 @@ end
     ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
     f = LLVM.Function(mod, "f", ft)
     bb = BasicBlock(f, "entry")
-    position!(builder, bb)
+    position!(builder, LLVM.at_end(bb))
     x = f.parameters[1]
     call = call!(builder, ft, f, [x])
     ret!(builder, call)
@@ -2817,7 +2859,7 @@ end
     entry = BasicBlock(fn, "entry")
     exit = BasicBlock(fn, "exit")
     @test bbs[2] == exit
-    middle = BasicBlock(exit, "middle")
+    middle = BasicBlock(LLVM.before(exit), "middle")
     @test bbs == [entry, middle, exit]
     @test bbs[2] == middle
     @test bbs[3] == exit
@@ -2831,13 +2873,13 @@ end
     # the predecessors of a block are a read-only view, derived from its uses
     preds = exit.predecessors
     @test isempty(preds)
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     call = call!(builder, ft, fn, [x, y])
     br = br!(builder, exit)
     @test collect(preds) == [entry]
     @test length(preds) == 1
     @test_throws MethodError push!(preds, entry)
-    position!(builder, exit)
+    position!(builder, LLVM.at_end(exit))
     ret!(builder)
 
     # the arguments of a call are a mutable view of its operands
@@ -2887,6 +2929,9 @@ end
     @test_throws BoundsError elems[3]
     @test_throws CanonicalIndexError elems[1] = LLVM.Int64Type()
     @test ctx.types["SomeStruct"] == st
+    @test get(ctx.types, "SomeStruct", nothing) == st
+    @test get(ctx.types, "OtherStruct", nothing) === nothing
+    @test !(ctx.types isa AbstractDict)
 end
 
 # objects in a list can navigate to their siblings
@@ -2907,14 +2952,14 @@ end
     @test y.prev == x
     @test y.next === nothing
 
-    foo, bar = mod.metadata["foo"], mod.metadata["bar"]
+    foo, bar = get!(mod.metadata, "foo"), get!(mod.metadata, "bar")
     @test foo.prev === nothing
     @test foo.next == bar
     @test bar.prev == foo
     @test bar.next === nothing
 
     # objects that are not part of a list have no siblings
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     inst = ret!(builder)
     remove!(inst)
     @test inst.next === nothing
@@ -2932,7 +2977,7 @@ end
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     inst = ret!(builder)
 
     md = inst.metadata
@@ -2949,6 +2994,48 @@ end
     flags["foo", LLVM.API.LLVMModuleFlagBehaviorError] = val
     @test collect(flags) == ["foo" => val]
     @test length(flags) == 1
+end
+
+end
+
+@testset "collection inputs" begin
+
+# functions that take collections of IR objects accept any vector, like the views of the IR
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    i32 = LLVM.Int32Type()
+    st = LLVM.StructType([i32, i32])
+    ft = LLVM.FunctionType(st, [i32, i32, LLVM.PointerType(i32)])
+    f = LLVM.Function(mod, "f", ft)
+    x, y, ptr = f.parameters
+    entry = BasicBlock(f, "entry")
+    position!(builder, LLVM.at_end(entry))
+
+    idxs = @view LLVM.Value[x, y][1:1]
+    gep = gep!(builder, i32, ptr, idxs)
+    @test gep.operands[2] == x
+    gep = inbounds_gep!(builder, i32, ptr, idxs)
+    @test gep.operands[2] == x
+
+    c = ConstantStruct(@view LLVM.Constant[ConstantInt(Int32(1)), ConstantInt(Int32(2))][1:2])
+    @test ConstantStruct(c.elements) == c
+    @test ConstantStruct(st, c.elements).value_type == st
+    @test const_gep(i32, null(LLVM.PointerType(i32)), @view(LLVM.Constant[ConstantInt(1)][:])) isa Constant
+
+    callee = LLVM.Function(mod, "g", LLVM.FunctionType(LLVM.VoidType()))
+    bundles = [OperandBundle("deopt", LLVM.Value[x])]
+    call = call!(builder, callee.function_type, callee, LLVM.Value[], @view(bundles[1:1]))
+    @test length(call.operand_bundles) == 1
+
+    ret!(builder, @view LLVM.Value[x, y][1:2])
+    @test verify(mod) === nothing
+
+    # dictionaries of values
+    g = clone(f; value_map=IdDict{LLVM.Value,LLVM.Value}(y => ConstantInt(Int32(0))))
+    @test length(g.parameters) == 2
+    @test verify(mod) === nothing
+
+    md = MDNode(@view LLVM.Metadata[MDString("a"), MDString("b")][1:2])
+    @test length(md.operands) == 2
 end
 
 end

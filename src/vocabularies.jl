@@ -46,7 +46,7 @@ Construction of IR: the `IRBuilder` and its instruction-building functions (`add
     using LLVM, LLVM.IR, LLVM.Build
 
     @dispose builder=IRBuilder() begin
-        position!(builder, BasicBlock(f, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
         ret!(builder, add!(builder, f.parameters...))
     end
 """

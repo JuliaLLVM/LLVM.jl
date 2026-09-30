@@ -1,5 +1,4 @@
-@vocabulary IR BasicBlock, remove!, erase!,
-               move_before, move_after
+@vocabulary IR BasicBlock, remove!, erase!
 
 """
     BasicBlock
@@ -74,15 +73,6 @@ BasicBlock(f::Function, name::String;) =
     BasicBlock(API.LLVMAppendBasicBlockInContext(context(f), f, name))
 
 """
-    BasicBlock(bb::BasicBlock, name::String)
-
-Create a new, empty basic block with the given name, and insert it before the given basic
-block.
-"""
-BasicBlock(bb::BasicBlock, name::String) =
-    BasicBlock(API.LLVMInsertBasicBlockInContext(context(bb), bb, name))
-
-"""
     remove!(bb::BasicBlock)
 
 Remove the given basic block from its parent function, but do not free the object.
@@ -90,15 +80,15 @@ Remove the given basic block from its parent function, but do not free the objec
 remove!(bb::BasicBlock) = API.LLVMRemoveBasicBlockFromParent(bb)
 
 """
-    erase!(fun::Function, bb::BasicBlock)
+    erase!(bb::BasicBlock)
 
-Remove the given basic block from its parent function and free the object.
+Remove the given basic block from its parent function, if any, and free the object.
 
 !!! warning
 
     This function is unsafe because it does not check if the basic block is used elsewhere.
 """
-erase!(bb::BasicBlock) = API.LLVMDeleteBasicBlock(bb)
+erase!(bb::BasicBlock) = API.LLVMExtraDeleteBasicBlock(bb)
 
 function parent(bb::BasicBlock)
     ref = API.LLVMGetBasicBlockParent(bb)
@@ -117,22 +107,6 @@ end
 @property BasicBlock terminator
 
 name(bb::BasicBlock) = unsafe_string(API.LLVMGetBasicBlockName(bb))
-
-"""
-    move_before(bb::BasicBlock, pos::BasicBlock)
-
-Move the given basic block before the given position.
-"""
-move_before(bb::BasicBlock, pos::BasicBlock) =
-    API.LLVMMoveBasicBlockBefore(bb, pos)
-
-"""
-    move_after(bb::BasicBlock, pos::BasicBlock)
-
-Move the given basic block after the given position.
-"""
-move_after(bb::BasicBlock, pos::BasicBlock) =
-    API.LLVMMoveBasicBlockAfter(bb, pos)
 
 
 ## instruction iteration

@@ -162,18 +162,24 @@ julia> ConstantArray(ty, [val])
 [1 x { i32 }] [{ i32 } { i32 42 }]
 ```
 
-Both `ConstantDataArray` and `ConstantArray` can, to some extent, be manipulated with plain
-Julia array operations:
+The elements of aggregate constants, including `ConstantDataArray`s and `zeroinitializer`s
+(which LLVM uses to represent simple and zero data), are available as the `elements`
+property, a read-only vector of constants:
 
 ```jldoctest
 julia> arr = ConstantArray([1, 2])
 [2 x i64] [i64 1, i64 2]
 
-julia> length(arr)
+julia> length(arr.elements)
 2
 
-julia> arr[1]
+julia> arr.elements[1]
 i64 1
+
+julia> ConstantArray([0, 0]).elements
+2-element LLVM.ConstantAggregateElementSet:
+ i64 0
+ i64 0
 ```
 
 ### Constant expressions

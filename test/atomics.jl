@@ -40,7 +40,7 @@ end
     ptr_str = supports_typed_pointers(ctx) ? "i32\\* %0" : "ptr %0"
     f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [T_ptr, T_int, T_float]))
     ptr, int, float = f.parameters
-    position!(builder, BasicBlock(f, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
 
     ld = load!(builder, T_int, ptr; ordering=AC, scope="agent", align=8, volatile=true)
     @test occursin(Regex("load atomic volatile i32, $ptr_str syncscope\\(\"agent\"\\) acquire, align 8"),
@@ -78,7 +78,7 @@ end
     @test verify(mod) === nothing
 
     # invalid IR is rejected before building it
-    position!(builder, BasicBlock(f, "invalid"))
+    position!(builder, LLVM.at_end(BasicBlock(f, "invalid")))
     @test_throws "release semantics" load!(builder, T_int, ptr; ordering=RE)
     @test_throws "synchronization scope" load!(builder, T_int, ptr; scope="agent")
     @test_throws "acquire semantics" store!(builder, int, ptr; ordering=AC)
@@ -92,7 +92,7 @@ end
     @test_throws "integer or pointer values" atomic_cmpxchg!(builder, ptr, float, float, SC)
     @test_throws "same type" atomic_cmpxchg!(builder, ptr, int, float, SC)
     @test_throws "release or acq_rel" atomic_cmpxchg!(builder, ptr, int, int, SC, RE)
-    @test isempty(position(builder).instructions)
+    @test isempty(builder.insert_block.instructions)
 end
 end
 
@@ -101,7 +101,7 @@ end
     T_int = LLVM.Int32Type()
     f = LLVM.Function(mod, "f", LLVM.FunctionType(T_int, [LLVM.PointerType(T_int), T_int]))
     ptr, int = f.parameters
-    position!(builder, BasicBlock(f, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
 
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, int, MO)
     mmra!(rmw, "amdgpu-as" => "local")
@@ -131,7 +131,7 @@ end
     T_i8, T_i32, T_float = LLVM.Int8Type(), LLVM.Int32Type(), LLVM.FloatType()
     function newfun(name, T)
         f = LLVM.Function(mod, name, LLVM.FunctionType(T, [LLVM.PointerType(T), T]))
-        position!(builder, BasicBlock(f, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
         return f, f.parameters...
     end
 

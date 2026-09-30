@@ -762,7 +762,7 @@ end
 """
     struct_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                 file::DIFile, line::Integer, size_in_bits::Integer,
-                align_in_bits::Integer, elements::Vector{<:Metadata};
+                align_in_bits::Integer, elements::AbstractVector{<:Metadata};
                 flags=API.LLVMDIFlagZero, derived_from=nothing,
                 runtime_lang::Integer=0, vtable_holder=nothing,
                 unique_id::AbstractString="") -> DICompositeType
@@ -771,7 +771,7 @@ Create a new struct type.
 """
 function struct_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                      file::DIFile, line::Integer, size_in_bits::Integer,
-                     align_in_bits::Integer, elements::Vector{<:Metadata};
+                     align_in_bits::Integer, elements::AbstractVector{<:Metadata};
                      flags=API.LLVMDIFlagZero, derived_from=nothing,
                      runtime_lang::Integer=0, vtable_holder=nothing,
                      unique_id::AbstractString="")
@@ -790,7 +790,7 @@ end
 """
     union_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                file::DIFile, line::Integer, size_in_bits::Integer,
-               align_in_bits::Integer, elements::Vector{<:Metadata};
+               align_in_bits::Integer, elements::AbstractVector{<:Metadata};
                flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
                unique_id::AbstractString="") -> DICompositeType
 
@@ -798,7 +798,7 @@ Create a new union type.
 """
 function union_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                     file::DIFile, line::Integer, size_in_bits::Integer,
-                    align_in_bits::Integer, elements::Vector{<:Metadata};
+                    align_in_bits::Integer, elements::AbstractVector{<:Metadata};
                     flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
                     unique_id::AbstractString="")
     elts = convert(Vector{Metadata}, elements)
@@ -815,7 +815,7 @@ end
     class_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                file::DIFile, line::Integer, size_in_bits::Integer,
                align_in_bits::Integer, offset_in_bits::Integer,
-               elements::Vector{<:Metadata};
+               elements::AbstractVector{<:Metadata};
                flags=API.LLVMDIFlagZero, derived_from=nothing,
                vtable_holder=nothing, template_params=nothing,
                unique_id::AbstractString="") -> DICompositeType
@@ -825,7 +825,7 @@ Create a new C++ class type.
 function class_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                     file::DIFile, line::Integer, size_in_bits::Integer,
                     align_in_bits::Integer, offset_in_bits::Integer,
-                    elements::Vector{<:Metadata};
+                    elements::AbstractVector{<:Metadata};
                     flags=API.LLVMDIFlagZero, derived_from=nothing,
                     vtable_holder=nothing, template_params=nothing,
                     unique_id::AbstractString="")
@@ -844,13 +844,13 @@ end
 
 """
     array_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
-               element_type::DIType, subscripts::Vector{<:Metadata}) -> DICompositeType
+               element_type::DIType, subscripts::AbstractVector{<:Metadata}) -> DICompositeType
 
 Create a new array type. Subscripts are typically built with
 [`get_or_create_subrange!`](@ref).
 """
 function array_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
-                    element_type::DIType, subscripts::Vector{<:Metadata})
+                    element_type::DIType, subscripts::AbstractVector{<:Metadata})
     subs = convert(Vector{Metadata}, subscripts)
     DICompositeType(API.LLVMDIBuilderCreateArrayType(
         builder, UInt64(size), UInt32(align_in_bits),
@@ -859,13 +859,13 @@ end
 
 """
     vector_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
-                element_type::DIType, subscripts::Vector{<:Metadata}) -> DICompositeType
+                element_type::DIType, subscripts::AbstractVector{<:Metadata}) -> DICompositeType
 
 Create a new vector type. Subscripts are typically built with
 [`get_or_create_subrange!`](@ref).
 """
 function vector_type!(builder::DIBuilder, size::Integer, align_in_bits::Integer,
-                     element_type::DIType, subscripts::Vector{<:Metadata})
+                     element_type::DIType, subscripts::AbstractVector{<:Metadata})
     subs = convert(Vector{Metadata}, subscripts)
     DICompositeType(API.LLVMDIBuilderCreateVectorType(
         builder, UInt64(size), UInt32(align_in_bits),
@@ -887,7 +887,7 @@ end
 """
     enumeration_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                      file::DIFile, line::Integer, size_in_bits::Integer,
-                     align_in_bits::Integer, elements::Vector{<:Metadata};
+                     align_in_bits::Integer, elements::AbstractVector{<:Metadata};
                      class_ty=nothing) -> DICompositeType
 
 Create a new enumeration type. `elements` should be a vector of
@@ -895,7 +895,7 @@ Create a new enumeration type. `elements` should be a vector of
 """
 function enumeration_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                           file::DIFile, line::Integer, size_in_bits::Integer,
-                          align_in_bits::Integer, elements::Vector{<:Metadata};
+                          align_in_bits::Integer, elements::AbstractVector{<:Metadata};
                           class_ty=nothing)
     elts = convert(Vector{Metadata}, elements)
     DICompositeType(API.LLVMDIBuilderCreateEnumerationType(
@@ -958,7 +958,7 @@ end
 """
     subroutine_type!(builder::DIBuilder, file::DIFile,
                     return_type::Union{DIType,Nothing},
-                    parameter_types::Vector{<:Metadata}=Metadata[];
+                    parameter_types::AbstractVector{<:Metadata}=Metadata[];
                     flags=API.LLVMDIFlagZero) -> DISubroutineType
 
 Create a new subroutine type with the given return and parameter types. Pass
@@ -966,7 +966,7 @@ Create a new subroutine type with the given return and parameter types. Pass
 """
 function subroutine_type!(builder::DIBuilder, file::DIFile,
                          return_type::Union{DIType,Nothing},
-                         parameter_types::Vector{<:Metadata}=Metadata[];
+                         parameter_types::AbstractVector{<:Metadata}=Metadata[];
                          flags=API.LLVMDIFlagZero)
     # LLVM packs the return type as the 0th element of the parameter-types array,
     # with a null entry standing for `void`.
@@ -996,23 +996,23 @@ get_or_create_subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer
         builder, Int64(lower_bound), Int64(count)))
 
 """
-    get_or_create_array!(builder::DIBuilder, elements::Vector{<:Metadata})
+    get_or_create_array!(builder::DIBuilder, elements::AbstractVector{<:Metadata})
 
 Get or create a generic metadata array node, used for lists such as
 `elements` fields of composite types.
 """
-function get_or_create_array!(builder::DIBuilder, elements::Vector{<:Metadata})
+function get_or_create_array!(builder::DIBuilder, elements::AbstractVector{<:Metadata})
     elts = convert(Vector{Metadata}, elements)
     Metadata(API.LLVMDIBuilderGetOrCreateArray(builder, elts, Csize_t(length(elts))))
 end
 
 """
-    get_or_create_type_array!(builder::DIBuilder, types::Vector{<:Metadata})
+    get_or_create_type_array!(builder::DIBuilder, types::AbstractVector{<:Metadata})
 
 Get or create a metadata node for a type array, used for e.g. template
 parameter lists.
 """
-function get_or_create_type_array!(builder::DIBuilder, types::Vector{<:Metadata})
+function get_or_create_type_array!(builder::DIBuilder, types::AbstractVector{<:Metadata})
     tys = convert(Vector{Metadata}, types)
     Metadata(API.LLVMDIBuilderGetOrCreateTypeArray(builder, tys, Csize_t(length(tys))))
 end
@@ -1135,7 +1135,7 @@ end
     dynamic_array_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                       line::Integer, file::DIFile, size::Integer,
                       align_in_bits::Integer, element_type::DIType,
-                      subscripts::Vector{<:Metadata};
+                      subscripts::AbstractVector{<:Metadata};
                       data_location=nothing, associated=nothing,
                       allocated=nothing, rank=nothing,
                       bit_stride=nothing) -> DICompositeType
@@ -1146,7 +1146,7 @@ Requires LLVM 21+.
 function dynamic_array_type!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                            line::Integer, file::DIFile, size::Integer,
                            align_in_bits::Integer, element_type::DIType,
-                           subscripts::Vector{<:Metadata};
+                           subscripts::AbstractVector{<:Metadata};
                            data_location=nothing, associated=nothing,
                            allocated=nothing, rank=nothing,
                            bit_stride=nothing)
@@ -1165,13 +1165,13 @@ end
 
 """
     enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
-                   size_in_bits::Integer, words::Vector{UInt64};
+                   size_in_bits::Integer, words::AbstractVector{UInt64};
                    unsigned::Bool=false) -> DIEnumerator
 
 Create a new arbitrary-precision enumerator. Requires LLVM 21+.
 """
 function enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
-                        size_in_bits::Integer, words::Vector{UInt64};
+                        size_in_bits::Integer, words::AbstractVector{UInt64};
                         unsigned::Bool=false)
     # LLVM reads cld(size_in_bits, 64) words from the array
     if length(words) < cld(size_in_bits, 64)
@@ -1179,7 +1179,7 @@ function enumerator_arbitrary!(builder::DIBuilder, name::AbstractString,
     end
     DIEnumerator(API.LLVMDIBuilderCreateEnumeratorOfArbitraryPrecision(
         builder, name, Csize_t(ncodeunits(name)),
-        UInt64(size_in_bits), words, unsigned))
+        UInt64(size_in_bits), as_vector(words), unsigned))
 end
 
 end # @static if version() >= v"21"
@@ -1434,14 +1434,14 @@ register(DIGlobalVariableExpression, API.LLVMDIGlobalVariableExpressionMetadataK
 
 """
     expression!(builder::DIBuilder,
-                addr::Vector{UInt64}=UInt64[]) -> DIExpression
+                addr::AbstractVector{<:Integer}=UInt64[]) -> DIExpression
 
 Create a new [`DIExpression`](@ref) from the given array of opcodes (encoding
 a DWARF expression such as `DW_OP_plus_uconst`).
 """
-function expression!(builder::DIBuilder, addr::Vector{UInt64}=UInt64[])
+function expression!(builder::DIBuilder, addr::AbstractVector{<:Integer}=UInt64[])
     DIExpression(API.LLVMDIBuilderCreateExpression(
-        builder, addr, Csize_t(length(addr))))
+        builder, Vector{UInt64}(addr), Csize_t(length(addr))))
 end
 
 """
@@ -1602,50 +1602,46 @@ end
 
 ## instruction insertion
 
-@vocabulary Build declare_before!, declare_at_end!, value_before!, value_at_end!
+@vocabulary Build dbg_declare!, dbg_value!
 
 """
-    declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                    expr::DIExpression, debugloc::DILocation,
-                    instr::Instruction)
+    dbg_declare!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                 expr::DIExpression, debugloc::DILocation,
+                 pos::InsertionPoint{Instruction})
 
-Insert a new dbg-declare describing `storage` as the runtime location of `var`,
-immediately before `instr`. Returns a `DbgRecord` on LLVM ≥ 19, or the
-legacy `llvm.dbg.declare` call [`Instruction`](@ref) on LLVM < 19.
-"""
-declare_before!
+Insert a debug record that declares `storage` as the address of the variable `var` at the
+given position, e.g., `LLVM.after(alloca)`. Returns a `DbgRecord` on LLVM ≥ 19, or
+the `llvm.dbg.declare` call [`Instruction`](@ref) on LLVM < 19.
 
+Debug records can not be inserted at the end of a block that has a terminator; use
+`LLVM.before(bb.terminator)` instead. Several records inserted at a position that is
+before the debug records of an instruction (e.g., `LLVM.after(inst)` or
+`LLVM.at_begin(bb)`) end up in reverse order, as each one is inserted in front of the
+others. Use `LLVM.before(inst)` to append records to the ones of `inst`.
 """
-    declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                    expr::DIExpression, debugloc::DILocation,
-                    block::BasicBlock)
-
-Insert a new dbg-declare at the end of `block`. Returns a `DbgRecord`
-on LLVM ≥ 19, or the legacy `llvm.dbg.declare` call [`Instruction`](@ref) on
-LLVM < 19.
-"""
-declare_at_end!
+dbg_declare!
 
 """
-    value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
-                  expr::DIExpression, debugloc::DILocation,
-                  instr::Instruction)
+    dbg_value!(builder::DIBuilder, val::Value, var::DILocalVariable,
+               expr::DIExpression, debugloc::DILocation,
+               pos::InsertionPoint{Instruction})
 
-Insert a new dbg-value describing `val` as the value of `var`, immediately
-before `instr`. Returns a `DbgRecord` on LLVM ≥ 19, or the legacy
-`llvm.dbg.value` call [`Instruction`](@ref) on LLVM < 19.
+Insert a debug record that describes `val` as the value of the variable `var` at the given
+position. Returns a `DbgRecord` on LLVM ≥ 19, or the `llvm.dbg.value` call
+[`Instruction`](@ref) on LLVM < 19. See [`dbg_declare!`](@ref) for which positions can be
+used.
 """
-value_before!
+dbg_value!
 
-"""
-    value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
-                  expr::DIExpression, debugloc::DILocation,
-                  block::BasicBlock)
-
-Insert a new dbg-value at the end of `block`. Returns a `DbgRecord` on
-LLVM ≥ 19, or the legacy `llvm.dbg.value` call [`Instruction`](@ref) on LLVM < 19.
-"""
-value_at_end!
+# debug records can't be inserted after a terminator, or refer to values of another context
+function check_record_position(pos::InsertionPoint{Instruction}, val=nothing)
+    bb = check_valid(pos)
+    pos.anchor == C_NULL && API.LLVMGetBasicBlockTerminator(bb) != C_NULL &&
+        throw(ArgumentError("Cannot insert debug records after the terminator of a basic block"))
+    val === nothing || API.LLVMGetValueContext(val) == API.LLVMGetValueContext(bb) ||
+        throw(ArgumentError("Cannot insert a debug record for a value of another context"))
+    return bb
+end
 
 @static if version() >= v"19"
 
@@ -1821,47 +1817,44 @@ end
     @property DbgRecord prev
 end
 
-declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                expr::DIExpression, debugloc::DILocation, instr::Instruction) =
-    DbgRecord(API.LLVMDIBuilderInsertDeclareRecordBefore(
-        builder, storage, var, expr, debugloc, instr))
+function dbg_declare!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                      expr::DIExpression, debugloc::DILocation,
+                      pos::InsertionPoint{Instruction})
+    bb = check_record_position(pos, storage)
+    DbgRecord(API.LLVMExtraDIBuilderInsertDeclareRecordAt(
+        builder, storage, var, expr, debugloc, bb, pos.anchor, pos.head))
+end
 
-declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
-    DbgRecord(API.LLVMDIBuilderInsertDeclareRecordAtEnd(
-        builder, storage, var, expr, debugloc, block))
+function dbg_value!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    pos::InsertionPoint{Instruction})
+    bb = check_record_position(pos, val)
+    DbgRecord(API.LLVMExtraDIBuilderInsertDbgValueRecordAt(
+        builder, val, var, expr, debugloc, bb, pos.anchor, pos.head))
+end
 
-value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
-              expr::DIExpression, debugloc::DILocation, instr::Instruction) =
-    DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordBefore(
-        builder, val, var, expr, debugloc, instr))
+else # LLVM < 19: debug intrinsics, which are ordinary instructions
 
-value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
-              expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
-    DbgRecord(API.LLVMDIBuilderInsertDbgValueRecordAtEnd(
-        builder, val, var, expr, debugloc, block))
+function dbg_declare!(builder::DIBuilder, storage::Value, var::DILocalVariable,
+                      expr::DIExpression, debugloc::DILocation,
+                      pos::InsertionPoint{Instruction})
+    bb = check_record_position(pos, storage)
+    # at the end of a block without a terminator, AtEnd inserts at the end
+    Instruction(pos.anchor == C_NULL ?
+        API.LLVMDIBuilderInsertDeclareAtEnd(builder, storage, var, expr, debugloc, bb) :
+        API.LLVMDIBuilderInsertDeclareBefore(builder, storage, var, expr, debugloc,
+                                             pos.anchor))
+end
 
-else # LLVM < 19: legacy intrinsic-based insertion
-
-declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                expr::DIExpression, debugloc::DILocation, instr::Instruction) =
-    Instruction(API.LLVMDIBuilderInsertDeclareBefore(
-        builder, storage, var, expr, debugloc, instr))
-
-declare_at_end!(builder::DIBuilder, storage::Value, var::DILocalVariable,
-                expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
-    Instruction(API.LLVMDIBuilderInsertDeclareAtEnd(
-        builder, storage, var, expr, debugloc, block))
-
-value_before!(builder::DIBuilder, val::Value, var::DILocalVariable,
-              expr::DIExpression, debugloc::DILocation, instr::Instruction) =
-    Instruction(API.LLVMDIBuilderInsertDbgValueBefore(
-        builder, val, var, expr, debugloc, instr))
-
-value_at_end!(builder::DIBuilder, val::Value, var::DILocalVariable,
-              expr::DIExpression, debugloc::DILocation, block::BasicBlock) =
-    Instruction(API.LLVMDIBuilderInsertDbgValueAtEnd(
-        builder, val, var, expr, debugloc, block))
+function dbg_value!(builder::DIBuilder, val::Value, var::DILocalVariable,
+                    expr::DIExpression, debugloc::DILocation,
+                    pos::InsertionPoint{Instruction})
+    bb = check_record_position(pos, val)
+    Instruction(pos.anchor == C_NULL ?
+        API.LLVMDIBuilderInsertDbgValueAtEnd(builder, val, var, expr, debugloc, bb) :
+        API.LLVMDIBuilderInsertDbgValueBefore(builder, val, var, expr, debugloc,
+                                              pos.anchor))
+end
 
 end # @static version check
 
@@ -1871,7 +1864,7 @@ end # @static version check
 @static if version() >= v"20"
 
 @vocabulary IR DILabel
-@vocabulary Build label!, label_before!, label_at_end!
+@vocabulary Build label!, dbg_label!
 
 """
     DILabel
@@ -1900,24 +1893,18 @@ function label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
 end
 
 """
-    label_before!(builder::DIBuilder, label::DILabel,
-                  location::DILocation, instr::Instruction) -> DbgRecord
+    dbg_label!(builder::DIBuilder, label::DILabel, location::DILocation,
+               pos::InsertionPoint{Instruction}) -> DbgRecord
 
-Insert a new label record immediately before `instr`. Requires LLVM 20+.
+Insert a debug record for the label `label` at the given position. See
+[`dbg_declare!`](@ref) for which positions can be used. Requires LLVM 20+.
 """
-label_before!(builder::DIBuilder, label::DILabel,
-              location::DILocation, instr::Instruction) =
-    DbgRecord(API.LLVMDIBuilderInsertLabelBefore(builder, label, location, instr))
-
-"""
-    label_at_end!(builder::DIBuilder, label::DILabel,
-                  location::DILocation, block::BasicBlock) -> DbgRecord
-
-Insert a new label record at the end of `block`. Requires LLVM 20+.
-"""
-label_at_end!(builder::DIBuilder, label::DILabel,
-              location::DILocation, block::BasicBlock) =
-    DbgRecord(API.LLVMDIBuilderInsertLabelAtEnd(builder, label, location, block))
+function dbg_label!(builder::DIBuilder, label::DILabel, location::DILocation,
+                    pos::InsertionPoint{Instruction})
+    bb = check_record_position(pos)
+    DbgRecord(API.LLVMExtraDIBuilderInsertLabelAt(builder, label, location, bb, pos.anchor,
+                                                  pos.head))
+end
 
 end # @static version check
 
@@ -1954,14 +1941,14 @@ imported_module_from_namespace!(builder::DIBuilder, scope::DIScope, ns::DINamesp
     imported_module_from_alias!(builder::DIBuilder, scope::DIScope,
                              imported::DIImportedEntity, file::DIFile,
                              line::Integer,
-                             elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+                             elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
 
 Create a new `DIImportedEntity` from an alias.
 """
 function imported_module_from_alias!(builder::DIBuilder, scope::DIScope,
                                   imported::DIImportedEntity, file::DIFile,
                                   line::Integer,
-                                  elements::Vector{<:Metadata}=Metadata[])
+                                  elements::AbstractVector{<:Metadata}=Metadata[])
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromAlias(
         builder, scope, imported, file, Cuint(line),
@@ -1971,13 +1958,13 @@ end
 """
     imported_module_from_module!(builder::DIBuilder, scope::DIScope,
                               mod::DIModule, file::DIFile, line::Integer,
-                              elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+                              elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
 
 Create a new `DIImportedEntity` from a module.
 """
 function imported_module_from_module!(builder::DIBuilder, scope::DIScope,
                                    mod::DIModule, file::DIFile, line::Integer,
-                                   elements::Vector{<:Metadata}=Metadata[])
+                                   elements::AbstractVector{<:Metadata}=Metadata[])
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromModule(
         builder, scope, mod, file, Cuint(line),
@@ -1987,13 +1974,13 @@ end
 """
     imported_declaration!(builder::DIBuilder, scope::DIScope, decl::Metadata,
                         file::DIFile, line::Integer, name::AbstractString,
-                        elements::Vector{<:Metadata}=Metadata[]) -> DIImportedEntity
+                        elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
 
 Create a new `DIImportedEntity` from a declaration.
 """
 function imported_declaration!(builder::DIBuilder, scope::DIScope, decl::Metadata,
                               file::DIFile, line::Integer, name::AbstractString,
-                              elements::Vector{<:Metadata}=Metadata[])
+                              elements::AbstractVector{<:Metadata}=Metadata[])
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedDeclaration(
         builder, scope, decl, file, Cuint(line),
@@ -2080,14 +2067,14 @@ debug_location!(inst::Instruction) =
 @vocabulary IR temporary_mdnode, dispose_temporary
 
 """
-    temporary_mdnode(operands::Vector{<:Metadata}=Metadata[]) -> MDNode
+    temporary_mdnode(operands::AbstractVector{<:Metadata}=Metadata[]) -> MDNode
 
 Create a temporary metadata node in the task-local [`context`](@ref) with the
 given operands. Temporary nodes are useful for constructing cycles and must be
 either replaced via [`replace_uses!`](@ref) or disposed of via
 [`dispose_temporary`](@ref).
 """
-function temporary_mdnode(operands::Vector{<:Metadata}=Metadata[])
+function temporary_mdnode(operands::AbstractVector{<:Metadata}=Metadata[])
     ops = convert(Vector{Metadata}, operands)
     ref = API.LLVMTemporaryMDNode(context(), ops, Csize_t(length(ops)))
     Metadata(ref)
@@ -2116,12 +2103,12 @@ replace_uses!(temp::Metadata, replacement::Metadata) =
 
 """
     replace_arrays!(builder::DIBuilder, T::DICompositeType,
-                   elements::Vector{<:Metadata})
+                   elements::AbstractVector{<:Metadata})
 
 Replace the elements array of the given composite type `T`. Requires LLVM 21+.
 """
 function replace_arrays!(builder::DIBuilder, T::DICompositeType,
-                        elements::Vector{<:Metadata})
+                        elements::AbstractVector{<:Metadata})
     elts = convert(Vector{Metadata}, elements)
     tref = Ref(T.ref)
     API.LLVMReplaceArrays(builder, tref, elts, Cuint(length(elts)))

@@ -36,7 +36,7 @@
 
     # properties are only defined for the objects that support them
     entrybb = BasicBlock(fn, "entry")
-    position!(builder, entrybb)
+    position!(builder, LLVM.at_end(entrybb))
     ld = load!(builder, LLVM.Int32Type(), fn.parameters[1])
     ld.alignment = 4
     @test ld.alignment == 4
@@ -161,8 +161,11 @@ end
 # internal, except for `context`, which also provides the task-local context
 @static if VERSION >= v"1.11"
     # functions that are named like a property setter, but that do something else (e.g.,
-    # `elements!` sets the body of a structure type, including whether it is packed)
-    unrelated = (:context!, :binop!, :expression!, :file!, :subprogram!, :elements!)
+    # `elements!` sets the body of a structure type, including whether it is packed), or
+    # that take other arguments than the property's value (`position!(builder, pos)` also
+    # has a do-block form, and a form that clears the position)
+    unrelated = (:context!, :binop!, :expression!, :file!, :subprogram!, :elements!,
+                 :position!)
     for name in unique(last.(LLVM.property_registry))
         name === :context && continue
         @test !Base.ispublic(LLVM, name)
@@ -180,7 +183,7 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
         ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
         fn = LLVM.Function(mod, "SomeFunction", ft)
-        position!(builder, BasicBlock(fn, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
         call = call!(builder, ft, fn, [fn.parameters[1]])
         inst = ret!(builder)
 
@@ -203,7 +206,7 @@ end
         @test empty!(fn.metadata) === fn.metadata
 
         bb = BasicBlock(fn, "other")
-        position!(builder, bb)
+        position!(builder, LLVM.at_end(bb))
         phi = phi!(builder, LLVM.Int32Type())
         @test push!(phi.incoming, (fn.parameters[1], fn.entry)) === phi.incoming
         @test append!(phi.incoming, []) === phi.incoming
@@ -225,7 +228,7 @@ end
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
         ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
         fn = LLVM.Function(mod, "SomeFunction", ft)
-        position!(builder, BasicBlock(fn, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
         inst = add!(builder, fn.parameters[1], ConstantInt(Int32(1)), "sum")
         ret!(builder, inst)
 

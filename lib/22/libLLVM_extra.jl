@@ -497,6 +497,10 @@ function LLVMExtraConstFPGetBits(ConstantVal, N)
     ccall((:LLVMExtraConstFPGetBits, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
 end
 
+function LLVMExtraConstIntGetWords(ConstantVal, N)
+    ccall((:LLVMExtraConstIntGetWords, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
+end
+
 function LLVMExtraDbgVariableRecordGetNumValues(Rec)
     ccall((:LLVMExtraDbgVariableRecordGetNumValues, libLLVMExtra), Cuint, (LLVMDbgRecordRef,), Rec)
 end

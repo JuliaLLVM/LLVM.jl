@@ -1244,6 +1244,11 @@ void LLVMExtraConstFPGetBits(LLVMValueRef ConstantVal, uint64_t N[]) {
   std::copy_n(AI.getRawData(), AI.getNumWords(), N);
 }
 
+void LLVMExtraConstIntGetWords(LLVMValueRef ConstantVal, uint64_t N[]) {
+  const APInt &AI = unwrap<ConstantInt>(ConstantVal)->getValue();
+  std::copy_n(AI.getRawData(), AI.getNumWords(), N);
+}
+
 
 //
 // Debug records

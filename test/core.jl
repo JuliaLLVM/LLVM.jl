@@ -464,6 +464,29 @@ end
         @test convert(T, constval) == typemax(T)
     end
 
+    # values that are wider than 64 bits
+    let
+        typ = LLVM.IntType(128)
+        for val in (Int128(0), Int128(-1), typemin(Int128), typemax(Int128),
+                    Int128(2)^100, -Int128(2)^100)
+            constval = ConstantInt(typ, val)
+            @test convert(Int128, constval) == val
+            @test convert(UInt128, constval) == val % UInt128
+        end
+        @test string(ConstantInt(typ, Int128(-1))) == "i128 -1"
+        @test convert(Int128, ConstantInt(typemax(UInt128))) == -1
+        @test convert(UInt128, ConstantInt(typemax(UInt128))) == typemax(UInt128)
+        @test convert(BigInt, ConstantInt(LLVM.IntType(200), BigInt(2)^150)) == BigInt(2)^150
+        # widths that aren't a multiple of 64 bits
+        for bits in (65, 100)
+            t = LLVM.IntType(bits)
+            @test convert(Int128, ConstantInt(t, Int128(-2))) == -2
+            @test convert(Int128, ConstantInt(t, -Int128(2)^(bits-1))) == -Int128(2)^(bits-1)
+            @test convert(UInt128, ConstantInt(t, Int128(-1))) == UInt128(2)^bits - 1
+        end
+        @test_throws InexactError convert(Int64, ConstantInt(typ, Int128(2)^100))
+    end
+
     end
 
 

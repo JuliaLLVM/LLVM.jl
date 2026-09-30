@@ -530,6 +530,8 @@ void LLVMSetSwitchCaseValue(LLVMValueRef Switch, unsigned i, LLVMValueRef CaseVa
 LLVMValueRef LLVMConstFPFromBits(LLVMTypeRef Ty, const uint64_t N[]);
 #endif
 void LLVMExtraConstFPGetBits(LLVMValueRef ConstantVal, uint64_t N[]);
+// the words of an integer constant, which can be wider than 64 bits
+void LLVMExtraConstIntGetWords(LLVMValueRef ConstantVal, uint64_t N[]);
 
 // debug records
 #if LLVM_VERSION_MAJOR >= 19

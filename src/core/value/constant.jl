@@ -180,11 +180,11 @@ Create a constant integer value of the given type and value. If `signed` is `tru
 value is treated as a signed integer.
 """
 function ConstantInt(typ::IntegerType, val::Integer, signed=false)
-    valbits = ceil(Int, log2(abs(val))) + 1 # FIXME: doesn't work for val=0
-    numwords = ceil(Int, valbits / 64)
-    words = Vector{Culonglong}(undef, numwords)
+    # the two's complement words of the value, truncated to the width of the type
+    numwords = cld(width(typ), 64)
+    words = Vector{UInt64}(undef, numwords)
     for i in 1:numwords
-        words[i] = (val >> 64(i-1)) % Culonglong
+        words[i] = (val >> (64*(i-1))) % UInt64
     end
     return ConstantInt(API.LLVMConstIntOfArbitraryPrecision(typ, numwords, words))
 end
@@ -214,11 +214,25 @@ Convert a constant integer value back to a Julia integer.
 """
 Base.convert(::Type, val::ConstantInt)
 
-Base.convert(::Type{T}, val::ConstantInt) where {T<:Unsigned} =
-    convert(T, API.LLVMConstIntGetZExtValue(val))
+function Base.convert(::Type{T}, val::ConstantInt) where {T<:Union{Signed,Unsigned}}
+    bits = width(value_type(val))
+    if bits <= 64
+        return T <: Signed ? convert(T, API.LLVMConstIntGetSExtValue(val)) :
+                             convert(T, API.LLVMConstIntGetZExtValue(val))
+    end
 
-Base.convert(::Type{T}, val::ConstantInt) where {T<:Signed} =
-    convert(T, API.LLVMConstIntGetSExtValue(val))
+    # wider constants are read word by word, as LLVM only returns 64-bit values
+    words = Vector{UInt64}(undef, cld(bits, 64))
+    API.LLVMExtraConstIntGetWords(val, words)
+    x = big(0)
+    for (i, word) in enumerate(words)
+        x |= big(word) << (64*(i-1))
+    end
+    if T <: Signed && isodd(x >> (bits-1))
+        x -= big(1) << bits
+    end
+    return convert(T, x)
+end
 
 # Booleans aren't Signed or Unsigned
 Base.convert(::Type{Bool}, val::ConstantInt) = convert(Int, val) != 0

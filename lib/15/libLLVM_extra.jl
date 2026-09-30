@@ -698,6 +698,10 @@ function LLVMExtraConstFPGetBits(ConstantVal, N)
     ccall((:LLVMExtraConstFPGetBits, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
 end
 
+function LLVMExtraConstIntGetWords(ConstantVal, N)
+    ccall((:LLVMExtraConstIntGetWords, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
+end
+
 
 function LLVMExtraGetAttributeKindName(KindID, Len)
     ccall((:LLVMExtraGetAttributeKindName, libLLVMExtra), Cstring, (Cuint, Ptr{Csize_t}), KindID, Len)

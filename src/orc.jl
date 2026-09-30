@@ -106,11 +106,22 @@ execution_session(lljit::LLJIT) =
 
 An object linking layer, based on RuntimeDyld, for use with
 [`linking_layer_creator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
+
+The layer is consumed by returning it from a linking layer creator, which hands it over to
+the JIT; otherwise, it needs to be disposed of using `dispose`, which does nothing once it
+has been consumed.
 """
-@checked struct ObjectLinkingLayer
+mutable struct ObjectLinkingLayer
     ref::API.LLVMOrcObjectLayerRef
+    owned::Bool
+
+    function ObjectLinkingLayer(ref::API.LLVMOrcObjectLayerRef)
+        ref == C_NULL && throw(UndefRefError())
+        mark_alloc(new(ref, true))
+    end
 end
-Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) = oll.ref
+Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) =
+    check_owned(oll).ref
 
 """
     ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
@@ -156,9 +167,9 @@ function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_tr
     ObjectLinkingLayer(ref)
 end
 
-function dispose(oll::ObjectLinkingLayer)
-    API.LLVMOrcDisposeObjectLayer(oll)
-end
+# LLVMOrcDisposeObjectLayer leaves the layer registered with its execution session (#629)
+dispose(oll::ObjectLinkingLayer) =
+    dispose_owned(API.LLVMExtraDisposeRTDyldObjectLinkingLayer, oll)
 
 function register!(oll::ObjectLinkingLayer, listener::JITEventListener)
     API.LLVMOrcRTDyldObjectLinkingLayerRegisterJITEventListener(oll, listener)
@@ -174,7 +185,7 @@ function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, trip
     ollc = Base.unsafe_pointer_to_objref(ctx)::ObjectLinkingLayerCreator
     try
         layer = ollc.cb(ExecutionSession(es), Base.unsafe_string(triple))::ObjectLinkingLayer
-        return layer.ref
+        return consume!(layer)  # the JIT takes ownership of the layer
     catch err
         _capture_callback_exception!(ollc, err)
         # The C callback has no error return. Give LLJIT a valid default layer
@@ -629,8 +640,8 @@ end
 # LLVMOrcLLJITAddObjectFileWithRT(J, RT, ObjBuffer)
 
 function add!(lljit::LLJIT, jd::JITDylib, mod::ThreadSafeModule)
-    err = API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, mod)
-    mark_dispose(mod)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, consume!(mod))
     @check err
     return
 end
@@ -740,8 +751,8 @@ function add!(lljit::LLJIT, rt::ResourceTracker, obj::MemoryBuffer)
 end
 
 function add!(lljit::LLJIT, rt::ResourceTracker, mod::ThreadSafeModule)
-    err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, mod)
-    mark_dispose(mod)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, consume!(mod))
     @check err
     return
 end
@@ -860,9 +871,9 @@ end
 function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModuleRef},
                         mr::API.LLVMOrcMaterializationResponsibilityRef)
     state = Base.unsafe_pointer_to_objref(ctx)::IRTransform
+    tsm = ThreadSafeModule(unsafe_load(tsm_ref); borrowed=true)
     try
-        state.callback(ThreadSafeModule(unsafe_load(tsm_ref)),
-                       MaterializationResponsibility(mr, false))
+        state.callback(tsm, MaterializationResponsibility(mr, false))
         return API.LLVMErrorRef(C_NULL)
     catch err
         _capture_callback_exception!(state, err)
@@ -875,6 +886,9 @@ function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModul
             "unprintable $(typeof(err))"
         end
         return API.LLVMCreateStringError("exception in ORC IR transform: $msg")
+    finally
+        # the module is only borrowed for the duration of the transformation
+        tsm.borrowed = false
     end
 end
 
@@ -971,9 +985,9 @@ consumed; a responsibility that is borrowed, e.g., by an IR transformation, cann
 emitted.
 """
 function emit!(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    check_consumable(tsm)
     consume!(mr)
-    mark_dispose(tsm)
-    API.LLVMOrcIRTransformLayerEmit(il, mr, tsm)
+    API.LLVMOrcIRTransformLayerEmit(il, mr, consume!(tsm))
 end
 
 
@@ -1420,12 +1434,13 @@ function decorate_module(mod)
 end
 
 function add!(jljit::JuliaOJIT, jd::JITDylib, tsm::ThreadSafeModule)
+    check_consumable(tsm)
     # Julia's debug info expects certain symbols to be present
     tsm() do mod
         decorate_module(mod)
     end
-    err = API.JLJITAddLLVMIRModule(jljit, jd, tsm)
-    mark_dispose(tsm)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.JLJITAddLLVMIRModule(jljit, jd, consume!(tsm))
     @check err
     return
 end
@@ -1465,6 +1480,7 @@ Base.unsafe_convert(::Type{API.LLVMOrcIRCompileLayerRef}, il::IRCompileLayer) = 
 
 function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     mr.owned || throw(ArgumentError("cannot consume a materialization responsibility that was already consumed or that is borrowed"))
+    check_consumable(tsm)
     if il.jit isa JuliaOJIT
         # Julia's debug info expects certain symbols to be present
         tsm() do mod
@@ -1472,8 +1488,7 @@ function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::Threa
         end
     end
     consume!(mr)
-    mark_dispose(tsm)
-    API.LLVMOrcIRCompileLayerEmit(il, mr, tsm)
+    API.LLVMOrcIRCompileLayerEmit(il, mr, consume!(tsm))
 end
 
 ir_compile_layer(jljit::JuliaOJIT) = IRCompileLayer(API.JLJITGetIRCompileLayer(jljit), jljit)

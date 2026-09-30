@@ -72,11 +72,44 @@ end
     ThreadSafeModule
 
 A thread-safe version of [`LLVM.Module`](@ref).
+
+A thread-safe module is consumed by adding it to a JIT, e.g., with `add!` or [`emit!`](@ref),
+after which it can't be used anymore, and disposing of it does nothing. The modules that an
+IR transformation receives are borrowed: they can be used during the transformation, but
+not be consumed or disposed of.
 """
-@checked struct ThreadSafeModule
+mutable struct ThreadSafeModule
     ref::API.LLVMOrcThreadSafeModuleRef
+    owned::Bool     # whether we own the module, i.e., it wasn't consumed or borrowed
+    borrowed::Bool  # whether the module is borrowed from LLVM (e.g., in an IR transform)
+
+    function ThreadSafeModule(ref::API.LLVMOrcThreadSafeModuleRef; borrowed::Bool=false)
+        ref == C_NULL && throw(UndefRefError())
+        tsm = new(ref, !borrowed, borrowed)
+        borrowed ? tsm : mark_alloc(tsm)
+    end
 end
-Base.unsafe_convert(::Type{API.LLVMOrcThreadSafeModuleRef}, mod::ThreadSafeModule) = mod.ref
+
+function check_usable(tsm::ThreadSafeModule)
+    tsm.owned || tsm.borrowed ||
+        throw(ArgumentError("This ThreadSafeModule has been consumed or disposed of"))
+    return mark_use(tsm)
+end
+
+Base.unsafe_convert(::Type{API.LLVMOrcThreadSafeModuleRef}, tsm::ThreadSafeModule) =
+    check_usable(tsm).ref
+
+function check_consumable(tsm::ThreadSafeModule)
+    tsm.borrowed && throw(ArgumentError("A borrowed ThreadSafeModule can't be consumed"))
+    return check_usable(tsm)
+end
+
+function consume!(tsm::ThreadSafeModule)
+    check_consumable(tsm)
+    tsm.owned = false
+    mark_dispose(tsm)
+    return tsm.ref
+end
 
 """
     ThreadSafeModule(mod::Module)
@@ -107,7 +140,7 @@ function ThreadSafeModule(mod::Module)
     @assert context(mod) == context(ts_context())
 
     ref = API.LLVMOrcCreateNewThreadSafeModule(mod, ts_context())
-    tsm = mark_alloc(ThreadSafeModule(ref))
+    tsm = ThreadSafeModule(ref)
     mark_dispose(mod)
     return tsm
 end
@@ -132,10 +165,12 @@ end
 """
     dispose(mod::ThreadSafeModule)
 
-Dispose of the thread-safe module, releasing all resources associated with it.
+Dispose of the thread-safe module, releasing all resources associated with it, unless it
+has been consumed. Borrowed modules can't be disposed of.
 """
 function dispose(mod::ThreadSafeModule)
-    mark_dispose(API.LLVMOrcDisposeThreadSafeModule, mod)
+    mod.borrowed && throw(ArgumentError("A borrowed ThreadSafeModule can't be disposed of"))
+    dispose_owned(API.LLVMOrcDisposeThreadSafeModule, mod)
 end
 
 mutable struct ThreadSafeModuleCallback

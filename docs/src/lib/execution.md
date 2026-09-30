@@ -52,7 +52,7 @@ context(::ThreadSafeContext)
 dispose(::ThreadSafeContext)
 ThreadSafeModule
 ThreadSafeModule(::String)
-ThreadSafeModule(::Module)
+ThreadSafeModule(::LLVM.Module)
 dispose(::ThreadSafeModule)
 ```
 

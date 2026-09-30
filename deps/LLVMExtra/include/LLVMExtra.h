@@ -108,6 +108,10 @@ void LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
 // Apply the settings LLJIT uses for its default object layer on the given target triple.
 void LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(
     LLVMOrcObjectLayerRef RTDyldObjLinkingLayer, const char *Triple);
+// Dispose of a layer that was not handed over to a JIT, like LLVMOrcDisposeObjectLayer, but
+// deregistering it from its execution session first, which RTDyldObjectLinkingLayer's
+// destructor doesn't do.
+void LLVMExtraDisposeRTDyldObjectLinkingLayer(LLVMOrcObjectLayerRef RTDyldObjLinkingLayer);
 
 // Cloning functionality
 typedef enum {

@@ -992,7 +992,7 @@ remove_attribute!(iter::CallSiteAttrSet, kind::AbstractString) =
 
 function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)
-    memory_locations()  # check that the attribute is supported
+    version() >= v"16" || return legacy_memory_effects_of(iter)
     ref = API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, memory_kind())
     ref == C_NULL && return MemoryEffects(:readwrite)
     return MemoryEffects(EnumAttribute(ref))
@@ -1000,14 +1000,10 @@ end
 
 memory_effects(call::CallBase) = FunctionMemoryEffects(function_attributes(call))
 
-function memory_effects!(call::CallBase, effects::AnyMemoryEffects)
-    push!(function_attributes(call), EnumAttribute(MemoryEffects(effects)))
-    return
-end
+memory_effects!(call::CallBase, effects::AnyMemoryEffects) =
+    memory_effects!(function_attributes(call), MemoryEffects(effects))
 
-@static if version() >= v"16"
-    @property CallBase memory_effects memory_effects!
-end
+@property CallBase memory_effects memory_effects!
 
 # operand bundles
 

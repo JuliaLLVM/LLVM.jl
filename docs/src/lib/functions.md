@@ -33,6 +33,7 @@ ConstantRangeListAttribute
 MemoryEffects
 FunctionMemoryEffects
 EnumAttribute(::MemoryEffects)
+LLVM.memory_attributes
 ```
 
 ## Intrinsics

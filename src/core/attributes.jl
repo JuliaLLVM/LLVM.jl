@@ -372,7 +372,11 @@ MemoryEffects(:read; argmem=:readwrite) # memory(read, argmem: readwrite)
 ```
 
 !!! note
-    The `memory` attribute requires LLVM 16 or later.
+    The `memory` attribute requires LLVM 16 or later. On LLVM 15, the `memory_effects`
+    properties of functions and calls use the attributes that it replaced instead, which
+    can only represent effects that are the same for all locations they apply to: all
+    locations, `argmem`, `inaccessiblemem`, or both of those. Assigning other effects
+    throws an `ArgumentError`, while `EnumAttribute(effects)` always does.
 
 # Properties
 
@@ -394,17 +398,21 @@ MemoryEffects(effects::MemoryEffects) = effects
 
 # The memory locations of the LLVM version in use, in the order of LLVM's `IRMemLocation`.
 # This needs to be kept in sync with `llvm/Support/ModRef.h` when adding a new LLVM version.
+# LLVM 15 has no `memory` attribute, but its attributes can describe effects on the
+# locations of LLVM 16 (see `legacy_memory_attributes`).
 function memory_locations()
     if version() >= v"22"
         (:argmem, :inaccessiblemem, :errnomem, :other, :target_mem0, :target_mem1)
     elseif version() >= v"21"
         (:argmem, :inaccessiblemem, :errnomem, :other)
-    elseif version() >= v"16"
-        (:argmem, :inaccessiblemem, :other)
     else
-        throw(ArgumentError("The memory attribute requires LLVM 16 or later"))
+        (:argmem, :inaccessiblemem, :other)
     end
 end
+
+check_memory_attribute() =
+    version() >= v"16" ||
+        throw(ArgumentError("The memory attribute requires LLVM 16 or later"))
 const all_memory_locations =
     (:argmem, :inaccessiblemem, :errnomem, :other, :target_mem0, :target_mem1)
 
@@ -485,7 +493,7 @@ memory_kind() = API.LLVMGetEnumAttributeKindForName("memory", 6)
 Create a `memory` attribute describing the given memory effects.
 """
 function EnumAttribute(effects::MemoryEffects)
-    memory_locations()  # check that the attribute is supported
+    check_memory_attribute()
     return EnumAttribute(API.LLVMCreateEnumAttribute(context(), memory_kind(), effects.data))
 end
 
@@ -495,10 +503,67 @@ end
 Get the memory effects described by a `memory` attribute.
 """
 function MemoryEffects(attr::EnumAttribute)
-    memory_locations()  # check that the attribute is supported
+    check_memory_attribute()
     attribute_kind_id(attr) == memory_kind() ||
         throw(ArgumentError("Expected a memory attribute, got $attr"))
     return MemoryEffects(UInt32(value(attr)))
+end
+
+
+# before LLVM 16, memory effects were described by these function attributes, each of which
+# restricts the possible effects. like LLVM 16's bitcode reader, combine all of them.
+legacy_memory_effects() = (
+    :readnone => MemoryEffects(:none),
+    :readonly => MemoryEffects(:read),
+    :writeonly => MemoryEffects(:write),
+    :argmemonly => MemoryEffects(argmem=:readwrite),
+    :inaccessiblememonly => MemoryEffects(inaccessiblemem=:readwrite),
+    :inaccessiblemem_or_argmemonly =>
+        MemoryEffects(argmem=:readwrite, inaccessiblemem=:readwrite))
+
+function legacy_memory_effects_of(attrs::AttributeSet)
+    effects = MemoryEffects(:readwrite)
+    for (kind, restriction) in legacy_memory_effects()
+        haskey(attrs, kind) && (effects &= restriction)
+    end
+    return effects
+end
+
+# the attributes that describe the given effects before LLVM 16, if they can
+function legacy_memory_attributes(effects::MemoryEffects)
+    accessed = filter(loc -> effects[loc] != :none, memory_locations())
+    isempty(accessed) && return [EnumAttribute(:readnone)]
+    kind = effects[first(accessed)]
+    unrepresentable() = throw(ArgumentError("$effects cannot be represented before LLVM 16, which only supports the same kind of access to all memory, argument memory, inaccessible memory, or both of those"))
+    all(loc -> effects[loc] == kind, accessed) || unrepresentable()
+    attrs = EnumAttribute[]
+    kind == :read && push!(attrs, EnumAttribute(:readonly))
+    kind == :write && push!(attrs, EnumAttribute(:writeonly))
+    if :other in accessed
+        length(accessed) == length(memory_locations()) || unrepresentable()
+    elseif accessed == (:argmem,)
+        push!(attrs, EnumAttribute(:argmemonly))
+    elseif accessed == (:inaccessiblemem,)
+        push!(attrs, EnumAttribute(:inaccessiblememonly))
+    else
+        push!(attrs, EnumAttribute(:inaccessiblemem_or_argmemonly))
+    end
+    return attrs
+end
+
+# set the memory effects of the function attributes of a function or call
+function memory_effects!(attrs::AttributeSet, effects::MemoryEffects)
+    if version() >= v"16"
+        push!(attrs, EnumAttribute(effects))
+    else
+        # check that the effects can be represented before changing anything
+        new = legacy_memory_attributes(effects)
+        for (kind, _) in legacy_memory_effects()
+            delete!(attrs, kind)
+        end
+        append!(attrs, new)
+    end
+    return
 end
 
 

@@ -1406,6 +1406,22 @@ end
     @test Value(mod.metadata["function"].operands[1].operands[1]) == f2
 end
 
+# values of different types in function-local metadata
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])
+    f = LLVM.Function(mod, "f", ft)
+    position!(builder, BasicBlock(f, "entry"))
+    x, y = f.parameters
+    inst = ret!(builder)
+    inst.metadata["foo"] = MDNode([Metadata(x)])
+    if LLVM.version() >= v"18"
+        replace_metadata_uses!(x, y)
+        @test Value(inst.metadata["foo"].operands[1]) == y
+    else
+        @test_throws ArgumentError replace_metadata_uses!(x, y)
+    end
+end
+
 @dispose ctx=Context() begin
     str = MDString("foo")
     node = MDNode([str])

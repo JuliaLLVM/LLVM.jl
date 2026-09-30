@@ -209,38 +209,44 @@ replace_uses!(old::Value, new::Value) = API.LLVMReplaceAllUsesWith(old, new)
 """
     replace_metadata_uses!(old::LLVM.Value, new::LLVM.Value)
 
-Replace all uses of an `old` value in metadata with `new`.
+Replace all uses of an `old` value in metadata with `new`. Before LLVM 18, the values need
+to have the same type, unless both are global values (e.g., when replacing a function by
+one with another signature, using typed pointers).
 """
 function replace_metadata_uses!(old::Value, new::Value)
-    if value_type(old) == value_type(new)
+    if version() >= v"18" || value_type(old) == value_type(new)
         API.LLVMReplaceAllMetadataUsesWith(old, new)
-    else
-        # NOTE: LLVM does not support replacing values of different types, either using
-        #       regular RAUW or only on metadata. The latter should probably be supported.
-        #       Instead, we replace by a bitcast to the old type.
-        compat_new = const_bitcast(new, value_type(old))
-        replace_metadata_uses!(old, compat_new)
+        return
+    end
 
-        # the above is often invalid, e.g. for module-level metadata identifying functions.
-        # so we peek into such metadata and try to get rid of the bitcast. see also
-        # https://discourse.llvm.org/t/replacing-module-metadata-uses-of-function/62431/4
-        mod = LLVM.parent(new)
-        while !isa(mod, LLVM.Module)
-            mod = LLVM.parent(new)
-        end
-        function recurse(md)
-            for (i, op) in enumerate(operands(md))
-                if op isa ValueAsMetadata && Value(op) == compat_new
-                    operands(md)[i] = Metadata(new)
-                elseif isa(op, MDTuple)
-                    recurse(op)
-                end
+    # before LLVM 18, metadata uses can only be replaced by a value of the same type. this
+    # happens with typed pointers, e.g., when replacing a function by one with another
+    # signature, so we replace by a bitcast to the old type, and then look for the bitcast
+    # in the module's metadata to replace it by the new value itself.
+    (old isa GlobalValue && new isa GlobalValue && value_type(old) isa PointerType &&
+     value_type(new) isa PointerType) ||
+        throw(ArgumentError("Before LLVM 18, metadata uses of a value can only be replaced by a value of another type if both are global values"))
+    compat_new = const_bitcast(new, value_type(old))
+    API.LLVMReplaceAllMetadataUsesWith(old, compat_new)
+
+    # peek into module-level metadata, like the list of kernels, to get rid of the bitcast
+    # (see https://discourse.llvm.org/t/replacing-module-metadata-uses-of-function/62431/4)
+    visited = Set()
+    function recurse(md)
+        md in visited && return
+        push!(visited, md)
+        for (i, op) in enumerate(operands(md))
+            if op isa ValueAsMetadata && Value(op) == compat_new
+                operands(md)[i] = Metadata(new)
+            elseif op isa MDTuple
+                recurse(op)
             end
         end
-        for (key, md) in metadata(mod)
-            recurse(md)
-        end
     end
+    for (_, nmd) in metadata(parent(new))
+        foreach(recurse, operands(nmd))
+    end
+    return
 end
 
 """

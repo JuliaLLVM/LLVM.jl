@@ -12,7 +12,7 @@
 
     entrybb = BasicBlock(fn, "entry")
     position!(builder, entrybb)
-    @test position(builder) == entrybb
+    @test builder.insert_block == entrybb
 
     @test builder.debug_location === nothing
     LLVM.DIBuilder(mod) do dib
@@ -650,10 +650,27 @@ end
     # instructions need to be part of a block
     remove!(d)
     @test_throws ArgumentError position!(builder, d; after=true)
-    insert!(builder, d)
+    @test insert_instruction!(builder, d) === d
     @test d.next == a
 
+    # inserting keeps the name of the instruction, unless given another one
+    e = sub!(builder, x, x, "e")
+    remove!(e)
+    insert_instruction!(builder, e)
+    @test e.name == "e"
+    remove!(e)
+    insert_instruction!(builder, e; name="f")
+    @test e.name == "f"
+    @test_throws ArgumentError insert_instruction!(builder, e)
+
     verify(mod)
+
+    # an unpositioned builder has no insertion block
+    position!(builder)
+    @test builder.insert_block === nothing
+    remove!(e)
+    @test_throws ArgumentError insert_instruction!(builder, e)
+    erase!(e)
 end
 
 # positioning after an instruction inserts before the debug records of the next one
@@ -715,16 +732,16 @@ end
     @test_throws ArgumentError comes_before(a, c)
 
     # moving instructions, also to other blocks
-    move_before(b, a)
+    move_before!(b, a)
     @test collect(entry.instructions)[1:2] == [b, a]
-    move_after(b, a)
+    move_after!(b, a)
     @test collect(entry.instructions)[1:2] == [a, b]
-    move_before(b, c)
+    move_before!(b, c)
     @test collect(exit.instructions) == [b, c, ret]
-    move_after(b, ld)
+    move_after!(b, ld)
     @test collect(exit.instructions) == [c, ret]
     @test b.parent == entry
-    move_before(a, a)
+    move_before!(a, a)
     @test first(entry.instructions) == a
     verify(mod)
 
@@ -1136,7 +1153,7 @@ end
 
         # support for removing/insertion
         remove!(retinst)
-        insert!(builder, retinst)
+        insert_instruction!(builder, retinst)
     end
     verify(mod)
 

@@ -12,8 +12,8 @@ copy_attributes!
 ```@docs
 empty!
 erase!(::LLVM.Function)
-move_before(::LLVM.Function, ::LLVM.Function)
-move_after(::LLVM.Function, ::LLVM.Function)
+move_before!(::LLVM.Function, ::LLVM.Function)
+move_after!(::LLVM.Function, ::LLVM.Function)
 ```
 
 ## Attributes

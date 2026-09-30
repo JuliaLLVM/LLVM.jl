@@ -25,7 +25,7 @@ functionality from `User` and `Value`:
 - `remove!`/`erase!`: delete the instruction from its parent basic block, or additionally
   also delete the instruction itself.
 - `copy(inst)`: clone an instruction
-- `move_before(inst, pos)`/`move_after(inst, pos)`: move the instruction before or after
+- `move_before!(inst, pos)`/`move_after!(inst, pos)`: move the instruction before or after
   another one, which can be in a different basic block.
 - `comes_before(a, b)`: check whether an instruction comes before another one in the same
   basic block.
@@ -55,16 +55,18 @@ to create instructions by calling specific functions.
 
 To position an `IRBuilder`, several APIs are available:
 
-- `position`: get the basic block where the builder is currently positioned.
+- `builder.insert_block`: the basic block where the builder is currently positioned, or
+  `nothing`.
 - `position!(builder, ::Instruction)`: position the builder before an instruction.
 - `position!(builder, ::Instruction; after=true)`: position the builder after an
   instruction, which is at the end of its basic block if it is the last instruction.
 - `position!(builder, ::BasicBlock)`: position the builder at the end of a basic block.
 - `position!(builder)`: clear the position of the builder.
 
-Given a pre-created `Instruction`, or more commonly an instruction that has been `delete!`d
-from a basic block, it is possible to insert it back into a different basic block by
-calling the `insert!` function.
+An instruction that isn't part of a basic block, e.g., a `copy` of another instruction or
+one that was `remove!`d from its block, can be inserted at the builder's position by
+calling `insert_instruction!(builder, inst)`. To move an instruction that is part of a
+block, use `move_before!` or `move_after!` instead.
 
 The essential functionality of the `IRBuilder` is the ability to create instructions. This
 is done by calling specific functions:

@@ -346,7 +346,7 @@ constructors.
 | views of state  | `inst.fast_math.nnan = true`, `f.memory_effects[:argmem] = :read`        |
 | predicates      | `isdeclaration(f)`, `isvararg(ft)`, `isterminator(inst)`, `isconstant(val)` |
 | computations    | `LLVM.overloaded_name(intrinsic, types)`, `dominates(tree, a, b)`        |
-| operations      | `erase!(inst)`, `replace_uses!(old, new)`, `move_before(f, g)`, `elements!(st, elems)` |
+| operations      | `erase!(inst)`, `replace_uses!(old, new)`, `move_before!(f, g)`, `elements!(st, elems)` |
 
 Predicates are functions so that they can be passed to higher-order functions, e.g.,
 `filter(isdeclaration, mod.functions)`. Relationships that can be absent are `nothing`,

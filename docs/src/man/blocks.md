@@ -28,7 +28,7 @@ Basic blocks support a couple of specific APIs:
 - `bb.name`: the name of the basic block.
 - `bb.parent`: the parent function of the basic block, or `nothing` if it is detached.
 - `bb.terminator`: the terminator instruction of the block, or `nothing` if it has none.
-- `move_before`/`move_after`: move the block before or after another block.
+- `move_before!`/`move_after!`: move the block before or after another block.
 - `remove!`/`erase!`: delete the basic block from its parent function, or additionally also
   delete the block itself.
 

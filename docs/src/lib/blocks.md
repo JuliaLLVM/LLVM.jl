@@ -12,6 +12,6 @@ BasicBlock(bb::BasicBlock, name::String)
 ```@docs
 remove!(::BasicBlock)
 erase!(::BasicBlock)
-move_before(::BasicBlock, ::BasicBlock)
-move_after(::BasicBlock, ::BasicBlock)
+move_before!(::BasicBlock, ::BasicBlock)
+move_after!(::BasicBlock, ::BasicBlock)
 ```

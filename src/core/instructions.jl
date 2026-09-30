@@ -147,34 +147,42 @@ remove!(inst::Instruction) = API.LLVMInstructionRemoveFromParent(inst)
 """
     erase!(inst::Instruction)
 
-Remove the given instruction from the containing basic block and delete the object.
+Remove the given instruction from the containing basic block, if any, and delete the
+object.
 
 !!! warning
 
     This function is unsafe because it does not check if the instruction is used elsewhere.
 """
-erase!(inst::Instruction) = API.LLVMInstructionEraseFromParent(inst)
+function erase!(inst::Instruction)
+    if API.LLVMGetInstructionParent(inst) == C_NULL
+        # e.g., a copy, or an instruction that was removed from its block
+        API.LLVMDeleteInstruction(inst)
+    else
+        API.LLVMInstructionEraseFromParent(inst)
+    end
+end
 
 @vocabulary IR comes_before, may_read_from_memory, may_write_to_memory,
                may_have_side_effects
 
 """
-    move_before(inst::Instruction, pos::Instruction)
+    move_before!(inst::Instruction, pos::Instruction)
 
 Move the given instruction before the given position, which can be in another basic block
 of the same function. It is up to the caller to keep the IR valid, e.g., to keep the
 instruction dominating its uses, and PHI nodes at the start of a block.
 """
-move_before(inst::Instruction, pos::Instruction) =
+move_before!(inst::Instruction, pos::Instruction) =
     API.LLVMExtraMoveInstructionBefore(check_attached(inst), check_attached(pos))
 
 """
-    move_after(inst::Instruction, pos::Instruction)
+    move_after!(inst::Instruction, pos::Instruction)
 
 Move the given instruction after the given position, which can be in another basic block of
-the same function. See [`move_before`](@ref move_before(::Instruction, ::Instruction)).
+the same function. See [`move_before!`](@ref move_before!(::Instruction, ::Instruction)).
 """
-move_after(inst::Instruction, pos::Instruction) =
+move_after!(inst::Instruction, pos::Instruction) =
     API.LLVMExtraMoveInstructionAfter(check_attached(inst), check_attached(pos))
 
 function check_attached(inst::Instruction)

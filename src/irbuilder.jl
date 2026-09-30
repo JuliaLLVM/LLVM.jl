@@ -6,7 +6,7 @@
 @nospecialize
 
 @vocabulary Build IRBuilder,
-                  position!
+                  position!, insert_instruction!
 
 """
     IRBuilder
@@ -18,6 +18,11 @@ An instruction builder, which is used to build instructions within a basic block
     builder.context
 
 The context of the instruction builder.
+
+    builder.insert_block
+
+The basic block that the instruction builder inserts instructions into, or `nothing` if the
+builder is not positioned. See [`position!`](@ref) to change it.
 
     builder.debug_location
     builder.debug_location = loc::Union{Metadata,MetadataAsValue,Nothing}
@@ -67,12 +72,12 @@ end
 
 Base.show(io::IO, builder::IRBuilder) = @printf(io, "IRBuilder(%p)", builder.ref)
 
-"""
-    position(builder::IRBuilder)
+function insert_block(builder::IRBuilder)
+    ref = API.LLVMGetInsertBlock(builder)
+    ref == C_NULL ? nothing : BasicBlock(ref)
+end
 
-Return the current position of the instruction builder.
-"""
-Base.position(builder::IRBuilder) = BasicBlock(API.LLVMGetInsertBlock(builder))
+@property IRBuilder insert_block
 
 """
     position!(builder::IRBuilder, inst::Instruction; after::Bool=false)
@@ -123,13 +128,21 @@ Clear the current position of the instruction builder.
 position!(builder::IRBuilder) = API.LLVMClearInsertionPosition(builder)
 
 """
-    insert!(builder::IRBuilder, inst::Instruction, [name::String])
+    insert_instruction!(builder::IRBuilder, inst::Instruction; name::String="")
 
-Insert an instruction into the current basic block at the current position, optionally
-giving it a name.
+Insert an instruction that is not part of a basic block (e.g., one that was created with
+`copy`, or removed using `remove!`) at the current position of the builder. The instruction
+keeps its name, unless another one is given. Returns the instruction.
 """
-Base.insert!(builder::IRBuilder, inst::Instruction, name::String="") =
+function insert_instruction!(builder::IRBuilder, inst::Instruction; name::String=inst.name)
+    API.LLVMGetInstructionParent(inst) == C_NULL ||
+        throw(ArgumentError("Instruction is already part of a basic block; use move_before! or move_after! to move it"))
+    API.LLVMGetInsertBlock(builder) == C_NULL &&
+        throw(ArgumentError("Instruction builder is not positioned"))
+    # IRBuilder::Insert always sets the name, so pass the current one to keep it
     API.LLVMInsertIntoBuilderWithName(builder, inst, name)
+    return inst
+end
 
 function debug_location(builder::IRBuilder)
     ref = API.LLVMGetCurrentDebugLocation2(builder)
@@ -816,7 +829,7 @@ function globalstring!(mod::LLVM.Module, str::String, name::String="";
     return gv
 end
 function globalstring!(builder::IRBuilder, args...; kwargs...)
-    mod = parent(parent(position(builder)))
+    mod = parent(parent(insert_block(builder)))
     globalstring!(mod, args...; kwargs...)
 end
 

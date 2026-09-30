@@ -92,7 +92,7 @@ end
     @test_throws "integer or pointer values" atomic_cmpxchg!(builder, ptr, float, float, SC)
     @test_throws "same type" atomic_cmpxchg!(builder, ptr, int, float, SC)
     @test_throws "release or acq_rel" atomic_cmpxchg!(builder, ptr, int, int, SC, RE)
-    @test isempty(position(builder).instructions)
+    @test isempty(builder.insert_block.instructions)
 end
 end
 

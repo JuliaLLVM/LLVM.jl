@@ -528,7 +528,7 @@ function Base.sort!(iter::ModuleGlobalSet; by=name, kwargs...)
     elements = collect(iter)
     sort!(elements; by, kwargs...)
     for i in 2:length(elements)
-        move_after(elements[i], elements[i-1])
+        move_after!(elements[i], elements[i-1])
     end
     iter
 end
@@ -636,7 +636,7 @@ function Base.sort!(iter::ModuleFunctionSet; by=name, kwargs...)
     elements = collect(iter)
     sort!(elements; by, kwargs...)
     for i in 2:length(elements)
-        move_after(elements[i], elements[i-1])
+        move_after!(elements[i], elements[i-1])
     end
     iter
 end

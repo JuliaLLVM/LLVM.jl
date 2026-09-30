@@ -207,7 +207,7 @@ New functionality:
   end of the block if it is the last one). `extract_value!` and `insert_value!` accept a
   vector of indices to access nested elements, and check the indices. `exactudiv!` builds
   an exact unsigned division.
-- `move_before` and `move_after` move instructions, `comes_before` orders them, and
+- `move_before!` and `move_after!` move instructions, `comes_before` orders them, and
   `may_read_from_memory`, `may_write_to_memory` and `may_have_side_effects` query what they
   may do. `take_name!(val, from)` transfers a name, and `strip_pointer_casts` and
   `strip_pointer_casts_and_aliases` look through casts and aliases.

@@ -1,5 +1,5 @@
 @vocabulary IR BasicBlock, remove!, erase!,
-               move_before, move_after
+               move_before!, move_after!
 
 """
     BasicBlock
@@ -119,19 +119,19 @@ end
 name(bb::BasicBlock) = unsafe_string(API.LLVMGetBasicBlockName(bb))
 
 """
-    move_before(bb::BasicBlock, pos::BasicBlock)
+    move_before!(bb::BasicBlock, pos::BasicBlock)
 
 Move the given basic block before the given position.
 """
-move_before(bb::BasicBlock, pos::BasicBlock) =
+move_before!(bb::BasicBlock, pos::BasicBlock) =
     API.LLVMMoveBasicBlockBefore(bb, pos)
 
 """
-    move_after(bb::BasicBlock, pos::BasicBlock)
+    move_after!(bb::BasicBlock, pos::BasicBlock)
 
 Move the given basic block after the given position.
 """
-move_after(bb::BasicBlock, pos::BasicBlock) =
+move_after!(bb::BasicBlock, pos::BasicBlock) =
     API.LLVMMoveBasicBlockAfter(bb, pos)
 
 

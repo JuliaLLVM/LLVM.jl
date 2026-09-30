@@ -1665,11 +1665,11 @@ end
     gvs = mod.globals
 
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
-    move_before(b, c)
+    move_before!(b, c)
     @test [gv.name for gv in gvs] == ["b", "c", "a"]
-    move_after(b, a)
+    move_after!(b, a)
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
-    move_before(a, a)
+    move_before!(a, a)
     @test [gv.name for gv in gvs] == ["c", "a", "b"]
     @test length(collect(gvs)) == 3
 
@@ -1870,11 +1870,11 @@ end
     fns = mod.functions
 
     @test [f.name for f in fns] == ["c", "a", "b"]
-    move_before(b, c)
+    move_before!(b, c)
     @test [f.name for f in fns] == ["b", "c", "a"]
-    move_after(b, a)
+    move_after!(b, a)
     @test [f.name for f in fns] == ["c", "a", "b"]
-    move_after(a, a)
+    move_after!(a, a)
     @test [f.name for f in fns] == ["c", "a", "b"]
     @test length(collect(fns)) == 3
 
@@ -2585,10 +2585,10 @@ end
         @test first(bbs) == bb1
         @test last(bbs) == bb2
 
-        move_before(bb2, bb1)
+        move_before!(bb2, bb1)
         @test collect(bbs) == [bb2, bb1]
 
-        move_after(bb2, bb1)
+        move_after!(bb2, bb1)
         @test collect(bbs) == [bb1, bb2]
 
         @test bb1 in bbs

@@ -7,7 +7,7 @@ export @llvmgenerated, generate_llvmcall, current_function, current_module
 
 Return the function containing the builder's insertion point.
 """
-current_function(builder::IRBuilder) = position(builder).parent
+current_function(builder::IRBuilder) = builder.insert_block.parent
 
 """
     current_module(builder::IRBuilder) -> LLVM.Module

@@ -46,11 +46,8 @@ function TargetMachineBuilder()
     TargetMachineBuilder(ref[])
 end
 
-function TargetMachineBuilder(tm::TargetMachine)
-    tmb = API.LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(tm)
-    mark_dispose(tm)
-    TargetMachineBuilder(tmb)
-end
+TargetMachineBuilder(tm::TargetMachine) =
+    TargetMachineBuilder(API.LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(consume!(tm)))
 
 TargetMachineBuilder(f::Core.Function, args...) =
     with_disposal(f, TargetMachineBuilder(args...))

@@ -436,6 +436,17 @@ end
     # unused builders need to be disposed of
     @dispose builder=LLJITBuilder() tmb=TargetMachineBuilder() begin end
 
+    # target machines are consumed by target machine builders, and thus by JITs
+    @dispose tm=LLVM.JITTargetMachine() begin
+        @dispose tmb=TargetMachineBuilder(tm) begin
+            @test_throws ArgumentError tm.triple
+            @test_throws ArgumentError TargetMachineBuilder(tm)
+        end
+    end
+    @dispose tm=LLVM.JITTargetMachine() lljit=LLJIT(; tm) begin
+        @test_throws ArgumentError tm.triple
+    end
+
     # thread-safe modules are consumed by adding them to a JIT
     function constant_module(name)
         tsm = ThreadSafeModule("jit")

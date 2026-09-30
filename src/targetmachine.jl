@@ -29,13 +29,27 @@ The CPU of the target machine.
     tm.features
 
 The feature string of the target machine.
+
+# Ownership
+
+A target machine is consumed by [`TargetMachineBuilder(tm)`](@ref TargetMachineBuilder),
+and thus by `LLJIT(; tm)`, which take ownership of it. A consumed target machine can't be
+used anymore, and disposing of it does nothing, so that it can be disposed of
+unconditionally, e.g., using the do-block form of its constructor.
 """
-@checked struct TargetMachine
+mutable struct TargetMachine
     ref::API.LLVMTargetMachineRef
+    owned::Bool
+
+    function TargetMachine(ref::API.LLVMTargetMachineRef)
+        ref == C_NULL && throw(UndefRefError())
+        new(ref, true)
+    end
 end
 @properties TargetMachine
 
-Base.unsafe_convert(::Type{API.LLVMTargetMachineRef}, tm::TargetMachine) = mark_use(tm).ref
+Base.unsafe_convert(::Type{API.LLVMTargetMachineRef}, tm::TargetMachine) =
+    check_owned(tm).ref
 
 """
     TargetMachine(t::Target, triple::String; cpu::String="", features::String="",
@@ -63,9 +77,9 @@ end
 """
     dispose(tm::TargetMachine)
 
-Dispose of the given target machine.
+Dispose of the given target machine, unless it has been consumed.
 """
-dispose(tm::TargetMachine) = mark_dispose(API.LLVMDisposeTargetMachine, tm)
+dispose(tm::TargetMachine) = dispose_owned(API.LLVMDisposeTargetMachine, tm)
 
 TargetMachine(f::Core.Function, args...; kwargs...) =
     with_disposal(f, TargetMachine(args...; kwargs...))

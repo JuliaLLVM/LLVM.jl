@@ -244,6 +244,30 @@ ORC:
   symbols that are `materialization_side_effects_only`, and lazy reexports that aren't
   callable.
 
+Targets and execution engines:
+
+- `TargetMachine(target, triple; cpu, features, opt_level, reloc, code)` takes its CPU and
+  features as keyword arguments instead of optional positional ones, and the optimization
+  level is `opt_level` instead of `optlevel`, like elsewhere. `JITTargetMachine(; triple,
+  cpu, features, opt_level)` takes keywords as it was documented to (it took positional
+  arguments), and has a do-block form. The legacy `LLVM.JIT(mod; opt_level)` takes its
+  optimization level as a keyword too.
+- `LLVM.hasasmparser` is renamed to `LLVM.hasasmbackend`, which is what it checks.
+- The data layout of a JIT is `jit.datalayout_string` (it was `jit.datalayout`, a string,
+  while `mod.datalayout` is a `DataLayout`), and `DataLayout(jit)` creates a `DataLayout`
+  that can be queried.
+- The hooks of a custom `AbstractTargetTransformInfo` return `nothing` for absent address
+  spaces instead of `typemax(UInt)`: `get_assumed_addr_space` returns an integer or
+  `nothing`, `get_predicated_addr_space` a `(pointer, addrspace)` tuple or `nothing`, and
+  `flat_address_space` can return `nothing`. Address spaces that pointers can't have (24
+  bits) are reported instead of truncated, which rejects the old sentinel.
+  `collect_flat_address_operands` returns 1-based argument positions, like
+  `call.arguments`.
+- `LLVM.execute(engine, f, args)` runs a function in a legacy execution engine, replacing
+  a method of `Base.run`, and `LLVM.to_float(val, typ)` gets the floating-point number of a
+  `GenericValue`, replacing the three-argument `convert(T, val, typ)`. Only float and double
+  generic values are supported, which the C API requires.
+
 Types, constants and data layouts:
 
 - LLVM types and constants no longer implement Base's collection functions, which
@@ -371,6 +395,8 @@ Bug fixes:
 - `unsafe_store!` on `Core.LLVMPtr` returns the pointer, like Base.
 - `erase!` on an instruction or basic block that isn't part of a block or function, and
   `clone(bb; dest=nothing)` on LLVM 18 and later, no longer crash.
+- `delete!(engine, mod)` does nothing for a module that isn't part of the execution engine,
+  and checks the status that the C API returns.
 - Moving basic blocks (now using `move!`) works for detached blocks, which crashed, and
   before a block of another function, which corrupted the IR: the block was listed in the
   other function, but kept its old parent.

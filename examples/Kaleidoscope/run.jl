@@ -36,8 +36,8 @@ function run(mod::LLVM.Module, entry::String)
             error("did not find entry function '$entry' in module")
         end
         f = engine.functions[entry]
-        res = LLVM.run(engine, f)
-        res_jl = convert(Float64, res, LLVM.DoubleType())
+        res = LLVM.execute(engine, f)
+        res_jl = LLVM.to_float(res, LLVM.DoubleType())
         LLVM.dispose(res)
     end
     return res_jl

@@ -17,8 +17,8 @@ convert(::Type{T}, val::LLVM.GenericValue) where {T <: Integer}
 ## Floating Point
 
 ```@docs
-LLVM.GenericValue(::LLVM.FloatingPointType, ::AbstractFloat)
-convert(::Type{T}, val::LLVM.GenericValue, typ::LLVMType) where {T<:AbstractFloat}
+LLVM.GenericValue(::Union{LLVM.LLVMFloat,LLVM.LLVMDouble}, ::AbstractFloat)
+LLVM.to_float
 ```
 
 ## Pointer
@@ -37,7 +37,7 @@ LLVM.JIT
 dispose(::LLVM.ExecutionEngine)
 Base.push!(::LLVM.ExecutionEngine, ::LLVM.Module)
 Base.delete!(::LLVM.ExecutionEngine, ::LLVM.Module)
-run(::LLVM.ExecutionEngine, ::LLVM.Function, ::Vector{LLVM.GenericValue})
+LLVM.execute
 lookup(::LLVM.ExecutionEngine, ::String)
 ```
 

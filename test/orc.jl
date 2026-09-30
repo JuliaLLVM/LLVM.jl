@@ -290,7 +290,7 @@ end
             ts_mod() do mod
                 # emitting directly to a layer bypasses LLJIT's module set-up
                 mod.triple = lljit.triple
-                mod.datalayout = lljit.datalayout
+                mod.datalayout = lljit.datalayout_string
                 fn = LLVM.Function(mod, "emitted", LLVM.FunctionType(LLVM.Int32Type()))
                 @dispose builder=IRBuilder() begin
                     position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
@@ -464,6 +464,14 @@ end
         sym = mangle(lljit, "dup")
         @test_throws ArgumentError absolute_symbols([sym => ptr, sym => ptr])
         release(sym)
+    end
+end
+
+@testset "Data layout" begin
+    @dispose lljit=LLJIT() dl=LLVM.DataLayout(lljit) begin
+        @test lljit.datalayout_string isa String
+        @test string(dl) == lljit.datalayout_string
+        @test LLVM.pointersize(dl) == sizeof(Ptr{Cvoid})
     end
 end
 
@@ -864,7 +872,7 @@ end
 
                 ts_mod = ThreadSafeModule("jit")
                 ts_mod() do mod
-                    dl = lljit.datalayout
+                    dl = lljit.datalayout_string
                     if LLVM.version() >= v"20"
                         # XXX: LLVM 20 removed the ability to replace a data layout,
                         #      resulting in Julia's JIT having a different DL from the TM's.

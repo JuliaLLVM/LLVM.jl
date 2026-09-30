@@ -61,7 +61,7 @@ With these objects, a number of APIs are available:
 - `target.description`: a textual description of the target
 - `LLVM.hasjit`: whether the target has a JIT
 - `LLVM.hastargetmachine`: whether the target has a target machine
-- `LLVM.hasasmparser`: whether the target has an assembly parser
+- `LLVM.hasasmbackend`: whether the target has an assembly backend, to emit object files
 
 
 ## Target machines
@@ -78,12 +78,12 @@ julia> LLVM.InitializeWebAssemblyTargetMC();
 julia> tm = LLVM.TargetMachine(target, triple);
 ```
 
-The target machine constructor takes various additional options too:
+The target machine constructor takes various additional options too, as keyword arguments:
 
 - `cpu` and `features`: strings that describe the CPU and its features to target
-- `optlevel`: the optimization level to use
-- `reloc`: the relocation model to use
-- `code`: the code model to use
+- `opt_level`: the optimization level to use (e.g., `LLVM.CodeGenOptLevel.Aggressive`)
+- `reloc`: the relocation model to use (e.g., `LLVM.RelocMode.PIC`)
+- `code`: the code model to use (e.g., `LLVM.CodeModel.Small`)
 
 Various APIs are available to manipulate `TargetMachine` objects:
 

@@ -15,10 +15,19 @@ end
 @test LLVM.host_cpu_name() isa String
 @test !isempty(LLVM.host_cpu_name())
 @test LLVM.host_cpu_features() isa String
-@dispose tm=LLVM.TargetMachine(host_t, host_triple, LLVM.host_cpu_name(),
-                               LLVM.host_cpu_features()) begin
+@dispose tm=LLVM.TargetMachine(host_t, host_triple; cpu=LLVM.host_cpu_name(),
+                               features=LLVM.host_cpu_features(),
+                               opt_level=LLVM.CodeGenOptLevel.Aggressive) begin
+    @test tm.cpu == LLVM.host_cpu_name()
+    @test tm.features == LLVM.host_cpu_features()
+end
+# the CPU and features are keyword arguments
+@test_throws MethodError LLVM.TargetMachine(host_t, host_triple, LLVM.host_cpu_name())
+
+LLVM.JITTargetMachine(; cpu=LLVM.host_cpu_name(), opt_level=LLVM.CodeGenOptLevel.None) do tm
     @test tm.cpu == LLVM.host_cpu_name()
 end
+@test_throws MethodError LLVM.JITTargetMachine(LLVM.default_triple())
 
 @dispose tm=LLVM.TargetMachine(host_t, host_triple) begin
     @test tm.target == host_t

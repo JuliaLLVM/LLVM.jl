@@ -10,7 +10,7 @@
 
     @test LLVM.hasjit(host_t)
     @test LLVM.hastargetmachine(host_t)
-    @test LLVM.hasasmparser(host_t)
+    @test LLVM.hasasmbackend(host_t)
 
     # target iteration
     let ts = LLVM.targets()

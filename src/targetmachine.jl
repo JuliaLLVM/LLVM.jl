@@ -38,21 +38,22 @@ end
 Base.unsafe_convert(::Type{API.LLVMTargetMachineRef}, tm::TargetMachine) = mark_use(tm).ref
 
 """
-    TargetMachine(t::Target, triple::String,
-                  [cpu::String], [features::String],
-                  [optlevel::LLVMCodeGenOptLevel],
-                  [reloc::LLVMRelocMode],
-                  [code::LLVMCodeModel])
+    TargetMachine(t::Target, triple::String; cpu::String="", features::String="",
+                  opt_level=LLVM.CodeGenOptLevel.Default, reloc=LLVM.RelocMode.Default,
+                  code=LLVM.CodeModel.Default)
+    TargetMachine(f, t, triple; kwargs...)
 
-Create a target machine for the given target, triple, CPU, and features.
+Create a target machine for the given target and triple, targeting the given CPU (e.g.,
+[`LLVM.host_cpu_name()`](@ref)) and features (e.g., `"+avx2,-sse4a"`), and with the given
+optimization level, relocation model and code model.
 
-This object needs to be disposed of using [`dispose`](@ref).
+This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
-function TargetMachine(t::Target, triple::String, cpu::String="", features::String="";
-                       optlevel::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault,
+function TargetMachine(t::Target, triple::String; cpu::String="", features::String="",
+                       opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault,
                        reloc::API.LLVMRelocMode=API.LLVMRelocDefault,
                        code::API.LLVMCodeModel=API.LLVMCodeModelDefault)
-    ref = API.LLVMCreateTargetMachine(t, triple, cpu, features, optlevel, reloc, code)
+    ref = API.LLVMCreateTargetMachine(t, triple, cpu, features, opt_level, reloc, code)
     if ref === C_NULL
         throw(ArgumentError("Target $t does not have a target machine"))
     end
@@ -169,13 +170,18 @@ end
 
 """
     JITTargetMachine(; triple=LLVM.default_triple(), cpu="", features="",
-                     optlevel=LLVM.CodeGenOptLevel.Default)
+                     opt_level=LLVM.CodeGenOptLevel.Default)
+    JITTargetMachine(f; kwargs...)
 
-Create a target machine suitable for JIT compilation with the ORC JIT.
+Create a target machine suitable for JIT compilation with the ORC JIT: like a
+[`TargetMachine`](@ref), but with the static relocation model and the JIT's default code
+model, and an ELF triple on Windows.
+
+This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
-function JITTargetMachine(triple = LLVM.default_triple(),
-                          cpu = "", features = "";
-                          optlevel = API.LLVMCodeGenLevelDefault)
+function JITTargetMachine(; triple::String=LLVM.default_triple(), cpu::String="",
+                          features::String="",
+                          opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault)
 
     # Force ELF on windows,
     # Note: Without this call to normalize Orc get's confused
@@ -185,10 +191,18 @@ function JITTargetMachine(triple = LLVM.default_triple(),
         triple *= "-elf"
     end
     target = LLVM.Target(triple=triple)
-    @debug "Configuring OrcJIT with" triple cpu features optlevel
+    @debug "Configuring OrcJIT with" triple cpu features opt_level
 
-    TargetMachine(target, triple, cpu, features;
-                       optlevel,
-                       reloc = API.LLVMRelocStatic, # Generate simpler code for JIT
-                       code = API.LLVMCodeModelJITDefault) # Required to init TM as JIT
+    TargetMachine(target, triple; cpu, features, opt_level,
+                  reloc = API.LLVMRelocStatic, # Generate simpler code for JIT
+                  code = API.LLVMCodeModelJITDefault) # Required to init TM as JIT
+end
+
+function JITTargetMachine(f::Core.Function; kwargs...)
+    tm = JITTargetMachine(; kwargs...)
+    try
+        f(tm)
+    finally
+        dispose(tm)
+    end
 end

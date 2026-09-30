@@ -366,7 +366,7 @@ end
 
     # Operand lists that don't fit the C API's buffer are reported, not truncated.
     struct ManyOperandsTTI <: LLVM.AbstractTargetTransformInfo end
-    LLVM.collect_flat_address_operands(::ManyOperandsTTI, ::UInt) = collect(0:40)
+    LLVM.collect_flat_address_operands(::ManyOperandsTTI, ::UInt) = collect(1:41)
     let state = LLVM.CustomTTIState(ManyOperandsTTI())
         ops = Vector{Cint}(undef, 32)
         count = Ref{Cuint}()
@@ -379,6 +379,100 @@ end
         @test count[] == 0
         @test state.exception !== nothing
         @test first(state.exception) isa ArgumentError
+    end
+
+    # Operand positions are 1-based, and are checked.
+    struct OperandsTTI <: LLVM.AbstractTargetTransformInfo
+        ops::Vector{Int}
+    end
+    LLVM.collect_flat_address_operands(tti::OperandsTTI, ::UInt) = tti.ops
+    function collect_operands(tti)
+        state = LLVM.CustomTTIState(tti)
+        ops = zeros(Cint, 32)
+        count = Ref{Cuint}()
+        GC.@preserve state ops count begin
+            LLVM.custom_tti_collect_flat_address_operands_callback(
+                Cuint(0), pointer(ops), Cuint(32),
+                Base.unsafe_convert(Ptr{Cuint}, count), pointer_from_objref(state))
+        end
+        return ops[1:count[]], state.exception
+    end
+    @test collect_operands(OperandsTTI([1, 3])) == (Cint[0, 2], nothing)
+    let (ops, exception) = collect_operands(OperandsTTI([0]))
+        @test isempty(ops)
+        @test first(exception) isa ArgumentError
+    end
+
+    # Address spaces are integers, or `nothing` for none.
+    struct AddrSpaceTTI <: LLVM.AbstractTargetTransformInfo
+        as::Any
+    end
+    LLVM.get_assumed_addr_space(tti::AddrSpaceTTI, ::LLVM.Value) = tti.as
+    LLVM.get_predicated_addr_space(tti::AddrSpaceTTI, v::LLVM.Value) =
+        tti.as === nothing ? nothing : (v, tti.as)
+    @dispose ctx=Context() begin
+        val = LLVM.ConstantInt(Int32(0))
+        ref = Base.unsafe_convert(LLVM.API.LLVMValueRef, val)
+        function query(tti)
+            state = LLVM.CustomTTIState(tti)
+            pred = Ref{LLVM.API.LLVMValueRef}(ref)
+            GC.@preserve state pred begin
+                assumed = LLVM.custom_tti_get_assumed_address_space_callback(
+                    ref, pointer_from_objref(state))
+                predicated = LLVM.custom_tti_get_predicated_address_space_callback(
+                    ref, Base.unsafe_convert(Ptr{LLVM.API.LLVMValueRef}, pred),
+                    pointer_from_objref(state))
+            end
+            return assumed, predicated, pred[], state.exception
+        end
+        @test query(AddrSpaceTTI(3)) == (3, 3, ref, nothing)
+        @test query(AddrSpaceTTI(nothing)) == (typemax(Cuint), typemax(Cuint), C_NULL, nothing)
+        # the old sentinel is rejected, as are address spaces that pointers can't have
+        for as in (typemax(UInt), 2^24, -1)
+            let (assumed, predicated, pred, exception) = query(AddrSpaceTTI(as))
+                @test assumed == typemax(Cuint)
+                @test first(exception) isa ArgumentError
+            end
+        end
+        @test query(AddrSpaceTTI(2^24 - 1))[1] == 2^24 - 1
+    end
+
+    # Assumptions can imply the address space of a pointer.
+    struct AssumeTTI <: LLVM.AbstractTargetTransformInfo end
+    LLVM.flat_address_space(::AssumeTTI) = UInt(0)
+    LLVM.is_noop_addr_space_cast(::AssumeTTI, from::Unsigned, to::Unsigned) =
+        from == 0 || to == 0
+    function LLVM.get_predicated_addr_space(::AssumeTTI, cond::LLVM.Value)
+        # `llvm.assume(is_shared(ptr))` implies that `ptr` is in address space 3
+        cond isa LLVM.CallInst || return nothing
+        f = cond.called_function
+        f !== nothing && f.name == "is_shared" || return nothing
+        return (cond.arguments[1], 3)
+    end
+    @dispose ctx=Context() begin
+        # `ptr` is `i32*` with typed pointers
+        ptr = supports_typed_pointers() ? "i32*" : "ptr"
+        mod = parse(LLVM.Module, """
+            declare i1 @is_shared($ptr)
+            declare void @llvm.assume(i1)
+
+            define i32 @f($ptr %p) {
+              %c = call i1 @is_shared($ptr %p)
+              call void @llvm.assume(i1 %c)
+              %q = getelementptr i32, $ptr %p, i64 1
+              %v = load i32, $ptr %q
+              ret i32 %v
+            }""")
+        @dispose pb=PassBuilder() begin
+            target_transform_info!(pb, AssumeTTI())
+            add!(pb, FunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test occursin(supports_typed_pointers() ? "load i32, i32 addrspace(3)*" :
+                                                   "load i32, ptr addrspace(3)", string(mod))
+        dispose(mod)
     end
 
     # Overrides are found when they are specialized on the argument types that the
@@ -413,7 +507,7 @@ end
         LLVM.is_noop_addr_space_cast(::CountingTTI, from::Unsigned, to::Unsigned) =
             from == 0 || to == 0
         LLVM.get_assumed_addr_space(t::CountingTTI, ::LLVM.Value) =
-            (t.calls[] += 1; typemax(UInt))
+            (t.calls[] += 1; nothing)
 
         @dispose ctx=Context() mod=make_mod() begin
             @dispose pb=PassBuilder() begin
@@ -425,6 +519,21 @@ end
             end
         end
         @test calls[] > 0
+    end
+
+    # A target without a flat address space doesn't fold the cast.
+    struct NoFlatTTI <: LLVM.AbstractTargetTransformInfo end
+    LLVM.flat_address_space(::NoFlatTTI) = nothing
+    LLVM.is_noop_addr_space_cast(::NoFlatTTI, from::Unsigned, to::Unsigned) = true
+    @dispose ctx=Context() mod=make_mod() begin
+        @dispose pb=PassBuilder() begin
+            target_transform_info!(pb, NoFlatTTI())
+            add!(pb, FunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test has_addrspacecast(mod)
     end
 
     # `target_transform_info!(pb, nothing)` reverts to LLVM's native TTI.
@@ -867,7 +976,7 @@ end
             LLVM.InitializeNVPTXTargetMC()
             triple = "nvptx64-nvidia-cuda"
             t = LLVM.Target(triple=triple)
-            tm = LLVM.TargetMachine(t, triple, "sm_80")
+            tm = LLVM.TargetMachine(t, triple; cpu="sm_80")
             try
                 @dispose pb=PassBuilder(debug_logging=true) mod=test_module() begin
                     add!(pb, "pipeline-start-callbacks<O3>")

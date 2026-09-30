@@ -6,7 +6,7 @@
 LLVM.Target
 LLVM.hasjit(::LLVM.Target)
 LLVM.hastargetmachine(::LLVM.Target)
-LLVM.hasasmparser(::LLVM.Target)
+LLVM.hasasmbackend(::LLVM.Target)
 LLVM.targets
 ```
 

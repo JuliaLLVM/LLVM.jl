@@ -41,6 +41,9 @@ Exceptions from overridden queries are captured, LLVM receives a conservative
 answer, and the exception is rethrown as a `PassException` after the pass
 pipeline returns.
 
+The queries receive address spaces and intrinsic IDs as `UInt`s, and return address
+spaces as integers, or `nothing` for none.
+
 Overridable queries:
 
 - Target-level knobs: [`flat_address_space`](@ref),
@@ -57,11 +60,11 @@ Overridable queries:
 abstract type AbstractTargetTransformInfo end
 
 """
-    flat_address_space(tti::AbstractTargetTransformInfo) -> Unsigned
+    flat_address_space(tti::AbstractTargetTransformInfo) -> Union{Integer,Nothing}
 
-Address space the target treats as "flat" / generic. Required — alongside
-[`is_noop_addr_space_cast`](@ref) — for `InferAddressSpacesPass` to fold
-`addrspacecast`s. If not defined, LLVM reports no flat AS.
+Address space the target treats as "flat" / generic, or `nothing` if there is none.
+Required — alongside [`is_noop_addr_space_cast`](@ref) — for `InferAddressSpacesPass` to
+fold `addrspacecast`s. If not defined, LLVM reports no flat AS.
 """
 function flat_address_space end
 
@@ -137,20 +140,22 @@ Whether `v` is known to hold the same value across all threads. Consulted by
 function is_always_uniform end
 
 """
-    get_assumed_addr_space(tti::AbstractTargetTransformInfo, v::Value) -> Unsigned
+    get_assumed_addr_space(tti::AbstractTargetTransformInfo, v::Value)
+        -> Union{Integer,Nothing}
 
-Address space statically known to hold for `v`, or `typemax(UInt)` for "no
-assumption". If not defined, falls back to LLVM's baseline.
+Address space statically known to hold for `v`, or `nothing` for "no assumption". If not
+defined, falls back to LLVM's baseline.
 """
 function get_assumed_addr_space end
 
 """
-    get_predicated_addr_space(tti::AbstractTargetTransformInfo, v::Value)
-        -> (predicate::Union{Value,Nothing}, as::Unsigned)
+    get_predicated_addr_space(tti::AbstractTargetTransformInfo, cond::Value)
+        -> Union{Tuple{Value,Integer},Nothing}
 
-Address space that holds for `v` when `predicate` is true. Return
-`(nothing, typemax(UInt))` for "no inference". If not defined, falls back to
-LLVM's baseline.
+Given the condition `cond` of an `llvm.assume`, return a `(ptr, as)` tuple if the
+condition implies that the pointer `ptr` is in address space `as` (e.g., when `cond` is a
+call to an intrinsic that checks the address space of `ptr`), or `nothing` otherwise. If
+not defined, falls back to LLVM's baseline.
 """
 function get_predicated_addr_space end
 
@@ -167,11 +172,11 @@ function rewrite_intrinsic_with_address_space end
 
 """
     collect_flat_address_operands(tti::AbstractTargetTransformInfo, iid::Unsigned)
-        -> Vector{Int}
+        -> AbstractVector{<:Integer}
 
-Operand indices of intrinsic `iid` that are flat-address-space pointer
-operands. The underlying C API supports at most 32 entries; returning more
-throws an error. If not defined, falls back to LLVM's baseline.
+Positions of the arguments of calls to intrinsic `iid` that are flat-address-space
+pointers, numbered from 1 like `call.arguments`. The underlying C API supports at most 32
+entries; returning more throws an error. If not defined, falls back to LLVM's baseline.
 """
 function collect_flat_address_operands end
 
@@ -182,6 +187,15 @@ mutable struct CustomTTIState
     tti::AbstractTargetTransformInfo
     exception::Union{Nothing,Tuple{Any,Vector}}
     CustomTTIState(tti) = new(tti, nothing)
+end
+
+# address spaces are passed to LLVM as unsigned 32-bit integers, with all ones meaning none,
+# but pointer types only have 24 bits for them
+function addrspace_result(as)
+    as === nothing && return typemax(Cuint)
+    as isa Integer && 0 <= as < 2^24 ||
+        throw(ArgumentError("address spaces must be integers between 0 and $(2^24 - 1), or nothing for none, got $(repr(as))"))
+    return Cuint(as)
 end
 
 # Each trampoline is a top-level (non-closure) function so it can be
@@ -272,11 +286,7 @@ function custom_tti_get_assumed_address_space_callback(ref::API.LLVMValueRef,
     state = Base.unsafe_pointer_to_objref(ud)::CustomTTIState
     state.exception === nothing || return typemax(Cuint)
     try
-        # `% Cuint` truncates modulo 2^32 rather than throwing on
-        # `typemax(UInt)` — users naturally reach for that as the "no
-        # assumption" sentinel, and we want both 32- and 64-bit spellings
-        # of ~0 to work.
-        return get_assumed_addr_space(state.tti, Value(ref))::Integer % Cuint
+        return addrspace_result(get_assumed_addr_space(state.tti, Value(ref)))
     catch err
         _capture_callback_exception!(state, err)
         return typemax(Cuint)
@@ -293,11 +303,15 @@ function custom_tti_get_predicated_address_space_callback(
         return typemax(Cuint)
     end
     try
-        (pred, as) = get_predicated_addr_space(state.tti, Value(ref))
-        pred_ref = pred === nothing ? API.LLVMValueRef(C_NULL) :
-                                      Base.unsafe_convert(API.LLVMValueRef, pred::Value)
-        unsafe_store!(out_predicate, pred_ref)
-        return as::Integer % Cuint
+        result = get_predicated_addr_space(state.tti, Value(ref))
+        if result === nothing
+            unsafe_store!(out_predicate, API.LLVMValueRef(C_NULL))
+            return typemax(Cuint)
+        end
+        pred, as = result::Tuple{Value,Any}
+        as_result = addrspace_result(as::Integer)
+        unsafe_store!(out_predicate, Base.unsafe_convert(API.LLVMValueRef, pred))
+        return as_result
     catch err
         _capture_callback_exception!(state, err)
         unsafe_store!(out_predicate, API.LLVMValueRef(C_NULL))
@@ -335,8 +349,12 @@ function custom_tti_collect_flat_address_operands_callback(
         n = length(ops)
         n <= max_count ||
             throw(ArgumentError("collect_flat_address_operands returned $n operands, but at most $max_count are supported"))
-        for i in 1:n
-            unsafe_store!(out_ops, Cint(ops[i]), i)
+        for op in ops
+            op isa Integer && 1 <= op && op - 1 <= typemax(Cint) ||
+                throw(ArgumentError("collect_flat_address_operands must return 1-based argument positions, got $(repr(op))"))
+        end
+        for (i, op) in enumerate(ops)
+            unsafe_store!(out_ops, Cint(op - 1), i)
         end
         unsafe_store!(out_count, Cuint(n))
         return n > 0
@@ -354,26 +372,29 @@ end
 function build_custom_tti_options(tti::AbstractTargetTransformInfo)
     state = CustomTTIState(tti)
     ud = Ref(state)
-    opts = API.LLVMCreateTTIOptions()
 
     T = typeof(tti)
 
     # whether the subtype overrides a hook, i.e., has a method that can be called with the
-    # arguments that the callback passes: integers as `UInt`, and values as their
+    # arguments that the callbacks pass: integers as `UInt`, and values as their
     # concrete wrapper type (so look for any method that accepts some `Value`)
     overrides(f, argtypes...) = !isempty(methods(f, Tuple{T, argtypes...}))
 
     # Scalar fields: only set when the subtype has an override. Unset fields
-    # leave LLVM's `TargetTransformInfoImplBase` to answer the query.
-    if overrides(flat_address_space)
-        API.LLVMTTIOptionsSetFlatAddressSpace(opts, flat_address_space(tti) % Cuint)
-    end
-    if overrides(has_branch_divergence)
-        API.LLVMTTIOptionsSetHasBranchDivergence(opts, has_branch_divergence(tti))
-    end
-    if overrides(is_single_threaded)
-        API.LLVMTTIOptionsSetIsSingleThreaded(opts, is_single_threaded(tti))
-    end
+    # leave LLVM's `TargetTransformInfoImplBase` to answer the query. They're queried
+    # before allocating the options, so that an exception doesn't leak them.
+    flat_as = overrides(flat_address_space) ?
+        addrspace_result(flat_address_space(tti)) : nothing
+    divergence = overrides(has_branch_divergence) ?
+        has_branch_divergence(tti)::Bool : nothing
+    single_threaded = overrides(is_single_threaded) ?
+        is_single_threaded(tti)::Bool : nothing
+
+    opts = API.LLVMCreateTTIOptions()
+    flat_as === nothing || API.LLVMTTIOptionsSetFlatAddressSpace(opts, flat_as)
+    divergence === nothing || API.LLVMTTIOptionsSetHasBranchDivergence(opts, divergence)
+    single_threaded === nothing ||
+        API.LLVMTTIOptionsSetIsSingleThreaded(opts, single_threaded)
 
     # Callbacks: install the @cfunction trampoline only when a concrete
     # override exists for this subtype.

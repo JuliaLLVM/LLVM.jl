@@ -33,12 +33,6 @@ function Base.cconvert(::Type{Ptr{API.LLVMTypeRef}},
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
 
-"""
-    eltype(typ::LLVMType)
-
-Get the element type of the given type, if supported.
-"""
-Base.eltype(typ::LLVMType) = LLVMType(API.LLVMGetElementType(typ))
 
 Base.sizeof(typ::LLVMType) = error("LLVM types are not sized")
 # TODO: expose LLVMSizeOf/LLVMAlignOf, yielding run-time values?
@@ -99,7 +93,15 @@ function Base.show(io::IO, typ::LLVMType)
     print(io, typeof(typ), "(", strip(string(typ)), ")")
 end
 
-Base.isempty(@nospecialize(T::LLVMType)) = false
+@vocabulary IR isemptytype
+
+"""
+    isemptytype(typ::LLVMType)
+
+Check whether the given type is empty, i.e., has no elements, or only empty elements, like
+C++'s `Type::isEmptyTy`. For example, `{}`, `[0 x i32]` and `[4 x {}]` are empty types.
+"""
+isemptytype(@nospecialize(T::LLVMType)) = false
 
 
 ## integer
@@ -325,6 +327,11 @@ A pointer type.
 
 The address space of the pointer type.
 
+    ptrtyp.element_type
+
+The type that a typed pointer points to, or `nothing` for an opaque pointer. Only available
+before LLVM 17, which removed typed pointers.
+
 The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct PointerType <: LLVMType
@@ -359,9 +366,13 @@ end
 
 isopaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool
 
-function Base.eltype(typ::PointerType)
-    isopaque(typ) && throw(error("Taking the type of an opaque pointer is illegal"))
-    invoke(eltype, Tuple{LLVMType}, typ)
+@static if version() < v"17"
+    # typed pointers
+    function element_type(typ::PointerType)
+        isopaque(typ) && return nothing
+        LLVMType(API.LLVMGetElementType(typ))
+    end
+    @property PointerType element_type
 end
 
 """
@@ -382,6 +393,18 @@ addrspace(ptrtyp::PointerType) = Int(API.LLVMGetPointerAddressSpace(ptrtyp))
     LLVM.ArrayType <: LLVMType
 
 An array type, representing a fixed-size array of identically-typed elements.
+
+# Properties
+
+    arrtyp.element_type
+
+The type of the elements of the array type.
+
+    arrtyp.length
+
+The number of elements of the array type.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct ArrayType <: LLVMType
     ref::API.LLVMTypeRef
@@ -393,8 +416,6 @@ register(ArrayType, API.LLVMArrayTypeKind)
     LLVM.ArrayType(eltyp::LLVMType, count)
 
 Create an array type with `count` elements of type `eltyp`.
-
-See also: [`length`](@ref), [`isempty`](@ref).
 """
 function ArrayType(eltyp::LLVMType, count)
     @static if version() >= v"17"
@@ -404,12 +425,7 @@ function ArrayType(eltyp::LLVMType, count)
     end
 end
 
-"""
-    length(arrtyp::LLVM.ArrayType)
-
-Get the length of the given array type.
-"""
-function Base.length(arrtyp::ArrayType)
+function array_length(arrtyp::ArrayType)
     @static if version() >= v"17"
         Int(API.LLVMGetArrayLength2(arrtyp))
     else
@@ -417,12 +433,10 @@ function Base.length(arrtyp::ArrayType)
     end
 end
 
-"""
-    isempty(arrtyp::LLVM.ArrayType)
+@property ArrayType length => array_length
 
-Check whether the given array type is empty.
-"""
-Base.isempty(@nospecialize(T::ArrayType)) = length(T) == 0 || isempty(eltype(T))
+isemptytype(@nospecialize(T::ArrayType)) =
+    array_length(T) == 0 || isemptytype(element_type(T))
 
 
 ## vector types
@@ -432,6 +446,18 @@ Base.isempty(@nospecialize(T::ArrayType)) = length(T) == 0 || isempty(eltype(T))
 
 A vector type, representing a fixed-size vector of identically-typed elements. Typically
 used for SIMD operations.
+
+# Properties
+
+    vectyp.element_type
+
+The type of the elements of the vector type.
+
+    vectyp.length
+
+The number of elements of the vector type.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
 """
 @checked struct VectorType <: LLVMType
     ref::API.LLVMTypeRef
@@ -443,19 +469,18 @@ register(VectorType, API.LLVMVectorTypeKind)
     VectorType(eltyp::LLVMType, count)
 
 Create a vector type with `count` elements of type `eltyp`.
-
-See also: [`length`](@ref).
 """
 function VectorType(eltyp::LLVMType, count)
     return VectorType(API.LLVMVectorType(eltyp, count))
 end
 
-"""
-    length(vectyp::LLVM.VectorType)
+vector_length(vectyp::VectorType) = Int(API.LLVMGetVectorSize(vectyp))
 
-Get the length of the given vector type.
-"""
-Base.length(vectyp::VectorType) = Int(API.LLVMGetVectorSize(vectyp))
+@property VectorType length => vector_length
+
+element_type(typ::Union{ArrayType,VectorType}) = LLVMType(API.LLVMGetElementType(typ))
+
+@property Union{ArrayType,VectorType} element_type
 
 
 ## structure types
@@ -543,8 +568,7 @@ See also the [`elements`](@ref LLVM.StructType) property.
 elements!(structtyp::StructType, elems::AbstractVector{<:LLVMType}; packed::Bool=false) =
     API.LLVMStructSetBody(structtyp, as_vector(elems), length(elems), packed)
 
-Base.isempty(@nospecialize(T::StructType)) =
-    isempty(elements(T)) || all(isempty, elements(T))
+isemptytype(@nospecialize(T::StructType)) = all(isemptytype, elements(T))
 
 # element iteration
 

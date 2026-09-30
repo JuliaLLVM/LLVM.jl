@@ -42,7 +42,7 @@ ConstantDataVector
 ConstantArray
 ConstantArray(::LLVMType, ::AbstractArray{<:LLVM.Constant,N}) where {N}
 ConstantArray(::AbstractArray)
-collect(::ConstantArray)
+LLVM.ConstantAggregate
 InlineAsm
 LLVM.ConstantExpr
 convert_users_to_instructions!

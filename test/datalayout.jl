@@ -20,10 +20,10 @@ end
 
     @test LLVM.intptr(dl) == LLVM.intptr(dl, 0) == LLVM.Int32Type()
 
-    @test LLVM.size_in_bits(dl, LLVM.Int32Type()) == 32
+    @test LLVM.bit_size(dl, LLVM.Int32Type()) == 32
     @test LLVM.storage_size(dl, LLVM.Int32Type()) == LLVM.abi_size(dl, LLVM.Int32Type()) == 4
     # types whose size isn't a multiple of 8 bits
-    @test LLVM.size_in_bits(dl, LLVM.Int1Type()) == 1
+    @test LLVM.bit_size(dl, LLVM.Int1Type()) == 1
     @test LLVM.storage_size(dl, LLVM.IntType(9)) == 2
     @test LLVM.abi_size(dl, LLVM.Int32Type()) isa Int
 

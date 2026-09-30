@@ -416,12 +416,12 @@
     ptr1 = fn.parameters[5]
     if supports_typed_pointers(ctx)
         typ1 = ptr1.value_type
-        ptr2 = LLVM.PointerType(eltype(typ1), 2)
+        ptr2 = LLVM.PointerType(typ1.element_type, 2)
         addrspacecastinst = addrspacecast!(builder, ptr1, ptr2)
         @check_ir addrspacecastinst "addrspacecast i32* %4 to i32 addrspace(2)*"
     else
         ptr2 = LLVM.PointerType(2)
-        @test_throws ErrorException eltype(ptr2)
+        @test !hasproperty(ptr2, :element_type) || ptr2.element_type === nothing
         addrspacecastinst = addrspacecast!(builder, ptr1, ptr2)
         @check_ir addrspacecastinst "addrspacecast ptr %4 to ptr addrspace(2)"
     end

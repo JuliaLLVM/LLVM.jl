@@ -134,7 +134,7 @@ function codegen(cg::CodeGen, expr::FunctionAST)
 end
 
 function codegen(cg::CodeGen, expr::IfExprAST)
-    func = LLVM.position(cg.builder).parent
+    func = cg.builder.insert_block.parent
     then = LLVM.BasicBlock(func, "then")
     elsee = LLVM.BasicBlock(func, "else")
     merge = LLVM.BasicBlock(func, "ifcont")
@@ -151,13 +151,13 @@ function codegen(cg::CodeGen, expr::IfExprAST)
         LLVM.position!(cg.builder, then)
         thencg = codegen(cg, expr.then)
         LLVM.br!(cg.builder, merge)
-        then_block = position(cg.builder)
+        then_block = cg.builder.insert_block
 
         # else
         LLVM.position!(cg.builder, elsee)
         elsecg = codegen(cg, expr.elsee)
         LLVM.br!(cg.builder, merge)
-        else_block = position(cg.builder)
+        else_block = cg.builder.insert_block
 
         # merge
         LLVM.position!(cg.builder, merge)
@@ -171,7 +171,7 @@ end
 function codegen(cg::CodeGen, expr::ForExprAST)
     new_scope(cg) do
         # Allocate loop variable
-        startblock = position(cg.builder)
+        startblock = cg.builder.insert_block
         func = startblock.parent
         alloc = create_entry_block_allocation(cg, func, expr.varname)
         current_scope(cg)[expr.varname] = alloc
@@ -195,7 +195,7 @@ function codegen(cg::CodeGen, expr::ForExprAST)
         endd = LLVM.fcmp!(cg.builder, LLVM.API.LLVMRealONE, endd,
             LLVM.ConstantFP(LLVM.DoubleType(), 0.0))
 
-        loopendblock = position(cg.builder)
+        loopendblock = cg.builder.insert_block
         afterblock = LLVM.BasicBlock(func, "afterloop")
 
         LLVM.br!(cg.builder, endd, loopblock, afterblock)
@@ -215,7 +215,7 @@ function codegen(cg::CodeGen, expr::VarExprAST)
             V = LLVM.GlobalVariable(cg.mod, LLVM.DoubleType(), varname)
             V.initializer = initval
         else
-            func = LLVM.position(cg.builder).parent
+            func = cg.builder.insert_block.parent
             V = create_entry_block_allocation(cg, func, varname)
             LLVM.store!(cg.builder, initval, V)
         end

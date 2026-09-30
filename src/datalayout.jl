@@ -1,6 +1,6 @@
 ## data layout
 
-@public DataLayout, dispose, pointersize, intptr, size_in_bits, storage_size, abi_size,
+@public DataLayout, dispose, pointersize, intptr, bit_size, storage_size, abi_size,
         abi_alignment, frame_alignment, preferred_alignment, element_at, offsetof
 
 """
@@ -92,14 +92,14 @@ globals_addrspace(dl::DataLayout) = API.LLVMGlobalsAddressSpace(dl) |> Int
 @property DataLayout globals_addrspace
 
 """
-    size_in_bits(dl::DataLayout, typ::LLVMType)
+    bit_size(dl::DataLayout, typ::LLVMType)
 
 Get the size of the given type in bits for the target data layout, like C++'s
 `DataLayout::getTypeSizeInBits`, e.g., 1 for `i1`.
 
 See also: [`storage_size`](@ref), [`abi_size`](@ref).
 """
-size_in_bits(dl::DataLayout, typ::LLVMType) = Int(API.LLVMSizeOfTypeInBits(dl, typ))
+bit_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMSizeOfTypeInBits(dl, typ))
 
 """
     storage_size(dl::DataLayout, typ::LLVMType)

@@ -99,7 +99,7 @@ end
 
     show(devnull, typ)
 
-    @test !isempty(typ)
+    @test !isemptytype(typ)
 end
 
 # floating-point
@@ -123,7 +123,11 @@ end
 
     ptrtyp = LLVM.PointerType(eltyp)
     if supports_typed_pointers(ctx)
-        @test eltype(ptrtyp) == eltyp
+        @test ptrtyp.element_type == eltyp
+    elseif LLVM.version() < v"17"
+        @test ptrtyp.element_type === nothing
+    else
+        @test !hasproperty(ptrtyp, :element_type)
     end
 
     @test context(ptrtyp) == context(eltyp)
@@ -137,23 +141,27 @@ end
     eltyp = LLVM.Int32Type()
 
     arrtyp = LLVM.ArrayType(eltyp, 2)
-    @test eltype(arrtyp) == eltyp
+    @test arrtyp.element_type == eltyp
     @test context(arrtyp) == context(eltyp)
-    @test !isempty(arrtyp)
+    @test !isemptytype(arrtyp)
 
-    @test length(arrtyp) == 2
+    @test arrtyp.length == 2
+    # LLVM types are not collections
+    @test_throws MethodError length(arrtyp)
 end
 @dispose ctx=Context() begin
     eltyp = LLVM.Int32Type()
 
     arrtyp = LLVM.ArrayType(eltyp, 0)
-    @test isempty(arrtyp)
+    @test isemptytype(arrtyp)
+    @test isemptytype(LLVM.ArrayType(LLVM.StructType(LLVMType[]), 4))
+    @test !isemptytype(eltyp)
 end
 if LLVM.version() >= v"17" && Sys.WORD_SIZE == 64
     # arrays can have more than 2^32 elements
     @dispose ctx=Context() begin
         arrtyp = LLVM.ArrayType(LLVM.Int8Type(), 2^32 + 1)
-        @test length(arrtyp) == 2^32 + 1
+        @test arrtyp.length == 2^32 + 1
         @test string(arrtyp) == "[4294967297 x i8]"
     end
 end
@@ -161,10 +169,10 @@ end
     eltyp = LLVM.Int32Type()
 
     vectyp = LLVM.VectorType(eltyp, 2)
-    @test eltype(vectyp) == eltyp
+    @test vectyp.element_type == eltyp
     @test context(vectyp) == context(eltyp)
 
-    @test length(vectyp) == 2
+    @test vectyp.length == 2
 end
 
 # structure
@@ -228,9 +236,6 @@ end
     st = LLVM.StructType("SomeType")
 
     let ts = ctx.types
-        @test keytype(ts) == String
-        @test valtype(ts) == LLVMType
-
         @test haskey(ts, "SomeType")
         @test ts["SomeType"] == st
 
@@ -571,36 +576,38 @@ end
         vec = Int128[1,2,3,4]
         ca = ConstantArray(vec)
         @test ca isa ConstantArray
-        @test size(vec) == size(ca)
-        @test length(vec) == length(ca)
-        @test ca[1] == ConstantInt(vec[1])
-        @test collect(ca) == ConstantInt.(vec)
+        @test length(ca.elements) == 4
+        @test ca.elements[1] == ConstantInt(vec[1])
+        @test collect(ca.elements) == ConstantInt.(vec)
+        @test eltype(ca.elements) == LLVM.Constant
     end
     let
-        # tests for ConstantAggregateZero, constructed indirectly.
-        # should behave similarly to ConstantArray since it can get returned there.
+        # LLVM represents aggregates of zeros as a ConstantAggregateZero, whose elements
+        # are available too
         ca = ConstantArray(Int[])
         @test ca isa ConstantAggregateZero
-        @test size(ca) == (0,)
-        @test length(ca) == 0
-        @test isempty(collect(ca))
+        @test isempty(ca.elements)
+
+        ca = ConstantArray(Int[0, 0, 0])
+        @test ca isa ConstantAggregateZero
+        @test collect(ca.elements) == fill(ConstantInt(0), 3)
     end
 
-    # multidimensional
+    # multidimensional arrays are arrays of arrays
     let
         vec = rand(Int, 2,3,4)
         ca = ConstantArray(vec)
-        @test size(vec) == size(ca)
-        @test length(vec) == length(ca)
-        @test collect(ca) == ConstantInt.(vec)
+        @test length(ca.elements) == 2
+        @test ca.elements[2].value_type == LLVM.ArrayType(LLVM.ArrayType(LLVM.Int64Type(), 4), 3)
+        @test ca.elements[2].elements[3].elements[4] == ConstantInt(vec[2,3,4])
     end
 
-    # multidimensional, with rows that aren't stored as packed data
+    # with rows that aren't stored as packed data
     let
         mod = parse(LLVM.Module, "@g = global [2 x [2 x i32]] [[2 x i32] zeroinitializer, [2 x i32] [i32 1, i32 2]]")
         ca = mod.globals["g"].initializer
         @test ca isa ConstantArray
-        @test convert.(Int, collect(ca)) == [0 0; 1 2]
+        @test [convert(Int, x) for row in ca.elements for x in row.elements] == [0, 0, 1, 2]
         dispose(mod)
     end
 
@@ -671,7 +678,7 @@ end
         cda = ConstantDataArray(eltyp, vec)
         @test cda isa ConstantDataArray
         @test cda.value_type == LLVM.ArrayType(eltyp, 4)
-        @test collect(cda) == ConstantInt.(vec)
+        @test collect(cda.elements) == ConstantInt.(vec)
     end
 
     # strings
@@ -689,8 +696,8 @@ end
         vec = T[1,2,3,4]
         cda = ConstantDataArray(vec)
         @test cda isa ConstantDataArray
-        @test size(vec) == size(cda)
-        @test collect(cda) == ConstantInt.(vec)
+        @test length(cda.elements) == length(vec)
+        @test collect(cda.elements) == ConstantInt.(vec)
     end
     for T in [Float32, Float64, BFloat16]
         vec = if T == BFloat16
@@ -702,16 +709,16 @@ end
         end
         cda = ConstantDataArray(vec)
         @test cda isa ConstantDataArray
-        @test size(vec) == size(cda)
-        @test collect(cda) == ConstantFP.(vec)
+        @test length(cda.elements) == length(vec)
+        @test collect(cda.elements) == ConstantFP.(vec)
     end
 
     # from vectors that aren't stored contiguously
     for vec in [Int32(1):Int32(3), view(Int32[1,0,2,0,3], 1:2:5),
                 reinterpret(Int32, Int64[1, 2])]
         cda = ConstantDataArray(vec)
-        @test size(cda) == size(vec)
-        @test collect(cda) == ConstantInt.(vec)
+        @test length(cda.elements) == length(vec)
+        @test collect(cda.elements) == ConstantInt.(vec)
     end
 
     # unsupported element types
@@ -2075,7 +2082,7 @@ end
     @test fn isa LLVM.Function
 
     if supports_typed_pointers(ctx)
-        @test eltype(fn.value_type) == ft
+        @test fn.value_type.element_type == ft
     end
     @test isintrinsic(fn)
 
@@ -2103,7 +2110,7 @@ end
     fn = LLVM.Function(mod, intr, [LLVM.DoubleType()])
     @test fn isa LLVM.Function
     if supports_typed_pointers(ctx)
-        @test eltype(fn.value_type) == ft
+        @test fn.value_type.element_type == ft
     end
     @test isintrinsic(fn)
 

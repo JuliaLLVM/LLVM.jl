@@ -12,6 +12,10 @@ Emit the computation of an `atomicrmw` on values in registers: the value that
 `atomicrmw op` stores when it loads `loaded` and has operand `val`. This is useful to
 implement an `atomicrmw` in terms of other operations, e.g., in a `cmpxchg` loop.
 
+Depending on the operation and the version of LLVM, this can call intrinsics, which are
+declared in the module if needed, e.g., `llvm.maxnum` for `fmax`, or `llvm.usub.sat` for
+`usub_sat` on LLVM 20 and later.
+
 This uses LLVM's `buildAtomicRMWValue`.
 """
 function atomic_rmw_value!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, loaded::Value,
@@ -44,7 +48,9 @@ end
 Replace an `atomicrmw` or `cmpxchg` instruction with non-atomic code that loads the value,
 computes the result, and stores it, with the same alignment and volatility. This is only
 valid if no other thread can access the memory at the same time, e.g., for thread-private
-memory, or for a `singlethread` synchronization scope. The instruction is erased.
+memory, or for a `singlethread` synchronization scope. The instruction is erased, so
+builders positioned at it need to be repositioned, and the computation can call intrinsics
+(see [`atomic_rmw_value!`](@ref)).
 
 This is based on LLVM's `lowerAtomicRMWInst` and `lowerAtomicCmpXchgInst`, which don't
 preserve the alignment and volatility.
@@ -60,6 +66,12 @@ synchronization scope and volatility, e.g., for operations that the target does 
 support natively. Floating-point and vector values are compared as integers, and metadata
 that remains valid for the `cmpxchg` is copied (see [`copy_atomic_metadata!`](@ref)). The
 instruction is erased.
+
+This changes the control flow: the block containing the instruction is split, with the
+instructions that follow it moving to a new block after the loop. Positions after the
+instruction (e.g., of builders, or when iterating the block's instructions) refer to that
+new block afterwards, and the computation can call intrinsics (see
+[`atomic_rmw_value!`](@ref)).
 
 This is a copy of LLVM's `expandAtomicRMWToCmpXchg`, which is meant for use during code
 generation: here, the loop starts with an atomic load, so that the result is also valid
@@ -170,6 +182,11 @@ data layout of the module (see [`partword_mask!`](@ref)).
 
 The rest of the word must be accessible, as it is read and written back (atomically, so
 this doesn't affect the other values in the word).
+
+Operations that become a `cmpxchg` loop change the control flow like
+[`expand_to_cmpxchg!`](@ref): the block containing the instruction is split, and the
+instructions that follow it move to a new block. The expansion can also call intrinsics,
+e.g., `llvm.ptrmask` on LLVM 17 and later, and those of [`atomic_rmw_value!`](@ref).
 
 This is a copy of the partword expansion of AtomicExpandPass.
 """

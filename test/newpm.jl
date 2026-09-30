@@ -319,6 +319,24 @@ end
         @test !has_addrspacecast(mod)
     end
 
+    # Overrides are found when they are specialized on the argument types that the
+    # callbacks pass (they used to be ignored unless they accepted any `Unsigned`).
+    struct FlatZeroUIntTTI <: LLVM.AbstractTargetTransformInfo end
+    LLVM.flat_address_space(::FlatZeroUIntTTI) = UInt(0)
+    LLVM.is_noop_addr_space_cast(::FlatZeroUIntTTI, from::UInt, to::UInt) =
+        from == 0 || to == 0
+
+    @dispose ctx=Context() mod=make_mod() begin
+        @dispose pb=NewPMPassBuilder() begin
+            target_transform_info!(pb, FlatZeroUIntTTI())
+            add!(pb, NewPMFunctionPassManager()) do fpm
+                add!(fpm, InferAddressSpacesPass())
+            end
+            run!(pb, mod)
+        end
+        @test !has_addrspacecast(mod)
+    end
+
     # Callbacks fire: observe the counter getting incremented.
     # `get_assumed_addr_space` is queried unconditionally per pointer Value
     # during inference, making it a reliable observable; the other callbacks

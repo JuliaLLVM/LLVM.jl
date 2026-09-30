@@ -867,7 +867,7 @@ end
             LLVM.InitializeNVPTXTargetMC()
             triple = "nvptx64-nvidia-cuda"
             t = LLVM.Target(triple=triple)
-            tm = LLVM.TargetMachine(t, triple, "sm_80")
+            tm = LLVM.TargetMachine(t, triple; cpu="sm_80")
             try
                 @dispose pb=PassBuilder(debug_logging=true) mod=test_module() begin
                     add!(pb, "pipeline-start-callbacks<O3>")

@@ -172,18 +172,18 @@ function Interpreter(mod::Module)
 end
 
 """
-    JIT(mod::Module)
+    JIT(mod::Module; opt_level=LLVM.CodeGenOptLevel.Default)
 
-Create a JIT compiler for the given module.
+Create a JIT compiler for the given module, taking ownership of it.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-function JIT(mod::Module, optlevel::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault)
+function JIT(mod::Module; opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault)
     API.LLVMLinkInMCJIT()
 
     out_ref = Ref{API.LLVMExecutionEngineRef}()
     out_error = Ref{Cstring}()
-    status = API.LLVMCreateJITCompilerForModule(out_ref, mod, optlevel, out_error) |> Bool
+    status = API.LLVMCreateJITCompilerForModule(out_ref, mod, opt_level, out_error) |> Bool
 
     if status
         error = unsafe_message(out_error[])

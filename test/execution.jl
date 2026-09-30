@@ -152,6 +152,12 @@ end
             @test res == 42
         end
     end
+
+    let mod = emit_inc(1)
+        @dispose engine=LLVM.JIT(mod; opt_level=LLVM.CodeGenOptLevel.None) begin
+            @test ccall(lookup(engine, "add_1"), Int32, (Int32,), 41) == 42
+        end
+    end
 end
 
 @dispose ctx=Context() begin

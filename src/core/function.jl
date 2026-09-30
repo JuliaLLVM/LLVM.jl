@@ -88,7 +88,7 @@ of blocks, so iterate instead of indexing each block. While iterating over the v
 safe to remove or erase the block that was just returned, but not other blocks.
 
     f.subprogram
-    f.subprogram = sp::DISubProgram
+    f.subprogram = sp::DISubprogram
 
 The subprogram that describes the function, or `nothing` if it has none.
 

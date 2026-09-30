@@ -124,7 +124,8 @@ The file in which the variable is declared, or `nothing` if unknown.
 
     var.scope
 
-The scope of the variable, or `nothing` if unknown.
+The scope of the variable, or `nothing` if unknown. The scope of a local variable is a
+[`DILocalScope`](@ref).
 
     var.line
 
@@ -172,6 +173,11 @@ function scope(var::DIVariable)
     ref == C_NULL ? nothing : Metadata(ref)::DIScope
 end
 
+function scope(var::DILocalVariable)
+    ref = API.LLVMDIVariableGetScope(var)
+    ref == C_NULL ? nothing : Metadata(ref)::DILocalScope
+end
+
 line(var::DIVariable) = line_number(API.LLVMDIVariableGetLine(var))
 
 @property DIVariable file
@@ -215,6 +221,18 @@ end
 @property DIScope file
 @property DIScope name
 
+@vocabulary IR DILocalScope
+
+"""
+    DILocalScope
+
+Abstract supertype for scopes that can contain local variables, labels and source
+locations: subprograms ([`DISubprogram`](@ref)) and the lexical blocks nested in them
+([`LLVM.DILexicalBlock`](@ref) and [`LLVM.DILexicalBlockFile`](@ref)).
+
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available.
+"""
 abstract type DILocalScope <: DIScope end
 
 
@@ -239,7 +257,7 @@ The column number of the debug location.
 
     loc.scope
 
-The local scope of the debug location.
+The local scope of the debug location, a [`DILocalScope`](@ref).
 
     loc.inlined_at
 
@@ -254,20 +272,17 @@ end
 register(DILocation, API.LLVMDILocationMetadataKind)
 
 """
-    DILocation(line::Integer, col::Integer, scope::DIScope,
+    DILocation(line::Integer, col::Integer, scope::DILocalScope,
                [inlined_at::DILocation]) -> DILocation
 
-Creates a new DebugLocation that describes a source location. A scope is
-required: LLVM segfaults on a null scope.
+Creates a new debug location that describes a source location in the local scope `scope`,
+e.g., a [`DISubprogram`](@ref).
 """
-function DILocation(line::Integer, col::Integer, scope::DIScope,
+function DILocation(line::Integer, col::Integer, scope::DILocalScope,
                     inlined_at::Union{DILocation,Nothing}=nothing)
     DILocation(API.LLVMDIBuilderCreateDebugLocation(context(), line, col, scope,
                                                     something(inlined_at, C_NULL)))
 end
-
-DILocation(line::Integer, col::Integer, scope::Nothing, inlined_at=nothing) =
-    throw(ArgumentError("DILocation requires a scope; LLVM crashes on a null scope"))
 
 line(location::DILocation) = line_number(API.LLVMDILocationGetLine(location))
 
@@ -275,7 +290,7 @@ column(location::DILocation) = Int(API.LLVMDILocationGetColumn(location))
 
 function scope(location::DILocation)
     ref = API.LLVMDILocationGetScope(location)
-    ref == C_NULL ? nothing : Metadata(ref)::DIScope
+    ref == C_NULL ? nothing : Metadata(ref)::DILocalScope
 end
 
 function inlined_at(location::DILocation)
@@ -1187,13 +1202,13 @@ end # @static if version() >= v"21"
 
 ## subprogram
 
-@vocabulary IR DISubProgram
+@vocabulary IR DISubprogram
 @vocabulary Build subprogram!, finalize_subprogram!
 
 """
-    DISubProgram
+    DISubprogram <: DILocalScope
 
-A subprogram in the source code.
+A subprogram (a function) in the source code.
 
 # Properties
 
@@ -1204,14 +1219,14 @@ The line number of the subprogram, or -1 if unknown.
 The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
 [`MDNode`](@ref LLVM.MDNode) are available too.
 """
-@checked struct DISubProgram <: DIScope
+@checked struct DISubprogram <: DILocalScope
     ref::API.LLVMMetadataRef
 end
-register(DISubProgram, API.LLVMDISubprogramMetadataKind)
+register(DISubprogram, API.LLVMDISubprogramMetadataKind)
 
-line(subprogram::DISubProgram) = line_number(API.LLVMDISubprogramGetLine(subprogram))
+line(subprogram::DISubprogram) = line_number(API.LLVMDISubprogramGetLine(subprogram))
 
-@property DISubProgram line
+@property DISubprogram line
 
 """
     subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
@@ -1219,9 +1234,9 @@ line(subprogram::DISubProgram) = line_number(API.LLVMDISubprogramGetLine(subprog
                 linkage_name::AbstractString="", scope_line::Integer=line,
                 is_local_to_unit::Bool=false, is_definition::Bool=true,
                 flags=API.LLVMDIFlagZero,
-                is_optimized::Bool=false) -> DISubProgram
+                is_optimized::Bool=false) -> DISubprogram
 
-Create a new [`DISubProgram`](@ref) describing a function. When
+Create a new [`DISubprogram`](@ref) describing a function. When
 `linkage_name` is empty, LLVM falls back to `name`. `scope_line`
 defaults to the function's `line`, which is the usual case.
 """
@@ -1231,7 +1246,7 @@ function subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
                      is_local_to_unit::Bool=false, is_definition::Bool=true,
                      flags=API.LLVMDIFlagZero,
                      is_optimized::Bool=false)
-    DISubProgram(API.LLVMDIBuilderCreateFunction(
+    DISubprogram(API.LLVMDIBuilderCreateFunction(
         builder, scope, name, Csize_t(ncodeunits(name)),
         linkage_name, Csize_t(ncodeunits(linkage_name)),
         file, Cuint(line), type,
@@ -1240,7 +1255,7 @@ function subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
 end
 
 """
-    finalize_subprogram!(builder::DIBuilder, sp::DISubProgram)
+    finalize_subprogram!(builder::DIBuilder, sp::DISubprogram)
 
 Finalize a single subprogram early, sealing its retained-nodes list. After
 this, no more local variables can be added to `sp`. A no-op if `sp` was not
@@ -1251,7 +1266,7 @@ Calling this is never required for correctness — [`dispose`](@ref) /
 only when streaming many subprograms through the builder and wanting to
 release their bookkeeping early.
 """
-finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
+finalize_subprogram!(builder::DIBuilder, sp::DISubprogram) =
     API.LLVMDIBuilderFinalizeSubprogram(builder, sp)
 
 
@@ -1356,7 +1371,7 @@ end
 @vocabulary Build auto_variable!, parameter_variable!
 
 """
-    auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+    auto_variable!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
                   file::DIFile, line::Integer, type::DIType;
                   always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
                   align_in_bits::Integer=0) -> DILocalVariable
@@ -1364,7 +1379,7 @@ end
 Create a new local variable descriptor (for a compiler-introduced automatic
 variable).
 """
-function auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+function auto_variable!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
                        file::DIFile, line::Integer, type::DIType;
                        always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
                        align_in_bits::Integer=0)
@@ -1375,7 +1390,7 @@ function auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString
 end
 
 """
-    parameter_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+    parameter_variable!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
                        arg_no::Integer, file::DIFile, line::Integer, type::DIType;
                        always_preserve::Bool=false,
                        flags=API.LLVMDIFlagZero) -> DILocalVariable
@@ -1383,7 +1398,7 @@ end
 Create a new descriptor for a function parameter variable. `arg_no` is
 the 1-based parameter index.
 """
-function parameter_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+function parameter_variable!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
                             arg_no::Integer, file::DIFile, line::Integer, type::DIType;
                             always_preserve::Bool=false,
                             flags=API.LLVMDIFlagZero)
@@ -1545,25 +1560,25 @@ end
 register(DILexicalBlockFile, API.LLVMDILexicalBlockFileMetadataKind)
 
 """
-    lexical_block!(builder::DIBuilder, scope::DIScope, file::DIFile,
+    lexical_block!(builder::DIBuilder, scope::DILocalScope, file::DIFile,
                   line::Integer, column::Integer) -> DILexicalBlock
 
 Create a new [`DILexicalBlock`](@ref) describing a nested source scope.
 """
-function lexical_block!(builder::DIBuilder, scope::DIScope, file::DIFile,
+function lexical_block!(builder::DIBuilder, scope::DILocalScope, file::DIFile,
                        line::Integer, column::Integer)
     DILexicalBlock(API.LLVMDIBuilderCreateLexicalBlock(
         builder, scope, file, Cuint(line), Cuint(column)))
 end
 
 """
-    lexical_block_file!(builder::DIBuilder, scope::DIScope, file::DIFile,
+    lexical_block_file!(builder::DIBuilder, scope::DILocalScope, file::DIFile,
                       discriminator::Integer=0) -> DILexicalBlockFile
 
 Create a new [`DILexicalBlockFile`](@ref) for tracking source-file changes
 within a lexical scope.
 """
-function lexical_block_file!(builder::DIBuilder, scope::DIScope, file::DIFile,
+function lexical_block_file!(builder::DIBuilder, scope::DILocalScope, file::DIFile,
                            discriminator::Integer=0)
     DILexicalBlockFile(API.LLVMDIBuilderCreateLexicalBlockFile(
         builder, scope, file, Cuint(discriminator)))
@@ -1878,13 +1893,13 @@ end
 register(DILabel, API.LLVMDILabelMetadataKind)
 
 """
-    label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+    label!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
            file::DIFile, line::Integer;
            always_preserve::Bool=false) -> DILabel
 
 Create a new [`DILabel`](@ref). Requires LLVM 20+.
 """
-function label!(builder::DIBuilder, scope::DIScope, name::AbstractString,
+function label!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
                 file::DIFile, line::Integer;
                 always_preserve::Bool=false)
     DILabel(API.LLVMDIBuilderCreateLabel(
@@ -2116,11 +2131,11 @@ function replace_arrays!(builder::DIBuilder, T::DICompositeType,
 end
 
 """
-    replace_type!(sp::DISubProgram, ty::DISubroutineType)
+    replace_type!(sp::DISubprogram, ty::DISubroutineType)
 
 Replace the type of the given subprogram. Requires LLVM 21+.
 """
-replace_type!(sp::DISubProgram, ty::DISubroutineType) =
+replace_type!(sp::DISubprogram, ty::DISubroutineType) =
     API.LLVMDISubprogramReplaceType(sp, ty)
 
 end # @static version check
@@ -2150,8 +2165,8 @@ strip_debuginfo!(mod::Module) = API.LLVMStripModuleDebugInfo(mod)
 
 function subprogram(func::Function)
     ref = API.LLVMGetSubprogram(func)
-    ref==C_NULL ? nothing : Metadata(ref)::DISubProgram
+    ref==C_NULL ? nothing : Metadata(ref)::DISubprogram
 end
 
 # `subprogram!` is the `DIBuilder` function that creates a subprogram
-@property Function subprogram (func, sp::DISubProgram) -> API.LLVMSetSubprogram(func, sp)
+@property Function subprogram (func, sp::DISubprogram) -> API.LLVMSetSubprogram(func, sp)

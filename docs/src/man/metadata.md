@@ -161,7 +161,8 @@ as properties:
 - `DIScope`: `file`, `name`
 - `DIFile`: `directory`, `filename`, `source`
 - `DIType`: `name`, `size_in_bits`, `offset_in_bits`, `align_in_bits`, `line`, `flags`
-- `DISubProgram`: `line` (and properties inherited from `DIScope`)
+- `DISubprogram`: `line` (and properties inherited from `DIScope`). Subprograms and the
+  lexical blocks in them are `DILocalScope`s, the scopes of locations and local variables
 - `DIGlobalVariableExpression`: `variable`, `expression`
 
 To query the debug info attached to an instruction, one queries the `!dbg` metadata using

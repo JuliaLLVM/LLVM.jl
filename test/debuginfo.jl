@@ -104,8 +104,19 @@ end
             # Julia emits -1 for an unknown line
             @test DILocation(typemax(UInt32), 0, sp).line == -1
 
-            # DILocation requires a scope
-            @test_throws ArgumentError DILocation(1, 2, nothing)
+            # locations, variables, lexical blocks and labels require a local scope
+            @test sp isa DILocalScope
+            @test lb isa DILocalScope && lbf isa DILocalScope
+            @test !(cu isa DILocalScope) && !(file isa DILocalScope)
+            @test_throws MethodError DILocation(1, 2, nothing)
+            @test_throws MethodError DILocation(1, 2, cu)
+            @test_throws MethodError LLVM.auto_variable!(dib, cu, "x", file, 2, i64)
+            @test_throws MethodError LLVM.parameter_variable!(dib, file, "a", 1, file, 1, i64)
+            @test_throws MethodError LLVM.lexical_block!(dib, cu, file, 3, 5)
+            @test_throws MethodError LLVM.lexical_block_file!(dib, file, file, 0)
+            if LLVM.version() >= v"20"
+                @test_throws MethodError LLVM.label!(dib, cu, "lbl", file, 4)
+            end
         end
     end
 end
@@ -236,7 +247,7 @@ end
 
             # subprogram
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
-            @test sp isa DISubProgram
+            @test sp isa DISubprogram
             @test sp.line == 1
             @test LLVM.subprogram!(dib, file, "unknown", file, typemax(UInt32), stype).line == -1
 
@@ -246,6 +257,7 @@ end
             @test v.line == 2
             @test v.file == file
             @test v.scope == sp
+            @test DILocation(2, 1, sp).scope == sp
 
             p = LLVM.parameter_variable!(dib, sp, "a", 1, file, 1, i64)
             @test p isa LLVM.DILocalVariable

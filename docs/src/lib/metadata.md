@@ -59,6 +59,7 @@ LLVM.DIGlobalVariable
 
 ```@docs
 DIScope
+DILocalScope
 ```
 
 ### File
@@ -172,7 +173,7 @@ LLVM.objc_property!
 ### Subprogram
 
 ```@docs
-DISubProgram
+DISubprogram
 LLVM.subprogram!
 ```
 

@@ -32,6 +32,7 @@ convert(::Type{Ptr{T}}, ::LLVM.GenericValue) where T
 
 ```@docs
 LLVM.ExecutionEngine
+LLVM.ExecutionEngine(::LLVM.Module)
 LLVM.Interpreter
 LLVM.JIT
 dispose(::LLVM.ExecutionEngine)

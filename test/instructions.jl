@@ -615,6 +615,16 @@ end
     @test_throws ArgumentError insert_value!(builder, agg, ev3, [1, 1])
     @test_throws ArgumentError insert_value!(builder, agg, ev3, 0)
 
+    # the field index of struct_gep! is zero-based too, and checked
+    ptr = alloca!(builder, outer)
+    gep = struct_gep!(builder, outer, ptr, 1)
+    @check_ir gep r"getelementptr inbounds (nuw )?\{ i32, \{ i8, i16 \} \}"
+    @check_ir gep "i32 0, i32 1"
+    @test_throws ArgumentError struct_gep!(builder, outer, ptr, 2)
+    @test_throws ArgumentError struct_gep!(builder, outer, ptr, -1)
+    @test_throws ArgumentError struct_gep!(builder, LLVM.StructType("opaque"), ptr, 0)
+    @test_throws MethodError struct_gep!(builder, LLVM.ArrayType(LLVM.Int32Type(), 2), ptr, 0)
+
     ret!(builder, ev2)
     verify(mod)
 end

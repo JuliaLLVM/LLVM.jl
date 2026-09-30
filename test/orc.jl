@@ -436,6 +436,17 @@ end
     # unused builders need to be disposed of
     @dispose builder=LLJITBuilder() tmb=TargetMachineBuilder() begin end
 
+    # target machines are consumed by target machine builders, and thus by JITs
+    @dispose tm=LLVM.JITTargetMachine() begin
+        @dispose tmb=TargetMachineBuilder(tm) begin
+            @test_throws ArgumentError tm.triple
+            @test_throws ArgumentError TargetMachineBuilder(tm)
+        end
+    end
+    @dispose tm=LLVM.JITTargetMachine() lljit=LLJIT(; tm) begin
+        @test_throws ArgumentError tm.triple
+    end
+
     # thread-safe modules are consumed by adding them to a JIT
     function constant_module(name)
         tsm = ThreadSafeModule("jit")
@@ -460,18 +471,23 @@ end
         end
         @test ccall(pointer(lookup(lljit, "scoped")), Int32, ()) == 42
 
-        # the modules that IR transformations receive are borrowed
+        # the modules and responsibilities that IR transformations receive are borrowed
         borrowed = Ref{Any}(nothing)
+        borrowed_mr = Ref{Any}(nothing)
         transform!(lljit.ir_transform_layer) do tsm, mr
             borrowed[] = tsm
+            borrowed_mr[] = mr
             @test tsm(mod -> mod isa LLVM.Module)
             @test_throws ArgumentError dispose(tsm)
             @test_throws ArgumentError add!(lljit, jd, tsm)
+            @test !isempty(collect(mr.requested_symbols))
+            @test_throws ArgumentError emit!(lljit.ir_transform_layer, mr, tsm)
         end
         add!(lljit, jd, constant_module("transformed"))
         @test ccall(pointer(lookup(lljit, "transformed")), Int32, ()) == 42
         # and only during the transformation
         @test_throws ArgumentError borrowed[](mod -> nothing)
+        @test_throws ArgumentError collect(borrowed_mr[].requested_symbols)
     end
 
     # object linking layers are consumed by returning them from a creator
@@ -691,9 +707,18 @@ end
         dispose(rt1)
         dispose(rt2)
 
+        # released trackers can't be used anymore, and releasing them again does nothing
+        @test_throws ArgumentError remove!(rt1)
+        @dispose tsm=constant_module("unused", 0) begin
+            @test_throws ArgumentError add!(lljit, rt1, tsm)
+        end
+        dispose(rt1)
+
         # the default tracker tracks code added without an explicit tracker
         rt = jd.default_resource_tracker
         remove!(rt)
+        # which destroys it
+        @test_throws ArgumentError remove!(rt)
         dispose(rt)
         @test_throws LLVMException lookup(lljit, "untracked")
         @test_throws LLVMException lookup(lljit, "released")
@@ -779,7 +804,11 @@ end
                 LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
-        add!(lljit, jd, MemoryBuffer(obj))
+        # the buffer is consumed, after which disposing of it does nothing
+        @dispose buf=MemoryBuffer(obj) begin
+            add!(lljit, jd, buf)
+            @test_throws ArgumentError add!(lljit, jd, buf)
+        end
 
         addr = lookup(lljit, sym)
 
@@ -789,7 +818,10 @@ end
         @test_throws LLVMException lookup(lljit, sym)
 
         # invalid objects are rejected (and consumed)
-        @test_throws LLVMException add!(lljit, jd, MemoryBuffer(rand(UInt8, 64)))
+        @dispose buf=MemoryBuffer(rand(UInt8, 64)) begin
+            @test_throws LLVMException add!(lljit, jd, buf)
+            @test_throws ArgumentError length(buf)
+        end
     end
 
     @dispose lljit=LLJIT(; tm=LLVM.JITTargetMachine()) begin
@@ -984,6 +1016,12 @@ end
 
                 il = lljit.ir_transform_layer
                 emit!(il, mr, ts_mod)
+
+                # the responsibility is consumed
+                @test_throws ArgumentError collect(mr.requested_symbols)
+                ThreadSafeModule("unused") do tsm
+                    @test_throws ArgumentError emit!(il, mr, tsm)
+                end
 
                 return nothing
             end

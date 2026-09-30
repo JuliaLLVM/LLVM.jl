@@ -43,20 +43,21 @@ end
     isghosttype(t::Type)
     isghosttype(T::LLVMType)
 
-Check if a type is a ghost type, implying it would not be emitted by the Julia compiler.
-This only works for types created by the Julia compiler (living in its LLVM context).
+Check if a type is a ghost type, implying it would not be emitted by the Julia compiler,
+e.g., because its values don't contain any data (like `Nothing`). For a Julia type, this
+is cheap and can be constant-folded. For an LLVM type, as converted from a Julia type,
+this checks whether it is the void type of the current context, or an empty type.
 """
 isghosttype
 
 isghosttype(@nospecialize(T::LLVMType)) = T == LLVM.VoidType() || isemptytype(T)
 function isghosttype(@nospecialize(t::Type))
-    if context(; throw_error=false) === nothing
-        LLVM.Context() do _
-            T = convert(LLVMType, t; allow_boxed=true)
-            isghosttype(T)
-        end
-    else
-        T = convert(LLVMType, t; allow_boxed=true)
-        isghosttype(T)
+    # mirrors `_julia_type_to_llvm` in Julia's src/cgutils.cpp, which emits `Union{}` and
+    # its aliases, and concrete immutable types without any data, as the void type
+    t === Union{} && return true
+    @static if VERSION >= v"1.12.0-DEV.1072"
+        # JuliaLang/julia#55508 made `Type{Union{}}` an alias of `typeof(Union{})`
+        t === Type{Union{}} && return true
     end
+    return Base.issingletontype(t)
 end

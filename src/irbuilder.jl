@@ -703,7 +703,9 @@ function inbounds_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
                                     length(Indices), Name))
 end
 
-function struct_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value, Idx, Name::String="")
+function struct_gep!(builder::IRBuilder, Ty::StructType, Pointer::Value, Idx::Integer,
+                     Name::String="")
+    check_aggregate_indices(Ty, (Idx,))
     Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, Idx, Name))
 end
 
@@ -1089,11 +1091,13 @@ gep!
 @doc (@doc gep!) inbounds_gep!
 
 """
-    struct_gep!(builder::IRBuilder, type::LLVMType, ptr::Value, index::Integer,
+    struct_gep!(builder::IRBuilder, type::StructType, ptr::Value, index::Integer,
                 [name::String]) -> Value
 
 Build a `getelementptr inbounds` instruction that computes the address of the field with
-the 0-based `index` of the structure of `type` at `ptr`. $_build_note
+the 0-based `index` of the structure of `type` at `ptr`. Like other indices that are part
+of an instruction, `index` is 0-based as in textual IR, so the field of type
+`type.elements[i]` has index `i - 1`. $_build_note
 """
 struct_gep!
 

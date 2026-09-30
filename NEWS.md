@@ -249,6 +249,15 @@ ORC:
   disposed of, and can't be used after the transformation returns. Disposing of an object
   linking layer that wasn't handed over to a JIT no longer crashes when the execution
   session ends, which works around an LLVM bug (#629) using a new LLVMExtra function.
+- Memory buffers keep track of being consumed too, by `add!` to a JIT and by lazily parsing
+  bitcode (`parse(LLVM.Module, membuf; lazy=true)`), so that they can be disposed of after
+  being handed over, e.g., using `@dispose`.
+- Materialization responsibilities can't be used after being consumed by `emit!`, and the
+  responsibility that an IR transformation receives is borrowed, like its module. Resource
+  trackers can't be used after being disposed of, and disposing of them again does
+  nothing, where it released the tracker twice. The default tracker of a JITDylib can't be
+  used after being removed, which destroys it. Such uses throw an `ArgumentError` instead
+  of using freed memory.
 
 Targets and execution engines:
 
@@ -259,6 +268,13 @@ Targets and execution engines:
   arguments), and has a do-block form. The legacy `LLVM.JIT(mod; opt_level)` takes its
   optimization level as a keyword too.
 - `LLVM.hasasmparser` is renamed to `LLVM.hasasmbackend`, which is what it checks.
+- Target machines keep track of being consumed by `TargetMachineBuilder(tm)`, and thus by
+  `LLJIT(; tm)`: using them afterwards throws an `ArgumentError`, and disposing of them
+  does nothing, where `@dispose tm=JITTargetMachine() jit=LLJIT(; tm) ...` freed the target
+  machine twice.
+- The operations that take ownership of a module (`ThreadSafeModule(mod)`, `link!`, and
+  creating an execution engine) document that they do so even if they fail. Unlike the
+  objects above, modules don't keep track of being consumed.
 - The data layout of a JIT is `jit.datalayout_string` (it was `jit.datalayout`, a string,
   while `mod.datalayout` is a `DataLayout`), and `DataLayout(jit)` creates a `DataLayout`
   that can be queried.
@@ -415,6 +431,8 @@ Bug fixes:
   `clone(bb; dest=nothing)` on LLVM 18 and later, no longer crash.
 - `delete!(engine, mod)` does nothing for a module that isn't part of the execution engine,
   and checks the status that the C API returns.
+- `struct_gep!` requires a `StructType`, and checks that its (zero-based) field index
+  selects a field, which LLVM asserted on or silently got wrong.
 - Moving basic blocks (now using `move!`) works for detached blocks, which crashed, and
   before a block of another function, which corrupted the IR: the block was listed in the
   other function, but kept its old parent.
@@ -428,6 +446,9 @@ Other changes:
 - Attribute sets support `append!` as documented, and they, the metadata of an instruction
   and the flags of a module can be iterated.
 - Property access on values whose concrete type is only known at run time doesn't dispatch.
+- `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
+  calling it, which created an LLVM context when none was active, so it is cheap and can
+  be constant-folded (#620).
 
 
 ## LLVM.jl v9.14

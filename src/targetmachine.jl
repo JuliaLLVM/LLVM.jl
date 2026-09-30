@@ -3,8 +3,6 @@
 @public TargetMachine, dispose,
         asm_verbosity!, normalize, default_triple, host_cpu_name, host_cpu_features,
         emit
-# these add analyses to a legacy pass manager
-@vocabulary Passes add_transform_info!, add_library_info!
 @public JITTargetMachine
 
 """
@@ -168,27 +166,6 @@ function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType,
 
     return nothing
 end
-
-"""
-    add_transform_info!(pm::PassManager, [tm::TargetMachine])
-
-Add target-specific analysis passes to the given pass manager.
-"""
-function add_transform_info!(pm::PassManager, tm::Union{Nothing,TargetMachine}=nothing)
-    if tm !== nothing
-        API.LLVMAddAnalysisPasses(tm, pm)
-    else
-        API.LLVMAddGenericAnalysisPasses(pm)
-    end
-end
-
-"""
-    add_library_info!(pm::PassManager, triple::String)
-
-Add target-specific library information to the given pass manager.
-"""
-add_library_info!(pm::PassManager, triple::String) =
-    API.LLVMAddTargetLibraryInfoByTriple(triple, pm)
 
 """
     JITTargetMachine(; triple=LLVM.default_triple(), cpu="", features="",

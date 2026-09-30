@@ -24,55 +24,7 @@ typedef enum {
   LLVMDebugEmissionKindDebugDirectivesOnly = 3
 } LLVMDebugEmissionKind;
 
-// Missing LegacyPM passes
-void LLVMAddBarrierNoopPass(LLVMPassManagerRef PM);
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddDivRemPairsPass(LLVMPassManagerRef PM);
-void LLVMAddLoopDistributePass(LLVMPassManagerRef PM);
-void LLVMAddLoopFusePass(LLVMPassManagerRef PM);
-void LLVMAddLoopLoadEliminationPass(LLVMPassManagerRef PM);
-#endif
-void LLVMAddLoadStoreVectorizerPass(LLVMPassManagerRef PM);
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddVectorCombinePass(LLVMPassManagerRef PM);
-#endif
-void LLVMAddSpeculativeExecutionIfHasBranchDivergencePass(LLVMPassManagerRef PM);
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddSimpleLoopUnrollPass(LLVMPassManagerRef PM);
-void LLVMAddInductiveRangeCheckEliminationPass(LLVMPassManagerRef PM);
-#endif
-void LLVMAddSimpleLoopUnswitchLegacyPass(LLVMPassManagerRef PM);
-void LLVMAddExpandReductionsPass(LLVMPassManagerRef PM);
-#if LLVM_VERSION_MAJOR >= 17
-void LLVMAddCFGSimplificationPass2(LLVMPassManagerRef PM, int BonusInstThreshold,
-                                   LLVMBool ForwardSwitchCondToPhi,
-                                   LLVMBool ConvertSwitchToLookupTable,
-                                   LLVMBool NeedCanonicalLoop, LLVMBool HoistCommonInsts,
-                                   LLVMBool SinkCommonInsts, LLVMBool SimplifyCondBranch,
-                                   LLVMBool SpeculateBlocks);
-#else
-void LLVMAddCFGSimplificationPass2(LLVMPassManagerRef PM, int BonusInstThreshold,
-                                   LLVMBool ForwardSwitchCondToPhi,
-                                   LLVMBool ConvertSwitchToLookupTable,
-                                   LLVMBool NeedCanonicalLoop, LLVMBool HoistCommonInsts,
-                                   LLVMBool SinkCommonInsts, LLVMBool SimplifyCondBranch,
-                                   LLVMBool FoldTwoEntryPHINode);
-#endif
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddInternalizePassWithExportList(LLVMPassManagerRef PM, const char **ExportList,
-                                          size_t Length);
-#endif
-
-// Custom LegacyPM pass infrastructure
-typedef struct LLVMOpaquePass *LLVMPassRef;
-void LLVMAddPass(LLVMPassManagerRef PM, LLVMPassRef P);
-typedef LLVMBool (*LLVMPassCallback)(void *Ref, void *Data);
-LLVMPassRef LLVMCreateModulePass2(const char *Name, LLVMPassCallback Callback, void *Data);
-LLVMPassRef LLVMCreateFunctionPass2(const char *Name, LLVMPassCallback Callback,
-                                    void *Data);
-
 // Missing functionality
-void LLVMAddTargetLibraryInfoByTriple(const char *T, LLVMPassManagerRef PM);
 void LLVMAppendToUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
 void LLVMAppendToCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
 size_t LLVMGetNumUsed(LLVMModuleRef Mod);
@@ -81,7 +33,6 @@ size_t LLVMGetNumCompilerUsed(LLVMModuleRef Mod);
 void LLVMGetCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Dest);
 void LLVMRemoveFromUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
 void LLVMRemoveFromCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count);
-void LLVMAddGenericAnalysisPasses(LLVMPassManagerRef PM);
 void LLVMDumpMetadata(LLVMMetadataRef MD);
 char *LLVMPrintMetadataToString(LLVMMetadataRef MD);
 const char *LLVMDIScopeGetName(LLVMMetadataRef File, unsigned *Len);

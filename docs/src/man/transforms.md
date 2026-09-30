@@ -13,9 +13,8 @@ end
 ```
 
 LLVM contains a variety of passes that can be used to transform IR. With LLVM.jl, it is
-also possible to write your own passes in Julia. In this section, we will demonstrate
-the new pass manager interface; the legacy pass manager is being deprecated, and not
-recommended for new code.
+also possible to write your own passes in Julia. LLVM.jl uses LLVM's new pass manager;
+the legacy pass manager, which LLVM deprecated, is not supported.
 
 
 ## Pass builders

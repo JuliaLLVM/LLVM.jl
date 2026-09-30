@@ -218,6 +218,22 @@ Bug fixes:
   (on LLVM 17 and later), instead of being truncated to 32 bits.
 - The operands of constants other than global values can no longer be changed using the
   `operands` view, which corrupted LLVM's uniquing of constants.
+- Integer constants wider than 64 bits are created and converted correctly:
+  `ConstantInt(LLVM.IntType(128), Int128(-1))` used to be `2^64-1`, zero threw an
+  `InexactError`, and converting went through LLVM's 64-bit getters.
+- `ConstantRangeAttribute` checks that its bounds have the right number of words and form a
+  valid range, instead of reading out of bounds or failing an assertion in LLVM.
+- Strings are passed to LLVM by their number of bytes, so non-ASCII metadata strings, module
+  names and flags, named metadata, sync scopes and operand bundle tags aren't truncated.
+- The traits of views are defined on their types, so that generic code sees, e.g., that
+  `f.parameters` supports linear indexing and that `bb.instructions` contains instructions.
+- Custom TTI overrides that are specialized on the argument types of the callbacks, like
+  `is_noop_addr_space_cast(::MyTTI, ::UInt, ::UInt)`, are no longer silently ignored, and
+  operand lists that don't fit the C API's buffer are reported instead of truncated.
+- `replace_metadata_uses!` replaces by values of another type directly on LLVM 18+, and no
+  longer loops forever on older versions when the new value isn't a global value.
+- `NewPMPassBuilder` no longer leaks its options when given an invalid keyword argument.
+- `unsafe_store!` on `Core.LLVMPtr` returns the pointer, like Base.
 
 Other changes:
 

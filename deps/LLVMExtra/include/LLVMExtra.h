@@ -529,6 +529,9 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        LLVMValueRef EltVal, const unsigned *Idxs,
                                        unsigned NumIdxs, const char *Name);
 
+// delete a basic block, also if it isn't part of a function
+void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB);
+
 // instructions
 void LLVMExtraMoveInstructionBefore(LLVMValueRef Inst, LLVMValueRef MovePos);
 void LLVMExtraMoveInstructionAfter(LLVMValueRef Inst, LLVMValueRef MovePos);

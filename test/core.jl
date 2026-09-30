@@ -2589,7 +2589,8 @@ end
     bb3 = BasicBlock("YetAnotherBasicBlock")
     @test bb3.parent == nothing
     @test bb3.terminator == nothing
-    # XXX: can we insert this block into the function?
+    # blocks that aren't part of a function can be erased
+    erase!(bb3)
 
     # instruction iteration
     let insts = bb1.instructions

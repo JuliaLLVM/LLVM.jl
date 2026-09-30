@@ -487,8 +487,22 @@ LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuff
       CloneBasicBlock(unwrap(BB), VMap, NameSuffix, F ? unwrap<Function>(F) : nullptr);
   for (unsigned i = 0; i < ValueMapElements; ++i)
     VMap[unwrap(ValueMap[2 * i])] = unwrap(ValueMap[2 * i + 1]);
-  SmallVector<BasicBlock *, 1> Blocks = {NewBB};
-  remapInstructionsInBlocks(Blocks, VMap);
+  // like remapInstructionsInBlocks, which crashes on a detached block (it looks up the
+  // module of the instructions it remaps)
+#if LLVM_VERSION_MAJOR >= 18
+  BasicBlock *Src = unwrap(BB);
+  Module *M = Src->getParent() ? Src->getModule() : nullptr;
+#endif
+  for (Instruction &I : *NewBB) {
+#if LLVM_VERSION_MAJOR >= 19
+    RemapDbgRecordRange(M, I.getDbgRecordRange(), VMap,
+                        RF_NoModuleLevelChanges | RF_IgnoreMissingLocals);
+#elif LLVM_VERSION_MAJOR >= 18
+    RemapDPValueRange(M, I.getDbgValueRange(), VMap,
+                      RF_NoModuleLevelChanges | RF_IgnoreMissingLocals);
+#endif
+    RemapInstruction(&I, VMap, RF_NoModuleLevelChanges | RF_IgnoreMissingLocals);
+  }
   return wrap(NewBB);
 }
 
@@ -1191,6 +1205,14 @@ void LLVMExtraMoveInstructionAfter(LLVMValueRef Inst, LLVMValueRef MovePos) {
   if (I == Pos)
     return;
   I->moveAfter(Pos);
+}
+
+void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB) {
+  BasicBlock *B = unwrap(BB);
+  if (B->getParent())
+    B->eraseFromParent();
+  else
+    delete B;
 }
 
 LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other) {

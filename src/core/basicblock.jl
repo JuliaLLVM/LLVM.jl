@@ -90,15 +90,15 @@ Remove the given basic block from its parent function, but do not free the objec
 remove!(bb::BasicBlock) = API.LLVMRemoveBasicBlockFromParent(bb)
 
 """
-    erase!(fun::Function, bb::BasicBlock)
+    erase!(bb::BasicBlock)
 
-Remove the given basic block from its parent function and free the object.
+Remove the given basic block from its parent function, if any, and free the object.
 
 !!! warning
 
     This function is unsafe because it does not check if the basic block is used elsewhere.
 """
-erase!(bb::BasicBlock) = API.LLVMDeleteBasicBlock(bb)
+erase!(bb::BasicBlock) = API.LLVMExtraDeleteBasicBlock(bb)
 
 function parent(bb::BasicBlock)
     ref = API.LLVMGetBasicBlockParent(bb)

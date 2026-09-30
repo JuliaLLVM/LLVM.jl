@@ -147,13 +147,22 @@ remove!(inst::Instruction) = API.LLVMInstructionRemoveFromParent(inst)
 """
     erase!(inst::Instruction)
 
-Remove the given instruction from the containing basic block and delete the object.
+Remove the given instruction from the containing basic block, if any, and delete the
+object.
 
 !!! warning
 
     This function is unsafe because it does not check if the instruction is used elsewhere.
 """
-erase!(inst::Instruction) = API.LLVMInstructionEraseFromParent(inst)
+function erase!(inst::Instruction)
+    if API.LLVMGetInstructionParent(inst) == C_NULL
+        # e.g., a copy, or an instruction that was removed from its block
+        API.LLVMDeleteInstruction(inst)
+    else
+        API.LLVMInstructionEraseFromParent(inst)
+    end
+end
+
 
 @vocabulary IR comes_before, may_read_from_memory, may_write_to_memory,
                may_have_side_effects

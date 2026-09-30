@@ -647,6 +647,12 @@ end
     d = sub!(builder, x, x)
     @test d.next == a
 
+    # instructions that aren't part of a block can be erased
+    erase!(copy(d))
+    e = sub!(builder, x, x)
+    remove!(e)
+    erase!(e)
+
     # instructions need to be part of a block
     remove!(d)
     @test_throws ArgumentError position!(builder, d; after=true)

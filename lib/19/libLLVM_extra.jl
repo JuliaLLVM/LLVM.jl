@@ -574,6 +574,10 @@ function LLVMExtraBuildInsertValue(B, AggVal, EltVal, Idxs, NumIdxs, Name)
     ccall((:LLVMExtraBuildInsertValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, EltVal, Idxs, NumIdxs, Name)
 end
 
+function LLVMExtraDeleteBasicBlock(BB)
+    ccall((:LLVMExtraDeleteBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef,), BB)
+end
+
 function LLVMExtraMoveInstructionBefore(Inst, MovePos)
     ccall((:LLVMExtraMoveInstructionBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Inst, MovePos)
 end

@@ -77,9 +77,9 @@ Properties:
   `NamedTuple(inst.fast_math)` replaces `fast_math(inst)`.
 - The memory effects of a function are a `FunctionMemoryEffects` view of its `memory`
   attribute, which can be modified in place (`f.memory_effects[:argmem] = :read`) or
-  replaced (`f.memory_effects = MemoryEffects(...)`). Call sites use
-  `MemoryEffects(call.function_attributes)` and `push!(call.function_attributes,
-  EnumAttribute(effects))` instead of `memory_effects` and `memory_effects!`.
+  replaced (`f.memory_effects = MemoryEffects(...)`). Calls have the same property,
+  `call.memory_effects`, for the `memory` attribute of the call site, replacing
+  `memory_effects` and `memory_effects!` on call site attributes.
 - Module-level inline assembly is a collection: `push!(mod.inline_asm, asm)` appends,
   `empty!` clears, and `String(mod.inline_asm)` returns its text, replacing `inline_asm`
   and `inline_asm!`. This anticipates LLVM 24, which represents it as a list of fragments.
@@ -151,6 +151,33 @@ Pass managers:
   nested pass manager using a do-block, instead of internal state.
 - `ExpandReductionsPass()` (`expand-reductions`) is available on every supported version of
   LLVM; LLVM itself only registers it with the new pass manager since LLVM 21.
+
+Types, constants and data layouts:
+
+- LLVM types and constants no longer implement Base's collection functions, which
+  returned LLVM objects where Julia expects Julia types, and whose results depended on
+  LLVM's constant folding. The element type and length of array and vector types are
+  `ty.element_type` and `ty.length`, and the element type of a typed pointer is
+  `ptrtyp.element_type` (`nothing` for an opaque pointer), replacing `eltype` and
+  `length`. `isemptytype(ty)` replaces `isempty(ty)`.
+- `c.elements` is a read-only vector of the elements of an aggregate constant: arrays,
+  structs and vectors, their simple data variants (`ConstantDataArray` and
+  `ConstantDataVector`), and `zeroinitializer`. It replaces indexing, `length`, `size`,
+  `eltype` and `collect` on constants, which for a `zeroinitializer` (e.g., what
+  `ConstantArray([0, 0, 0])` folds to) had no elements. `LLVM.ConstantAggregate` is public.
+- `LLVM.bit_size(dl, ty)` returns the size of a type in bits, replacing `sizeof(dl, ty)`,
+  which divided by 8 as a float and threw for `i1`. The size and alignment queries of data
+  layouts return `Int`s. `LLVM.element_at` returns, and `LLVM.offsetof` takes, a 1-based
+  element index, like the `elements` of the struct type, and they check their arguments.
+- `mod.metadata[name]` throws a `KeyError` for missing named metadata instead of creating
+  it; use `get!(mod.metadata, name)`, or `get`. The view supports `length`, and `first`
+  returns a `name => node` pair.
+- `ctx.types` and `engine.functions` only support lookups (`[name]`, `haskey` and `get`),
+  since LLVM can't enumerate them; `ctx.types` is no longer an `AbstractDict`.
+- Functions that take vectors of IR objects accept any `AbstractVector`, like the views of
+  the IR (e.g., `gep!`, `ret!`, `call!` with operand bundles, `ConstantStruct`,
+  `const_gep`, `MDNode` and the `DIBuilder` functions), and `clone` accepts any
+  `AbstractDict` as its value map.
 
 Enumerations:
 

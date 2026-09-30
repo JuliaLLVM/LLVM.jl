@@ -122,7 +122,8 @@ An execution engine that can run functions in a module.
     engine.functions
 
 The functions in the modules of the execution engine, as a view that supports looking up
-a function by name (`get`, `haskey` and indexing). The functions cannot be iterated.
+a function by name (`get`, `haskey` and indexing). The functions cannot be iterated, so
+the view is not a collection.
 """
 @checked struct ExecutionEngine
     ref::API.LLVMExecutionEngineRef
@@ -267,6 +268,7 @@ end
 
 # function lookup
 
+# a lookup of the functions of an execution engine, which can't be enumerated
 struct ExecutionEngineFunctionSet
     engine::ExecutionEngine
 end
@@ -274,10 +276,6 @@ end
 functions(engine::ExecutionEngine) = ExecutionEngineFunctionSet(engine)
 
 @property ExecutionEngine functions
-
-Base.IteratorSize(::Type{ExecutionEngineFunctionSet}) = Base.SizeUnknown()
-Base.iterate(::ExecutionEngineFunctionSet) =
-    error("Iteration of functions in the execution engine is not supported")
 
 function Base.get(functionset::ExecutionEngineFunctionSet, name::String, default)
     out_ref = Ref{API.LLVMValueRef}()

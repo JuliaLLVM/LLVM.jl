@@ -2893,6 +2893,9 @@ end
     @test_throws BoundsError elems[3]
     @test_throws CanonicalIndexError elems[1] = LLVM.Int64Type()
     @test ctx.types["SomeStruct"] == st
+    @test get(ctx.types, "SomeStruct", nothing) == st
+    @test get(ctx.types, "OtherStruct", nothing) === nothing
+    @test !(ctx.types isa AbstractDict)
 end
 
 # objects in a list can navigate to their siblings

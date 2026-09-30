@@ -219,7 +219,7 @@ functions or access host data, define them as absolute symbols:
 ```jldoctest orc
 julia> counter = Ref(41);
 
-julia> define(jd, absolute_symbols(
+julia> define!(jd, absolute_symbols(
            mangle(lljit, "counter") => pointer_from_objref(counter)))
 
 julia> pointer(lookup(lljit, "counter")) == pointer_from_objref(counter)
@@ -246,7 +246,7 @@ julia> dg = CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
            for (name, flags) in lookup_set
                if String(name) in ("answer", "_answer")
                    retain(name)   # the lookup set's names are borrowed
-                   define(jd, absolute_symbols(name => pointer_from_objref(answer)))
+                   define!(jd, absolute_symbols(name => pointer_from_objref(answer)))
                end
            end
        end;
@@ -311,12 +311,12 @@ mu = CustomMaterializationUnit("lazy", [mangle(lljit, "foo") => flags],
         ts_mod() do mod
             # generate IR defining `foo`
         end
-        emit(lljit.ir_transform_layer, mr, ts_mod)
+        emit!(lljit.ir_transform_layer, mr, ts_mod)
     end,
     function discard(jd, sym)
         # `sym` was overridden before being materialized
     end)
-define(jd, mu)
+define!(jd, mu)
 ```
 
 Looking up `foo` then materializes it. When a unit defines multiple symbols, the
@@ -331,7 +331,7 @@ reexport. Looking it up returns the address of a stub, which calls into the JIT 
 es = lljit.execution_session
 lctm = LocalLazyCallThroughManager(lljit.triple, es)
 ism = LocalIndirectStubsManager(lljit.triple)
-define(jd, lazy_reexports(lctm, ism, jd,
+define!(jd, lazy_reexports(lctm, ism, jd,
                           [mangle(lljit, "foo_stub") => mangle(lljit, "foo")]))
 addr = lookup(lljit, "foo_stub")    # doesn't materialize `foo` yet
 ```
@@ -355,7 +355,7 @@ end
 Julia exceptions cannot propagate through LLVM. When a callback like a materializer,
 definition generator or transformation throws, the operation that triggered it fails with a
 generic `LLVMException`. The original exception is kept, and can be rethrown as a
-`LLVM.CallbackException` by calling `check_callback_error` on the object that owns the
+`LLVM.CallbackException` by calling `check_callback_error!` on the object that owns the
 callback.
 
 ### Julia's JIT

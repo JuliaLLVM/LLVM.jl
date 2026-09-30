@@ -104,7 +104,7 @@ end
             for (sym, flags) in lookup_set
                 sym == mangled || continue
                 retain(sym)
-                define(jd, absolute_symbols(sym => pointer_from_objref(data)))
+                define!(jd, absolute_symbols(sym => pointer_from_objref(data)))
             end
         end
         add!(jd, dg)
@@ -134,7 +134,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 verify(mod)
 
                 @dispose tm=LLVM.JITTargetMachine() begin
-                    emit(tm, mod, LLVM.API.LLVMObjectFile)
+                    LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
                 end
             end
             add!(jljit, jd, MemoryBuffer(obj))
@@ -165,7 +165,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 verify(mod)
 
                 @dispose tm=LLVM.JITTargetMachine() begin
-                    emit(tm, mod, LLVM.API.LLVMObjectFile)
+                    LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
                 end
             end
 
@@ -180,7 +180,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
                 gv = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
 
                 mu = absolute_symbols(Ref(gv))
-                define(jd, mu)
+                define!(jd, mu)
 
                 add!(jljit, jd, MemoryBuffer(obj))
 
@@ -216,7 +216,7 @@ end
                     mangle(jljit, "foo"), flags))
 
             mu = lazy_reexports(lctm, ism, jd, Ref(entry))
-            define(jd, mu)
+            define!(jd, mu)
 
             # 2. Lookup address of entry symbol
             addr = lookup(jljit, jd, entry_sym)
@@ -259,7 +259,7 @@ end
                 end
 
                 il = jljit.ir_compile_layer
-                emit(il, mr, ts_mod)
+                emit!(il, mr, ts_mod)
 
                 return nothing
             end
@@ -268,7 +268,7 @@ end
             end
 
             mu = CustomMaterializationUnit("fooMU", Ref(sym), materialize, discard)
-            define(jd, mu)
+            define!(jd, mu)
 
             @test ccall(pointer(addr), Int32, (Int32, Int32), 1, 2) == 3
         finally

@@ -46,7 +46,7 @@ The main [`JITDylib`](@ref) of the JIT, which `lookup(lljit, name)` searches.
 
 The [`IRTransformLayer`](@ref) of the JIT, which transforms IR modules before they are
 compiled. Modules added with `add!` pass through this layer, as can modules emitted by a
-materialization unit with [`emit`](@ref). By default, it does not change modules; use
+materialization unit with [`emit!`](@ref). By default, it does not change modules; use
 [`transform!`](@ref) to install a transformation.
 """
 @checked mutable struct LLJIT

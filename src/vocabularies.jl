@@ -82,5 +82,5 @@ trackers, materialization units, and the layers of the JIT.
 """
 module ORC
     import ..LLVM
-    LLVM.@reexport ORC dispose emit add! remove!
+    LLVM.@reexport ORC dispose add! remove!
 end

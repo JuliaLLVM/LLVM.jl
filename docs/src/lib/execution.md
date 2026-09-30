@@ -101,7 +101,7 @@ intern
 retain
 release
 symbol_flags
-define
+define!
 absolute_symbols
 ```
 
@@ -120,7 +120,7 @@ CustomDefinitionGenerator
 ```@docs
 CustomMaterializationUnit
 MaterializationResponsibility
-emit(::IRTransformLayer, ::MaterializationResponsibility, ::ThreadSafeModule)
+emit!(::IRTransformLayer, ::MaterializationResponsibility, ::ThreadSafeModule)
 IRTransformLayer
 transform!
 IRCompileLayer
@@ -133,5 +133,5 @@ LocalIndirectStubsManager
 
 ```@docs
 LLVM.CallbackException
-check_callback_error
+check_callback_error!
 ```

@@ -2,12 +2,12 @@
 @vocabulary ORC TargetMachineBuilder, target_machine_builder!, linking_layer_creator!
 @vocabulary ORC mangle, lookup, intern
 @vocabulary ORC ObjectLinkingLayer, register!
-@vocabulary ORC LLVMSymbol, retain, release, symbol_flags, define, absolute_symbols
+@vocabulary ORC LLVMSymbol, retain, release, symbol_flags, define!, absolute_symbols
 @vocabulary ORC DefinitionGenerator, DynamicLibrarySearchGenerator
-@vocabulary ORC CustomDefinitionGenerator, check_callback_error
+@vocabulary ORC CustomDefinitionGenerator, check_callback_error!
 @vocabulary ORC lookup_dylib, ResourceTracker, transfer!
 @vocabulary ORC IRTransformLayer, IRCompileLayer, transform!
-@vocabulary ORC MaterializationResponsibility, CustomMaterializationUnit
+@vocabulary ORC MaterializationResponsibility, CustomMaterializationUnit, emit!
 @vocabulary ORC LocalIndirectStubsManager, LocalLazyCallThroughManager, lazy_reexports
 
 include("executionengine/utils.jl")
@@ -405,7 +405,7 @@ function __try_to_generate(generator::API.LLVMOrcDefinitionGeneratorRef, ctx::Pt
         return API.LLVMErrorRef(C_NULL)
     catch err
         # Julia exceptions cannot unwind through LLVM, so report the failure to ORC
-        # and keep the exception around for check_callback_error.
+        # and keep the exception around for check_callback_error!.
         _capture_callback_exception!(dg, err)
         msg = try
             sprint(showerror, err)
@@ -438,13 +438,13 @@ mirror those of LLVM's `DefinitionGenerator::tryToGenerate`:
   linker-mangled names of the symbols that were not found, each paired with a flag
   indicating whether the symbol is required or only weakly referenced.
 
-`f` should define the symbols it can provide in `jd`, e.g., using [`define`](@ref).
+`f` should define the symbols it can provide in `jd`, e.g., using [`define!`](@ref).
 Symbols it does not define are left to other generators and JITDylibs in the search order.
 The names in `lookup_set` are only valid during the call; retain them with `retain`
 before handing them to functions that take ownership, like `absolute_symbols`.
 
 If `f` throws, the lookup fails with an LLVM error that includes the exception message. The
-original exception can be retrieved by calling `check_callback_error` on the generator,
+original exception can be retrieved by calling `check_callback_error!` on the generator,
 which rethrows it as a [`CallbackException`](@ref).
 
 `f` runs synchronously on the thread performing the lookup, while LLVM holds locks that
@@ -487,7 +487,7 @@ add!(jd::JITDylib, dg::CustomDefinitionGenerator) = add!(jd, dg.dg)
 dispose(dg::CustomDefinitionGenerator) = dispose(dg.dg)
 
 """
-    check_callback_error(obj)
+    check_callback_error!(obj)
 
 Rethrow the first exception that was captured from a Julia callback of `obj` (e.g., a
 [`CustomDefinitionGenerator`](@ref) or [`CustomMaterializationUnit`](@ref)) as a
@@ -497,9 +497,9 @@ Exceptions cannot propagate through LLVM, so callbacks that throw are reported t
 failures instead, typically resulting in a generic error from the operation that triggered
 the callback.
 """
-function check_callback_error end
+function check_callback_error! end
 
-function check_callback_error(dg::CustomDefinitionGenerator)
+function check_callback_error!(dg::CustomDefinitionGenerator)
     exception = _take_callback_exception!(dg)
     exception === nothing && return nothing
     err, bt = exception
@@ -809,7 +809,7 @@ ownership. The transformation is kept alive for as long as the JIT, and should b
 before any code is added to it. It may be called on whichever thread materializes code.
 
 If `f` throws, materialization of the module fails, and the original exception can be
-retrieved by calling [`check_callback_error`](@ref) on the layer.
+retrieved by calling [`check_callback_error!`](@ref) on the layer.
 """
 function transform!(f, il::IRTransformLayer)
     state = IRTransform(f)
@@ -824,7 +824,7 @@ function transform!(f, il::IRTransformLayer)
     return
 end
 
-function check_callback_error(il::IRTransformLayer)
+function check_callback_error!(il::IRTransformLayer)
     for state in il.jit.roots
         state isa IRTransform || continue
         exception = _take_callback_exception!(state)
@@ -842,7 +842,7 @@ end
 
 The responsibility for materializing a set of symbols, as passed to the callback of a
 [`CustomMaterializationUnit`](@ref). It is fulfilled by emitting code that defines
-these symbols, e.g., using [`emit`](@ref).
+these symbols, e.g., using [`emit!`](@ref).
 
 # Properties
 
@@ -873,14 +873,14 @@ function consume!(mr::MaterializationResponsibility)
 end
 
 """
-    emit(layer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    emit!(layer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
 
 Emit the IR module `tsm` through `layer` (an [`IRTransformLayer`](@ref) or
 `IRCompileLayer`) to fulfill the responsibility `mr`. Both `mr` and `tsm` are
 consumed; a responsibility that is borrowed, e.g., by an IR transformation, cannot be
 emitted.
 """
-function emit(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+function emit!(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     consume!(mr)
     mark_dispose(tsm)
     API.LLVMOrcIRTransformLayerEmit(il, mr, tsm)
@@ -920,13 +920,13 @@ end
 abstract type AbstractMaterializationUnit end
 
 """
-    define(jd::JITDylib, mu)
+    define!(jd::JITDylib, mu)
 
 Add the materialization unit `mu` to `jd`. The unit is consumed, even if this throws: on
 failure (e.g., because one of its symbols is already defined in `jd`) it is disposed of
 before the error is rethrown as an [`LLVMException`](@ref).
 """
-function define(jd::JITDylib, mu::AbstractMaterializationUnit)
+function define!(jd::JITDylib, mu::AbstractMaterializationUnit)
     err = API.LLVMOrcJITDylibDefine(jd, mu)
     if err != C_NULL
         # on failure, ownership of the materialization unit stays with us
@@ -958,7 +958,7 @@ Base.cconvert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::CustomMaterializati
 const CUSTOM_MU_ROOTS = Base.IdSet{CustomMaterializationUnit}()
 const CUSTOM_MU_LOCK = ReentrantLock()
 
-function check_callback_error(mu::CustomMaterializationUnit)
+function check_callback_error!(mu::CustomMaterializationUnit)
     exception = _take_callback_exception!(mu)
     exception === nothing && return nothing
     err, bt = exception
@@ -1007,17 +1007,17 @@ end
 
 Create a materialization unit that promises to define `symbols`, a collection of
 `name => flags` pairs mapping each [`LLVMSymbol`](@ref) to flags created by
-[`symbol_flags`](@ref). Add it to a JITDylib with [`define`](@ref).
+[`symbol_flags`](@ref). Add it to a JITDylib with [`define!`](@ref).
 
 When any of these symbols is looked up, `materialize(mr)` is called with a
 `MaterializationResponsibility` for the symbols, which it should fulfill, e.g., by
-generating IR and emitting it with `emit(layer, mr, tsm)`; its
+generating IR and emitting it with `emit!(layer, mr, tsm)`; its
 [`requested_symbols`](@ref LLVM.MaterializationResponsibility) property tells which symbols were
 requested. If a symbol is overridden by another definition before it was materialized,
 `discard(jd, name)` is called instead.
 
 If `materialize` throws, materialization of the symbols fails, and lookups report an LLVM
-error. Retrieve the original exception by calling [`check_callback_error`](@ref) on the
+error. Retrieve the original exception by calling [`check_callback_error!`](@ref) on the
 unit. An exception in `discard` is only reported that way.
 
 The unit takes ownership of the symbol names. `init` can be used to specify an
@@ -1063,10 +1063,10 @@ pass `flags` created by [`symbol_flags`](@ref) to change that. The pairs can als
 passed as a collection, e.g., a vector or a dictionary.
 
 The unit takes ownership of the symbol names, and should be added to a JITDylib using
-[`define`](@ref):
+[`define!`](@ref):
 
 ```julia
-define(jd, absolute_symbols(mangle(lljit, "counter") => pointer(counter)))
+define!(jd, absolute_symbols(mangle(lljit, "counter") => pointer(counter)))
 ```
 """
 absolute_symbols(pair::Pair{LLVMSymbol}, pairs::Pair{LLVMSymbol}...) =
@@ -1321,7 +1321,7 @@ JITDylibs (or only the one returned by `JITDylib(jljit)` if `external_jd_only` i
     IRCompileLayer
 
 The layer of Julia's JIT that compiles IR modules, available as the `ir_compile_layer`
-property of a [`JuliaOJIT`](@ref), for use with [`emit`](@ref).
+property of a [`JuliaOJIT`](@ref), for use with [`emit!`](@ref).
 """
 @checked struct IRCompileLayer
     ref::API.LLVMOrcIRCompileLayerRef
@@ -1330,7 +1330,7 @@ end
 
 Base.unsafe_convert(::Type{API.LLVMOrcIRCompileLayerRef}, il::IRCompileLayer) = il.ref
 
-function emit(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     if il.jit isa JuliaOJIT
         # Julia's debug info expects certain symbols to be present
         tsm() do mod

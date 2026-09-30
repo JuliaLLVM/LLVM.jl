@@ -837,8 +837,7 @@ function sdk_version(mod::Module)
     c = context!(context(mod)) do
         Value(md)
     end
-    entries = collect(c)
-    VersionNumber(map(val->convert(Int, val), entries)...)
+    VersionNumber(map(val->convert(Int, val), elements(c))...)
 end
 
 @property Module sdk_version sdk_version!

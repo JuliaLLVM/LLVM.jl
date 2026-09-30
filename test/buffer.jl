@@ -5,6 +5,10 @@ data = rand(UInt8, 8)
 let
     membuf = MemoryBuffer(data)
     dispose(membuf)
+
+    # a disposed buffer can't be used, and disposing of it again does nothing
+    @test_throws ArgumentError length(membuf)
+    dispose(membuf)
 end
 
 MemoryBuffer(data) do buf

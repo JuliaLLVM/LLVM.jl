@@ -4,13 +4,24 @@
     MemoryBuffer
 
 A memory buffer representing a simple block of memory.
+
+Some operations take ownership of a memory buffer, like adding an object file to a JIT or
+lazily parsing bitcode. These consume the buffer: it can't be used anymore afterwards, and
+disposing of it does nothing, so that it can be disposed of unconditionally, e.g., using
+the do-block form of its constructor.
 """
-@checked struct MemoryBuffer
+mutable struct MemoryBuffer
     ref::API.LLVMMemoryBufferRef
+    owned::Bool
+
+    function MemoryBuffer(ref::API.LLVMMemoryBufferRef)
+        ref == C_NULL && throw(UndefRefError())
+        new(ref, true)
+    end
 end
 
 Base.unsafe_convert(::Type{API.LLVMMemoryBufferRef}, membuf::MemoryBuffer) =
-    mark_use(membuf).ref
+    check_owned(membuf).ref
 
 """
     MemoryBuffer(data::Vector{T}, name::String="", copy::Bool=true)
@@ -62,9 +73,9 @@ MemoryBufferFile(f::Core.Function, args...; kwargs...) =
 """
     dispose(membuf::MemoryBuffer)
 
-Dispose of the given memory buffer.
+Dispose of the given memory buffer, unless it has been consumed.
 """
-dispose(membuf::MemoryBuffer) = mark_dispose(API.LLVMDisposeMemoryBuffer, membuf)
+dispose(membuf::MemoryBuffer) = dispose_owned(API.LLVMDisposeMemoryBuffer, membuf)
 
 Base.length(membuf::MemoryBuffer) = API.LLVMGetBufferSize(membuf)
 

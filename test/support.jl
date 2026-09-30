@@ -14,20 +14,23 @@ end
 
 if LLVM.memcheck_enabled
 @testset "memcheck" begin
-    # use after dispose
+    # use after dispose (of an object that doesn't track its ownership, unlike, e.g., a
+    # memory buffer, which rejects such uses)
     let (; out, err) =
-        execute_code("""buf = LLVM.MemoryBuffer(UInt8[])
-                        dispose(buf)
-                        length(buf)""")
-        @test occursin("An instance of MemoryBuffer is being used after it was disposed of.", out)
+        execute_code("""ctx = Context()
+                        builder = IRBuilder()
+                        dispose(builder)
+                        LLVM.API.LLVMGetInsertBlock(builder)""")
+        @test occursin("An instance of IRBuilder is being used after it was disposed of.", out)
     end
 
     # double dispose
     let (; out, err) =
-        execute_code("""buf = LLVM.MemoryBuffer(UInt8[])
-                        dispose(buf)
-                        dispose(buf)""")
-        @test occursin("An instance of MemoryBuffer is being disposed of twice.", out)
+        execute_code("""ctx = Context()
+                        builder = IRBuilder()
+                        dispose(builder)
+                        dispose(builder)""")
+        @test occursin("An instance of IRBuilder is being disposed of twice.", out)
     end
 
     # unrelated dispose
@@ -47,9 +50,10 @@ if LLVM.memcheck_enabled
     mktemp() do path, io
         close(io)
         script = """using LLVM
-                    buf = LLVM.MemoryBuffer(UInt8[])
-                    LLVM.dispose(buf)
-                    length(buf)"""
+                    ctx = LLVM.Context()
+                    builder = LLVM.IRBuilder()
+                    LLVM.dispose(builder)
+                    LLVM.API.LLVMGetInsertBlock(builder)"""
         cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) -e $script`
         run(pipeline(ignorestatus(cmd), stdout=path, stderr=devnull))
         @test occursin("being used after it was disposed of.\nThe object was allocated at:\nStacktrace:",

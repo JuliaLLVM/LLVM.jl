@@ -13,35 +13,6 @@
 include("executionengine/utils.jl")
 
 
-## ownership
-
-# ORC objects that an operation hands over to LLVM (e.g., a materialization unit that is
-# added to a JITDylib) keep track of whether their handle still owns them, like a C++
-# `unique_ptr` that has been moved from. A consumed handle can't be used anymore, and
-# disposing of it does nothing, so that it's safe to dispose of it unconditionally.
-function check_owned(obj)
-    obj.owned ||
-        throw(ArgumentError("This $(nameof(typeof(obj))) has been consumed or disposed of"))
-    return mark_use(obj)
-end
-
-# hand the object over to LLVM, returning its reference
-function consume!(obj)
-    check_owned(obj)
-    obj.owned = false
-    mark_dispose(obj)
-    return obj.ref
-end
-
-# dispose of the object using `f(ref)`, unless it was consumed already
-function dispose_owned(f, obj)
-    obj.owned || return
-    obj.owned = false
-    mark_dispose(obj -> f(obj.ref), obj)
-    return
-end
-
-
 ## target machine builder
 
 """
@@ -642,8 +613,8 @@ The code is compiled and linked lazily, when one of its symbols is looked up. Th
 or module is consumed, even if adding it fails.
 """
 function add!(lljit::LLJIT, jd::JITDylib, obj::MemoryBuffer)
-    err = API.LLVMOrcLLJITAddObjectFile(lljit, jd, obj)
-    mark_dispose(obj)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.LLVMOrcLLJITAddObjectFile(lljit, jd, consume!(obj))
     @check err
     return
 end
@@ -749,8 +720,8 @@ function transfer!(dst::ResourceTracker, src::ResourceTracker)
 end
 
 function add!(lljit::LLJIT, rt::ResourceTracker, obj::MemoryBuffer)
-    err = API.LLVMOrcLLJITAddObjectFileWithRT(lljit, rt, obj)
-    mark_dispose(obj)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.LLVMOrcLLJITAddObjectFileWithRT(lljit, rt, consume!(obj))
     @check err
     return
 end
@@ -1375,8 +1346,8 @@ Add an object file or IR module to `jd` in Julia's JIT. The object or module is 
 even if adding it fails.
 """
 function add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
-    err = API.JLJITAddObjectFile(jljit, jd, obj)
-    mark_dispose(obj)   # consumed, even on failure
+    # consumed, even on failure
+    err = API.JLJITAddObjectFile(jljit, jd, consume!(obj))
     @check err
     return
 end

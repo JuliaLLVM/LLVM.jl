@@ -381,6 +381,34 @@ function with_disposal(f::F, x) where {F}
     end
 end
 
+# Objects that an operation hands over to LLVM (e.g., a memory buffer that is added to a
+# JIT, or a materialization unit that is added to a JITDylib) have an `owned` field that
+# tracks whether their handle still owns them, like a C++ `unique_ptr` that has been moved
+# from. A consumed handle can't be used anymore, and disposing of it does nothing, so that
+# it's safe to dispose of it unconditionally (e.g., with `@dispose`). This only covers the
+# handle that was handed over, not other wrappers of the same object.
+function check_owned(obj)
+    obj.owned ||
+        throw(ArgumentError("This $(nameof(typeof(obj))) has been consumed or disposed of"))
+    return mark_use(obj)
+end
+
+# hand the object over to LLVM, returning its reference
+function consume!(obj)
+    check_owned(obj)
+    obj.owned = false
+    mark_dispose(obj)
+    return obj.ref
+end
+
+# dispose of the object using `f(ref)`, unless it was consumed already
+function dispose_owned(f, obj)
+    obj.owned || return
+    obj.owned = false
+    mark_dispose(obj -> f(obj.ref), obj)
+    return
+end
+
 
 export @dispose
 

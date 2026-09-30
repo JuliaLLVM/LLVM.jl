@@ -302,8 +302,9 @@ function Base.parse(::Type{Module}, ir::String)
 
     out_ref = Ref{API.LLVMModuleRef}()
     out_error = Ref{Cstring}()
-    status = API.LLVMParseIRInContext(context(), membuf, out_ref, out_error) |> Bool
-    mark_dispose(membuf)
+    # the parser takes ownership of the buffer
+    status = API.LLVMParseIRInContext(context(), consume!(membuf), out_ref,
+                                      out_error) |> Bool
 
     if status
         error = unsafe_message(out_error[])
@@ -329,8 +330,9 @@ Base.string(mod::Module) = unsafe_message(API.LLVMPrintModuleToString(mod))
 Parse bitcode from the given memory buffer into a module.
 
 If `lazy` is `true`, only the module header is read; function bodies are deserialized on
-demand. The module then takes ownership of `membuf`, and the underlying byte storage
-(`membuf`'s data) must remain valid for the module's lifetime.
+demand. The module then takes ownership of `membuf`, which is consumed (also when parsing
+fails), and the underlying byte storage (`membuf`'s data) must remain valid for the
+module's lifetime.
 """
 function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     out_ref = Ref{API.LLVMModuleRef}()
@@ -342,10 +344,10 @@ function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     # report it through the context's diagnostic handler: contexts we did not create
     # (e.g., Julia's) may not have one installed, making LLVM print the error and exit.
     if lazy
-        status = API.LLVMGetBitcodeModuleInContext(ctx, membuf, out_ref, out_error) |> Bool
-        # the module only takes ownership of `membuf` on success
-        status && API.LLVMDisposeMemoryBuffer(membuf)
-        mark_dispose(membuf)
+        ref = consume!(membuf)
+        status = API.LLVMGetBitcodeModuleInContext(ctx, ref, out_ref, out_error) |> Bool
+        # the module only takes ownership of the buffer on success
+        status && API.LLVMDisposeMemoryBuffer(ref)
     else
         status = API.LLVMParseBitcodeInContext(ctx, membuf, out_ref, out_error) |> Bool
     end
@@ -365,9 +367,8 @@ bitcode reader keeps reading from it on demand.
 """
 function Base.parse(::Type{Module}, data::Vector; lazy::Bool=false)
     if lazy
-        # the module takes ownership of `membuf`, so don't @dispose it here
-        membuf = MemoryBuffer(data, "", false)
-        parse(Module, membuf; lazy=true)
+        # the module takes ownership of the buffer
+        parse(Module, MemoryBuffer(data, "", false); lazy=true)
     else
         @dispose membuf = MemoryBuffer(data, "", false) begin
             parse(Module, membuf)

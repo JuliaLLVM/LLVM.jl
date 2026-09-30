@@ -1983,12 +1983,26 @@ end
                 verify(mod)
                 @test haskey(mod.functions, "SomeFunction")
             end
+
+            # the module takes ownership of the buffer, which is consumed
+            @dispose membuf=MemoryBuffer(lazy_bitcode, "", false) begin
+                @dispose mod = parse(LLVM.Module, membuf; lazy=true) begin
+                    @test haskey(mod.functions, "SomeFunction")
+                end
+                @test_throws ArgumentError length(membuf)
+            end
         end
 
         # a valid header followed by truncated contents fails deeper in the reader
         let truncated_bitcode = bitcode[1:end÷2]
             @test_throws LLVMException parse(LLVM.Module, truncated_bitcode)
             @test_throws LLVMException parse(LLVM.Module, truncated_bitcode; lazy=true)
+
+            # the buffer is consumed, even on failure
+            @dispose membuf=MemoryBuffer(truncated_bitcode) begin
+                @test_throws LLVMException parse(LLVM.Module, membuf; lazy=true)
+                @test_throws ArgumentError length(membuf)
+            end
         end
 
         mktemp() do path, io

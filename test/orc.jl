@@ -779,7 +779,11 @@ end
                 LLVM.emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
-        add!(lljit, jd, MemoryBuffer(obj))
+        # the buffer is consumed, after which disposing of it does nothing
+        @dispose buf=MemoryBuffer(obj) begin
+            add!(lljit, jd, buf)
+            @test_throws ArgumentError add!(lljit, jd, buf)
+        end
 
         addr = lookup(lljit, sym)
 
@@ -789,7 +793,10 @@ end
         @test_throws LLVMException lookup(lljit, sym)
 
         # invalid objects are rejected (and consumed)
-        @test_throws LLVMException add!(lljit, jd, MemoryBuffer(rand(UInt8, 64)))
+        @dispose buf=MemoryBuffer(rand(UInt8, 64)) begin
+            @test_throws LLVMException add!(lljit, jd, buf)
+            @test_throws ArgumentError length(buf)
+        end
     end
 
     @dispose lljit=LLJIT(; tm=LLVM.JITTargetMachine()) begin

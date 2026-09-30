@@ -3,7 +3,6 @@
 ```@docs
 LLVMType
 issized
-context(::LLVMType)
 eltype(::LLVMType)
 ```
 
@@ -12,7 +11,6 @@ eltype(::LLVMType)
 ```@docs
 LLVM.IntegerType
 LLVM.IntType
-width
 ```
 
 ## Floating-point types
@@ -32,16 +30,13 @@ LLVM.PPCFP128Type
 ```@docs
 LLVM.FunctionType
 isvararg
-return_type
-parameters(::LLVM.FunctionType)
 ```
 
 ## Pointer types
 
 ```@docs
 LLVM.PointerType
-addrspace
-is_opaque
+isopaque(::LLVM.PointerType)
 ```
 
 ## Array types
@@ -63,11 +58,9 @@ length(::LLVM.VectorType)
 
 ```@docs
 LLVM.StructType
-name(::LLVM.StructType)
 ispacked
-isopaque
+isopaque(::LLVM.StructType)
 elements!
-elements
 ```
 
 ## Other types
@@ -77,10 +70,4 @@ LLVM.VoidType
 LLVM.LabelType
 LLVM.MetadataType
 LLVM.TokenType
-```
-
-## Type iteration
-
-```@docs
-types
 ```

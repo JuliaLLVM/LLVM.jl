@@ -1,9 +1,76 @@
-export Instruction, remove!, erase!, opcode
+@vocabulary IR Instruction, remove!, erase!
 
 """
     Instruction
 
 An instruction in the LLVM IR.
+
+# Properties
+
+    inst.parent
+
+The basic block that contains the instruction, or `nothing` if the instruction is not part
+of a basic block.
+
+    inst.opcode
+
+The opcode of the instruction, e.g., `LLVM.API.LLVMAdd`.
+
+    inst.metadata
+    gv.metadata
+
+The metadata attached to an instruction or a global object (a function or global variable),
+as a dictionary-like view that maps the kind of metadata to a metadata node. The kind can be
+an `MDKind`, like `LLVM.MD_dbg`, or the name of the kind, like `"tbaa"`. The view can be
+iterated (in the case of an instruction, this includes its debug location), and is mutable:
+assign to a kind to attach metadata, e.g., `inst.metadata["tbaa"] = node`, and use `delete!`
+to remove it.
+
+    inst.debug_records
+
+The debug records attached to the instruction, i.e., the `#dbg_declare`, `#dbg_value`,
+`#dbg_assign` and `#dbg_label` records that are printed right before it, as a read-only view
+that can be iterated. Requires LLVM 19+.
+
+The records can be inspected using their properties, like `record.kind`; see
+`LLVM.DbgRecord` for the full list.
+
+    inst.debug_location
+    inst.debug_location = loc::Union{DILocation,Nothing}
+
+The debug location attached to the instruction, or `nothing` if it has none. Assigning
+`nothing` removes the debug location.
+
+    inst.next
+    inst.prev
+
+The next or previous instruction in the basic block, or `nothing` if there is none (or if
+the instruction is not part of a basic block).
+
+    cmp.predicate
+
+The comparison predicate of an integer or floating-point comparison instruction, e.g.,
+`LLVM.API.LLVMIntEQ` or `LLVM.API.LLVMRealOLT`.
+
+    phi.incoming
+
+The incoming values of the phi node, as a view of `(value, block)` tuples of the incoming
+value and the block it originates from. The view is mutable: incoming values can be added
+using `push!` or `append!`.
+
+    or.disjoint
+    or.disjoint = flag::Bool
+
+Whether an `or` instruction has the `disjoint` flag, which makes the result poison if both
+operands have a bit set in the same position. Requires LLVM 18+.
+
+    icmp.samesign
+    icmp.samesign = flag::Bool
+
+Whether an `icmp` instruction has the `samesign` flag, which makes the result poison if the
+operands have different signs. Requires LLVM 20+.
+
+The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 Instruction
 # forward definition of Instruction in src/core/value/constant.jl
@@ -64,14 +131,17 @@ Remove the given instruction from the containing basic block and delete the obje
 """
 erase!(inst::Instruction) = API.LLVMInstructionEraseFromParent(inst)
 
-"""
-    parent(inst::Instruction)
+function parent(inst::Instruction)
+    ref = API.LLVMGetInstructionParent(inst)
+    ref == C_NULL && return nothing
+    BasicBlock(ref)
+end
 
-Get the basic block that contains the given instruction.
-"""
-parent(inst::Instruction) = BasicBlock(API.LLVMGetInstructionParent(inst))
+@property Instruction parent
 
 opcode(inst::Instruction) = API.LLVMGetInstructionOpcode(inst)
+
+@property Instruction opcode
 
 # strip unnecessary whitespace
 Base.show(io::IO, ::MIME"text/plain", inst::Instruction) = print(io, lstrip(string(inst)))
@@ -106,51 +176,84 @@ for op in opcodes
         register($typename, API.$enum)
     end
 end
+@eval @vocabulary IR $(Expr(:tuple, (Symbol(op, :Inst) for op in opcodes)...))
 
 
 ## comparisons
 
-export predicate
-
-"""
-    predicate(inst::ICmpInst)
-    predicate(inst::FCmpInst)
-
-Get the comparison predicate of the given integer or floating-point comparison instruction.
-"""
-predicate
-
 predicate(inst::ICmpInst) = API.LLVMGetICmpPredicate(inst)
 predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
+
+@property Union{ICmpInst,FCmpInst} predicate
 
 
 ## atomics
 
-export is_atomic, ordering, ordering!, SyncScope, syncscope, syncscope!, binop,
-       isweak, weak!, isvolatile, volatile!,
-       success_ordering, success_ordering!, failure_ordering, failure_ordering!,
-       is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
-       strongest_failure_ordering, mmra!, copy_atomic_metadata!
+@vocabulary IR isatomic, SyncScope,
+               is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
+               strongest_failure_ordering, mmra!, copy_atomic_metadata!
 
+@vocabulary IR AtomicInst
+
+"""
+    LLVM.AtomicInst
+
+The group of instructions that can be atomic: `load`, `store`, `fence`, `atomicrmw` and
+`cmpxchg`.
+
+# Properties
+
+    inst.ordering
+    inst.ordering = ordering::LLVM.API.LLVMAtomicOrdering
+
+The atomic ordering of a load, store, fence or `atomicrmw` instruction. Reading it
+requires the instruction to be atomic, while assigning an ordering to a load or store makes
+it atomic. `cmpxchg` instructions have separate `success_ordering` and `failure_ordering`
+properties instead, which can be combined using [`merged_ordering`](@ref).
+
+    inst.syncscope
+    inst.syncscope = scope::SyncScope
+
+The synchronization scope of an atomic load, store, fence, `atomicrmw` or `cmpxchg`
+instruction.
+
+    rmw.binop
+
+The binary operation of an atomic read-modify-write instruction, e.g.,
+`LLVM.API.LLVMAtomicRMWBinOpAdd`.
+
+    cmpxchg.weak
+    cmpxchg.weak = flag::Bool
+
+Whether an atomic compare-and-exchange instruction is weak, i.e., whether it is allowed to
+fail spuriously, even if the comparison succeeds.
+
+    cmpxchg.success_ordering
+    cmpxchg.success_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+
+The ordering of an atomic compare-and-exchange instruction when the comparison succeeds.
+
+    cmpxchg.failure_ordering
+    cmpxchg.failure_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+
+The ordering of an atomic compare-and-exchange instruction when the comparison fails.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
 const AtomicInst = Union{LoadInst, StoreInst, FenceInst, AtomicRMWInst, AtomicCmpXchgInst}
 
 """
-    is_atomic(inst::Instruction)
+    isatomic(inst::Instruction)
 
 Check if the given instruction is atomic. This includes atomic operations such as
 `atomicrmw` or `fence`, but also loads and stores that have been made atomic by setting an
 atomic ordering.
 """
-is_atomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
+isatomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
 
-"""
-    ordering(atomic_inst::Instruction)
-
-Get the atomic ordering of the given atomic instruction. For `cmpxchg` instructions, use
-[`success_ordering`](@ref) and [`failure_ordering`](@ref), or [`merged_ordering`](@ref).
-"""
 function ordering(inst::AtomicInst)
-    is_atomic(inst) || throw(ArgumentError("Instruction is not atomic"))
+    isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     @static if version() < v"18"
         API.LLVMExtraGetOrdering(inst)
     else
@@ -160,12 +263,6 @@ end
 ordering(::AtomicCmpXchgInst) =
     throw(ArgumentError("cmpxchg instructions have a success and a failure ordering"))
 
-"""
-    ordering!(inst::Instruction, ordering::LLVM.AtomicOrdering)
-
-Set the atomic ordering of the given instruction. For `cmpxchg` instructions, use
-[`success_ordering!`](@ref) and [`failure_ordering!`](@ref).
-"""
 function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
     # loads and stores can be made atomic by setting an ordering, but LLVM asserts when
     # setting an invalid ordering on other instructions
@@ -183,6 +280,9 @@ function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
 end
 ordering!(::AtomicCmpXchgInst, ::API.LLVMAtomicOrdering) =
     throw(ArgumentError("cmpxchg instructions have a success and a failure ordering"))
+
+# cmpxchg instructions have separate success and failure orderings
+@property Union{LoadInst,StoreInst,FenceInst,AtomicRMWInst} ordering ordering!
 
 check_fence_ordering(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingAcquire || is_release_or_stronger(o) ||
@@ -231,8 +331,8 @@ const RMW_BINOP_NAMES = Dict(
     parse(API.LLVMAtomicRMWBinOp, name::AbstractString)
 
 Get the `atomicrmw` operation with the given name, as used in LLVM IR (e.g. `"uinc_wrap"`).
-This works for every operation, whether or not it is [`available`](@ref) with the version
-of LLVM in use.
+This works for every operation, whether or not the version of LLVM in use supports it (see
+[`LLVM.isavailable`](@ref)).
 """
 function Base.parse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString)
     op = get(RMW_BINOP_NAMES, name, nothing)
@@ -324,10 +424,17 @@ end
     SyncScope
 
 A synchronization scope for atomic operations.
+
+# Properties
+
+    scope.name
+
+The name of the synchronization scope, as known by the current context.
 """
 struct SyncScope
     id::Cuint
 end
+@properties SyncScope
 
 """
     SyncScope(name::String)
@@ -355,16 +462,13 @@ function _name(scope::SyncScope)
     return unsafe_string(ptr, len[])
 end
 
-"""
-    name(scope::SyncScope)
-
-Get the name of the given synchronization scope, as known by the current context.
-"""
 function name(scope::SyncScope)
     str = _name(scope)
     str === nothing && throw(ArgumentError("Unknown synchronization scope $(scope.id)"))
     return str
 end
+
+@property SyncScope name
 
 function Base.show(io::IO, scope::SyncScope)
     str = if scope.id <= 1 ||
@@ -378,31 +482,18 @@ function Base.show(io::IO, scope::SyncScope)
     end
 end
 
-"""
-    syncscope(inst::AtomicInst)
-
-Get the synchronization scope of the given atomic instruction.
-"""
 function syncscope(inst::AtomicInst)
-    is_atomic(inst) || throw(ArgumentError("Instruction is not atomic"))
+    isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     SyncScope(API.LLVMGetAtomicSyncScopeID(inst))
 end
 
-"""
-    syncscope!(inst::AtomicInst, scope::SyncScope)
-
-Set the synchronization scope of the given atomic instruction.
-"""
 function syncscope!(inst::AtomicInst, scope::SyncScope)
-    is_atomic(inst) || throw(ArgumentError("Instruction is not atomic"))
+    isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
     API.LLVMSetAtomicSyncScopeID(inst, scope)
 end
 
-"""
-    binop(inst::AtomicRMWInst)
+@property AtomicInst syncscope syncscope!
 
-Get the binary operation of the given atomic read-modify-write instruction.
-"""
 function binop(inst::AtomicRMWInst)
     @static if v"16" <= version() < v"19"
         API.LLVMAtomicRMWBinOp(API.LLVMExtraGetAtomicRMWBinOp(inst))
@@ -410,6 +501,8 @@ function binop(inst::AtomicRMWInst)
         API.LLVMGetAtomicRMWBinOp(inst)
     end
 end
+
+@property AtomicRMWInst binop
 
 # the LLVM version that introduced each atomicrmw operation, indexed by its C API value
 const ATOMIC_RMW_BINOP_SINCE = (
@@ -421,50 +514,49 @@ const ATOMIC_RMW_BINOP_SINCE = (
 )
 
 """
-    available(op::API.LLVMAtomicRMWBinOp)
+    isavailable(op::API.LLVMAtomicRMWBinOp)
 
 Check whether the atomic read-modify-write operation `op` is supported by the version of
 LLVM in use. All operations can be named on every LLVM version, but instructions can only
 be created with the ones that are available.
 """
-function available(op::API.LLVMAtomicRMWBinOp)
+function isavailable(op::API.LLVMAtomicRMWBinOp)
     since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)
     since !== nothing && version() >= since
 end
+@public isavailable
+
+weak(inst::AtomicCmpXchgInst) = API.LLVMGetWeak(inst) |> Bool
+
+weak!(inst::AtomicCmpXchgInst, flag::Bool) = API.LLVMSetWeak(inst, flag)
+
+@property AtomicCmpXchgInst weak weak!
+
+@vocabulary IR MemAccessInst
 
 """
-    isweak(inst::AtomicCmpXchgInst)
+    LLVM.MemAccessInst
 
-Check if the given atomic compare-and-exchange instruction is weak.
+The group of instructions that access memory: `load`, `store`, `atomicrmw` and `cmpxchg`.
+
+# Properties
+
+    inst.volatile
+    inst.volatile = flag::Bool
+
+Whether a memory access (a `load`, `store`, `atomicrmw` or `cmpxchg` instruction) is
+volatile.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
 """
-function isweak(inst::AtomicCmpXchgInst)
-    API.LLVMGetWeak(inst) |> Bool
-end
-
-"""
-    weak!(inst::AtomicCmpXchgInst, is_weak::Bool)
-
-Set whether the given atomic compare-and-exchange instruction is weak.
-"""
-function weak!(inst::AtomicCmpXchgInst, is_weak::Bool)
-    API.LLVMSetWeak(inst, is_weak)
-end
-
 const MemAccessInst = Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst}
 
-"""
-    isvolatile(inst::Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst})
+volatile(inst::MemAccessInst) = API.LLVMGetVolatile(inst) |> Bool
 
-Check whether the given memory access is volatile.
-"""
-isvolatile(inst::MemAccessInst) = API.LLVMGetVolatile(inst) |> Bool
+volatile!(inst::MemAccessInst, flag::Bool) = API.LLVMSetVolatile(inst, flag)
 
-"""
-    volatile!(inst::Union{LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst}, is_volatile::Bool)
-
-Set whether the given memory access is volatile.
-"""
-volatile!(inst::MemAccessInst, is_volatile::Bool) = API.LLVMSetVolatile(inst, is_volatile)
+@property MemAccessInst volatile volatile!
 
 """
     mmra!(inst::Instruction, tags::Pair{<:AbstractString,<:AbstractString}...)
@@ -502,8 +594,8 @@ metadata that describes the value, like `!range`. Metadata of `src` that `dest` 
 has is overwritten.
 """
 function copy_atomic_metadata!(dest::Instruction, src::Instruction)
-    loc = debuglocation(src)
-    loc === nothing || debuglocation!(dest, loc)
+    loc = debug_location(src)
+    loc === nothing || debug_location!(dest, loc)
     src_md, dest_md = metadata(src), metadata(dest)
     for kind in ATOMIC_METADATA
         haskey(src_md, kind) && (dest_md[kind] = src_md[kind])
@@ -511,93 +603,133 @@ function copy_atomic_metadata!(dest::Instruction, src::Instruction)
     return dest
 end
 
-"""
-    success_ordering(inst::AtomicCmpXchgInst)
-
-Get the success ordering of the given atomic compare-and-exchange instruction.
-"""
 function success_ordering(inst::AtomicCmpXchgInst)
     API.LLVMGetCmpXchgSuccessOrdering(inst)
 end
 
-"""
-    success_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
-
-Set the success ordering of the given atomic compare-and-exchange instruction.
-"""
 function success_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
     API.LLVMSetCmpXchgSuccessOrdering(inst, ord)
 end
 
-"""
-    failure_ordering(inst::AtomicCmpXchgInst)
+@property AtomicCmpXchgInst success_ordering success_ordering!
 
-Get the failure ordering of the given atomic compare-and-exchange instruction.
-"""
 function failure_ordering(inst::AtomicCmpXchgInst)
     API.LLVMGetCmpXchgFailureOrdering(inst)
 end
 
-"""
-    failure_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
-
-Set the failure ordering of the given atomic compare-and-exchange instruction.
-"""
 function failure_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
     API.LLVMSetCmpXchgFailureOrdering(inst, ord)
 end
+
+@property AtomicCmpXchgInst failure_ordering failure_ordering!
 
 
 ## call sites and invocations
 
 # TODO: add this to the actual type hierarchy
+@vocabulary IR CallBase
+
+"""
+    LLVM.CallBase
+
+The group of call sites: `call`, `invoke` and `callbr` instructions, like LLVM's `CallBase`.
+
+# Properties
+
+    call.callconv
+    call.callconv = cc
+
+The calling convention of a `call`, `invoke` or `callbr` instruction, e.g.,
+`LLVM.API.LLVMFastCallConv`.
+
+    call.called_operand
+
+The operand of a `call`, `invoke` or `callbr` instruction that represents the called
+function.
+
+    call.called_type
+
+The type of the function that is called by a `call`, `invoke` or `callbr` instruction.
+
+    call.arguments
+
+The arguments of a `call`, `invoke` or `callbr` instruction, as a view of the instruction's
+operands (which also include, e.g., the called function). The view is mutable, so an
+argument can be replaced by assigning to it: `call.arguments[i] = val`.
+
+    call.function_attributes
+
+The function attributes of a `call`, `invoke` or `callbr` instruction, as a mutable view
+that can be iterated, and supports `push!`, `append!` and `delete!`. These are the
+attributes of the call site, which do not include those of the called function.
+
+See also the `return_attributes` and `argument_attributes` properties.
+
+    call.argument_attributes
+
+The attributes of the arguments of a `call`, `invoke` or `callbr` instruction, as a vector
+with a view of the attributes of each argument. These views work like the
+`function_attributes` of the call, e.g.,
+`push!(call.argument_attributes[1], EnumAttribute("noundef"))`.
+
+    call.return_attributes
+
+The attributes of the return value of a `call`, `invoke` or `callbr` instruction, as a
+mutable view that works like the `function_attributes` of the call.
+
+    call.operand_bundles
+
+The operand bundles attached to a `call`, `invoke` or `callbr` instruction, as a read-only
+view. The bundles themselves are copies, which do not change along with the instruction.
+
+    call.tailcall
+    call.tailcall = flag::Bool
+
+Whether a `call` instruction is marked as a tail call, i.e., whether it has the `tail` or
+`musttail` marker. This is a view of the `tailcall_kind` property: assigning `true` to a
+call that is not a tail call marks it `tail`, while assigning `false` to a tail call
+removes the marker. Assigning the current value does not change the kind of tail call.
+
+    call.tailcall_kind
+    call.tailcall_kind = kind::LLVM.API.LLVMTailCallKind
+
+The tail call marker of a `call` instruction: `LLVM.API.LLVMTailCallKindNone`,
+`LLVMTailCallKindTail` (`tail`), `LLVMTailCallKindMustTail` (`musttail`) or
+`LLVMTailCallKindNoTail` (`notail`). See also the `tailcall` property.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
 const CallBase = Union{CallBrInst, CallInst, InvokeInst}
 
-export callconv, callconv!,
-       istailcall, tailcall!,
-       called_operand, arguments, called_type
-
-"""
-    callconv(call_inst::Instruction)
-
-Get the calling convention of the given callable instruction.
-"""
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
-"""
-    callconv!(call_inst::Instruction, cc)
-
-Set the calling convention of the given callable instruction.
-"""
 callconv!(inst::CallBase, cc) =
     API.LLVMSetInstructionCallConv(inst, cc)
 
-"""
-    istailcall(call_inst::Instruction)
+@property CallBase callconv callconv!
 
-Tests if this call site must be tail call optimized.
-"""
-istailcall(inst::CallBase) = API.LLVMIsTailCall(inst) |> Bool
+tailcall(inst::CallInst) = API.LLVMIsTailCall(inst) |> Bool
 
-"""
-    tailcall!(call_inst::Instruction, is_tail::Bool)
+# only change the kind when needed, so that marking a tail call as such does not demote a
+# `musttail` call, and clearing the flag of a `notail` call keeps that marker (unlike
+# LLVM's `setTailCall`)
+function tailcall!(inst::CallInst, flag::Bool)
+    flag == tailcall(inst) || API.LLVMSetTailCall(inst, flag)
+    return
+end
 
-Sets whether this call site must be tail call optimized.
-"""
-tailcall!(inst::CallBase, bool) = API.LLVMSetTailCall(inst, bool)
+@property CallInst tailcall tailcall!
 
-"""
-    called_operand(call_inst::Instruction)
+tailcall_kind(inst::CallInst) = API.LLVMGetTailCallKind(inst)
 
-Get the operand of a callable instruction that represents the called function.
-"""
+tailcall_kind!(inst::CallInst, kind::API.LLVMTailCallKind) =
+    API.LLVMSetTailCallKind(inst, kind)
+
+@property CallInst tailcall_kind tailcall_kind!
+
 called_operand(inst::CallBase) = Value(API.LLVMGetCalledValue(inst))
 
-"""
-    called_type(call_inst::Instruction)
-
-Get the type of the function being called by the given callable instruction.
-"""
 function called_type(inst::CallBase)
     @static if version() >= v"11"
         LLVMType(API.LLVMGetCalledFunctionType(inst))
@@ -606,53 +738,64 @@ function called_type(inst::CallBase)
     end
 end
 
-"""
-    arguments(call_inst::Instruction)
+@property CallBase called_operand
+@property CallBase called_type
 
-Get the arguments of a callable instruction.
-"""
-function arguments(inst::CallBase)
-    nargs = API.LLVMGetNumArgOperands(inst)
-    operands(inst)[1:nargs]
+struct CallArgumentSet <: AbstractVector{Value}
+    inst::CallBase
+end
+
+arguments(inst::CallBase) = CallArgumentSet(inst)
+
+@property CallBase arguments
+
+Base.size(iter::CallArgumentSet) = (Int(API.LLVMGetNumArgOperands(iter.inst)),)
+
+Base.IndexStyle(::CallArgumentSet) = IndexLinear()
+
+# the arguments are the first operands of a call site
+function Base.getindex(iter::CallArgumentSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Value(API.LLVMGetOperand(iter.inst, i-1))
+end
+
+function Base.setindex!(iter::CallArgumentSet, val::Value, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    API.LLVMSetOperand(iter.inst, i-1, val)
+    return iter
 end
 
 # attributes
-
-export function_attributes, argument_attributes, return_attributes
 
 struct CallSiteAttrSet
     instr::LLVM.CallBase
     idx::LLVM.API.LLVMAttributeIndex
 end
 
-"""
-    function_attributes(instr::CallBase)
-
-Get the attributes of the given instruction.
-
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
 function_attributes(instr::LLVM.CallBase) =
     CallSiteAttrSet(instr, reinterpret(LLVM.API.LLVMAttributeIndex, LLVM.API.LLVMAttributeFunctionIndex))
 
-"""
-    argument_attributes(instr::CallBase, idx::Integer)
+struct CallSiteArgumentAttrSets <: AbstractVector{CallSiteAttrSet}
+    instr::CallBase
+end
 
-Get the attributes of the given argument of the given instruction.
+argument_attributes(instr::CallBase) = CallSiteArgumentAttrSets(instr)
 
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
-argument_attributes(instr::LLVM.CallBase, idx::Integer) =
-    CallSiteAttrSet(instr, LLVM.API.LLVMAttributeIndex(idx))
+Base.size(iter::CallSiteArgumentAttrSets) =
+    (Int(API.LLVMGetNumArgOperands(iter.instr)),)
 
-"""
-    return_attributes(instr::CallBase)
+Base.IndexStyle(::CallSiteArgumentAttrSets) = IndexLinear()
 
-Get the attributes of the return value of the given instruction.
+function Base.getindex(iter::CallSiteArgumentAttrSets, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return CallSiteAttrSet(iter.instr, API.LLVMAttributeIndex(i))
+end
 
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
 return_attributes(instr::LLVM.CallBase) = CallSiteAttrSet(instr, LLVM.API.LLVMAttributeReturnIndex)
+
+@property CallBase function_attributes
+@property CallBase argument_attributes
+@property CallBase return_attributes
 
 Base.eltype(::CallSiteAttrSet) = Attribute
 
@@ -665,31 +808,48 @@ function Base.collect(iter::CallSiteAttrSet)
     return LLVM.Attribute[LLVM.Attribute(elem) for elem in elems]
 end
 
-Base.push!(iter::CallSiteAttrSet, attr::LLVM.Attribute) =
+function Base.push!(iter::CallSiteAttrSet, attr::LLVM.Attribute)
     LLVM.API.LLVMAddCallSiteAttribute(iter.instr, iter.idx, attr)
+    return iter
+end
 
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.EnumAttribute) =
+function Base.delete!(iter::CallSiteAttrSet,
+                      attr::Union{LLVM.EnumAttribute,LLVM.TypeAttribute,
+                                  LLVM.ConstantRangeAttribute,
+                                  LLVM.ConstantRangeListAttribute})
     LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.TypeAttribute) =
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.ConstantRangeAttribute) =
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-
-Base.delete!(iter::CallSiteAttrSet, attr::LLVM.ConstantRangeListAttribute) =
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
+    return iter
+end
 
 function Base.delete!(iter::CallSiteAttrSet, attr::LLVM.StringAttribute)
     k = kind(attr)
-    return LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
+    LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
+    return iter
 end
 
 function Base.length(iter::CallSiteAttrSet)
     return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
 end
 
-function memory_effects(iter::CallSiteAttrSet)
+# LLVM only supports fetching all attributes at once
+function Base.iterate(iter::CallSiteAttrSet, (attrs, i)=(collect(iter), 1))
+    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
+end
+
+function Base.append!(iter::CallSiteAttrSet, attrs)
+    for attr in attrs
+        push!(iter, attr)
+    end
+    return iter
+end
+
+function Base.show(io::IO, iter::CallSiteAttrSet)
+    print(io, "CallSiteAttrSet(")
+    join(io, collect(iter), ", ")
+    print(io, ")")
+end
+
+function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)
     memory_locations()  # check that the attribute is supported
     ref = API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, memory_kind())
@@ -697,15 +857,9 @@ function memory_effects(iter::CallSiteAttrSet)
     return MemoryEffects(EnumAttribute(ref))
 end
 
-function memory_effects!(iter::CallSiteAttrSet, effects::MemoryEffects)
-    check_memory_effects_index(iter.idx)
-    push!(iter, EnumAttribute(effects))
-    return
-end
-
 # operand bundles
 
-export OperandBundle, operand_bundles, tag, inputs
+@vocabulary IR OperandBundle
 
 # NOTE: OperandBundle objects aren't LLVM IR objects, but created by the C API wrapper,
 #       so we need to free them explicitly when we get or create them.
@@ -714,10 +868,22 @@ export OperandBundle, operand_bundles, tag, inputs
     OperandBundle
 
 An operand bundle attached to a call site.
+
+# Properties
+
+    bundle.tag
+
+The tag of the operand bundle, e.g., `"deopt"`.
+
+    bundle.inputs
+
+The inputs of the operand bundle, as a read-only view.
 """
 @checked mutable struct OperandBundle
     ref::API.LLVMOperandBundleRef
 end
+@properties OperandBundle
+
 Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
@@ -726,8 +892,9 @@ Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
 
 Create a new operand bundle with the given tag and arguments.
 """
-function OperandBundle(tag::String, args::Vector{<:Value}=Value[])
-    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, length(tag), args, length(args)))
+function OperandBundle(tag::String, args::AbstractVector{<:Value}=Value[])
+    bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, length(tag), as_vector(args),
+                                                       length(args)))
     finalizer(bundle) do obj
         API.LLVMDisposeOperandBundle(obj)
     end
@@ -737,12 +904,9 @@ struct OperandBundleIterator <: AbstractVector{OperandBundle}
     inst::Instruction
 end
 
-"""
-    operand_bundles(call_inst::Instruction)
-
-Get the operand bundles attached to the given call instruction.
-"""
 operand_bundles(inst::CallBase) = OperandBundleIterator(inst)
+
+@property CallBase operand_bundles
 
 Base.size(iter::OperandBundleIterator) = (API.LLVMGetNumOperandBundles(iter.inst),)
 
@@ -756,27 +920,21 @@ function Base.getindex(iter::OperandBundleIterator, i::Int)
     end
 end
 
-"""
-    tag(bundle::OperandBundle)
-
-Get the tag of the given operand bundle.
-"""
 function tag(bundle::OperandBundle)
     len = Ref{Csize_t}()
     data = API.LLVMGetOperandBundleTag(bundle, len)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
 
+@property OperandBundle tag
+
 struct OperandBundleInputIterator <: AbstractVector{Value}
     bundle::OperandBundle
 end
 
-"""
-    inputs(bundle::OperandBundle)
-
-Get an iterator over the inputs of the given operand bundle.
-"""
 inputs(bundle::OperandBundle) = OperandBundleInputIterator(bundle)
+
+@property OperandBundle inputs
 
 Base.size(iter::OperandBundleInputIterator) = (API.LLVMGetNumOperandBundleArgs(iter.bundle),)
 
@@ -802,7 +960,7 @@ Base.show(io::IO, bundle::OperandBundle) =
 
 ## terminators
 
-export isterminator, isconditional, condition, condition!, default_dest
+@vocabulary IR isterminator, isconditional
 
 """
     isterminator(inst::Instruction)
@@ -818,71 +976,90 @@ Check if the given branch instruction is conditional.
 """
 isconditional(br::BrInst) = API.LLVMIsConditional(br) |> Bool
 
-"""
-    condition(br::BrInst)
-
-Get the condition of the given branch instruction.
-"""
 condition(br::BrInst) = Value(API.LLVMGetCondition(br))
 
-"""
-    condition!(br::BrInst, cond::Value)
-
-Set the condition of the given branch instruction.
-"""
 condition!(br::BrInst, cond::Value) = API.LLVMSetCondition(br, cond)
 
-"""
-    default_dest(switch::SwitchInst)
+@property BrInst condition condition!
 
-Get the default destination of the given switch instruction.
-"""
 default_dest(switch::SwitchInst) = BasicBlock(API.LLVMGetSwitchDefaultDest(switch))
 
-export case_value, case_value!
+@property SwitchInst default_dest
 
-"""
-    case_value(switch::SwitchInst, i::Integer)
-
-Get the value of the `i`th case of a switch instruction, whose destination is
-`successors(switch)[i+1]` (the first successor being the default destination).
-"""
-function case_value(switch::SwitchInst, i::Integer)
-    @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
-    Value(API.LLVMGetSwitchCaseValue(switch, i))
+struct SwitchCaseValueSet <: AbstractVector{ConstantInt}
+    switch::SwitchInst
 end
 
-"""
-    case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
+case_values(switch::SwitchInst) = SwitchCaseValueSet(switch)
 
-Set the value of the `i`th case of a switch instruction. The value needs to have the same
-type as the switch condition.
-"""
-function case_value!(switch::SwitchInst, i::Integer, value::ConstantInt)
-    @boundscheck 1 <= i < length(successors(switch)) || throw(BoundsError(switch, i))
-    cond = Value(API.LLVMGetOperand(switch, 0))
+@property SwitchInst case_values
+
+Base.size(iter::SwitchCaseValueSet) = (length(successors(iter.switch)) - 1,)
+
+Base.IndexStyle(::SwitchCaseValueSet) = IndexLinear()
+
+# the C API indexes cases by the index of their successor
+function Base.getindex(iter::SwitchCaseValueSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Value(API.LLVMGetSwitchCaseValue(iter.switch, i))::ConstantInt
+end
+
+function Base.setindex!(iter::SwitchCaseValueSet, value::ConstantInt, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    cond = Value(API.LLVMGetOperand(iter.switch, 0))
     value_type(value) == value_type(cond) ||
         throw(ArgumentError("Switch case value of type $(value_type(value)) does not match the condition of type $(value_type(cond))"))
-    API.LLVMSetSwitchCaseValue(switch, i, value)
+    API.LLVMSetSwitchCaseValue(iter.switch, i, value)
+    return iter
 end
 
 # successor iteration
 
-export successors
+@vocabulary IR TerminatorInst
+
+"""
+    LLVM.TerminatorInst
+
+The group of terminators: the instructions that end a basic block, like `ret`, `br` or
+`switch`.
+
+# Properties
+
+    term.successors
+
+The successors of a terminator instruction, as a mutable view: assigning to an element,
+`term.successors[i] = bb`, changes the destination of the terminator.
+
+    br.condition
+    br.condition = cond::Value
+
+The condition of a conditional branch instruction.
+
+    switch.default_dest
+
+The default destination of a switch instruction.
+
+    switch.case_values
+
+The values of the cases of a switch instruction, as a mutable view. The destination of the
+`i`th case is `switch.successors[i+1]`, the first successor being the default destination.
+Assigning to an element changes the value of that case, which needs to have the same type
+as the switch condition.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
+const TerminatorInst = Union{RetInst, BrInst, SwitchInst, IndirectBrInst, InvokeInst,
+                             UnreachableInst, CallBrInst, ResumeInst, CleanupRetInst,
+                             CatchRetInst, CatchSwitchInst}
 
 struct TerminatorSuccessorSet <: AbstractVector{BasicBlock}
     term::Instruction
 end
 
-"""
-    successors(term::Instruction)
-
-Get an iterator over the successors of the given terminator instruction.
-
-This is a mutable iterator, so you can modify the successors of the terminator by
-calling `setindex!`.
-"""
 successors(term::Instruction) = TerminatorSuccessorSet(term)
+
+@property TerminatorInst successors
 
 Base.size(iter::TerminatorSuccessorSet) = (API.LLVMGetNumSuccessors(iter.term),)
 
@@ -893,30 +1070,24 @@ function Base.getindex(iter::TerminatorSuccessorSet, i::Int)
     return BasicBlock(API.LLVMGetSuccessor(iter.term, i-1))
 end
 
-Base.setindex!(iter::TerminatorSuccessorSet, bb::BasicBlock, i::Int) =
+function Base.setindex!(iter::TerminatorSuccessorSet, bb::BasicBlock, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
     API.LLVMSetSuccessor(iter.term, i-1, bb)
+    return iter
+end
 
 
 ## phi nodes
 
 # incoming iteration
 
-export incoming
-
 struct PhiIncomingSet <: AbstractVector{Tuple{Value,BasicBlock}}
     phi::Instruction
 end
 
-"""
-    incoming(phi::PhiInst)
-
-Get an iterator over the incoming values of the given phi node.
-
-This is a mutable iterator, so you can modify the incoming values of the phi node by
-calling `push!` or `append!`, passing a tuple of the incoming value and the originating
-basic block.
-"""
 incoming(phi::PHIInst) = PhiIncomingSet(phi)
+
+@property PHIInst incoming
 
 Base.size(iter::PhiIncomingSet) = (API.LLVMCountIncoming(iter.phi),)
 
@@ -928,201 +1099,157 @@ function Base.getindex(iter::PhiIncomingSet, i::Int)
                        BasicBlock(API.LLVMGetIncomingBlock(iter.phi, i-1)))
 end
 
-function Base.append!(iter::PhiIncomingSet, args::Vector{Tuple{V, BasicBlock}} where V <: Value)
-    vals, blocks = zip(args...)
-    API.LLVMAddIncoming(iter.phi, collect(vals), collect(blocks), length(args))
+function Base.push!(iter::PhiIncomingSet, (val, bb)::Tuple{<:Value, BasicBlock})
+    API.LLVMAddIncoming(iter.phi, [val], [bb], 1)
+    return iter
 end
 
-Base.push!(iter::PhiIncomingSet, args::Tuple{<:Value, BasicBlock}) = append!(iter, [args])
+function Base.append!(iter::PhiIncomingSet, args)
+    for arg in args
+        push!(iter, arg)
+    end
+    return iter
+end
 
 
 ## poison-generating flags
 
-export hasnuw, nuw!, hasnsw, nsw!, isexact, exact!, hasdisjoint, disjoint!,
-       hasnneg, nneg!, hassamesign, samesign!
+# the instructions that support each flag, depending on the version of LLVM. querying a
+# flag on other instructions asserts (or worse), so the properties are only declared for
+# these instructions.
+@vocabulary IR NoWrapInst
 
-# which instructions support each flag, depending on the version of LLVM
-supports_nuw(inst::Instruction) =
-    inst isa Union{AddInst, SubInst, MulInst, ShlInst} ||
-    (version() >= v"19" && inst isa TruncInst)
-supports_nsw(inst::Instruction) = supports_nuw(inst)
-supports_exact(inst::Instruction) = inst isa Union{UDivInst, SDivInst, LShrInst, AShrInst}
-supports_disjoint(inst::Instruction) = version() >= v"18" && inst isa OrInst
-supports_nneg(inst::Instruction) =
-    (version() >= v"18" && inst isa ZExtInst) ||
-    (version() >= v"19" && inst isa UIToFPInst)
-supports_samesign(inst::Instruction) = version() >= v"20" && inst isa ICmpInst
+"""
+    LLVM.NoWrapInst
 
-# LLVM asserts (or worse) when querying a flag that the instruction doesn't support
-function check_flag(supported::Bool, inst::Instruction, flag::String)
-    supported ||
-        throw(ArgumentError("$(typeof(inst)) does not support the `$flag` flag on LLVM $(version())"))
-    return
+The group of instructions that can have the `nuw` and `nsw` flags: `add`, `sub`, `mul`,
+`shl` and, on LLVM 19+, `trunc`.
+
+# Properties
+
+    inst.nuw
+    inst.nuw = flag::Bool
+
+Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has the `nuw`
+(no unsigned wrap) flag, which makes the result poison if unsigned overflow occurs.
+
+    inst.nsw
+    inst.nsw = flag::Bool
+
+Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has the `nsw`
+(no signed wrap) flag, which makes the result poison if signed overflow occurs.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
+const NoWrapInst = version() >= v"19" ?
+    Union{AddInst, SubInst, MulInst, ShlInst, TruncInst} :
+    Union{AddInst, SubInst, MulInst, ShlInst}
+@vocabulary IR ExactInst
+
+"""
+    LLVM.ExactInst
+
+The group of instructions that can have the `exact` flag: `udiv`, `sdiv`, `lshr` and `ashr`.
+
+# Properties
+
+    inst.exact
+    inst.exact = flag::Bool
+
+Whether a `udiv`, `sdiv`, `lshr` or `ashr` instruction has the `exact` flag, which makes
+the result poison if the division has a remainder, or if the shift shifts out any non-zero
+bits.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
+const ExactInst = Union{UDivInst, SDivInst, LShrInst, AShrInst}
+@vocabulary IR NonNegInst
+
+"""
+    LLVM.NonNegInst
+
+The group of instructions that can have the `nneg` flag: `zext` and, on LLVM 19+, `uitofp`.
+
+# Properties
+
+    inst.nneg
+    inst.nneg = flag::Bool
+
+Whether a `zext` or (on LLVM 19+) `uitofp` instruction has the `nneg` (non-negative) flag,
+which makes the result poison if the operand is negative. Requires LLVM 18+.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
+const NonNegInst = version() >= v"19" ? Union{ZExtInst, UIToFPInst} : ZExtInst
+
+nuw(inst::NoWrapInst) = API.LLVMGetNUW(inst) |> Bool
+
+nuw!(inst::NoWrapInst, flag::Bool) = API.LLVMSetNUW(inst, flag)
+
+@property NoWrapInst nuw nuw!
+
+nsw(inst::NoWrapInst) = API.LLVMGetNSW(inst) |> Bool
+
+nsw!(inst::NoWrapInst, flag::Bool) = API.LLVMSetNSW(inst, flag)
+
+@property NoWrapInst nsw nsw!
+
+exact(inst::ExactInst) = API.LLVMGetExact(inst) |> Bool
+
+exact!(inst::ExactInst, flag::Bool) = API.LLVMSetExact(inst, flag)
+
+@property ExactInst exact exact!
+
+disjoint(inst::OrInst) = API.LLVMGetIsDisjoint(inst) |> Bool
+
+disjoint!(inst::OrInst, flag::Bool) = API.LLVMSetIsDisjoint(inst, flag)
+
+if version() >= v"18"
+    @property OrInst disjoint disjoint!
 end
 
-"""
-    hasnuw(inst::Instruction)
+nneg(inst::NonNegInst) = API.LLVMGetNNeg(inst) |> Bool
 
-Check whether the given `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has
-the `nuw` (no unsigned wrap) flag, which makes the result poison if unsigned overflow
-occurs.
-"""
-function hasnuw(inst::Instruction)
-    check_flag(supports_nuw(inst), inst, "nuw")
-    API.LLVMGetNUW(inst) |> Bool
+nneg!(inst::NonNegInst, flag::Bool) = API.LLVMSetNNeg(inst, flag)
+
+if version() >= v"18"
+    @property NonNegInst nneg nneg!
 end
 
-"""
-    nuw!(inst::Instruction, nuw::Bool)
+samesign(inst::ICmpInst) = API.LLVMGetICmpSameSign(inst) |> Bool
 
-Set or clear the `nuw` (no unsigned wrap) flag of the given instruction. See
-[`hasnuw`](@ref).
-"""
-function nuw!(inst::Instruction, nuw::Bool)
-    check_flag(supports_nuw(inst), inst, "nuw")
-    API.LLVMSetNUW(inst, nuw)
-end
+samesign!(inst::ICmpInst, flag::Bool) = API.LLVMSetICmpSameSign(inst, flag)
 
-"""
-    hasnsw(inst::Instruction)
-
-Check whether the given `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has
-the `nsw` (no signed wrap) flag, which makes the result poison if signed overflow occurs.
-"""
-function hasnsw(inst::Instruction)
-    check_flag(supports_nsw(inst), inst, "nsw")
-    API.LLVMGetNSW(inst) |> Bool
-end
-
-"""
-    nsw!(inst::Instruction, nsw::Bool)
-
-Set or clear the `nsw` (no signed wrap) flag of the given instruction. See
-[`hasnsw`](@ref).
-"""
-function nsw!(inst::Instruction, nsw::Bool)
-    check_flag(supports_nsw(inst), inst, "nsw")
-    API.LLVMSetNSW(inst, nsw)
-end
-
-"""
-    isexact(inst::Instruction)
-
-Check whether the given `udiv`, `sdiv`, `lshr` or `ashr` instruction has the `exact` flag,
-which makes the result poison if the division has a remainder, or if the shift shifts out
-any non-zero bits.
-"""
-function isexact(inst::Instruction)
-    check_flag(supports_exact(inst), inst, "exact")
-    API.LLVMGetExact(inst) |> Bool
-end
-
-"""
-    exact!(inst::Instruction, exact::Bool)
-
-Set or clear the `exact` flag of the given instruction. See [`isexact`](@ref).
-"""
-function exact!(inst::Instruction, exact::Bool)
-    check_flag(supports_exact(inst), inst, "exact")
-    API.LLVMSetExact(inst, exact)
-end
-
-"""
-    hasdisjoint(inst::OrInst)
-
-Check whether the given `or` instruction has the `disjoint` flag, which makes the result
-poison if both operands have a bit set in the same position. Requires LLVM 18+.
-"""
-function hasdisjoint(inst::Instruction)
-    check_flag(supports_disjoint(inst), inst, "disjoint")
-    API.LLVMGetIsDisjoint(inst) |> Bool
-end
-
-"""
-    disjoint!(inst::OrInst, disjoint::Bool)
-
-Set or clear the `disjoint` flag of the given `or` instruction. See [`hasdisjoint`](@ref).
-"""
-function disjoint!(inst::Instruction, disjoint::Bool)
-    check_flag(supports_disjoint(inst), inst, "disjoint")
-    API.LLVMSetIsDisjoint(inst, disjoint)
-end
-
-"""
-    hasnneg(inst::Instruction)
-
-Check whether the given `zext` (LLVM 18+) or `uitofp` (LLVM 19+) instruction has the `nneg`
-(non-negative) flag, which makes the result poison if the operand is negative.
-"""
-function hasnneg(inst::Instruction)
-    check_flag(supports_nneg(inst), inst, "nneg")
-    API.LLVMGetNNeg(inst) |> Bool
-end
-
-"""
-    nneg!(inst::Instruction, nneg::Bool)
-
-Set or clear the `nneg` (non-negative) flag of the given instruction. See
-[`hasnneg`](@ref).
-"""
-function nneg!(inst::Instruction, nneg::Bool)
-    check_flag(supports_nneg(inst), inst, "nneg")
-    API.LLVMSetNNeg(inst, nneg)
-end
-
-"""
-    hassamesign(inst::ICmpInst)
-
-Check whether the given `icmp` instruction has the `samesign` flag, which makes the result
-poison if the operands have different signs. Requires LLVM 20+.
-"""
-function hassamesign(inst::Instruction)
-    check_flag(supports_samesign(inst), inst, "samesign")
-    API.LLVMGetICmpSameSign(inst) |> Bool
-end
-
-"""
-    samesign!(inst::ICmpInst, samesign::Bool)
-
-Set or clear the `samesign` flag of the given `icmp` instruction. See
-[`hassamesign`](@ref).
-"""
-function samesign!(inst::Instruction, samesign::Bool)
-    check_flag(supports_samesign(inst), inst, "samesign")
-    API.LLVMSetICmpSameSign(inst, samesign)
+if version() >= v"20"
+    @property ICmpInst samesign samesign!
 end
 
 ## floating point operations
 
-export fast_math, fast_math!
+@vocabulary IR FastMathFlags
+
+# the fast-math flags and their bit in LLVM's `LLVMFastMathFlags`
+const fast_math_flag_bits = (
+    nnan = UInt32(API.LLVMFastMathNoNaNs),
+    ninf = UInt32(API.LLVMFastMathNoInfs),
+    nsz = UInt32(API.LLVMFastMathNoSignedZeros),
+    arcp = UInt32(API.LLVMFastMathAllowReciprocal),
+    contract = UInt32(API.LLVMFastMathAllowContract),
+    afn = UInt32(API.LLVMFastMathApproxFunc),
+    reassoc = UInt32(API.LLVMFastMathAllowReassoc),
+)
+const fast_math_all_bits = UInt32(API.LLVMFastMathAll)
 
 """
-    fast_math(inst::Instruction)
+    FastMathFlags
 
-Get the fast math flags on an instruction.
-"""
-function fast_math(inst::Instruction)
-    if !Bool(API.LLVMCanValueUseFastMathFlags(inst))
-        throw(ArgumentError("Instruction cannot use fast math flags"))
-    end
-    flags = API.LLVMGetFastMathFlags(inst)
-    return (;
-        nnan = flags & LLVM.API.LLVMFastMathNoNaNs != 0,
-        ninf = flags & LLVM.API.LLVMFastMathNoInfs != 0,
-        nsz = flags & LLVM.API.LLVMFastMathNoSignedZeros != 0,
-        arcp = flags & LLVM.API.LLVMFastMathAllowReciprocal != 0,
-        contract = flags & LLVM.API.LLVMFastMathAllowContract != 0,
-        afn = flags & LLVM.API.LLVMFastMathApproxFunc != 0,
-        reassoc = flags & LLVM.API.LLVMFastMathAllowReassoc != 0,
-    )
-end
+The fast-math flags of a floating-point instruction, as returned by its `fast_math`
+property. This is a view of the flags of that instruction: each flag is a `Bool` property,
+which reads the flag from the instruction, and sets or clears it when assigned to:
 
-"""
-    fast_math!(inst::Instruction; [flag=...], [all=...])
-
-Set the fast math flags on an instruction. If `all` is `true`, then all flags are set.
-
-The following flags are supported:
  - `nnan`: assume arguments and results are not NaN
  - `ninf`: assume arguments and results are not Inf
  - `nsz`: treat the sign of zero arguments and results as insignificant
@@ -1130,47 +1257,175 @@ The following flags are supported:
  - `contract`: allow contraction of operations
  - `afn`: allow substitution of approximate calculations for functions
  - `reassoc`: allow reassociation of operations
+
+In addition, `fast` is `true` when all flags are set (which LLVM prints as `fast`), and
+assigning to it sets or clears all flags.
+
+Use `NamedTuple(flags)` to get the value of every flag, and assign to the `fast_math`
+property of the instruction to replace all flags at once. Two sets of flags are equal when
+the same flags are set.
+
+# Examples
+
+```julia
+inst.fast_math.nnan = true      # set a single flag
+inst.fast_math.nnan             # true
+inst.fast_math = (; ninf=true)  # replace all flags, clearing the others
+inst.fast_math.fast = true      # set all flags
+```
 """
-function fast_math!(inst::Instruction; nnan=false, ninf=false, nsz=false, arcp=false,
-                          contract=false, afn=false, reassoc=false, all=false)
-    if !Bool(API.LLVMCanValueUseFastMathFlags(inst))
-        throw(ArgumentError("Instruction cannot use fast math flags"))
-    end
-    if all
-        API.LLVMSetFastMathFlags(inst, LLVM.API.LLVMFastMathAll)
-    else
-        flags = 0
-        nnan && (flags |= LLVM.API.LLVMFastMathNoNaNs)
-        ninf && (flags |= LLVM.API.LLVMFastMathNoInfs)
-        nsz && (flags |= LLVM.API.LLVMFastMathNoSignedZeros)
-        arcp && (flags |= LLVM.API.LLVMFastMathAllowReciprocal)
-        contract && (flags |= LLVM.API.LLVMFastMathAllowContract)
-        afn && (flags |= LLVM.API.LLVMFastMathApproxFunc)
-        reassoc && (flags |= LLVM.API.LLVMFastMathAllowReassoc)
-        API.LLVMSetFastMathFlags(inst, flags)
+struct FastMathFlags
+    inst::Instruction
+
+    function FastMathFlags(inst::Instruction)
+        Bool(API.LLVMCanValueUseFastMathFlags(inst)) ||
+            throw(ArgumentError("Instruction cannot use fast math flags"))
+        new(inst)
     end
 end
+@properties FastMathFlags
+
+fast_math_bits(flags::FastMathFlags) =
+    UInt32(API.LLVMGetFastMathFlags(getfield(flags, :inst)))
+
+# unlike `LLVMSetFastMathFlags`, which only adds flags, this replaces them
+set_fast_math_bits!(flags::FastMathFlags, bits::UInt32) =
+    API.LLVMExtraSetFastMathFlags(getfield(flags, :inst), bits)
+
+for (flag, bit) in pairs(fast_math_flag_bits)
+    @eval begin
+        getprop(flags::FastMathFlags, ::Val{$(QuoteNode(flag))}) =
+            fast_math_bits(flags) & $bit != 0
+        function setprop!(flags::FastMathFlags, ::Val{$(QuoteNode(flag))}, v::Bool)
+            bits = fast_math_bits(flags)
+            set_fast_math_bits!(flags, v ? bits | $bit : bits & ~$bit)
+            return v
+        end
+        push!(property_registry, (FastMathFlags, $(QuoteNode(flag))))
+    end
+end
+
+getprop(flags::FastMathFlags, ::Val{:fast}) =
+    fast_math_bits(flags) & fast_math_all_bits == fast_math_all_bits
+function setprop!(flags::FastMathFlags, ::Val{:fast}, v::Bool)
+    set_fast_math_bits!(flags, v ? fast_math_all_bits : UInt32(0))
+    return v
+end
+push!(property_registry, (FastMathFlags, :fast))
+
+function Base.NamedTuple(flags::FastMathFlags)
+    bits = fast_math_bits(flags)
+    return map(bit -> bits & bit != 0, fast_math_flag_bits)
+end
+
+Base.:(==)(a::FastMathFlags, b::FastMathFlags) = fast_math_bits(a) == fast_math_bits(b)
+Base.hash(flags::FastMathFlags, h::UInt) =
+    hash(fast_math_bits(flags), hash(FastMathFlags, h))
+
+function Base.show(io::IO, flags::FastMathFlags)
+    print(io, "FastMathFlags(")
+    if flags.fast
+        print(io, "fast=true")
+    else
+        bits = fast_math_bits(flags)
+        join(io, ("$flag=true" for (flag, bit) in pairs(fast_math_flag_bits)
+                  if bits & bit != 0), ", ")
+    end
+    print(io, ")")
+end
+
+fast_math(inst::Instruction) = FastMathFlags(inst)
+
+function fast_math!(inst::Instruction, flags::FastMathFlags)
+    set_fast_math_bits!(FastMathFlags(inst), fast_math_bits(flags))
+    return
+end
+
+function fast_math!(inst::Instruction, flags::NamedTuple)
+    for (flag, v) in pairs(flags)
+        if flag !== :fast && !haskey(fast_math_flag_bits, flag)
+            valid = join(map(repr, (keys(fast_math_flag_bits)..., :fast)), ", ")
+            throw(ArgumentError("Unknown fast-math flag $(repr(flag)); expected $valid"))
+        end
+        v isa Bool || throw(ArgumentError("Fast-math flags must be Bools, got $(repr(v))"))
+    end
+    bits = get(flags, :fast, false) ? fast_math_all_bits : UInt32(0)
+    for (flag, v) in pairs(flags)
+        flag === :fast && continue
+        bit = fast_math_flag_bits[flag]
+        bits = v ? bits | bit : bits & ~bit
+    end
+    set_fast_math_bits!(FastMathFlags(inst), bits)
+    return
+end
+
+# the instructions that can be an `FPMathOperator`, which depends on the LLVM version
+@vocabulary IR FPMathInst
+
+"""
+    LLVM.FPMathInst
+
+The group of floating-point operations that can have fast-math flags, like LLVM's
+`FPMathOperator`: `fneg`, `fadd`, `fsub`, `fmul`, `fdiv`, `frem` and `fcmp`, `fptrunc` and
+`fpext` on LLVM 20+, `uitofp` and `sitofp` on LLVM 23+, and `phi`, `select` and `call`
+instructions of floating-point type.
+
+# Properties
+
+    inst.fast_math
+    inst.fast_math = flags::Union{NamedTuple,FastMathFlags}
+
+The fast-math flags of a floating-point instruction, as a [`FastMathFlags`](@ref) view
+that can be used to inspect and change individual flags, e.g.,
+`inst.fast_math.nnan = true`. Only available on the instructions that LLVM considers
+floating-point operations; `phi`, `select` and `call` instructions only have fast-math
+flags if they produce a floating-point value, and throw an `ArgumentError` otherwise.
+
+Assigning replaces all flags: with a named tuple of `Bool`s (e.g., `(; nnan=true,
+ninf=true)`), the flags that are not specified are cleared, while `fast=true` sets all
+flags that are not specified. The flags can also be copied from another instruction by
+assigning its `FastMathFlags`.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
+const FPMathInst = Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemInst, FCmpInst,
+                         PHIInst, SelectInst, CallInst,
+                         (version() >= v"20" ? (FPTruncInst, FPExtInst) : ())...,
+                         (version() >= v"23" ? (UIToFPInst, SIToFPInst) : ())...}
+
+@property FPMathInst fast_math fast_math!
 
 
 ## alignment
 
+@vocabulary IR AlignedInst
+
+"""
+    LLVM.AlignedInst
+
+The group of instructions that have an alignment: `alloca` and the instructions that access
+memory.
+
+# Properties
+
+    inst.alignment
+    inst.alignment = bytes::Integer
+
+The alignment in bytes of an `alloca`, `load`, `store`, `atomicrmw` or `cmpxchg`
+instruction. The assigned alignment must be a positive power of 2.
+
+The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
+[`Value`](@ref LLVM.Value) are available too.
+"""
 const AlignedInst = Union{AllocaInst, MemAccessInst}
 
-"""
-    alignment(inst::Union{AllocaInst, LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst})
-
-Get the alignment of the given stack allocation or memory access, in bytes.
-"""
 alignment(inst::AlignedInst) = API.LLVMGetAlignment(inst)
 
-"""
-    alignment!(inst::Union{AllocaInst, LoadInst, StoreInst, AtomicRMWInst, AtomicCmpXchgInst},
-               bytes::Integer)
-
-Set the alignment of the given stack allocation or memory access to `bytes`, which must be
-a positive power of 2.
-"""
 function alignment!(inst::AlignedInst, bytes::Integer)
     check_alignment(bytes)
     API.LLVMSetAlignment(inst, bytes)
 end
+
+# LLVM only supports querying the alignment of memory instructions
+@property AlignedInst alignment alignment!

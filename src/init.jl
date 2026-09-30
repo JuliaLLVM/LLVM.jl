@@ -1,6 +1,6 @@
 ## subsystem initialization
 
-export ismultithreaded
+@public ismultithreaded
 
 """
     ismultithreaded()
@@ -12,7 +12,7 @@ ismultithreaded() = API.LLVMIsMultithreaded() |> Bool
 
 ## back-end initialization
 
-export backends
+@public backends
 
 @doc """
     LLVM.InitializeAllTargetInfos()
@@ -93,7 +93,7 @@ Libdl.dlopen(libllvm) do library
             jl_fname = Symbol(:Initialize, backend, component)
             jl_all_fname = Symbol(:Initialize, :All, component, :s)
             @eval begin
-                export $jl_fname
+                @public $jl_fname
                 @doc (@doc $jl_all_fname) $jl_fname
             end
 
@@ -122,7 +122,7 @@ Libdl.dlopen(libllvm) do library
         end
 
         @eval begin
-            export $jl_fname
+            @public $jl_fname
             function $jl_fname()
                 $(exprs...)
                 return
@@ -137,7 +137,7 @@ for component in [:Target, :AsmPrinter, :AsmParser, :Disassembler]
     jl_all_fname = Symbol(:Initialize, :All, component, :s)
     api_fname = Symbol(:LLVMExtra, jl_fname)
     @eval begin
-        export $jl_fname
+        @public $jl_fname
         @doc (@doc $jl_all_fname) $jl_fname
         function $jl_fname()
             if Bool(API.$api_fname())

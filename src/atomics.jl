@@ -1,9 +1,8 @@
 # expansion of atomic operations
 
-export atomic_rmw_value!, atomic_cmpxchg_value!, lower_atomic!, expand_to_cmpxchg!,
-       cast_atomic_to_integer!,
-       PartwordMask, partword_mask!, extract_masked_value!, insert_masked_value!,
-       expand_partword!
+@vocabulary Build atomic_rmw_value!, atomic_cmpxchg_value!, PartwordMask, partword_mask!,
+                  extract_masked_value!, insert_masked_value!
+@vocabulary IR lower_atomic!, expand_to_cmpxchg!, cast_atomic_to_integer!, expand_partword!
 
 """
     atomic_rmw_value!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, loaded::Value,

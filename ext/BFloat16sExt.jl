@@ -1,7 +1,7 @@
 module BFloat16sExt
 
 using LLVM
-using LLVM: API, BFloatType
+using LLVM: API, BFloatType, ConstantFP, ConstantDataArray
 
 using BFloat16s
 

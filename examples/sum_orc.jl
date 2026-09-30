@@ -2,7 +2,7 @@
 
 using Test
 
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
 if length(ARGS) == 2
     x, y = parse.([Int32], ARGS[1:2])
@@ -15,7 +15,7 @@ function codegen!(mod::LLVM.Module, name, tm)
     param_types = [LLVM.Int32Type(), LLVM.Int32Type()]
     ret_type = LLVM.Int32Type()
 
-    triple!(mod, triple(tm))
+    mod.triple = tm.triple
 
     ft = LLVM.FunctionType(ret_type, param_types)
     sum = LLVM.Function(mod, name, ft)
@@ -25,24 +25,24 @@ function codegen!(mod::LLVM.Module, name, tm)
         entry = BasicBlock(sum, "entry")
         position!(builder, entry)
 
-        tmp = add!(builder, parameters(sum)[1], parameters(sum)[2], "tmp")
+        tmp = add!(builder, sum.parameters[1], sum.parameters[2], "tmp")
         ret!(builder, tmp)
     end
 
     verify(mod)
 
     @dispose pm=ModulePassManager() begin
-        add_library_info!(pm, triple(mod))
-        add_transform_info!(pm, tm)
+        LLVM.add_library_info!(pm, mod.triple)
+        LLVM.add_transform_info!(pm, tm)
         run!(pm, mod)
     end
 
     verify(mod)
 end
 
-tm = JITTargetMachine()
+tm = LLVM.JITTargetMachine()
 # XXX: LLJIT calls TargetMachineBuilder which disposes the TargetMachine
-jit = LLJIT(; tm=JITTargetMachine())
+jit = LLJIT(; tm=LLVM.JITTargetMachine())
 
 @dispose ts_ctx=ThreadSafeContext() begin
     ts_mod = ThreadSafeModule("jit")
@@ -51,7 +51,7 @@ jit = LLJIT(; tm=JITTargetMachine())
         codegen!(mod, name, tm)
     end
 
-    jd = JITDylib(jit)
+    jd = jit.main_dylib
     add!(jit, jd, ts_mod)
     addr = lookup(jit, name)
 

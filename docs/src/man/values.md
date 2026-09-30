@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -20,9 +20,9 @@ constants, but also instructions, functions, etc.
 The `Value` type is the abstract type that represents all values in LLVM. It supports
 a range of general APIs that are common to all values:
 
-- `value_type`: get the type of the value.
-- `context`: get the context in which the value was created.
-- `name!`/`name`: get or set the name of the value.
+- `val.value_type`: the type of the value.
+- `val.name`: the name of the value, which can also be assigned to.
+- `context(val)`: the context in which the value was created.
 
 
 ## User values
@@ -31,7 +31,8 @@ A `User` is a value that can have other values as operands. It is the base type 
 instructions, functions, and other values that are composed of other values. It supports
 a few additional APIs:
 
-- `operands`: get the operands of the user.
+- `user.operands`: the operands of the user, as a mutable view: assigning to an element,
+  `user.operands[i] = val`, replaces that operand.
 
 
 ## Constant values
@@ -97,7 +98,7 @@ Float16(1.0)
 
 Floating-point constants pass through a `Float64`, which cannot represent every value of
 wider types like `fp128` or `x86_fp80`. To create such constants exactly, pass their bit
-pattern instead, and use `LLVM.bitpattern` to get it back:
+pattern instead, and use the `bitpattern` property to get it back:
 
 ```jldoctest
 julia> ConstantFP(LLVM.FP128Type(), 0.1)    # rounded to Float64 precision
@@ -106,7 +107,7 @@ fp128 0xLA0000000000000003FFB999999999999
 julia> c = ConstantFP(LLVM.FP128Type(); bits=0x3ffb999999999999999999999999999a)
 fp128 0xL999999999999999A3FFB999999999999
 
-julia> LLVM.bitpattern(c)
+julia> c.bitpattern
 0x3ffb999999999999999999999999999a
 ```
 
@@ -149,7 +150,7 @@ arbitrary aggregates as elements:
 julia> val = ConstantStruct([LLVM.ConstantInt(Int32(42))])
 { i32 } { i32 42 }
 
-julia> ty = value_type(val)
+julia> ty = val.value_type
 { i32 }
 
 julia> ConstantArray(ty, [val])
@@ -239,15 +240,17 @@ refer to the LLVM documentation.
 Global values are values that are encoded at the top level of a module. They support a
 couple of additional APIs:
 
-- `global_value_type`: get the type of the global value.
-- `isdeclaration`: whether the global value is a declaration, i.e., it does not have a body.
-- `linkage`/`linkage!`: get or set the linkage of the global value.
-- `visibility`/`visibility!`: get or set the visibility of the global value.
-- `section`/`section!`: get or set the section of the global value (setting is only
-  supported on global objects, i.e., not on aliases).
-- `dllstorage`/`dllstorage!`: get or set the DLL storage class of the global value.
-- `unnamed_addr`/`unnamed_addr!`: get or set whether the global value has an unnamed address.
-- `local_unnamed_addr`/`local_unnamed_addr!`: get or set whether the global value has a local unnamed address.
+- `gv.global_value_type`: the type of the global value.
+- `gv.parent`: the module that contains the global value.
+- `gv.linkage`, `gv.visibility`, `gv.section`, `gv.dllstorage`: the linkage, visibility,
+  section and DLL storage class of the global value.
+- `gv.unnamed_addr`: whether the address of the global value is significant, e.g.,
+  `LLVM.API.LLVMGlobalUnnamedAddr` for an `unnamed_addr` global.
+- `isdeclaration(gv)`: whether the global value is a declaration, i.e., it does not have a
+  body.
+
+All of these properties, except for `global_value_type`, can also be assigned to (the
+section only on global objects, i.e., not on aliases).
 
 The most common type of global value is the global variable, which can be created using the `GlobalVariable` constructor:
 
@@ -262,13 +265,34 @@ julia> gv = GlobalVariable(mod, ty, "SomeGV")
 
 Global variables support additional APIs:
 
-- `initializer`/`initializer!`: get or set the initializer of the global variable to a
-  constant value (pass `nothing` to remove the initializer).
-- `isthreadlocal`/`isthreadlocal!`: get or set whether the global variable is thread-local.
-- `isconstant`/`isconstant!`: get or set whether the global variable is constant.
-- `isextinit`/`isextinit!`: get or set whether the global variable is externally initialized.
+- `gv.initializer`: the initializer of the global variable, a constant value (assign
+  `nothing` to remove the initializer).
+- `gv.alignment`: the alignment of the global variable.
+- `gv.threadlocal`: whether the global variable is thread-local.
+- `gv.threadlocal_mode`: the thread-local storage model of the global variable.
+- `gv.constant`: whether the global variable is constant.
+- `gv.externally_initialized`: whether the global variable is externally initialized.
 - `erase!`: delete the global variable from its parent module, and delete the object.
-- `alignment`/`alignment!`: get or set the alignment of the global variable.
+
+All of these properties can be assigned to. The `threadlocal` flag is a view of the
+thread-local mode: making a variable thread-local selects the general dynamic model, which
+can be refined by assigning to `threadlocal_mode`:
+
+```jldoctest
+julia> mod = LLVM.Module("SomeModule");
+
+julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGV");
+
+julia> gv.threadlocal = true;
+
+julia> gv.threadlocal_mode
+LLVMGeneralDynamicTLSModel::LLVMThreadLocalMode = 0x00000001
+
+julia> gv.threadlocal_mode = LLVM.API.LLVMLocalExecTLSModel;
+
+julia> gv
+@SomeGV = external thread_local(localexec) global i32
+```
 
 A global alias introduces a new symbol for an existing global value, or for a constant
 expression involving one. It can be created with the `GlobalAlias` constructor, which takes
@@ -279,42 +303,43 @@ julia> mod = LLVM.Module("SomeModule");
 
 julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGV");
 
-julia> initializer!(gv, ConstantInt(Int32(42)));
+julia> gv.initializer = ConstantInt(Int32(42));
 
 julia> ga = GlobalAlias(mod, gv, "SomeAlias")
 @SomeAlias = alias i32, ptr @SomeGV
 
-julia> aliasee(ga)
+julia> ga.aliasee
 @SomeGV = global i32 42
 ```
 
 For constant expressions, pass the value type explicitly, as in
-`GlobalAlias(mod, typ, aliasee, name)`. The aliasee can be changed with `aliasee!`.
+`GlobalAlias(mod, typ, aliasee, name)`. The aliasee can be changed by assigning to the
+`aliasee` property.
 
 Similarly, an indirect function or ifunc is a symbol whose address is determined at load
 time by calling a resolver function. It is created with the `GlobalIFunc` constructor, which
 takes the function type of the ifunc (not that of the resolver), and the resolver itself.
-The resolver can be queried and changed with `resolver` and `resolver!`, and the ifunc can be
-removed with `erase!`.
+The resolver is available as the `resolver` property, which can also be assigned to, and
+the ifunc can be removed with `erase!`.
 
 
 ## Uses
 
-It is possible to inspect the uses of a value using the iterator returned by the `uses`
-function. This iterator returns `Use` objects which contain both the user and the original
-value:
+It is possible to inspect the uses of a value using its `uses` property, a read-only view
+of `Use` objects, whose `user` and `value` properties refer to respectively the user and the
+original value:
 
 ```jldoctest
 julia> c1 = ConstantInt(42);
 
 julia> c2 = const_inttoptr(c1, LLVM.PointerType(LLVM.Int1Type()));
 
-julia> use = only(uses(c1));
+julia> use = only(c1.uses);
 
-julia> user(use)
+julia> use.user
 ptr inttoptr (i64 42 to ptr)
 
-julia> value(use)
+julia> use.value
 i64 42
 ```
 
@@ -323,7 +348,7 @@ It is also possible to _replace_ uses of a value using the `replace_uses!` funct
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -336,7 +361,7 @@ DocTestSetup = quote
           ret i64 %2
         }""")
 
-    inst1, inst2 = instructions(entry(functions(mod)["add"]))
+    inst1, inst2 = mod.functions["add"].entry.instructions
 end
 ```
 

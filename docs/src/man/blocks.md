@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -11,8 +11,8 @@ end
 ```
 
 Basic blocks are sequences of instructions that are executed in order. They are the building
-blocks of functions, and can be looked up using the `blocks` iterator, or by constructing
-them directly:
+blocks of functions, and can be looked up using the `blocks` property of a function, or by
+constructing them directly:
 
 ```jldoctest
 julia> bb = BasicBlock("SomeBlock")
@@ -25,9 +25,9 @@ constructor you can instead append to a function, or insert before another block
 
 Basic blocks support a couple of specific APIs:
 
-- `name`: the name of the basic block.
-- `parent`: the parent function of the basic block, or `nothing` if it is detached.
-- `terminator`: get the terminator instruction of the block.
+- `bb.name`: the name of the basic block.
+- `bb.parent`: the parent function of the basic block, or `nothing` if it is detached.
+- `bb.terminator`: the terminator instruction of the block, or `nothing` if it has none.
 - `move_before`/`move_after`: move the block before or after another block.
 - `remove!`/`erase!`: delete the basic block from its parent function, or additionally also
   delete the block itself.
@@ -35,17 +35,20 @@ Basic blocks support a couple of specific APIs:
 
 ## Control flow
 
-The LLVM C API supports a couple of functions to inspect the control flow of basic blocks:
+The control flow between basic blocks can be inspected using the following properties:
 
-- `predecessors`: get the predecessors of a basic block.
-- `successors`: get the successors of a basic block.
+- `bb.predecessors`: the blocks that branch to the basic block. This is a read-only view,
+  derived from the uses of the block.
+- `bb.successors`: the blocks the basic block branches to, i.e., the successors of its
+  terminator. This view is mutable: `bb.successors[i] = other` changes the destination of
+  the terminator.
 
 
 ## Instructions
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -58,13 +61,13 @@ DocTestSetup = quote
           ret i64 %2
         }"""
     mod = parse(LLVM.Module, ir);
-    fun = only(functions(mod));
-    bb = entry(fun)
+    fun = only(mod.functions);
+    bb = fun.entry
 end
 ```
 
-The main purpose of basic blocks is to contain instructions, which can be iterated using the
-`instructions` function:
+The main purpose of basic blocks is to contain instructions, which are available as the
+`instructions` property, a view that always reflects the current contents of the block:
 
 ```jldoctest
 julia> bb
@@ -72,11 +75,12 @@ top:
   %2 = add i64 %1, %0
   ret i64 %2
 
-julia> collect(instructions(bb))
+julia> collect(bb.instructions)
 2-element Vector{Instruction}:
  %2 = add i64 %1, %0
  ret i64 %2
 ```
 
-In addition to the iteration interface, it is possible to move from one instruction to the
-previous or next one using respectively the `previnst` and `nextinst` functions.
+In addition to iterating the instructions of a block, it is possible to move from one
+instruction to the previous or next one using respectively the `inst.prev` and `inst.next`
+properties, which are `nothing` at the start and the end of the block.

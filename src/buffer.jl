@@ -1,4 +1,4 @@
-export MemoryBuffer, MemoryBufferFile, dispose
+@vocabulary IR MemoryBuffer, MemoryBufferFile, dispose
 
 """
     MemoryBuffer

@@ -14,7 +14,7 @@
     position!(builder, entrybb)
     @test position(builder) == entrybb
 
-    @test debuglocation(builder) === nothing
+    @test builder.debug_location === nothing
     LLVM.DIBuilder(mod) do dib
         difile = LLVM.file!(dib, "test.jl", "/tmp")
         LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
@@ -22,15 +22,16 @@
         sp = LLVM.subprogram!(dib, difile, "SomeFunction", difile, 1,
                              LLVM.subroutine_type!(dib, difile, nothing))
         loc = DILocation(1, 1, sp)
-        debuglocation!(builder, loc)
-        @test debuglocation(builder) == loc
-        debuglocation!(builder)
-        @test debuglocation(builder) === nothing
+        builder.debug_location = loc
+        @test builder.debug_location == loc
+        builder.debug_location = nothing
+        @test builder.debug_location === nothing
     end
 
     retinst1 = ret!(builder)
     @check_ir retinst1 "ret void"
-    debuglocation!(builder, retinst1)
+    retinst1.debug_location = builder.debug_location
+    @test retinst1.debug_location === nothing
 
     retinst2 = ret!(builder, ConstantInt(LLVM.Int32Type(), 0))
     @check_ir retinst2 "ret i32 0"
@@ -43,7 +44,7 @@
     brinst1 = br!(builder, thenbb)
     @check_ir brinst1 "br label %then"
 
-    cond1 = isnull!(builder, parameters(fn)[1], "cond")
+    cond1 = isnull!(builder, fn.parameters[1], "cond")
     brinst2 = br!(builder, cond1, thenbb, elsebb)
     @check_ir brinst2 "br i1 %cond, label %then, label %else"
 
@@ -53,11 +54,11 @@
     unreachableinst = unreachable!(builder)
     @check_ir unreachableinst "unreachable"
 
-    int1 = parameters(fn)[1]
-    int2 = parameters(fn)[2]
+    int1 = fn.parameters[1]
+    int2 = fn.parameters[2]
 
-    float1 = parameters(fn)[3]
-    float2 = parameters(fn)[4]
+    float1 = fn.parameters[3]
+    float2 = fn.parameters[4]
 
     binopinst = binop!(builder, LLVM.API.LLVMAdd, int1, int2)
     @check_ir binopinst "add i32 %0, %1"
@@ -139,18 +140,19 @@
 
     allocainst = alloca!(builder, LLVM.Int32Type())
     @check_ir allocainst "alloca i32"
-    @test alignment(allocainst) == 4
-    alignment!(allocainst, 16)
-    @test alignment(allocainst) == 16
+    @test allocainst.alignment == 4
+    allocainst.alignment = 16
+    @test allocainst.alignment == 16
     @check_ir allocainst "alloca i32, align 16"
-    @test_throws ArgumentError alignment!(allocainst, 0)
-    @test_throws ArgumentError alignment!(allocainst, 3)
-    @test_throws ArgumentError alignment!(allocainst, 2^32)
-    @test alignment(allocainst) == 16
+    @test_throws ArgumentError allocainst.alignment = 0
+    @test_throws ArgumentError allocainst.alignment = 3
+    @test_throws ArgumentError allocainst.alignment = 2^32
+    @test allocainst.alignment == 16
 
     # only stack allocations and memory accesses have an alignment
-    @test_throws MethodError alignment(xorinst)
-    @test_throws MethodError alignment!(xorinst, 4)
+    @test !hasproperty(xorinst, :alignment)
+    @test_throws "no property `alignment`" xorinst.alignment
+    @test_throws "no property `alignment`" xorinst.alignment = 4
 
     aligned_allocainst = alloca!(builder, LLVM.Int32Type(); align=32)
     @check_ir aligned_allocainst "alloca i32, align 32"
@@ -165,12 +167,12 @@
     mallocinst = malloc!(builder, LLVM.Int32Type())
     if supports_typed_pointers(ctx)
         @check_ir mallocinst r"bitcast i8\* %.+ to i32\*"
-        @check_ir operands(mallocinst)[1] r"call i8\* @malloc\(.+\)"
+        @check_ir mallocinst.operands[1] r"call i8\* @malloc\(.+\)"
     else
         @check_ir mallocinst r"call ptr @malloc\(.+\)"
     end
 
-    ptr = parameters(fn)[6]
+    ptr = fn.parameters[6]
 
     array_mallocinst = array_malloc!(builder, LLVM.Int8Type(), ConstantInt(Int32(42)))
     if LLVM.version() >= v"21"
@@ -202,7 +204,7 @@
         @check_ir memmoveinst r"call void @llvm.memmove.p0.p0.i32\(ptr align 4 %.+, ptr align 8 %.+, i32 32, i1 false\)"
     end
 
-    ptr1 = parameters(fn)[5]
+    ptr1 = fn.parameters[5]
 
     freeinst = free!(builder, ptr1)
     @check_ir freeinst "tail call void @free"
@@ -213,22 +215,22 @@
     else
         @check_ir loadinst "load i32, ptr %4"
     end
-    alignment!(loadinst, 4)
-    @test alignment(loadinst) == 4
+    loadinst.alignment = 4
+    @test loadinst.alignment == 4
 
-    @test !is_atomic(loadinst)
-    ordering!(loadinst, LLVM.API.LLVMAtomicOrderingSequentiallyConsistent)
-    @test is_atomic(loadinst)
+    @test !isatomic(loadinst)
+    loadinst.ordering = LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
+    @test isatomic(loadinst)
     if supports_typed_pointers(ctx)
         @check_ir loadinst "load atomic i32, i32* %4 seq_cst"
     else
         @check_ir loadinst "load atomic i32, ptr %4 seq_cst"
     end
-    @test ordering(loadinst) == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
+    @test loadinst.ordering == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
 
-    @test syncscope(loadinst) == SyncScope("system")
-    syncscope!(loadinst, SyncScope("singlethread"))
-    @test syncscope(loadinst) == SyncScope("singlethread")
+    @test loadinst.syncscope == SyncScope("system")
+    loadinst.syncscope = SyncScope("singlethread")
+    @test loadinst.syncscope == SyncScope("singlethread")
 
     storeinst = store!(builder, int1, ptr1)
     if supports_typed_pointers(ctx)
@@ -263,16 +265,16 @@
     else
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 seq_cst"
     end
-    @test binop(atomic_rmw_inst) == LLVM.API.LLVMAtomicRMWBinOpAdd
-    @test syncscope(atomic_rmw_inst) == SyncScope("system")
-    syncscope!(atomic_rmw_inst, SyncScope("agent"))
-    @test syncscope(atomic_rmw_inst) == SyncScope("agent")
-    @test name(syncscope(atomic_rmw_inst)) == "agent"
-    @test sprint(show, syncscope(atomic_rmw_inst)) == "SyncScope(\"agent\")"
+    @test atomic_rmw_inst.binop == LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test atomic_rmw_inst.syncscope == SyncScope("system")
+    atomic_rmw_inst.syncscope = SyncScope("agent")
+    @test atomic_rmw_inst.syncscope == SyncScope("agent")
+    @test atomic_rmw_inst.syncscope.name == "agent"
+    @test sprint(show, atomic_rmw_inst.syncscope) == "SyncScope(\"agent\")"
     for str in ("singlethread", "system", "agent")
-        @test name(SyncScope(str)) == str
+        @test SyncScope(str).name == str
     end
-    @test_throws ArgumentError name(SyncScope(1000))
+    @test_throws ArgumentError SyncScope(1000).name
     @test sprint(show, SyncScope(1000)) == "SyncScope(target-specific scope 1000)"
 
     atomic_cmpxchg_inst = atomic_cmpxchg!(builder, ptr1, int1, int2,
@@ -282,15 +284,16 @@
     else
         @check_ir atomic_cmpxchg_inst "cmpxchg ptr %4, i32 %0, i32 %1 seq_cst acquire"
     end
-    @test success_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
-    success_ordering!(atomic_cmpxchg_inst, LLVM.API.LLVMAtomicOrderingAcquireRelease)
-    @test success_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingAcquireRelease
-    @test failure_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingAcquire
-    failure_ordering!(atomic_cmpxchg_inst, LLVM.API.LLVMAtomicOrderingMonotonic)
-    @test failure_ordering(atomic_cmpxchg_inst) == LLVM.API.LLVMAtomicOrderingMonotonic
-    @test !isweak(atomic_cmpxchg_inst)
-    weak!(atomic_cmpxchg_inst, true)
-    @test isweak(atomic_cmpxchg_inst)
+    @test atomic_cmpxchg_inst.success_ordering == LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
+    atomic_cmpxchg_inst.success_ordering = LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test atomic_cmpxchg_inst.success_ordering == LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingAcquire
+    atomic_cmpxchg_inst.failure_ordering = LLVM.API.LLVMAtomicOrderingMonotonic
+    @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingMonotonic
+    @test !atomic_cmpxchg_inst.weak
+    atomic_cmpxchg_inst.weak = true
+    @test atomic_cmpxchg_inst.weak
+    @test occursin("cmpxchg weak", string(atomic_cmpxchg_inst))
 
     single_thread = true
     atomic_rmw_inst = atomic_rmw!(builder,
@@ -320,33 +323,35 @@
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 syncscope(\"agent\") monotonic"
     end
 
-    @test !isvolatile(atomic_rmw_inst)
-    volatile!(atomic_rmw_inst, true)
-    @test isvolatile(atomic_rmw_inst)
+    @test !atomic_rmw_inst.volatile
+    atomic_rmw_inst.volatile = true
+    @test atomic_rmw_inst.volatile
     @test occursin("atomicrmw volatile add", string(atomic_rmw_inst))
-    @test !isvolatile(atomic_cmpxchg_inst)
-    volatile!(atomic_cmpxchg_inst, true)
-    @test isvolatile(atomic_cmpxchg_inst)
+    atomic_rmw_inst.volatile = false
+    @test !atomic_rmw_inst.volatile
+    @test !atomic_cmpxchg_inst.volatile
+    atomic_cmpxchg_inst.volatile = true
+    @test atomic_cmpxchg_inst.volatile
 
     # operations that are newer than the C API of some LLVM versions
     for op in (LLVM.API.LLVMAtomicRMWBinOpUIncWrap, LLVM.API.LLVMAtomicRMWBinOpUDecWrap,
                LLVM.API.LLVMAtomicRMWBinOpUSubCond, LLVM.API.LLVMAtomicRMWBinOpUSubSat)
-        if LLVM.available(op)
+        if LLVM.isavailable(op)
             for scope in (true, SyncScope("agent"))
                 inst = atomic_rmw!(builder, op, ptr1, int1,
                                    LLVM.API.LLVMAtomicOrderingMonotonic, scope)
-                @test binop(inst) == op
+                @test inst.binop == op
             end
         else
             @test_throws ArgumentError atomic_rmw!(builder, op, ptr1, int1,
                                                    LLVM.API.LLVMAtomicOrderingMonotonic, false)
         end
     end
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpAdd)
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
-    @test LLVM.available(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
-    @test !LLVM.available(LLVM.API.LLVMAtomicRMWBinOp(1000))
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpAdd)
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
+    @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
+    @test !LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOp(1000))
 
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"
@@ -375,7 +380,7 @@
     fpextinst = fpext!(builder, float1, LLVM.DoubleType())
     @check_ir fpextinst "fpext float %2 to double"
 
-    ptrtointinst = ptrtoint!(builder, parameters(fn)[5], LLVM.Int32Type())
+    ptrtointinst = ptrtoint!(builder, fn.parameters[5], LLVM.Int32Type())
     if supports_typed_pointers(ctx)
         @check_ir ptrtointinst "ptrtoint i32* %4 to i32"
     else
@@ -391,9 +396,9 @@
 
     bitcastinst = bitcast!(builder, int1, LLVM.FloatType())
     @check_ir bitcastinst "bitcast i32 %0 to float"
-    ptr1 = parameters(fn)[5]
+    ptr1 = fn.parameters[5]
     if supports_typed_pointers(ctx)
-        typ1 = value_type(ptr1)
+        typ1 = ptr1.value_type
         ptr2 = LLVM.PointerType(eltype(typ1), 2)
         addrspacecastinst = addrspacecast!(builder, ptr1, ptr2)
         @check_ir addrspacecastinst "addrspacecast i32* %4 to i32 addrspace(2)*"
@@ -431,11 +436,11 @@
 
     icmpinst = icmp!(builder, LLVM.API.LLVMIntEQ, int1, int2)
     @check_ir icmpinst "icmp eq i32 %0, %1"
-    @test predicate(icmpinst) == LLVM.API.LLVMIntEQ
+    @test icmpinst.predicate == LLVM.API.LLVMIntEQ
 
     fcmpinst = fcmp!(builder, LLVM.API.LLVMRealOEQ, float1, float2)
     @check_ir fcmpinst "fcmp oeq float %2, %3"
-    @test predicate(fcmpinst) == LLVM.API.LLVMRealOEQ
+    @test fcmpinst.predicate == LLVM.API.LLVMRealOEQ
 
     phiinst = phi!(builder, LLVM.Int32Type())
     @check_ir phiinst "phi i32 "
@@ -448,17 +453,37 @@
     callinst = call!(builder, LLVM.FunctionType(LLVM.VoidType()), trap)
 
     @check_ir callinst "call void @llvm.trap()"
-    @test called_operand(callinst) == trap
-    @test called_type(callinst) == LLVM.FunctionType(LLVM.VoidType())
+    @test callinst.called_operand == trap
+    @test callinst.called_type == LLVM.FunctionType(LLVM.VoidType())
+
+    # tail calls: `tailcall` is a Bool view of `tailcall_kind`
+    @test !callinst.tailcall
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindNone
+    callinst.tailcall = true
+    @test callinst.tailcall
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindTail
+    @check_ir callinst "tail call void @llvm.trap()"
+    callinst.tailcall_kind = LLVM.API.LLVMTailCallKindMustTail
+    @test callinst.tailcall
+    @check_ir callinst "musttail call void @llvm.trap()"
+    callinst.tailcall = true    # doesn't demote a `musttail` call
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindMustTail
+    callinst.tailcall = false
+    @test !callinst.tailcall
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindNone
+    callinst.tailcall_kind = LLVM.API.LLVMTailCallKindNoTail
+    @test !callinst.tailcall
+    @check_ir callinst "notail call void @llvm.trap()"
+    callinst.tailcall = false   # keeps the `notail` marker
+    @test callinst.tailcall_kind == LLVM.API.LLVMTailCallKindNoTail
+    callinst.tailcall_kind = LLVM.API.LLVMTailCallKindNone
+    @check_ir callinst "call void @llvm.trap()"
 
     neginst = neg!(builder, int1)
     @check_ir neginst "sub i32 0, %0"
 
     nswneginst = nswneg!(builder, int1)
     @check_ir nswneginst "sub nsw i32 0, %0"
-
-    nuwneginst = @test_deprecated nuwneg!(builder, int1)
-    @check_ir nuwneginst "sub nuw i32 0, %0"
 
     fneginst = fneg!(builder, float1)
     @check_ir fneginst "fneg float %2"
@@ -486,8 +511,8 @@
     isnotnullinst = isnotnull!(builder, int1)
     @check_ir isnotnullinst "icmp ne i32 %0, 0"
 
-    ptr1 = parameters(fn)[5]
-    ptr2 = parameters(fn)[6]
+    ptr1 = fn.parameters[5]
+    ptr2 = fn.parameters[6]
     ptrdiffinst = ptrdiff!(builder, LLVM.Int32Type(), ptr1, ptr2)
     if supports_typed_pointers(ctx)
         @check_ir ptrdiffinst r"sdiv exact i64 %.+, ptrtoint \(i32\* getelementptr \(i32, i32\* null, i32 1\) to i64\)"
@@ -513,7 +538,7 @@ end
             }
             """)
 
-        ptrtoaddr = first(instructions(first(blocks(functions(mod)["ptrtoaddr_test"]))))
+        ptrtoaddr = first(first(mod.functions["ptrtoaddr_test"].blocks).instructions)
         @test ptrtoaddr isa LLVM.PtrToAddrInst
 
         dispose(mod)
@@ -538,17 +563,17 @@ end
             }
             """)
 
-        switch = terminator(first(blocks(functions(mod)["switch_test"])))
-        @test convert(Int, case_value(switch, 1)) == 1
-        @test convert(Int, case_value(switch, 2)) == 2
-        @test_throws BoundsError case_value(switch, 3)
+        switch = first(mod.functions["switch_test"].blocks).terminator
+        @test convert(Int, switch.case_values[1]) == 1
+        @test convert(Int, switch.case_values[2]) == 2
+        @test_throws BoundsError switch.case_values[3]
 
-        case_value!(switch, 2, ConstantInt(Int32(3)))
-        @test convert(Int, case_value(switch, 2)) == 3
-        @test successors(switch)[3] == blocks(functions(mod)["switch_test"])[3]
+        switch.case_values[2] = ConstantInt(Int32(3))
+        @test convert(Int, switch.case_values[2]) == 3
+        @test switch.successors[3] == mod.functions["switch_test"].blocks[3]
         @check_ir switch "i32 3, label %two"
-        @test_throws BoundsError case_value!(switch, 0, ConstantInt(Int32(0)))
-        @test_throws ArgumentError case_value!(switch, 1, ConstantInt(Int64(0)))
+        @test_throws BoundsError switch.case_values[0] = ConstantInt(Int32(0))
+        @test_throws ArgumentError switch.case_values[1] = ConstantInt(Int64(0))
 
         dispose(mod)
     end
@@ -559,94 +584,95 @@ end
         ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()])
         fn = LLVM.Function(mod, "SomeFunction", ft)
         position!(builder, BasicBlock(fn, "entry"))
-        a, b = parameters(fn)
+        a, b = fn.parameters
 
         # nuw and nsw
         for inst in [add!(builder, a, b), sub!(builder, a, b), mul!(builder, a, b),
                      shl!(builder, a, b)]
-            @test !hasnuw(inst) && !hasnsw(inst)
-            nuw!(inst, true)
-            @test hasnuw(inst) && !hasnsw(inst)
+            @test !inst.nuw && !inst.nsw
+            inst.nuw = true
+            @test inst.nuw && !inst.nsw
             @check_ir inst " nuw i32"
-            nsw!(inst, true)
-            @test hasnuw(inst) && hasnsw(inst)
+            inst.nsw = true
+            @test inst.nuw && inst.nsw
             @check_ir inst " nuw nsw i32"
-            nuw!(inst, false)
-            nsw!(inst, false)
-            @test !hasnuw(inst) && !hasnsw(inst)
+            inst.nuw = false
+            inst.nsw = false
+            @test !inst.nuw && !inst.nsw
         end
-        @test hasnuw(nuwadd!(builder, a, b))
-        @test hasnsw(nswsub!(builder, a, b))
+        @test nuwadd!(builder, a, b).nuw
+        @test nswsub!(builder, a, b).nsw
         trunc = trunc!(builder, a, LLVM.Int8Type())
         if LLVM.version() >= v"19"
-            nuw!(trunc, true)
-            nsw!(trunc, true)
+            trunc.nuw = true
+            trunc.nsw = true
             @check_ir trunc "trunc nuw nsw i32"
         else
-            @test_throws ArgumentError nuw!(trunc, true)
+            @test !hasproperty(trunc, :nuw)
+            @test_throws "no property `nuw`" trunc.nuw = true
         end
 
         # exact
         for inst in [udiv!(builder, a, b), sdiv!(builder, a, b), lshr!(builder, a, b),
                      ashr!(builder, a, b)]
-            @test !isexact(inst)
-            exact!(inst, true)
-            @test isexact(inst)
+            @test !inst.exact
+            inst.exact = true
+            @test inst.exact
             @check_ir inst " exact i32"
+            inst.exact = false
+            @test !inst.exact
         end
-        @test isexact(exactsdiv!(builder, a, b))
+        @test exactsdiv!(builder, a, b).exact
 
         # disjoint
         or = or!(builder, a, b)
         if LLVM.version() >= v"18"
-            @test !hasdisjoint(or)
-            disjoint!(or, true)
-            @test hasdisjoint(or)
+            @test !or.disjoint
+            or.disjoint = true
+            @test or.disjoint
             @check_ir or "or disjoint i32"
         else
-            @test_throws ArgumentError hasdisjoint(or)
+            @test_throws "no property `disjoint`" or.disjoint
         end
 
         # nneg
         zext = zext!(builder, a, LLVM.Int64Type())
         uitofp = uitofp!(builder, a, LLVM.DoubleType())
         if LLVM.version() >= v"18"
-            @test !hasnneg(zext)
-            nneg!(zext, true)
-            @test hasnneg(zext)
+            @test !zext.nneg
+            zext.nneg = true
+            @test zext.nneg
             @check_ir zext "zext nneg i32"
         else
-            @test_throws ArgumentError nneg!(zext, true)
+            @test_throws "no property `nneg`" zext.nneg = true
         end
         if LLVM.version() >= v"19"
-            nneg!(uitofp, true)
-            @test hasnneg(uitofp)
+            uitofp.nneg = true
+            @test uitofp.nneg
             @check_ir uitofp "uitofp nneg i32"
         else
-            @test_throws ArgumentError nneg!(uitofp, true)
+            @test_throws "no property `nneg`" uitofp.nneg = true
         end
 
         # samesign
         icmp = icmp!(builder, LLVM.API.LLVMIntULT, a, b)
         if LLVM.version() >= v"20"
-            @test !hassamesign(icmp)
-            samesign!(icmp, true)
-            @test hassamesign(icmp)
+            @test !icmp.samesign
+            icmp.samesign = true
+            @test icmp.samesign
             @check_ir icmp "icmp samesign ult i32"
         else
-            @test_throws ArgumentError samesign!(icmp, true)
+            @test_throws "no property `samesign`" icmp.samesign = true
         end
 
-        # instructions that don't support a flag
+        # the flags are only available on instructions that support them
         xor = xor!(builder, a, b)
-        @test_throws ArgumentError hasnuw(xor)
-        @test_throws ArgumentError nsw!(xor, false)
-        @test_throws ArgumentError isexact(xor)
-        @test_throws ArgumentError hasdisjoint(xor)
-        @test_throws ArgumentError hasnneg(xor)
-        @test_throws ArgumentError hassamesign(xor)
-        @test_throws ArgumentError hasnuw(or)
-        @test_throws ArgumentError exact!(icmp, true)
+        for flag in (:nuw, :nsw, :exact, :disjoint, :nneg, :samesign)
+            @test !hasproperty(xor, flag)
+            @test_throws "no property `$flag`" getproperty(xor, flag)
+        end
+        @test_throws "no property `nuw`" or.nuw
+        @test_throws "no property `exact`" icmp.exact = true
     end
 end
 
@@ -685,45 +711,45 @@ end
         mod = parse(LLVM.Module, supports_typed_pointers(ctx) ? typed_ir : opaque_ir)
 
         @testset "iteration" begin
-            f = functions(mod)["f"]
-            bb = first(blocks(f))
-            cx, cy, cz = instructions(bb)
+            f = mod.functions["f"]
+            bb = first(f.blocks)
+            cx, cy, cz = bb.instructions
 
             ## operands includes the function, and each operand bundle input separately
-            @test length(operands(cx)) == 1
-            @test length(operands(cy)) == 3
-            @test length(operands(cz)) == 2
+            @test length(cx.operands) == 1
+            @test length(cy.operands) == 3
+            @test length(cz.operands) == 2
 
             ## arguments excludes all those
-            @test length(arguments(cx)) == 0
-            @test length(arguments(cy)) == 0
-            @test length(arguments(cz)) == 0
+            @test length(cx.arguments) == 0
+            @test length(cy.arguments) == 0
+            @test length(cz.arguments) == 0
 
-            let bundles = operand_bundles(cx)
+            let bundles = cx.operand_bundles
                 @test isempty(bundles)
             end
 
-            let bundles = operand_bundles(cy)
+            let bundles = cy.operand_bundles
                 @test length(bundles) == 1
                 bundle = first(bundles)
-                @test LLVM.tag(bundle) == "deopt"
+                @test bundle.tag == "deopt"
                 @test string(bundle) == "\"deopt\"(i32 1, i64 2)"
 
-                inputs = LLVM.inputs(bundle)
+                inputs = bundle.inputs
                 @test length(inputs) == 2
                 @test inputs[1] == LLVM.ConstantInt(Int32(1))
                 @test inputs[2] == LLVM.ConstantInt(Int64(2))
             end
 
-            let bundles = operand_bundles(cz)
+            let bundles = cz.operand_bundles
                 @test length(bundles) == 2
                 let bundle = bundles[1]
-                    inputs = LLVM.inputs(bundle)
+                    inputs = bundle.inputs
                     @test length(inputs) == 0
                     @test string(bundle) == "\"deopt\"()"
                 end
                 let bundle = bundles[2]
-                    inputs = LLVM.inputs(bundle)
+                    inputs = bundle.inputs
                     @test length(inputs) == 1
                     if supports_typed_pointers(ctx)
                         @test string(bundle) == "\"unknown\"(i8* null)"
@@ -735,25 +761,25 @@ end
         end
 
         @testset "creation" begin
-            g = functions(mod)["g"]
-            bb = first(blocks(g))
-            inst = first(instructions(bb))
+            g = mod.functions["g"]
+            bb = first(g.blocks)
+            inst = first(bb.instructions)
 
             inputs = [LLVM.ConstantInt(Int32(1)), LLVM.ConstantInt(Int64(2))]
             bundle1 = OperandBundle("unknown", inputs)
             @test bundle1 isa OperandBundle
-            @test LLVM.tag(bundle1) == "unknown"
-            @test LLVM.inputs(bundle1) == inputs
+            @test bundle1.tag == "unknown"
+            @test bundle1.inputs == inputs
             @test string(bundle1) == "\"unknown\"(i32 1, i64 2)"
 
             # use in a call
-            f = functions(mod)["x"]
-            ft = function_type(f)
+            f = mod.functions["x"]
+            ft = f.function_type
             @dispose builder=IRBuilder() begin
                 position!(builder, inst)
                 inst = call!(builder, ft, f, Value[], [bundle1])
 
-                bundles = operand_bundles(inst)
+                bundles = inst.operand_bundles
                 @test length(bundles) == 1
 
                 # test the ability to directly forward `operand_bundles`
@@ -761,8 +787,8 @@ end
 
                 bundle2 = bundles[1]
                 @test bundle2 isa OperandBundle
-                @test LLVM.tag(bundle2) == "unknown"
-                @test LLVM.inputs(bundle2) == inputs
+                @test bundle2.tag == "unknown"
+                @test bundle2.inputs == inputs
                 @test string(bundle2) == "\"unknown\"(i32 1, i64 2)"
             end
         end
@@ -784,7 +810,7 @@ end
         position!(builder, entry)
         # add and substract 42
 
-        a = fadd!(builder, parameters(fun)[1], LLVM.ConstantFP(Float32(42.)), "a")
+        a = fadd!(builder, fun.parameters[1], LLVM.ConstantFP(Float32(42.)), "a")
         b = fsub!(builder, a, LLVM.ConstantFP(Float32(42.)), "b")
         retinst = ret!(builder, b)
 
@@ -796,9 +822,9 @@ end
 
     # optimize
     function optimize(mod)
-        host_triple = triple()
-        host_t = Target(triple=host_triple)
-        @dispose tm=TargetMachine(host_t, host_triple) begin
+        host_triple = LLVM.default_triple()
+        host_t = LLVM.Target(triple=host_triple)
+        @dispose tm=LLVM.TargetMachine(host_t, host_triple) begin
             run!("default<O3>", mod, tm)
         end
     end
@@ -806,30 +832,32 @@ end
     verify(mod)
 
     # ensure we still have our two operations
-    @test length(blocks(fun)) == 1
-    bb = blocks(fun)[1]
-    instns = collect(instructions(bb))
+    @test length(fun.blocks) == 1
+    bb = fun.blocks[1]
+    instns = collect(bb.instructions)
     @test length(instns) == 3
     @test instns[1] isa LLVM.FAddInst
     @test instns[2] isa LLVM.FAddInst
     @test instns[3] isa LLVM.RetInst
 
     # make them fast math
-    @test !fast_math(instns[1]).contract
-    fast_math!(instns[1]; all=true)
-    @test fast_math(instns[1]).contract
-    fast_math!(instns[2]; all=true)
-    @test_throws ArgumentError fast_math(instns[3])
-    @test_throws ArgumentError fast_math!(instns[3]; all=true)
+    @test !instns[1].fast_math.contract
+    instns[1].fast_math.fast = true
+    @test instns[1].fast_math.contract
+    instns[2].fast_math = instns[1].fast_math
+    @test instns[2].fast_math.fast
+    @test !hasproperty(instns[3], :fast_math)
+    @test_throws "has no property `fast_math`" instns[3].fast_math
+    @test_throws "has no property `fast_math`" instns[3].fast_math = (; fast=true)
 
     # optimize again
     optimize(mod)
     verify(mod)
 
     # observe there's only a single return now
-    @test length(blocks(fun)) == 1
-    bb = blocks(fun)[1]
-    instns = collect(instructions(bb))
+    @test length(fun.blocks) == 1
+    bb = fun.blocks[1]
+    instns = collect(bb.instructions)
     @test length(instns) == 1
     @test instns[1] isa LLVM.RetInst
 end

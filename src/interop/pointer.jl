@@ -20,9 +20,9 @@ end
     end
     ld = load!(builder, eltyp, inbounds_gep!(builder, eltyp, ptr, [i]))
     if A != 0
-        metadata(ld)[LLVM.MD_tbaa] = tbaa_addrspace(A)
+        ld.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
-    alignment!(ld, align)
+    ld.alignment = align
     ld
 end
 
@@ -41,9 +41,9 @@ end
     end
     st = store!(builder, x, inbounds_gep!(builder, eltyp, ptr, [i]))
     if A != 0
-        metadata(st)[LLVM.MD_tbaa] = tbaa_addrspace(A)
+        st.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
-    alignment!(st, align)
+    st.alignment = align
     nothing
 end
 
@@ -81,7 +81,7 @@ Base.:(==)(x::LLVMPtr, y::LLVMPtr) = false
 Base.:(-)(x::LLVMPtr{<:Any,A},  y::LLVMPtr{<:Any,A}) where {A} = UInt(x) - UInt(y)
 
 @llvmgenerated builder function add_ptr(x::LLVMPtr{T,A}, y::I)::LLVMPtr{T,A} where {T,A,I}
-    T_ptr = value_type(x)
+    T_ptr = x.value_type
     T_byteptr = convert(LLVMType, Core.LLVMPtr{Int8,A})
     if T_ptr == T_byteptr
         # when LLVMPtr is i8* (the default), or when using opaque pointers
@@ -119,125 +119,104 @@ end
     argtyps = DataType[argtt.parameters...]
     argexprs = Any[:(args[$i]) for i in 1:length(args)]
 
+    # arguments passed as a `Val` are emitted as constants. we still pass their value, so
+    # that the signature of the function doesn't depend on which arguments are constant.
+    const_args = Any[argval <: Val ? argval.parameters[1] : nothing for argval in args]
+    for (i, argval) in enumerate(args)
+        argval <: Val && (argexprs[i] = const_args[i])
+    end
+
     # build IR that calls the intrinsic, casting types if necessary
-    @dispose ctx=Context() begin
+    generate_llvmcall(rettyp, argtt, argexprs...) do builder, params...
         T_ret = convert(LLVMType, rettyp)
-        T_args = LLVMType[convert(LLVMType, typ) for typ in argtyps]
 
-        llvm_f, _ = create_function(T_ret, T_args)
-        mod = LLVM.parent(llvm_f)
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(llvm_f, "entry")
-            position!(builder, entry)
-
-            # Julia's compiler strips pointers of their element type.
-            # reconstruct those so that we can accurately look up intrinsics.
-            T_actual_args = LLVMType[]
-            actual_args = LLVM.Value[]
-            for (i, (arg, argtyp, argval)) in enumerate(zip(parameters(llvm_f), argtyps, args))
-                # if the value is a Val, we'll try to emit it as a constant
-                const_arg = if argval <: Val
-                    # also pass the actual value for the fallback path (and to simplify
-                    # construction of the LLVM function, where we can ignore constants)
-                    argexprs[i] = argval.parameters[1]
-
-                    argval.parameters[1]
+        # Julia's compiler strips pointers of their element type.
+        # reconstruct those so that we can accurately look up intrinsics.
+        T_actual_args = LLVMType[]
+        actual_args = LLVM.Value[]
+        for (arg, argtyp, const_arg) in zip(params, argtyps, const_args)
+            if argtyp <: LLVMPtr
+                # passed as i8*
+                T,AS = argtyp.parameters
+                actual_typ = LLVM.PointerType(convert(LLVMType, T), AS)
+                actual_arg = if const_arg == C_NULL
+                    LLVM.PointerNull(actual_typ)
+                elseif const_arg !== nothing
+                    intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
+                    const_inttoptr(intptr, actual_typ)
                 else
-                    nothing
+                    bitcast!(builder, arg, actual_typ)
                 end
-
-                if argtyp <: LLVMPtr
-                    # passed as i8*
-                    T,AS = argtyp.parameters
-                    actual_typ = LLVM.PointerType(convert(LLVMType, T), AS)
-                    actual_arg = if const_arg == C_NULL
-                        LLVM.PointerNull(actual_typ)
-                    elseif const_arg !== nothing
-                        intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
-                        const_inttoptr(intptr, actual_typ)
-                    else
-                        bitcast!(builder, arg, actual_typ)
-                    end
-                elseif argtyp <: Ptr
-                    T = eltype(argtyp)
-                    actual_typ = LLVM.PointerType(convert(LLVMType, T))
-                    actual_arg = if const_arg == C_NULL
-                        LLVM.PointerNull(actual_typ)
-                    elseif const_arg !== nothing
-                        intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
-                        const_inttoptr(intptr, actual_typ)
-                    elseif value_type(arg) isa LLVM.PointerType
-                        # passed as i8* or ptr
-                        bitcast!(builder, arg, actual_typ)
-                    else
-                        # passed as i64
-                        inttoptr!(builder, arg, actual_typ)
-                    end
-                elseif argtyp <: Bool
-                    # passed as i8
-                    T = eltype(argtyp)
-                    actual_typ = LLVM.Int1Type()
-                    actual_arg = if const_arg !== nothing
-                        LLVM.ConstantInt(actual_typ, const_arg)
-                    else
-                        trunc!(builder, arg, actual_typ)
-                    end
+            elseif argtyp <: Ptr
+                T = eltype(argtyp)
+                actual_typ = LLVM.PointerType(convert(LLVMType, T))
+                actual_arg = if const_arg == C_NULL
+                    LLVM.PointerNull(actual_typ)
+                elseif const_arg !== nothing
+                    intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
+                    const_inttoptr(intptr, actual_typ)
+                elseif arg.value_type isa LLVM.PointerType
+                    # passed as i8* or ptr
+                    bitcast!(builder, arg, actual_typ)
                 else
-                    actual_typ = convert(LLVMType, argtyp)
-                    actual_arg = if const_arg isa Integer
-                        LLVM.ConstantInt(actual_typ, argval.parameters[1])
-                    elseif const_arg isa AbstractFloat
-                        LLVM.ConstantFP(actual_typ, argval.parameters[1])
-                    else
-                        arg
-                    end
+                    # passed as i64
+                    inttoptr!(builder, arg, actual_typ)
                 end
-                push!(T_actual_args, actual_typ)
-                push!(actual_args, actual_arg)
-            end
-
-            # same for the return type
-            T_ret_actual = if rettyp <: LLVMPtr
-                T,AS = rettyp.parameters
-                LLVM.PointerType(convert(LLVMType, T), AS)
-            elseif rettyp <: Ptr
-                T = eltype(rettyp)
-                LLVM.PointerType(convert(LLVMType, T))
-            elseif rettyp <: Bool
-                LLVM.Int1Type()
+            elseif argtyp <: Bool
+                # passed as i8
+                actual_typ = LLVM.Int1Type()
+                actual_arg = if const_arg !== nothing
+                    LLVM.ConstantInt(actual_typ, const_arg)
+                else
+                    trunc!(builder, arg, actual_typ)
+                end
             else
-                T_ret
-            end
-
-            intr_ft = LLVM.FunctionType(T_ret_actual, T_actual_args)
-            intr_f = LLVM.Function(mod, String(intr), intr_ft)
-
-            rv = call!(builder, intr_ft, intr_f, actual_args)
-
-            if T_ret_actual == LLVM.VoidType()
-                ret!(builder)
-            else
-                # also convert the return value
-                rv = if rettyp <: LLVMPtr
-                    bitcast!(builder, rv, T_ret)
-                elseif rettyp <: Ptr
-                    if T_ret isa LLVM.PointerType
-                        bitcast!(builder, rv, T_ret)
-                    else
-                        ptrtoint!(builder, rv, T_ret)
-                    end
-                elseif rettyp <: Bool
-                    zext!(builder, rv, T_ret)
+                actual_typ = convert(LLVMType, argtyp)
+                actual_arg = if const_arg isa Integer
+                    LLVM.ConstantInt(actual_typ, const_arg)
+                elseif const_arg isa AbstractFloat
+                    LLVM.ConstantFP(actual_typ, const_arg)
                 else
-                    rv
+                    arg
                 end
-
-                ret!(builder, rv)
             end
+            push!(T_actual_args, actual_typ)
+            push!(actual_args, actual_arg)
         end
 
-        call_function(llvm_f, rettyp, argtt, argexprs...)
+        # same for the return type
+        T_ret_actual = if rettyp <: LLVMPtr
+            T,AS = rettyp.parameters
+            LLVM.PointerType(convert(LLVMType, T), AS)
+        elseif rettyp <: Ptr
+            T = eltype(rettyp)
+            LLVM.PointerType(convert(LLVMType, T))
+        elseif rettyp <: Bool
+            LLVM.Int1Type()
+        else
+            T_ret
+        end
+
+        intr_ft = LLVM.FunctionType(T_ret_actual, T_actual_args)
+        intr_f = LLVM.Function(current_module(builder), String(intr), intr_ft)
+        rv = call!(builder, intr_ft, intr_f, actual_args)
+
+        # also convert the return value
+        if T_ret_actual == LLVM.VoidType()
+            nothing
+        elseif rettyp <: LLVMPtr
+            bitcast!(builder, rv, T_ret)
+        elseif rettyp <: Ptr
+            if T_ret isa LLVM.PointerType
+                bitcast!(builder, rv, T_ret)
+            else
+                ptrtoint!(builder, rv, T_ret)
+            end
+        elseif rettyp <: Bool
+            zext!(builder, rv, T_ret)
+        else
+            rv
+        end
     end
 end
 

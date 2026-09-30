@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -52,7 +52,7 @@ The `loop-unroll` pass from above, for example, can also be constructed using th
 `LoopUnrollPass` object, which simplifies setting options for the pass:
 
 ```jldoctest
-julia> run!(LoopUnrollPass(; allow_partial=true), mod)
+julia> run!(LoopUnrollPass(; partial=true), mod)
 ```
 
 ### Pipelines
@@ -163,9 +163,9 @@ about; every other query falls back to a default matching LLVM's
 with `target_transform_info!`:
 
 ```julia
-using LLVM
+using LLVM, LLVM.Passes
 
-struct MyTTI <: AbstractTargetTransformInfo end
+struct MyTTI <: LLVM.AbstractTargetTransformInfo end
 LLVM.flat_address_space(::MyTTI) = UInt(0)
 LLVM.is_noop_addr_space_cast(::MyTTI, from::Unsigned, to::Unsigned) =
     from == 0 || to == 0
@@ -198,7 +198,7 @@ function, cloning the source into the destination:
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -211,7 +211,7 @@ DocTestSetup = quote
                ret i64 %2
              }""";
     mod = parse(LLVM.Module, ir);
-    src = functions(mod)["add"];
+    src = mod.functions["add"];
 end
 ```
 
@@ -223,11 +223,11 @@ top:
   ret i64 %2
 }
 
-julia> dst = LLVM.Function(mod, "new_add", function_type(src));
+julia> dst = LLVM.Function(mod, "new_add", src.function_type);
 
 julia> value_map = Dict(
-            parameters(src)[1] => parameters(dst)[1],
-            parameters(src)[2] => parameters(dst)[2]
+            src.parameters[1] => dst.parameters[1],
+            src.parameters[2] => dst.parameters[2]
        );
 
 julia> clone_into!(dst, src; value_map);
@@ -245,12 +245,12 @@ arguments of the new destination function. This is a powerful tool, which makes 
 to splice IR into functions that have different signatures:
 
 ```jldoctest
-julia> dst = LLVM.Function(mod, "new_add", function_type(src));
+julia> dst = LLVM.Function(mod, "new_add", src.function_type);
 
 julia> # let's swap the arguments around
        value_map = Dict(
-            parameters(src)[1] => parameters(dst)[2],
-            parameters(src)[2] => parameters(dst)[1]
+            src.parameters[1] => dst.parameters[2],
+            src.parameters[2] => dst.parameters[1]
        );
 
 julia> clone_into!(dst, src; value_map);
@@ -273,7 +273,7 @@ can be used:
 ```jldoctest
 julia> # let's replace an argument by a constant
        value_map = Dict(
-            parameters(src)[1] => ConstantInt(42)
+            src.parameters[1] => ConstantInt(42)
        );
 
 julia> clone(src; value_map)
@@ -288,11 +288,11 @@ Finally, it is also possible to clone just a basic block, inserting it at the en
 a function. This differs from a simple call to `copy` in that it also accepts a value map:
 
 ```jldoctest
-julia> bb = entry(src);
+julia> bb = src.entry;
 
 julia> # let's again an argument by a constant
        value_map = Dict(
-            parameters(src)[1] => ConstantInt(42)
+            src.parameters[1] => ConstantInt(42)
        );
 
 julia> clone(bb; value_map);

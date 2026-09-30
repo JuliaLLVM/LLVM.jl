@@ -22,10 +22,9 @@ module API
 using CEnum
 using Preferences
 
-using ..LLVM
-
 # library handles
-using ..LLVM: libllvm
+import ..LLVM
+using ..LLVM: libllvm, version
 using LLVMExtra_jll
 if has_preference(LLVM, "libLLVMExtra")
     const libLLVMExtra = load_preference(LLVM, "libLLVMExtra")
@@ -67,7 +66,7 @@ include(inline_wrapper, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 @specialize
 
 # atomicrmw operations that older C APIs lack, numbered as in newer ones, so that they can be
-# named on every LLVM version (use `LLVM.available` to check whether LLVM supports them)
+# named on every LLVM version (use `LLVM.isavailable` to check whether LLVM supports them)
 for (name, val) in ((:LLVMAtomicRMWBinOpUIncWrap, 15), (:LLVMAtomicRMWBinOpUDecWrap, 16),
                     (:LLVMAtomicRMWBinOpUSubCond, 17), (:LLVMAtomicRMWBinOpUSubSat, 18),
                     (:LLVMAtomicRMWBinOpFMaximum, 19), (:LLVMAtomicRMWBinOpFMinimum, 20),
@@ -76,6 +75,7 @@ for (name, val) in ((:LLVMAtomicRMWBinOpUIncWrap, 15), (:LLVMAtomicRMWBinOpUDecW
 end
 
 end # module API
+@public API
 
 has_oldpm() = LLVM.version() < v"17"
 
@@ -109,9 +109,9 @@ include("newpm.jl")
 
 # high-level functionality
 include("state.jl")
+include("vocabularies.jl")
 include("interop.jl")
-
-include("deprecated.jl")
+@public Interop
 
 include("precompile.jl")
 

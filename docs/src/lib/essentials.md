@@ -1,5 +1,14 @@
 # Essentials
 
+## Vocabularies
+
+```@docs
+LLVM.IR
+LLVM.Build
+LLVM.Passes
+LLVM.ORC
+```
+
 ## Initialization
 
 ```@docs
@@ -11,7 +20,6 @@ LLVM.InitializeAllAsmParsers
 LLVM.InitializeAllAsmPrinters
 LLVM.InitializeAllDisassemblers
 ```
-
 
 ## Contexts
 
@@ -38,20 +46,17 @@ deactivate(::ThreadSafeContext)
 ts_context!
 ```
 
-
 ## Resources
 
 ```@docs
 @dispose
 ```
 
-
 ## Exceptions
 
 ```@docs
 LLVMException
 ```
-
 
 ## Memory buffers
 
@@ -61,7 +66,6 @@ MemoryBuffer(::Vector{T}, ::String, ::Bool) where {T<:Union{UInt8,Int8}}
 MemoryBufferFile
 dispose(::MemoryBuffer)
 ```
-
 
 ## Other
 

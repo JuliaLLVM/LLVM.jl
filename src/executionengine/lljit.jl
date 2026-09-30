@@ -2,7 +2,7 @@
     LLJITBuilder()
 
 Create a builder to customize the construction of an [`LLJIT`](@ref), e.g., using
-[`targetmachinebuilder!`](@ref) or [`linkinglayercreator!`](@ref). The builder is consumed
+[`target_machine_builder!`](@ref) or [`linking_layer_creator!`](@ref). The builder is consumed
 when constructing the JIT; otherwise, it needs to be disposed of using `dispose`.
 """
 @checked struct LLJITBuilder
@@ -17,12 +17,45 @@ Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) =
 LLVM's standard ORC-based JIT, which compiles and links code on demand, i.e., when it is
 looked up. It needs to be disposed of using `dispose`, or by using the do-block form of its
 constructors.
+
+# Properties
+
+    jit.triple
+
+The target triple that the JIT compiles code for. Modules added to the JIT should use it.
+
+    jit.datalayout
+
+The data layout that the JIT compiles code for, as a string. Modules added to the JIT
+should use it.
+
+    jit.global_prefix
+
+The character that the JIT's target prepends to global symbols when mangling them (e.g.,
+`'_'` on macOS), or `'\\0'` if there is none, as a `Cchar`.
+
+    jit.execution_session
+
+The [`ExecutionSession`](@ref) of a JIT, which manages its JITDylibs and symbol string pool.
+
+    lljit.main_dylib
+
+The main [`JITDylib`](@ref) of the JIT, which `lookup(lljit, name)` searches.
+
+    lljit.ir_transform_layer
+
+The [`IRTransformLayer`](@ref) of the JIT, which transforms IR modules before they are
+compiled. Modules added with `add!` pass through this layer, as can modules emitted by a
+materialization unit with [`emit`](@ref). By default, it does not change modules; use
+[`transform!`](@ref) to install a transformation.
 """
 @checked mutable struct LLJIT
     ref::API.LLVMOrcLLJITRef
     roots::Vector{Any}  # Julia objects that LLVM holds on to, e.g., for callbacks
 end
 LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, Any[])
+@properties LLJIT
+
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
 
 function LLJITBuilder()
@@ -35,16 +68,16 @@ function dispose(builder::LLJITBuilder)
 end
 
 """
-    targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
+    target_machine_builder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
 
 Use `tmb` to create the JIT's target machines, taking ownership of it.
 """
-function targetmachinebuilder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
+function target_machine_builder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
     API.LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder, tmb)
 end
 
 """
-    linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
+    linking_layer_creator!(builder::LLJITBuilder, callback, ctx)
 
 Install a raw LLVM object-layer-creator callback and context pointer.
 
@@ -54,7 +87,7 @@ Install a raw LLVM object-layer-creator callback and context pointer.
     no exception barrier, and LLVM's callback cannot report an error. Use the
     two-argument overload for a Julia callable.
 """
-function linkinglayercreator!(builder::LLJITBuilder, callback, ctx)
+function linking_layer_creator!(builder::LLJITBuilder, callback, ctx)
     API.LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, callback, ctx)
 end
 
@@ -103,7 +136,7 @@ function LLJIT(; tm::Union{Nothing, TargetMachine} = nothing)
     else
         tmb = TargetMachineBuilder(tm)
     end
-    targetmachinebuilder!(builder, tmb)
+    target_machine_builder!(builder, tmb)
     LLJIT(builder)
 end
 
@@ -116,13 +149,6 @@ function LLJIT(f::Core.Function, args...; kwargs...)
     end
 end
 
-"""
-    triple(jit)
-    datalayout(jit)
-
-Get the target triple, or the data layout string, that the JIT compiles code for. Modules
-added to the JIT should use these.
-"""
 function triple(lljit::LLJIT)
     cstr = API.LLVMOrcLLJITGetTripleString(lljit)
     Base.unsafe_string(cstr)
@@ -132,15 +158,14 @@ function datalayout(lljit::LLJIT)
     Base.unsafe_string(API.LLVMOrcLLJITGetDataLayoutStr(lljit))
 end
 
-"""
-    LLVM.global_prefix(jit)
+@property LLJIT triple
+@property LLJIT datalayout
 
-Get the character that the JIT's target prepends to global symbols when mangling them (e.g.,
-`'_'` on macOS), or `'\\0'` if there is none, as a `Cchar`.
-"""
 function global_prefix(lljit::LLJIT)
     return API.LLVMOrcLLJITGetGlobalPrefix(lljit)
 end
+
+@property LLJIT global_prefix
 
 
 # JuliaOJIT interface
@@ -151,10 +176,17 @@ end
 
 Get a handle to Julia's own JIT, e.g., to add code to it that can be called from Julia
 code. The JIT is not owned by LLVM.jl, so disposing of the handle is a no-op.
+
+# Properties
+
+    jljit.ir_compile_layer
+
+The [`IRCompileLayer`](@ref) of Julia's JIT, which compiles IR modules.
 """
 @checked mutable struct JuliaOJIT
     ref::API.JuliaOJITRef
 end
+@properties JuliaOJIT
 
 Base.unsafe_convert(::Type{API.JuliaOJITRef}, jljit::JuliaOJIT) = jljit.ref
 
@@ -171,9 +203,14 @@ function datalayout(jljit::JuliaOJIT)
     Base.unsafe_string(API.JLJITGetDataLayoutString(jljit))
 end
 
+@property JuliaOJIT triple
+@property JuliaOJIT datalayout
+
 function global_prefix(jljit::JuliaOJIT)
     return API.JLJITGetGlobalPrefix(jljit)
 end
+
+@property JuliaOJIT global_prefix
 
 function dispose(jljit::JuliaOJIT)
     # don't dispose of the Julia JIT

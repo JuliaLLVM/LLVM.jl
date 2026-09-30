@@ -2,7 +2,7 @@
 
 using Test
 
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build
 using LLVM.Interop
 
 if length(ARGS) == 2
@@ -12,23 +12,9 @@ else
     y = Int32(2)
 end
 
-@dispose ctx=Context() begin
-    param_types = [LLVM.Int32Type(), LLVM.Int32Type()]
-    ret_type = LLVM.Int32Type()
-    sum, _ = create_function(ret_type, param_types)
-
-    # generate IR
-    @dispose builder=IRBuilder() begin
-        entry = BasicBlock(sum, "entry")
-        position!(builder, entry)
-
-        tmp = add!(builder, parameters(sum)[1], parameters(sum)[2], "tmp")
-        ret!(builder, tmp)
-    end
-
-    # make Julia compile and execute the function
-    push!(function_attributes(sum), EnumAttribute("alwaysinline"))
-    @eval call_sum(x, y) = $(call_function(sum, Int32, Tuple{Int32, Int32}, :x, :y))
-end
+# generate IR, and make Julia compile and execute it
+@eval call_sum(x, y) = $(generate_llvmcall(Int32, Tuple{Int32, Int32}, :x, :y) do builder, x, y
+    add!(builder, x, y, "tmp")
+end)
 
 @test call_sum(x, y) == x + y

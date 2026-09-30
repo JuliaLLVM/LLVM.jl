@@ -3,44 +3,42 @@
 ## Generic Value
 
 ```@docs
-GenericValue
-dispose(::GenericValue)
+LLVM.GenericValue
+dispose(::LLVM.GenericValue)
 ```
 
 ### Integer
 
 ```@docs
-GenericValue(::LLVM.IntegerType, ::Integer)
-intwidth
-convert(::Type{T}, val::GenericValue) where {T <: Integer}
+LLVM.GenericValue(::LLVM.IntegerType, ::Integer)
+convert(::Type{T}, val::LLVM.GenericValue) where {T <: Integer}
 ```
 
 ## Floating Point
 
 ```@docs
-GenericValue(::LLVM.FloatingPointType, ::AbstractFloat)
-convert(::Type{T}, val::GenericValue, typ::LLVMType) where {T<:AbstractFloat}
+LLVM.GenericValue(::LLVM.FloatingPointType, ::AbstractFloat)
+convert(::Type{T}, val::LLVM.GenericValue, typ::LLVMType) where {T<:AbstractFloat}
 ```
 
 ## Pointer
 
 ```@docs
-GenericValue(::Ptr)
-convert(::Type{Ptr{T}}, ::GenericValue) where T
+LLVM.GenericValue(::Ptr)
+convert(::Type{Ptr{T}}, ::LLVM.GenericValue) where T
 ```
 
 ## MCJIT
 
 ```@docs
 LLVM.ExecutionEngine
-Interpreter
-JIT
+LLVM.Interpreter
+LLVM.JIT
 dispose(::LLVM.ExecutionEngine)
 Base.push!(::LLVM.ExecutionEngine, ::LLVM.Module)
 Base.delete!(::LLVM.ExecutionEngine, ::LLVM.Module)
-run(::LLVM.ExecutionEngine, ::LLVM.Function, ::Vector{GenericValue})
+run(::LLVM.ExecutionEngine, ::LLVM.Function, ::Vector{LLVM.GenericValue})
 lookup(::LLVM.ExecutionEngine, ::String)
-functions(::LLVM.ExecutionEngine)
 ```
 
 ## ORC
@@ -63,22 +61,20 @@ dispose(::ThreadSafeModule)
 ```@docs
 LLJIT
 LLJITBuilder
-targetmachinebuilder!
-linkinglayercreator!
+target_machine_builder!
+linking_layer_creator!
 TargetMachineBuilder
 ObjectLinkingLayer
 ObjectLinkingLayer(::ExecutionSession, ::String)
 JuliaOJIT
 ExecutionSession
-triple(::LLJIT)
-LLVM.global_prefix
 ```
 
 ### JITDylibs
 
 ```@docs
 JITDylib
-LLVM.lookup_dylib
+lookup_dylib
 add!(::LLJIT, ::JITDylib, ::MemoryBuffer)
 add!(::JuliaOJIT, ::JITDylib, ::MemoryBuffer)
 empty!(::JITDylib)
@@ -90,54 +86,52 @@ OrcTargetAddress
 ### Resource trackers
 
 ```@docs
-LLVM.ResourceTracker
-LLVM.default_resource_tracker
-remove!(::LLVM.ResourceTracker)
-LLVM.transfer!
-dispose(::LLVM.ResourceTracker)
+ResourceTracker
+remove!(::ResourceTracker)
+transfer!
+dispose(::ResourceTracker)
 ```
 
 ### Symbols
 
 ```@docs
-LLVM.LLVMSymbol
+LLVMSymbol
 mangle
 intern
-LLVM.retain
-LLVM.release
-LLVM.symbol_flags
-LLVM.define
-LLVM.absolute_symbols
+retain
+release
+symbol_flags
+define
+absolute_symbols
 ```
 
 ### Definition generators
 
 ```@docs
-LLVM.DefinitionGenerator
-add!(::JITDylib, ::LLVM.DefinitionGenerator)
-dispose(::LLVM.DefinitionGenerator)
-LLVM.DynamicLibrarySearchGenerator
-LLVM.CustomDefinitionGenerator
+DefinitionGenerator
+add!(::JITDylib, ::DefinitionGenerator)
+dispose(::DefinitionGenerator)
+DynamicLibrarySearchGenerator
+CustomDefinitionGenerator
 ```
 
 ### Materialization
 
 ```@docs
-LLVM.CustomMaterializationUnit
-LLVM.MaterializationResponsibility
-LLVM.requested_symbols
-LLVM.emit(::LLVM.IRTransformLayer, ::LLVM.MaterializationResponsibility, ::ThreadSafeModule)
-LLVM.IRTransformLayer
-LLVM.set_transform!
-LLVM.IRCompileLayer
-LLVM.lazy_reexports
-LLVM.LocalLazyCallThroughManager
-LLVM.LocalIndirectStubsManager
+CustomMaterializationUnit
+MaterializationResponsibility
+emit(::IRTransformLayer, ::MaterializationResponsibility, ::ThreadSafeModule)
+IRTransformLayer
+transform!
+IRCompileLayer
+lazy_reexports
+LocalLazyCallThroughManager
+LocalIndirectStubsManager
 ```
 
 ### Callback errors
 
 ```@docs
-CallbackException
-LLVM.check_callback_error
+LLVM.CallbackException
+check_callback_error
 ```

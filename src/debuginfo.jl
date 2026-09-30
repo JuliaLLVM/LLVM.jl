@@ -1,6 +1,6 @@
 ## debug info builder
 
-export DIBuilder
+@vocabulary Build DIBuilder, finalize!
 
 """
     DIBuilder
@@ -82,12 +82,20 @@ end
 
 ## nodes
 
-export DINode
+@vocabulary IR DINode
 
 """
     DINode
 
 a tagged DWARF-like metadata node.
+
+# Properties
+
+    node.tag
+
+The DWARF tag of the node, or `0` if it has none. Requires LLVM 17+.
+
+The properties of [`MDNode`](@ref LLVM.MDNode) are available too.
 """
 abstract type DINode <: MDNode end
 
@@ -101,12 +109,29 @@ line_number(x::Cuint) = x == typemax(Cuint) ? -1 : Int(x)
 
 ## variables
 
-export DIVariable, file, scope, line
+@vocabulary IR DIVariable
 
 """
     DIVariable
 
 Abstract supertype for all variable-like metadata nodes.
+
+# Properties
+
+    var.file
+
+The file in which the variable is declared, or `nothing` if unknown.
+
+    var.scope
+
+The scope of the variable, or `nothing` if unknown.
+
+    var.line
+
+The line number at which the variable is declared, or -1 if unknown.
+
+The properties of [`DINode`](@ref LLVM.DINode) and [`MDNode`](@ref LLVM.MDNode) are
+available too.
 """
 abstract type DIVariable <: DINode end
 
@@ -135,57 +160,51 @@ A global variable in the source code.
 """
 DIGlobalVariable
 
-"""
-    file(var::DIVariable)
+@vocabulary IR DILocalVariable, DIGlobalVariable
 
-Get the file of the given variable.
-"""
 function file(var::DIVariable)
     ref = API.LLVMDIVariableGetFile(var)
     ref == C_NULL ? nothing : Metadata(ref)::DIFile
 end
 
-"""
-    scope(var::DIVariable)
-
-Get the scope of the given variable.
-"""
 function scope(var::DIVariable)
     ref = API.LLVMDIVariableGetScope(var)
     ref == C_NULL ? nothing : Metadata(ref)::DIScope
 end
 
-"""
-    line(var::DIVariable)
-
-Get the line number of the given variable.
-"""
 line(var::DIVariable) = line_number(API.LLVMDIVariableGetLine(var))
+
+@property DIVariable file
+@property DIVariable scope
+@property DIVariable line
 
 
 ## scopes
 
-export DIScope, file, name
+@vocabulary IR DIScope
 
 """
     DIScope
 
 Abstract supertype for lexical scopes and types (which are also declaration contexts).
+
+# Properties
+
+    scope.file
+
+The file associated with the scope.
+
+    scope.name
+
+The name of the scope, or `nothing` if it has none.
+
+The properties of [`DINode`](@ref LLVM.DINode) and [`MDNode`](@ref LLVM.MDNode) are
+available too.
 """
 abstract type DIScope <: DINode end
 
-"""
-    file(scope::DIScope)
-
-Get the metadata of the file associated with a given scope.
-"""
 file(scope::DIScope) = DIFile(API.LLVMDIScopeGetFile(scope))
 
-"""
-    name(scope::DIScope)
-
-Get the name of the given scope.
-"""
 function name(scope::DIScope)
     len = Ref{Cuint}()
     data = API.LLVMDIScopeGetName(scope, len)
@@ -193,17 +212,41 @@ function name(scope::DIScope)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
 
+@property DIScope file
+@property DIScope name
+
 abstract type DILocalScope <: DIScope end
 
 
 ## location information
 
-export DILocation, line, column, scope, inlined_at
+@vocabulary IR DILocation
 
 """
     DILocation
 
 A location in the source code.
+
+# Properties
+
+    loc.line
+
+The line number of the debug location, or -1 if unknown.
+
+    loc.column
+
+The column number of the debug location.
+
+    loc.scope
+
+The local scope of the debug location.
+
+    loc.inlined_at
+
+The location that the code at this debug location has been inlined at, or `nothing` if it
+hasn't been inlined.
+
+The properties of [`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DILocation <: MDNode
     ref::API.LLVMMetadataRef
@@ -226,50 +269,52 @@ end
 DILocation(line::Integer, col::Integer, scope::Nothing, inlined_at=nothing) =
     throw(ArgumentError("DILocation requires a scope; LLVM crashes on a null scope"))
 
-"""
-    line(location::DILocation)
-
-Get the line number of this debug location, or -1 if unknown.
-"""
 line(location::DILocation) = line_number(API.LLVMDILocationGetLine(location))
 
-"""
-    column(location::DILocation)
-
-Get the column number of this debug location.
-"""
 column(location::DILocation) = Int(API.LLVMDILocationGetColumn(location))
 
-"""
-    scope(location::DILocation)
-
-Get the local scope associated with this debug location.
-"""
 function scope(location::DILocation)
     ref = API.LLVMDILocationGetScope(location)
     ref == C_NULL ? nothing : Metadata(ref)::DIScope
 end
 
-"""
-    inlined_at(location::DILocation)
-
-Get the "inline at" location associated with this debug location.
-"""
 function inlined_at(location::DILocation)
     ref = API.LLVMDILocationGetInlinedAt(location)
     ref == C_NULL ? nothing : Metadata(ref)::DILocation
 end
 
+@property DILocation line
+@property DILocation column
+@property DILocation scope
+@property DILocation inlined_at
+
 
 ## file
 
-export DIFile, directory, filename, source
-@public file!
+@vocabulary IR DIFile
+@vocabulary Build file!
 
 """
     DIFile
 
 A file in the source code.
+
+# Properties
+
+    file.directory
+
+The directory of the file.
+
+    file.filename
+
+The name of the file.
+
+    file.source
+
+The source code of the file, or `nothing` if it is not available.
+
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DIFile <: DIScope
     ref::API.LLVMMetadataRef
@@ -287,11 +332,6 @@ function file!(builder::DIBuilder, filename::AbstractString, directory::Abstract
                                        directory, Csize_t(ncodeunits(directory))))
 end
 
-"""
-    directory(file::DIFile)
-
-Get the directory of a given file.
-"""
 function directory(file::DIFile)
     len = Ref{Cuint}()
     data = API.LLVMDIFileGetDirectory(file, len)
@@ -299,11 +339,6 @@ function directory(file::DIFile)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
 
-"""
-    filename(file::DIFile)
-
-Get the filename of the given file.
-"""
 function filename(file::DIFile)
     len = Ref{Cuint}()
     data = API.LLVMDIFileGetFilename(file, len)
@@ -311,11 +346,6 @@ function filename(file::DIFile)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
 
-"""
-    source(file::DIFile)
-
-Get the source of the given file, or `nothing` if the source is not available.
-"""
 function source(file::DIFile)
     len = Ref{Cuint}()
     data = API.LLVMDIFileGetSource(file, len)
@@ -323,12 +353,15 @@ function source(file::DIFile)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
 
+@property DIFile directory
+@property DIFile filename
+@property DIFile source
+
 
 ## type
 
-export DIType, DIEnumerator, DISubrange, name, offset, line, flags
-@public align,
-        basic_type!, unspecified_type!, pointer_type!, reference_type!, nullptr_type!,
+@vocabulary IR DIType, DIEnumerator, DISubrange
+@vocabulary Build basic_type!, unspecified_type!, pointer_type!, reference_type!, nullptr_type!,
         typedef_type!, qualified_type!, artificial_type!, object_pointer_type!,
         inheritance!, member_type!, bitfield_member_type!, static_member_type!,
         member_pointer_type!, struct_type!, union_type!, class_type!, array_type!,
@@ -339,6 +372,35 @@ export DIType, DIEnumerator, DISubrange, name, offset, line, flags
     DIType
 
 Abstract supertype for all type-like metadata nodes.
+
+# Properties
+
+    typ.name
+
+The name of the type, or `nothing` if it has none.
+
+    typ.size_in_bits
+
+The size in bits of the type.
+
+    typ.offset_in_bits
+
+The offset in bits of the type, e.g., of a member within its structure.
+
+    typ.line
+
+The line number at which the type is declared, or -1 if unknown.
+
+    typ.flags
+
+The flags of the type, as an `LLVM.API.LLVMDIFlags` bitmask.
+
+    typ.align_in_bits
+
+The alignment in bits of the type, or `0` if it has none.
+
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available too.
 """
 abstract type DIType <: DIScope end
 
@@ -388,6 +450,8 @@ with [`subroutine_type!`](@ref).
 """
 DISubroutineType
 
+@vocabulary IR DIBasicType, DIDerivedType, DICompositeType, DISubroutineType
+
 """
     DIEnumerator
 
@@ -408,11 +472,6 @@ A subrange describing one dimension of an array or vector type.
 end
 register(DISubrange, API.LLVMDISubrangeMetadataKind)
 
-"""
-    name(typ::DIType)
-
-Get the name of the given type.
-"""
 function name(typ::DIType)
     len = Ref{Csize_t}()
     data = API.LLVMDITypeGetName(typ, len)
@@ -420,50 +479,26 @@ function name(typ::DIType)
     unsafe_string(convert(Ptr{Int8}, data), len[])
 end
 
-"""
-    sizeof(typ::DIType)
+size_in_bits(typ::DIType) = Int(API.LLVMDITypeGetSizeInBits(typ))
 
-Get the size in bits of the given type.
-"""
-Base.sizeof(typ::DIType) = 8*Int(API.LLVMDITypeGetSizeInBits(typ))
+offset_in_bits(typ::DIType) = Int(API.LLVMDITypeGetOffsetInBits(typ))
 
-"""
-    offset(typ::DIType)
-
-Get the offset in bits of the given type.
-"""
-offset(typ::DIType) = Int(API.LLVMDITypeGetOffsetInBits(typ))
-
-"""
-    line(typ::DIType)
-
-Get the line number of the given type.
-"""
 line(typ::DIType) = line_number(API.LLVMDITypeGetLine(typ))
 
-"""
-    flags(typ::DIType)
-
-Get the flags of the given type.
-"""
 flags(typ::DIType) = API.LLVMDITypeGetFlags(typ)
 
-"""
-    align(typ::DIType)
+align_in_bits(typ::DIType) = Int(API.LLVMDITypeGetAlignInBits(typ))
 
-Get the alignment in bits of the given type.
-"""
-align(typ::DIType) = Int(API.LLVMDITypeGetAlignInBits(typ))
-
-"""
-    tag(node::DINode)
-
-Get the DWARF tag of the given node, or `0` if none. Requires LLVM 17+.
-"""
-tag(node::DINode)
+@property DIType name
+@property DIType size_in_bits
+@property DIType offset_in_bits
+@property DIType align_in_bits
+@property DIType line
+@property DIType flags
 
 @static if version() >= v"17"
 tag(node::DINode) = Int(API.LLVMGetDINodeTag(node))
+@property DINode tag
 end
 
 
@@ -556,7 +591,7 @@ function qualified_type!(builder::DIBuilder, tag::Integer, type::DIType)
     DIDerivedType(API.LLVMDIBuilderCreateQualifiedType(builder, Cuint(tag), type))
 end
 
-@public const_type!, volatile_type!, lvalue_reference_type!, rvalue_reference_type!
+@vocabulary Build const_type!, volatile_type!, lvalue_reference_type!, rvalue_reference_type!
 
 # DWARF tag values used by the convenience wrappers below. Not exported; part
 # of a wider DWARF-constants cleanup.
@@ -948,7 +983,7 @@ end
 
 # subrange / array helpers
 
-@public get_or_create_array!, get_or_create_type_array!
+@vocabulary Build get_or_create_array!, get_or_create_type_array!
 
 """
     get_or_create_subrange!(builder::DIBuilder, lower_bound::Integer, count::Integer)
@@ -985,8 +1020,8 @@ end
 
 # ObjC
 
-export DIObjCProperty
-@public objc_ivar!, objc_property!
+@vocabulary IR DIObjCProperty
+@vocabulary Build objc_ivar!, objc_property!
 
 """
     DIObjCProperty
@@ -1040,8 +1075,8 @@ end
 
 @static if version() >= v"21"
 
-export DISubrangeType
-@public set_type!, subrange_type!, dynamic_array_type!, enumerator_arbitrary!
+@vocabulary IR DISubrangeType
+@vocabulary Build set_type!, subrange_type!, dynamic_array_type!, enumerator_arbitrary!
 
 """
     DISubrangeType <: DIType
@@ -1152,25 +1187,31 @@ end # @static if version() >= v"21"
 
 ## subprogram
 
-export DISubProgram, line
-@public finalize_subprogram!
+@vocabulary IR DISubProgram
+@vocabulary Build subprogram!, finalize_subprogram!
 
 """
     DISubProgram
 
 A subprogram in the source code.
+
+# Properties
+
+    sp.line
+
+The line number of the subprogram, or -1 if unknown.
+
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DISubProgram <: DIScope
     ref::API.LLVMMetadataRef
 end
 register(DISubProgram, API.LLVMDISubprogramMetadataKind)
 
-"""
-    line(subprogram::DISubProgram)
-
-Get the line number of the given subprogram, or -1 if unknown.
-"""
 line(subprogram::DISubProgram) = line_number(API.LLVMDISubprogramGetLine(subprogram))
+
+@property DISubProgram line
 
 """
     subprogram!(builder::DIBuilder, scope::DIScope, name::AbstractString,
@@ -1216,8 +1257,8 @@ finalize_subprogram!(builder::DIBuilder, sp::DISubProgram) =
 
 ## compile unit
 
-export DICompileUnit
-@public compile_unit!
+@vocabulary IR DICompileUnit
+@vocabulary Build compile_unit!
 
 """
     DICompileUnit
@@ -1277,8 +1318,8 @@ end
 
 ## module
 
-export DIModule
-@public dimodule!
+@vocabulary IR DIModule
+@vocabulary Build dimodule!
 
 """
     DIModule
@@ -1312,7 +1353,7 @@ end
 
 ## variable factories
 
-@public auto_variable!, parameter_variable!
+@vocabulary Build auto_variable!, parameter_variable!
 
 """
     auto_variable!(builder::DIBuilder, scope::DIScope, name::AbstractString,
@@ -1355,8 +1396,8 @@ end
 
 ## expression
 
-export DIExpression, DIGlobalVariableExpression, variable, expression
-@public expression!, constant_value_expression!
+@vocabulary IR DIExpression, DIGlobalVariableExpression
+@vocabulary Build expression!, constant_value_expression!
 
 """
     DIExpression
@@ -1372,6 +1413,19 @@ register(DIExpression, API.LLVMDIExpressionMetadataKind)
     DIGlobalVariableExpression
 
 A pairing of a [`DIGlobalVariable`](@ref) and its associated [`DIExpression`](@ref).
+
+# Properties
+
+    gve.variable
+
+The global variable described by the global variable expression.
+
+    gve.expression
+
+The expression of the global variable expression, which describes the location of the
+variable.
+
+The properties of [`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DIGlobalVariableExpression <: MDNode
     ref::API.LLVMMetadataRef
@@ -1400,30 +1454,23 @@ function constant_value_expression!(builder::DIBuilder, value::Integer)
         builder, UInt64(value)))
 end
 
-"""
-    variable(gve::DIGlobalVariableExpression)
-
-Get the debug info global variable associated with the given expression.
-"""
 function variable(gve::DIGlobalVariableExpression)
     ref = API.LLVMDIGlobalVariableExpressionGetVariable(gve)
     ref == C_NULL ? nothing : Metadata(ref)::DIGlobalVariable
 end
 
-"""
-    expression(gve::DIGlobalVariableExpression)
-
-Get the debug info expression associated with the given global-variable pair.
-"""
 function expression(gve::DIGlobalVariableExpression)
     ref = API.LLVMDIGlobalVariableExpressionGetExpression(gve)
     ref == C_NULL ? nothing : Metadata(ref)::DIExpression
 end
 
+@property DIGlobalVariableExpression variable
+@property DIGlobalVariableExpression expression
+
 
 ## global variable
 
-@public global_variable_expression!, temp_global_variable_fwd_decl!
+@vocabulary Build global_variable_expression!, temp_global_variable_fwd_decl!
 
 """
     global_variable_expression!(builder::DIBuilder, scope::DIScope,
@@ -1474,8 +1521,8 @@ end
 
 ## lexical block
 
-export DILexicalBlock, DILexicalBlockFile
-@public lexical_block!, lexical_block_file!
+@vocabulary IR DILexicalBlock, DILexicalBlockFile
+@vocabulary Build lexical_block!, lexical_block_file!
 
 """
     DILexicalBlock
@@ -1525,8 +1572,8 @@ end
 
 ## namespace
 
-export DINamespace
-@public namespace!
+@vocabulary IR DINamespace
+@vocabulary Build namespace!
 
 """
     DINamespace
@@ -1555,7 +1602,7 @@ end
 
 ## instruction insertion
 
-@public declare_before!, declare_at_end!, value_before!, value_at_end!
+@vocabulary Build declare_before!, declare_at_end!, value_before!, value_at_end!
 
 """
     declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
@@ -1602,17 +1649,67 @@ value_at_end!
 
 @static if version() >= v"19"
 
-export DbgRecord
+@vocabulary IR DbgRecord
 
 """
     DbgRecord
 
 A non-instruction debug record attached to a basic block, replacing the
 legacy `llvm.dbg.*` intrinsics in LLVM ≥ 19.
+
+# Properties
+
+    record.kind
+
+The kind of the debug record, an `LLVM.API.LLVMDbgRecordKind`: `LLVMDbgRecordDeclare`,
+`LLVMDbgRecordValue` or `LLVMDbgRecordAssign` for variable records, which describe the
+location of a source variable, or `LLVMDbgRecordLabel` for label records.
+
+Variable records can be further inspected using the following properties:
+- `record.variable`: the source variable that is described;
+- `record.expression`: the expression that computes the variable's location;
+- `record.value`: the IR value used by that expression, or `record.location_operands` for
+  expressions that use several values.
+
+The source location of every record is available as `record.debug_location`.
+
+    record.debug_location
+
+The source location of the debug record.
+
+    record.variable
+
+The source variable described by a variable record.
+
+    record.expression
+
+The expression that computes the location of the variable described by a variable record,
+in terms of its `location_operands`.
+
+    record.location_operands
+
+The IR values that are used to compute the location of the variable described by a
+variable record, as a read-only view. There is usually only one, but records that use a
+`!DIArgList` can refer to several. Entries are `nothing` if the value has been deleted.
+
+See also the `LLVM.DbgRecord` property.
+
+    record.value
+
+The IR value used to compute the location of the variable described by a variable record,
+or `nothing` if that value has been deleted. Records that refer to several values need to
+be inspected using their `location_operands` instead.
+
+    record.next
+    record.prev
+
+The next or previous debug record attached to the same instruction, or `nothing` if there
+is none. `prev` requires LLVM 20+.
 """
 @checked struct DbgRecord
     ref::API.LLVMDbgRecordRef
 end
+@properties DbgRecord
 
 Base.unsafe_convert(::Type{API.LLVMDbgRecordRef}, record::DbgRecord) = record.ref
 
@@ -1626,23 +1723,13 @@ end
 
 # record iteration
 
-export debug_records
-
 struct DbgRecordIterator
     inst::Instruction
 end
 
-"""
-    debug_records(inst::Instruction)
-
-Get an iterator over the debug records attached to the given instruction, i.e., the
-`#dbg_declare`, `#dbg_value`, `#dbg_assign` and `#dbg_label` records that are printed right
-before it. Requires LLVM 19+.
-
-The records can be inspected using [`kind(::DbgRecord)`](@ref) and the functions listed
-there.
-"""
 debug_records(inst::Instruction) = DbgRecordIterator(inst)
+
+@property Instruction debug_records
 
 Base.IteratorSize(::Type{DbgRecordIterator}) = Base.SizeUnknown()
 Base.eltype(::Type{DbgRecordIterator}) = DbgRecord
@@ -1663,24 +1750,6 @@ end
 
 # record inspection
 
-@public location_operands
-
-"""
-    kind(record::DbgRecord) -> LLVM.API.LLVMDbgRecordKind
-
-Get the kind of the given debug record: `LLVMDbgRecordDeclare`, `LLVMDbgRecordValue` or
-`LLVMDbgRecordAssign` for variable records, which describe the location of a source
-variable, or `LLVMDbgRecordLabel` for label records.
-
-Variable records can be further inspected using:
-- [`variable(::DbgRecord)`](@ref): the source variable that is described;
-- [`expression(::DbgRecord)`](@ref): the expression that computes the variable's location;
-- [`value(::DbgRecord)`](@ref) or [`LLVM.location_operands`](@ref): the IR values used by
-  that expression.
-
-The source location of every record is available through
-[`debuglocation(::DbgRecord)`](@ref).
-"""
 kind(record::DbgRecord) = API.LLVMDbgRecordGetKind(record)
 
 function check_variable_record(record::DbgRecord)
@@ -1689,64 +1758,67 @@ function check_variable_record(record::DbgRecord)
     return
 end
 
-"""
-    debuglocation(record::DbgRecord) -> DILocation
-
-Get the source location of the given debug record.
-"""
-debuglocation(record::DbgRecord) =
+debug_location(record::DbgRecord) =
     Metadata(API.LLVMDbgRecordGetDebugLoc(record))::DILocation
 
-"""
-    variable(record::DbgRecord) -> DILocalVariable
-
-Get the source variable described by the given variable record.
-"""
 function variable(record::DbgRecord)
     check_variable_record(record)
     Metadata(API.LLVMDbgVariableRecordGetVariable(record))::DILocalVariable
 end
 
-"""
-    expression(record::DbgRecord) -> DIExpression
-
-Get the expression that computes the location of the variable described by the given
-variable record, in terms of its [`LLVM.location_operands`](@ref).
-"""
 function expression(record::DbgRecord)
     check_variable_record(record)
     Metadata(API.LLVMDbgVariableRecordGetExpression(record))::DIExpression
 end
 
-"""
-    LLVM.location_operands(record::DbgRecord) -> Vector{Union{Value,Nothing}}
-
-Get the IR values that are used to compute the location of the variable described by the
-given variable record. There is usually only one, but records that use a `!DIArgList` can
-refer to several. Entries are `nothing` if the value has been deleted.
-
-See also [`value(::DbgRecord)`](@ref).
-"""
-function location_operands(record::DbgRecord)
-    check_variable_record(record)
-    n = API.LLVMExtraDbgVariableRecordGetNumValues(record)
-    Union{Value,Nothing}[let ref = API.LLVMDbgVariableRecordGetValue(record, i)
-                             ref == C_NULL ? nothing : Value(ref)
-                         end for i in 0:n-1]
+struct DbgRecordLocationOperandSet <: AbstractVector{Union{Value,Nothing}}
+    record::DbgRecord
 end
 
-"""
-    value(record::DbgRecord) -> Union{Value,Nothing}
+function location_operands(record::DbgRecord)
+    check_variable_record(record)
+    DbgRecordLocationOperandSet(record)
+end
 
-Get the IR value used to compute the location of the variable described by the given
-variable record, or `nothing` if that value has been deleted. Records that refer to several
-values need to be inspected using [`LLVM.location_operands`](@ref) instead.
-"""
+Base.size(iter::DbgRecordLocationOperandSet) =
+    (Int(API.LLVMExtraDbgVariableRecordGetNumValues(iter.record)),)
+
+Base.IndexStyle(::DbgRecordLocationOperandSet) = IndexLinear()
+
+function Base.getindex(iter::DbgRecordLocationOperandSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    ref = API.LLVMDbgVariableRecordGetValue(iter.record, i-1)
+    return ref == C_NULL ? nothing : Value(ref)
+end
+
 function value(record::DbgRecord)
-    ops = location_operands(record)
-    length(ops) == 1 ||
-        throw(ArgumentError("Debug record refers to $(length(ops)) values, use `LLVM.location_operands`"))
-    return ops[1]
+    check_variable_record(record)
+    n = API.LLVMExtraDbgVariableRecordGetNumValues(record)
+    n == 1 ||
+        throw(ArgumentError("Debug record refers to $n values, use its location_operands"))
+    ref = API.LLVMDbgVariableRecordGetValue(record, 0)
+    return ref == C_NULL ? nothing : Value(ref)
+end
+
+function next(record::DbgRecord)
+    ref = API.LLVMGetNextDbgRecord(record)
+    ref == C_NULL ? nothing : DbgRecord(ref)
+end
+
+function prev(record::DbgRecord)
+    ref = API.LLVMGetPreviousDbgRecord(record)
+    ref == C_NULL ? nothing : DbgRecord(ref)
+end
+
+@property DbgRecord kind
+@property DbgRecord debug_location
+@property DbgRecord variable
+@property DbgRecord expression
+@property DbgRecord value
+@property DbgRecord location_operands
+@property DbgRecord next
+@static if version() >= v"20"
+    @property DbgRecord prev
 end
 
 declare_before!(builder::DIBuilder, storage::Value, var::DILocalVariable,
@@ -1798,8 +1870,8 @@ end # @static version check
 
 @static if version() >= v"20"
 
-export DILabel
-@public label!, label_before!, label_at_end!
+@vocabulary IR DILabel
+@vocabulary Build label!, label_before!, label_at_end!
 
 """
     DILabel
@@ -1852,8 +1924,8 @@ end # @static version check
 
 ## imported entity
 
-export DIImportedEntity
-@public imported_module_from_namespace!, imported_module_from_alias!,
+@vocabulary IR DIImportedEntity
+@vocabulary Build imported_module_from_namespace!, imported_module_from_alias!,
         imported_module_from_module!, imported_declaration!
 
 """
@@ -1932,8 +2004,8 @@ end
 
 ## macro
 
-export DIMacro, DIMacroFile
-@public macro!, temp_macro_file!
+@vocabulary IR DIMacro, DIMacroFile
+@vocabulary Build macro!, temp_macro_file!
 
 """
     DIMacro
@@ -1987,38 +2059,25 @@ temp_macro_file!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing
 
 ## instruction debug location
 
-# re-uses the existing `debuglocation` / `debuglocation!` exports on IRBuilder.
+# extends the `debug_location` / `debug_location!` functions for IRBuilder.
 
-"""
-    debuglocation(inst::Instruction) -> Union{DILocation,Nothing}
-
-Get the debug location attached to the given instruction, or `nothing`.
-"""
-function debuglocation(inst::Instruction)
+function debug_location(inst::Instruction)
     ref = API.LLVMInstructionGetDebugLoc(inst)
     ref == C_NULL ? nothing : Metadata(ref)::DILocation
 end
 
-"""
-    debuglocation!(inst::Instruction, loc::DILocation)
-
-Set the debug location of the given instruction.
-"""
-debuglocation!(inst::Instruction, loc::DILocation) =
+debug_location!(inst::Instruction, loc::DILocation) =
     API.LLVMInstructionSetDebugLoc(inst, loc)
-
-"""
-    debuglocation!(inst::Instruction)
-
-Clear the debug location of the given instruction.
-"""
-debuglocation!(inst::Instruction) =
+debug_location!(inst::Instruction) =
     API.LLVMInstructionSetDebugLoc(inst, C_NULL)
+
+@property Instruction debug_location (inst, loc::Union{DILocation,Nothing}) ->
+    loc === nothing ? debug_location!(inst) : debug_location!(inst, loc)
 
 
 ## mutation / advanced helpers
 
-@public temporary_mdnode, dispose_temporary
+@vocabulary IR temporary_mdnode, dispose_temporary
 
 """
     temporary_mdnode(operands::Vector{<:Metadata}=Metadata[]) -> MDNode
@@ -2053,7 +2112,7 @@ replace_uses!(temp::Metadata, replacement::Metadata) =
 
 @static if version() >= v"21"
 
-@public replace_arrays!, replace_type!
+@vocabulary Build replace_arrays!, replace_type!
 
 """
     replace_arrays!(builder::DIBuilder, T::DICompositeType,
@@ -2082,7 +2141,7 @@ end # @static version check
 
 ## other
 
-export DEBUG_METADATA_VERSION, strip_debuginfo!, subprogram, subprogram!
+@vocabulary IR DEBUG_METADATA_VERSION, strip_debuginfo!
 
 """
     DEBUG_METADATA_VERSION()
@@ -2091,14 +2150,9 @@ The current debug info version number, as supported by LLVM.
 """
 DEBUG_METADATA_VERSION() = API.LLVMDebugMetadataVersion()
 
-"""
-    debug_metadata_version(mod::Module)
-
-Get the debug info version number emitted in the given module, or `0` if none
-is attached.
-"""
 debug_metadata_version(mod::Module) = Int(API.LLVMGetModuleDebugMetadataVersion(mod))
-@public debug_metadata_version
+
+@property Module debug_metadata_version
 
 """
     strip_debuginfo!(mod::Module)
@@ -2107,19 +2161,10 @@ Strip the debug information from the given module.
 """
 strip_debuginfo!(mod::Module) = API.LLVMStripModuleDebugInfo(mod)
 
-"""
-    subprogram(func::Function) -> DISubProgram
-
-Get the subprogram of the given function, or `nothing` if the function has no subprogram.
-"""
 function subprogram(func::Function)
     ref = API.LLVMGetSubprogram(func)
     ref==C_NULL ? nothing : Metadata(ref)::DISubProgram
 end
 
-"""
-    subprogram!(func::Function, sp::DISubProgram)
-
-Set the subprogram of the given function.
-"""
-subprogram!(func::Function, sp::DISubProgram) = API.LLVMSetSubprogram(func, sp)
+# `subprogram!` is the `DIBuilder` function that creates a subprogram
+@property Function subprogram (func, sp::DISubProgram) -> API.LLVMSetSubprogram(func, sp)

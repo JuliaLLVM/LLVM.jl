@@ -1,10 +1,7 @@
 ## data layout
 
-export DataLayout, dispose,
-       byteorder, pointersize, intptr, globals_addrspace,
-       sizeof, storage_size, abi_size,
-       abi_alignment, frame_alignment, preferred_alignment,
-       element_at, offsetof
+@public DataLayout, dispose, pointersize, intptr, storage_size, abi_size, abi_alignment,
+        frame_alignment, preferred_alignment, element_at, offsetof
 
 """
     DataLayout
@@ -13,6 +10,16 @@ A parsed version of the target data layout string in and methods for querying it
 
 The target data layout string is specified by the target - a frontend generating LLVM IR is
 required to generate the right target data for the target being codegen'd to.
+
+# Properties
+
+    dl.byteorder
+
+The byte order of the data layout, `LLVM.API.LLVMBigEndian` or `LLVM.API.LLVMLittleEndian`.
+
+    dl.globals_addrspace
+
+The address space used for global variables by the data layout.
 """
 DataLayout
 # forward definition of DataLayout in src/module.jl
@@ -60,12 +67,9 @@ function Base.show(io::IO, dl::DataLayout)
     @printf(io, "DataLayout(%s)", string(dl))
 end
 
-"""
-    byteorder(dl::DataLayout)
-
-Get the byte order of the target data layout.
-"""
 byteorder(dl::DataLayout) = API.LLVMByteOrder(dl)
+
+@property DataLayout byteorder
 
 """
     pointersize(dl::DataLayout, [addrspace::Integer])
@@ -83,12 +87,9 @@ Get the integer type that is the same size as a pointer for the target data layo
 intptr(dl::DataLayout, addrspace::Integer=0) =
     IntegerType(API.LLVMIntPtrTypeForASInContext(context(), dl, addrspace))
 
-"""
-    globals_addrspace(dl::DataLayout)
-
-Get the address space used for global variables in the target data layout.
-"""
 globals_addrspace(dl::DataLayout) = API.LLVMGlobalsAddressSpace(dl) |> Int
+
+@property DataLayout globals_addrspace
 
 """
     sizeof(dl::DataLayout, typ::LLVMType)

@@ -5,7 +5,6 @@ Instruction
 copy(::Instruction)
 remove!(::Instruction)
 erase!(::Instruction)
-LLVM.parent(::Instruction)
 ```
 
 ## Creating instructions
@@ -14,50 +13,24 @@ LLVM.parent(::Instruction)
 IRBuilder
 IRBuilder()
 dispose(::IRBuilder)
-context(::IRBuilder)
 position
 position!(::IRBuilder, ::Instruction)
 position!(::IRBuilder, ::BasicBlock)
 position!(::IRBuilder)
 insert!(::IRBuilder, ::Instruction, ::String)
-debuglocation
-debuglocation!
-```
-
-## Attributes
-
-```@docs
-function_attributes(::LLVM.CallBase)
-argument_attributes(::LLVM.CallBase, ::Integer)
-return_attributes(::LLVM.CallBase)
-```
-
-## Comparison instructions
-
-```@docs
-predicate
 ```
 
 ## Atomic instructions
 
 ```@docs
-is_atomic
-ordering
-ordering!
+LLVM.AtomicInst
+LLVM.MemAccessInst
+```
+
+```@docs
+isatomic
 SyncScope
-name(::SyncScope)
-syncscope
-syncscope!
-binop
-LLVM.available
-isweak
-weak!
-isvolatile
-volatile!
-success_ordering
-success_ordering!
-failure_ordering
-failure_ordering!
+LLVM.isavailable
 merged_ordering
 strongest_failure_ordering
 is_stronger
@@ -99,70 +72,46 @@ insert_masked_value!
 ## Call instructions
 
 ```@docs
-callconv(::LLVM.CallBase)
-callconv!(::LLVM.CallBase, ::Any)
-istailcall
-tailcall!
-called_operand
-arguments
-called_type
+LLVM.CallBase
 ```
 
 ### Operand Bundles
 
 ```@docs
 OperandBundle
-operand_bundles
-tag(::LLVM.OperandBundle)
-inputs
 ```
 
 ## Terminator instructions
 
 ```@docs
+LLVM.TerminatorInst
+```
+
+```@docs
 isterminator
 isconditional
-condition
-condition!
-default_dest
-case_value
-case_value!
-successors(::Instruction)
-```
-
-## Phi instructions
-
-```@docs
-incoming
-```
-
-## Poison-generating flags
-
-```@docs
-hasnuw
-nuw!
-hasnsw
-nsw!
-isexact
-exact!
-hasdisjoint
-disjoint!
-hasnneg
-nneg!
-hassamesign
-samesign!
 ```
 
 ## Floating Point instructions
 
 ```@docs
-fast_math
-fast_math!
+LLVM.FPMathInst
+```
+
+```@docs
+FastMathFlags
 ```
 
 ## Alignment
 
 ```@docs
-alignment(::LLVM.AlignedInst)
-alignment!(::LLVM.AlignedInst, ::Integer)
+LLVM.AlignedInst
+```
+
+## Poison-generating flags
+
+```@docs
+LLVM.NoWrapInst
+LLVM.ExactInst
+LLVM.NonNegInst
 ```

@@ -6,7 +6,7 @@
 
 ## plain contexts
 
-export context, activate, deactivate, context!
+@vocabulary IR context, activate, deactivate, context!
 
 _has_context() = haskey(task_local_storage(), :LLVMContext) &&
                  !isempty(task_local_storage(:LLVMContext))
@@ -67,7 +67,7 @@ end
 
 ## thread-safe contexts
 
-export ts_context, activate, deactivate, ts_context!
+@vocabulary ORC ts_context, activate, deactivate, ts_context!
 
 _has_ts_context() = haskey(task_local_storage(), :LLVMTSContext) &&
                     !isempty(task_local_storage(:LLVMTSContext))

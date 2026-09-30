@@ -1,11 +1,6 @@
 # Modules represent the top-level structure in an LLVM program.
 
-export dispose, context,
-       name, name!,
-       triple, triple!,
-       datalayout, datalayout!,
-       inline_asm, inline_asm!,
-       set_used!, set_compiler_used!
+@vocabulary IR dispose, context
 
 """
     LLVM.Module
@@ -14,9 +9,106 @@ Modules are the top level container of all other LLVM IR objects. Each module di
 contains a list of globals variables, a list of functions, a list of libraries (or other
 modules) this module depends on, a symbol table, and various data about the target's
 characteristics.
+
+# Properties
+
+    mod.metadata
+
+The named metadata of the module, as a dictionary-like view that maps names to
+[`NamedMDNode`](@ref)s. Indexing the view with a name that isn't present creates an empty
+named metadata node, so use `haskey` to check whether one exists. To add metadata, append
+to the operands of the named metadata node: `push!(mod.metadata[name].operands, node)`.
+
+    mod.name
+    mod.name = name::String
+
+The name (module identifier) of the module.
+
+    mod.triple
+    mod.triple = triple::String
+
+The target triple of the module, or an empty string if it has none.
+
+    mod.datalayout
+    mod.datalayout = layout::Union{String,DataLayout}
+
+The data layout of the module. Either a string or a `DataLayout` object can be assigned.
+
+    mod.inline_asm
+
+The module-level inline assembly of the module, as a view of the fragments of assembly that
+the code generator emits as-is. The view supports:
+
+- `push!(mod.inline_asm, asm::AbstractString)`: append a fragment of assembly, terminating
+  it with a newline if it doesn't end with one;
+- `empty!(mod.inline_asm)`: remove all inline assembly;
+- `isempty(mod.inline_asm)`: check whether the module has inline assembly;
+- `String(mod.inline_asm)` or `string(mod.inline_asm)`: get the assembly text.
+
+To replace the inline assembly of a module, empty it before adding new fragments.
+Iterating the individual fragments is not supported.
+
+    mod.context
+
+The context in which the module was created.
+
+    mod.used
+    mod.compiler_used
+
+The global values that are marked as used in the module, as a view of the `llvm.used`
+(`mod.used`) or `llvm.compiler.used` (`mod.compiler_used`) global variable. The compiler
+and the linker keep the values in `mod.used`, even if they appear to be unused, while
+values in `mod.compiler_used` are only kept by the compiler. The view is a set of global
+values, which supports:
+
+- `push!(set, gv)` and `union!(set, gvs)`: mark global values as used;
+- `delete!(set, gv)` and `setdiff!(set, gvs)`: stop marking global values as used;
+- `empty!(set)`: remove the `llvm.used` or `llvm.compiler.used` variable;
+- iterating the marked values, `length`, `isempty` and `in`.
+
+    mod.globals
+
+The global variables of the module, as a view that can be iterated, and indexed by name
+(`mod.globals["name"]`, `haskey`). The global variables can be reordered using
+[`sort!`](@ref sort!(::LLVM.ModuleGlobalSet)). Create a `GlobalVariable` to add one.
+
+    mod.functions
+
+The functions of the module, as a view that can be iterated, and indexed by name
+(`mod.functions["name"]`, `haskey`). The functions can be reordered using
+[`sort!`](@ref sort!(::LLVM.ModuleFunctionSet)). Create an `LLVM.Function` to add one.
+
+    mod.aliases
+
+The global aliases of the module, as a view that can be iterated, and indexed by name
+(`mod.aliases["name"]`, `haskey`). Create a `GlobalAlias` to add one.
+
+    mod.ifuncs
+
+The ifuncs of the module, as a view that can be iterated, and indexed by name
+(`mod.ifuncs["name"]`, `haskey`). Create a `GlobalIFunc` to add one.
+
+    mod.flags
+
+The module flags of the module, as a dictionary-like view mapping the name of each flag to
+its value. Flags can be looked up by name, and added using
+`mod.flags[name, behavior] = md`, where `behavior` is an `LLVM.API.LLVMModuleFlagBehavior`
+that determines how the flag is merged when linking modules. Module flags cannot be
+removed.
+
+    mod.sdk_version
+    mod.sdk_version = version::VersionNumber
+
+The Apple SDK version of the module, or `nothing` if it hasn't been set. The version is
+stored in the `SDK Version` module flag, dropping any prerelease or build metadata.
+
+    mod.debug_metadata_version
+
+The debug info version number emitted in the module, or `0` if none is attached.
 """
 Module
 # forward definition of Module in src/core/value/constant.jl
+@properties Module
 
 Base.unsafe_convert(::Type{API.LLVMModuleRef}, mod::Module) = mark_use(mod).ref
 
@@ -26,6 +118,7 @@ Base.:(==)(x::Module, y::Module) = (x.ref === y.ref)
 @checked struct DataLayout
     ref::API.LLVMTargetDataRef
 end
+@properties DataLayout
 @checked struct Function <: GlobalObject
     ref::API.LLVMValueRef
 end
@@ -75,107 +168,126 @@ function Base.show(io::IO, ::MIME"text/plain", mod::Module)
     print(io, output)
 end
 
-"""
-    name(mod::LLVM.Module)
-
-Get the name of the given module.
-"""
 function name(mod::Module)
     out_len = Ref{Csize_t}()
     ptr = convert(Ptr{UInt8}, API.LLVMGetModuleIdentifier(mod, out_len))
     return unsafe_string(ptr, out_len[])
 end
 
-"""
-    name!(mod::LLVM.Module, name::String)
-
-Set the name of the given module.
-"""
 name!(mod::Module, str::String) =
     API.LLVMSetModuleIdentifier(mod, str, Csize_t(length(str)))
 
-"""
-    triple(mod::LLVM.Module)
+@property Module name name!
 
-Get the target triple of the given module.
-"""
 triple(mod::Module) = unsafe_string(API.LLVMGetTarget(mod))
 
-"""
-    triple!(mod::LLVM.Module, triple::String)
-
-Set the target triple of the given module.
-"""
 triple!(mod::Module, triple) = API.LLVMSetTarget(mod, triple)
 
-"""
-    datalayout(mod::LLVM.Module)
+@property Module triple triple!
 
-Get the data layout of the given module.
-"""
 datalayout(mod::Module) = DataLayout(API.LLVMGetModuleDataLayout(mod))
 
-"""
-    datalayout!(mod::LLVM.Module, layout)
-
-Set the data layout of the given module. The layout can be a string or a `DataLayout`
-object.
-"""
-datalayout!(mod::Module, layout)
 datalayout!(mod::Module, layout::String) = API.LLVMSetDataLayout(mod, layout)
 datalayout!(mod::Module, layout::DataLayout) =
     API.LLVMSetModuleDataLayout(mod, layout)
 
-"""
-    inline_asm!(mod::LLVM.Module, asm::String; overwrite::Bool=false)
+@property Module datalayout datalayout!
 
-Add module-level inline assembly to the given module. If `overwrite` is `true`, the
-existing inline assembly is replaced, otherwise the new assembly is appended.
-"""
-function inline_asm!(mod::Module, asm::String; overwrite::Bool=false)
-    if overwrite
-        API.LLVMSetModuleInlineAsm2(mod, asm, length(asm))
-    else
-        API.LLVMAppendModuleInlineAsm(mod, asm, length(asm))
-    end
+# LLVM represents module-level inline assembly as a list of fragments (since LLVM 24, each
+# with its own target properties), which the C API cannot enumerate yet. By modeling the
+# assembly as a collection that is appended to, instead of as a string property, iterating
+# the fragments can be supported later without breaking code.
+struct ModuleInlineAsm
+    mod::Module
 end
 
-"""
-    inline_asm(mod::LLVM.Module) -> String
+inline_asm(mod::Module) = ModuleInlineAsm(mod)
 
-Get the module-level inline assembly of the given module.
-"""
-function inline_asm(mod::Module)
-    out_len = Ref{Csize_t}()
-    ptr = convert(Ptr{UInt8}, API.LLVMGetModuleInlineAsm(mod, out_len))
-    return unsafe_string(ptr, out_len[])
+@property Module inline_asm
+
+function Base.String(asm::ModuleInlineAsm)
+    len = Ref{Csize_t}()
+    ptr = API.LLVMGetModuleInlineAsm(asm.mod, len)
+    ptr == C_NULL && return ""
+    return unsafe_string(convert(Ptr{UInt8}, ptr), len[])
 end
 
-"""
-    context(mod::LLVM.Module)
+Base.print(io::IO, asm::ModuleInlineAsm) = print(io, String(asm))
 
-Get the context in which the given module was created.
-"""
+Base.show(io::IO, asm::ModuleInlineAsm) =
+    print(io, "ModuleInlineAsm(", repr(asm.mod.name), "): ", repr(String(asm)))
+
+Base.isempty(asm::ModuleInlineAsm) = isempty(String(asm))
+
+function Base.push!(asm::ModuleInlineAsm, str::AbstractString)
+    str = String(str)
+    API.LLVMAppendModuleInlineAsm(asm.mod, str, ncodeunits(str))
+    return asm
+end
+
+function Base.empty!(asm::ModuleInlineAsm)
+    API.LLVMSetModuleInlineAsm2(asm.mod, "", 0)
+    return asm
+end
+
 context(mod::Module) = Context(API.LLVMGetModuleContext(mod))
 
-"""
-    set_used!(mod::LLVM.Module, values::GlobalVariable...)
+@property Module context
 
-Mark the given global variables as used in the given module by appending them to the
-`llvm.used` metadata node.
-"""
-set_used!(mod::Module, values::GlobalVariable...) =
-    API.LLVMAppendToUsed(mod, collect(values), length(values))
+# `llvm.used` and `llvm.compiler.used` are global variables that LLVM treats specially: the
+# global values in their initializer are kept, even if they appear to be unused. The views
+# below expose them as sets, which LLVM rebuilds when they are modified.
+struct ModuleUsedSet <: AbstractSet{GlobalValue}
+    mod::Module
+    compiler::Bool
+end
 
-"""
-    set_compiler_used!(mod::LLVM.Module, values::GlobalVariable...)
+used(mod::Module) = ModuleUsedSet(mod, false)
+compiler_used(mod::Module) = ModuleUsedSet(mod, true)
 
-Mark the given global variables as used by the compiler in the given module by appending
-them to the `llvm.compiler.used` metadata node. As opposed to [`set_used!`](@ref), this
-still allows the linker to remove the variable if it is not actually used.
-"""
-set_compiler_used!(mod::Module, values::GlobalVariable...) =
-    API.LLVMAppendToCompilerUsed(mod, collect(values), length(values))
+@property Module used
+@property Module compiler_used
+
+Base.length(set::ModuleUsedSet) =
+    Int(set.compiler ? API.LLVMGetNumCompilerUsed(set.mod) : API.LLVMGetNumUsed(set.mod))
+
+# NOTE: optimized `collect`
+function Base.collect(set::ModuleUsedSet)
+    refs = Vector{API.LLVMValueRef}(undef, length(set))
+    set.compiler ? API.LLVMGetCompilerUsed(set.mod, refs) : API.LLVMGetUsed(set.mod, refs)
+    return GlobalValue[Value(ref) for ref in refs]
+end
+
+# LLVM only supports fetching all values at once
+function Base.iterate(set::ModuleUsedSet, (vals, i)=(collect(set), 1))
+    i > length(vals) ? nothing : (vals[i], (vals, i+1))
+end
+
+Base.in(gv::GlobalValue, set::ModuleUsedSet) = any(==(gv), set)
+
+function Base.union!(set::ModuleUsedSet, gvs)
+    vals = GlobalValue[gv for gv in gvs]
+    if set.compiler
+        API.LLVMAppendToCompilerUsed(set.mod, vals, length(vals))
+    else
+        API.LLVMAppendToUsed(set.mod, vals, length(vals))
+    end
+    return set
+end
+Base.push!(set::ModuleUsedSet, gv::GlobalValue) = union!(set, (gv,))
+
+function Base.setdiff!(set::ModuleUsedSet, gvs)
+    vals = GlobalValue[gv for gv in gvs]
+    if set.compiler
+        API.LLVMRemoveFromCompilerUsed(set.mod, vals, length(vals))
+    else
+        API.LLVMRemoveFromUsed(set.mod, vals, length(vals))
+    end
+    return set
+end
+Base.delete!(set::ModuleUsedSet, gv::GlobalValue) = setdiff!(set, (gv,))
+
+Base.empty!(set::ModuleUsedSet) = setdiff!(set, collect(set))
 
 
 ## textual IR handling
@@ -302,18 +414,13 @@ end
 
 ## global variable iteration
 
-export globals, prevglobal, nextglobal
-
 struct ModuleGlobalSet
     mod::Module
 end
 
-"""
-    globals(mod::LLVM.Module)
-
-Get an iterator over the global variables in the given module.
-"""
 globals(mod::Module) = ModuleGlobalSet(mod)
+
+@property Module globals
 
 Base.eltype(::ModuleGlobalSet) = GlobalVariable
 
@@ -337,31 +444,18 @@ Base.isempty(iter::ModuleGlobalSet) = API.LLVMGetLastGlobal(iter.mod) == C_NULL
 
 Base.IteratorSize(::Type{ModuleGlobalSet}) = Base.SizeUnknown()
 
-"""
-    prevglobal(gv::LLVM.GlobalVariable)
-
-Get the previous global variable in the module, or `nothing` if there is none.
-
-See also: [`nextglobal`](@ref).
-"""
-function prevglobal(gv::GlobalVariable)
-    ref = API.LLVMGetPreviousGlobal(gv)
-    ref == C_NULL && return nothing
-    GlobalVariable(ref)
-end
-
-"""
-    nextglobal(gv::LLVM.GlobalVariable)
-
-Get the next global variable in the module, or `nothing` if there is none.
-
-See also: [`prevglobal`](@ref).
-"""
-function nextglobal(gv::GlobalVariable)
+function next(gv::GlobalVariable)
     ref = API.LLVMGetNextGlobal(gv)
-    ref == C_NULL && return nothing
-    GlobalVariable(ref)
+    ref == C_NULL ? nothing : GlobalVariable(ref)
 end
+
+function prev(gv::GlobalVariable)
+    ref = API.LLVMGetPreviousGlobal(gv)
+    ref == C_NULL ? nothing : GlobalVariable(ref)
+end
+
+@property GlobalVariable next
+@property GlobalVariable prev
 
 # partial associative interface
 
@@ -376,7 +470,7 @@ function Base.getindex(iter::ModuleGlobalSet, name::String)
 end
 
 """
-    sort!(globals::ModuleGlobalSet; by=name, kwargs...)
+    sort!(mod.globals; by=gv->gv.name, kwargs...)
 
 Reorder all global variables in a module according to `by`, which defaults to the symbol
 name. Additional keyword arguments are forwarded to [`sort!`](@ref).
@@ -393,18 +487,13 @@ end
 
 ## function iteration
 
-export functions, prevfun, nextfun
-
 struct ModuleFunctionSet
     mod::Module
 end
 
-"""
-    functions(mod::LLVM.Module)
-
-Get an iterator over the functions in the given module.
-"""
 functions(mod::Module) = ModuleFunctionSet(mod)
+
+@property Module functions
 
 Base.eltype(::ModuleFunctionSet) = Function
 
@@ -428,27 +517,18 @@ Base.isempty(iter::ModuleFunctionSet) = API.LLVMGetLastFunction(iter.mod) == C_N
 
 Base.IteratorSize(::Type{ModuleFunctionSet}) = Base.SizeUnknown()
 
-"""
-    prevfun(fun::LLVM.Function)
-
-Get the previous function in the module, or `nothing` if there is none.
-"""
-function prevfun(fun::Function)
-    ref = API.LLVMGetPreviousFunction(fun)
-    ref == C_NULL && return nothing
-    Function(ref)
+function next(f::Function)
+    ref = API.LLVMGetNextFunction(f)
+    ref == C_NULL ? nothing : Function(ref)
 end
 
-"""
-    nextfun(fun::LLVM.Function)
-
-Get the next function in the module, or `nothing` if there is none.
-"""
-function nextfun(fun::Function)
-    ref = API.LLVMGetNextFunction(fun)
-    ref == C_NULL && return nothing
-    Function(ref)
+function prev(f::Function)
+    ref = API.LLVMGetPreviousFunction(f)
+    ref == C_NULL ? nothing : Function(ref)
 end
+
+@property Function next
+@property Function prev
 
 # partial associative interface
 
@@ -463,7 +543,7 @@ function Base.getindex(iter::ModuleFunctionSet, name::String)
 end
 
 """
-    sort!(functions::ModuleFunctionSet; by=name, kwargs...)
+    sort!(mod.functions; by=f->f.name, kwargs...)
 
 Reorder all functions in a module according to `by`, which defaults to the symbol name.
 Additional keyword arguments are forwarded to [`sort!`](@ref).
@@ -480,18 +560,13 @@ end
 
 ## global alias iteration
 
-export aliases, prevalias, nextalias
-
 struct ModuleAliasSet
     mod::Module
 end
 
-"""
-    aliases(mod::LLVM.Module)
-
-Get an iterator over the global aliases in the given module.
-"""
 aliases(mod::Module) = ModuleAliasSet(mod)
+
+@property Module aliases
 
 Base.eltype(::ModuleAliasSet) = GlobalAlias
 
@@ -515,31 +590,18 @@ Base.isempty(iter::ModuleAliasSet) = API.LLVMGetLastGlobalAlias(iter.mod) == C_N
 
 Base.IteratorSize(::Type{ModuleAliasSet}) = Base.SizeUnknown()
 
-"""
-    prevalias(alias::GlobalAlias)
-
-Get the previous global alias in the module, or `nothing` if there is none.
-
-See also: [`nextalias`](@ref).
-"""
-function prevalias(alias::GlobalAlias)
-    ref = API.LLVMGetPreviousGlobalAlias(alias)
-    ref == C_NULL && return nothing
-    GlobalAlias(ref)
-end
-
-"""
-    nextalias(alias::GlobalAlias)
-
-Get the next global alias in the module, or `nothing` if there is none.
-
-See also: [`prevalias`](@ref).
-"""
-function nextalias(alias::GlobalAlias)
+function next(alias::GlobalAlias)
     ref = API.LLVMGetNextGlobalAlias(alias)
-    ref == C_NULL && return nothing
-    GlobalAlias(ref)
+    ref == C_NULL ? nothing : GlobalAlias(ref)
 end
+
+function prev(alias::GlobalAlias)
+    ref = API.LLVMGetPreviousGlobalAlias(alias)
+    ref == C_NULL ? nothing : GlobalAlias(ref)
+end
+
+@property GlobalAlias next
+@property GlobalAlias prev
 
 # partial associative interface
 
@@ -555,18 +617,13 @@ end
 
 ## ifunc iteration
 
-export ifuncs, previfunc, nextifunc
-
 struct ModuleIFuncSet
     mod::Module
 end
 
-"""
-    ifuncs(mod::LLVM.Module)
-
-Get an iterator over the ifuncs in the given module.
-"""
 ifuncs(mod::Module) = ModuleIFuncSet(mod)
+
+@property Module ifuncs
 
 Base.eltype(::ModuleIFuncSet) = GlobalIFunc
 
@@ -590,31 +647,18 @@ Base.isempty(iter::ModuleIFuncSet) = API.LLVMGetLastGlobalIFunc(iter.mod) == C_N
 
 Base.IteratorSize(::Type{ModuleIFuncSet}) = Base.SizeUnknown()
 
-"""
-    previfunc(ifunc::GlobalIFunc)
-
-Get the previous ifunc in the module, or `nothing` if there is none.
-
-See also: [`nextifunc`](@ref).
-"""
-function previfunc(ifunc::GlobalIFunc)
-    ref = API.LLVMGetPreviousGlobalIFunc(ifunc)
-    ref == C_NULL && return nothing
-    GlobalIFunc(ref)
-end
-
-"""
-    nextifunc(ifunc::GlobalIFunc)
-
-Get the next ifunc in the module, or `nothing` if there is none.
-
-See also: [`previfunc`](@ref).
-"""
-function nextifunc(ifunc::GlobalIFunc)
+function next(ifunc::GlobalIFunc)
     ref = API.LLVMGetNextGlobalIFunc(ifunc)
-    ref == C_NULL && return nothing
-    GlobalIFunc(ref)
+    ref == C_NULL ? nothing : GlobalIFunc(ref)
 end
+
+function prev(ifunc::GlobalIFunc)
+    ref = API.LLVMGetPreviousGlobalIFunc(ifunc)
+    ref == C_NULL ? nothing : GlobalIFunc(ref)
+end
+
+@property GlobalIFunc next
+@property GlobalIFunc prev
 
 # partial associative interface
 
@@ -629,22 +673,34 @@ function Base.getindex(iter::ModuleIFuncSet, name::String)
 end
 
 ## module flag iteration
-# TODO: doesn't actually iterate, since we can't list the available keys
-
-export flags
 
 struct ModuleFlagDict <: AbstractDict{String,Metadata}
     mod::Module
 end
 
-"""
-    flags(mod::LLVM.Module)
-
-Get a dictionary-like object representing the module flags of the given module.
-
-This object can be used to get and set module flags, by calling `getindex` and `setindex!`.
-"""
 flags(mod::Module) = ModuleFlagDict(mod)
+
+@property Module flags
+
+# LLVM only supports fetching all flags at once
+function Base.iterate(iter::ModuleFlagDict)
+    len = Ref{Csize_t}()
+    ptr = API.LLVMCopyModuleFlagsMetadata(iter.mod, len)
+    entries = Pair{String,Metadata}[]
+    for i in 1:len[]
+        keylen = Ref{Csize_t}()
+        key = API.LLVMModuleFlagEntriesGetKey(ptr, i-1, keylen)
+        md = API.LLVMModuleFlagEntriesGetMetadata(ptr, i-1)
+        push!(entries, unsafe_string(convert(Ptr{UInt8}, key), keylen[]) => Metadata(md))
+    end
+    ptr == C_NULL || API.LLVMDisposeModuleFlagsMetadata(ptr)
+    iterate(iter, (entries, 1))
+end
+function Base.iterate(::ModuleFlagDict, (entries, i))
+    i > length(entries) ? nothing : (entries[i], (entries, i+1))
+end
+
+Base.length(iter::ModuleFlagDict) = count(Returns(true), iter)
 
 Base.haskey(iter::ModuleFlagDict, name::String) =
     API.LLVMGetModuleFlag(iter.mod, name, length(name)) != C_NULL
@@ -658,18 +714,12 @@ end
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
                         (name, behavior)::Tuple{String, API.LLVMModuleFlagBehavior})
     API.LLVMAddModuleFlag(iter.mod, behavior, name, length(name), val)
+    return iter
 end
 
 
 ## sdk version
 
-export sdk_version, sdk_version!
-
-"""
-    sdk_version(mod::LLVM.Module)
-
-Get the SDK version of the given module, if it has been set.
-"""
 function sdk_version!(mod::Module, version::VersionNumber)
     entries = Int32[version.major]
     if version.minor != 0 || version.patch != 0
@@ -686,11 +736,6 @@ function sdk_version!(mod::Module, version::VersionNumber)
     flags(mod)["SDK Version", LLVM.API.LLVMModuleFlagBehaviorWarning] = md
 end
 
-"""
-    sdk_version!(mod::LLVM.Module, version::VersionNumber)
-
-Set the SDK version of the given module.
-"""
 function sdk_version(mod::Module)
     haskey(flags(mod), "SDK Version") || return nothing
     md = flags(mod)["SDK Version"]
@@ -700,3 +745,5 @@ function sdk_version(mod::Module)
     entries = collect(c)
     VersionNumber(map(val->convert(Int, val), entries)...)
 end
+
+@property Module sdk_version sdk_version!

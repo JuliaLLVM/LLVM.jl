@@ -1,14 +1,42 @@
 # The bulk of LLVM's object model consists of values, which comprise a very rich type
 # hierarchy.
 
-export Value
+@vocabulary IR Value
 
 """
     LLVM.Value
 
 Abstract type representing an LLVM value.
+
+# Properties
+
+    bb.name
+    bb.name = name::String
+
+The name of the basic block, like that of other values.
+
+    val.value_type
+
+The type of the value.
+
+    val.name
+    val.name = name::String
+
+The name of the value, or an empty string if it is unnamed. When assigning a name that is
+already in use in the same function or module, LLVM makes it unique by adding a suffix.
+
+    val.context
+
+The context in which the value was created.
+
+    val.uses
+
+The uses of the value, as a read-only view that can be iterated. Each [`LLVM.Use`](@ref)
+refers to the `user` that has the value as an operand. Since LLVM 21, constants like
+integers do not keep track of their uses, so their `uses` are always empty.
 """
 abstract type Value end
+@properties Value
 
 # subtypes must be immutable structs with a single `ref::API.LLVMValueRef` field
 # (see `check_layout`)
@@ -17,6 +45,8 @@ abstract type Value end
     typecheck_enabled && check_layout(typeof(val), API.LLVMValueRef)
     unsafe_load_ref(API.LLVMValueRef, val)
 end
+
+@inline propref(@nospecialize(x::Value)) = Base.unsafe_convert(API.LLVMValueRef, x)
 
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.
@@ -61,31 +91,19 @@ end
 
 ## general APIs
 
-export value_type, name, name!, isconstant, isundef, ispoison, context
+@vocabulary IR isconstant, isundef, ispoison, context
 
-"""
-    value_type(val::Value)
-
-Get the type of the given value.
-"""
 value_type(val::Value) = LLVMType(API.LLVMTypeOf(val))
 
 # defer size queries to the LLVM type (where we'll error)
 Base.sizeof(val::Value) = sizeof(value_type(val))
 
-"""
-    name(val::Value)
-
-Get the name of the given value.
-"""
 name(val::Value) = unsafe_string(API.LLVMGetValueName(val))
 
-"""
-    name!(val::Value, name::String)
-
-Set the name of the given value.
-"""
 name!(val::Value, name::String) = API.LLVMSetValueName(val, name)
+
+@property Value value_type
+@property Value name name!
 
 Base.string(val::Value) = unsafe_message(API.LLVMPrintValueToString(val))
 
@@ -124,12 +142,9 @@ Check if the given value is a poison value.
 """
 ispoison(val::Value) = API.LLVMIsPoison(val) |> Bool
 
-"""
-    context(val::LLVM.Value)
-
-Return the context in which the given value was created.
-"""
 context(val::Value) = Context(API.LLVMGetValueContext(val))
+
+@property Value context
 
 
 ## user values
@@ -144,7 +159,7 @@ include("value/constant.jl")
 
 ## usage
 
-export replace_uses!, replace_metadata_uses!, Use, user, value
+@vocabulary IR replace_uses!, replace_metadata_uses!, Use
 
 """
     replace_uses!(old::LLVM.Value, new::LLVM.Value)
@@ -181,7 +196,7 @@ function replace_metadata_uses!(old::Value, new::Value)
         function recurse(md)
             for (i, op) in enumerate(operands(md))
                 if op isa ValueAsMetadata && Value(op) == compat_new
-                    LLVM.replace_operand(md, i, Metadata(new))
+                    operands(md)[i] = Metadata(new)
                 elseif isa(op, MDTuple)
                     recurse(op)
                 end
@@ -196,46 +211,41 @@ end
 """
     LLVM.Use
 
-A use of a value in the IR. Knows both the user and the used value.
+A use of a value in the IR, with properties for both the `user` and the used `value`.
 
-See also: [`user`](@ref), [`value`](@ref).
+# Properties
+
+    use.user
+
+The user of the use, i.e., the value that has the used value as an operand.
+
+    use.value
+
+The used value of the use.
 """
 @checked struct Use
     ref::API.LLVMUseRef
 end
+@properties Use
 
 Base.unsafe_convert(::Type{API.LLVMUseRef}, use::Use) = use.ref
 
-"""
-    user(use::LLVM.Use)
-
-Get the user of the given use.
-"""
 user(use::Use) =  Value(API.LLVMGetUser(     use))
 
-"""
-    value(use::LLVM.Use)
-
-Get the used value of the given use.
-"""
 value(use::Use) = Value(API.LLVMGetUsedValue(use))
 
-# use iteration
+@property Use user
+@property Use value
 
-export uses
+# use iteration
 
 struct ValueUseSet
     val::Value
 end
 
-"""
-    uses(val::LLVM.Value)
-
-Get an iterator over the uses of the given value.
-
-See also: [`LLVM.Use`](@ref).
-"""
 uses(val::Value) = ValueUseSet(val)
+
+@property Value uses
 
 Base.eltype(::ValueUseSet) = Use
 

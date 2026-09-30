@@ -5,7 +5,7 @@
 # only the queries they care about; anything they don't override is not wired
 # up on the C side and LLVM's `TargetTransformInfoImplBase` handles it.
 
-export AbstractTargetTransformInfo
+@public AbstractTargetTransformInfo
 
 # The query methods below are meant to be overridden on subtypes.
 @public flat_address_space, has_branch_divergence, is_single_threaded,

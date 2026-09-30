@@ -60,18 +60,18 @@ end
 
 @testset "JITDylib" begin
     @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
-        es = ExecutionSession(lljit)
+        es = lljit.execution_session
 
-        @test LLVM.lookup_dylib(es, "my.so") === nothing
+        @test lookup_dylib(es, "my.so") === nothing
 
         jd = JITDylib(es, "my.so")
         jd_bare = JITDylib(es, "mybare.so", bare=true)
 
-        @test LLVM.lookup_dylib(es, "my.so") === jd
+        @test lookup_dylib(es, "my.so") === jd
 
-        jd_main = JITDylib(lljit)
+        jd_main = lljit.main_dylib
 
-        dg = LLVM.DynamicLibrarySearchGenerator(lljit)
+        dg = DynamicLibrarySearchGenerator(lljit)
         add!(jd_main, dg)
 
         addr = lookup(lljit, "jl_apply_generic")
@@ -87,9 +87,9 @@ end
             Libc.Libdl.dlsym(handle, :LLVMContextCreate)
         end
 
-        jd = JITDylib(ExecutionSession(lljit), "libllvm"; bare=true)
+        jd = JITDylib(lljit.execution_session, "libllvm"; bare=true)
         @test_throws LLVMException lookup(lljit, jd, "LLVMContextCreate")
-        dg = LLVM.DynamicLibrarySearchGenerator(lljit, path)
+        dg = DynamicLibrarySearchGenerator(lljit, path)
         add!(jd, dg)
         @test pointer(lookup(lljit, jd, "LLVMContextCreate")) == expected
 
@@ -99,10 +99,11 @@ end
 
     # generators that are not added to a JITDylib need to be disposed of
     @dispose lljit=LLJIT() begin
-        dg = LLVM.DynamicLibrarySearchGenerator(lljit, String(Base.libllvm_path()))
+        dg = DynamicLibrarySearchGenerator(lljit, String(Base.libllvm_path()))
         dispose(dg)
 
-        @test_throws LLVMException LLVM.DynamicLibrarySearchGenerator(lljit, "/nonexistent/libfoo.so")
+        @test_throws LLVMException DynamicLibrarySearchGenerator(lljit,
+                                                                 "/nonexistent/libfoo.so")
     end
 end
 
@@ -110,17 +111,17 @@ end
     local dg
     data = Ref{Int32}(42)
     @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
-        jd = JITDylib(lljit)
+        jd = lljit.main_dylib
         gv_name = mangle(lljit, "gv")
         weak_name = mangle(lljit, "weak")
 
         requests = []
-        dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+        dg = CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
             push!(requests, (; kind, jd_flags, names=[string(name) => flags for (name, flags) in lookup_set]))
             for (name, flags) in lookup_set
                 name == gv_name || continue
-                LLVM.retain(name)   # borrowed, but absolute_symbols takes ownership
-                LLVM.define(jd, LLVM.absolute_symbols(name => pointer_from_objref(data)))
+                retain(name)   # borrowed, but absolute_symbols takes ownership
+                define(jd, absolute_symbols(name => pointer_from_objref(data)))
             end
         end
         @test dg in LLVM.CUSTOM_DG_ROOTS
@@ -161,8 +162,9 @@ end
             ts_mod = ThreadSafeModule("jit")
             ts_mod() do mod
                 weak = GlobalVariable(mod, LLVM.Int32Type(), "weak")
-                linkage!(weak, LLVM.API.LLVMExternalWeakLinkage)
-                get_weak = LLVM.Function(mod, "get_weak", LLVM.FunctionType(value_type(weak)))
+                weak.linkage = LLVM.API.LLVMExternalWeakLinkage
+                get_weak = LLVM.Function(mod, "get_weak",
+                                         LLVM.FunctionType(weak.value_type))
                 @dispose builder=IRBuilder() begin
                     position!(builder, BasicBlock(get_weak, "entry"))
                     ret!(builder, weak)
@@ -174,24 +176,24 @@ end
                                           LLVM.API.LLVMOrcSymbolLookupFlagsWeaklyReferencedSymbol]
         end
 
-        LLVM.release(gv_name)
-        LLVM.release(weak_name)
+        release(gv_name)
+        release(weak_name)
     end
     # destroying the JITDylib disposes of the generator
     @test !(dg in LLVM.CUSTOM_DG_ROOTS)
 
     # generators that are not added to a JITDylib need to be disposed of
-    dg = LLVM.CustomDefinitionGenerator((args...) -> nothing)
+    dg = CustomDefinitionGenerator((args...) -> nothing)
     @test dg in LLVM.CUSTOM_DG_ROOTS
     dispose(dg)
     @test !(dg in LLVM.CUSTOM_DG_ROOTS)
 
     # exceptions are reported to ORC, and can be rethrown afterwards
     @dispose lljit=LLJIT() begin
-        dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+        dg = CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
             throw(ArgumentError("definition generator error"))
         end
-        add!(JITDylib(lljit), dg)
+        add!(lljit.main_dylib, dg)
 
         err = try
             lookup(lljit, "foo")
@@ -202,14 +204,14 @@ end
         @test occursin("definition generator error", err.info)
 
         try
-            LLVM.check_callback_error(dg)
+            check_callback_error(dg)
             @test false
         catch err
-            @test err isa CallbackException
+            @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
             @test !isempty(err.processed_bt)
         end
-        @test LLVM.check_callback_error(dg) === nothing
+        @test check_callback_error(dg) === nothing
     end
 end
 
@@ -218,8 +220,8 @@ end
         @test_throws LLVMException lookup(lljit, string(gensym()))
     end
 
-    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(;tm=JITTargetMachine()) begin
-        jd = JITDylib(lljit)
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(;tm=LLVM.JITTargetMachine()) begin
+        jd = lljit.main_dylib
 
         ts_mod = ThreadSafeModule("jit")
 
@@ -229,7 +231,7 @@ end
             T_Int32 = LLVM.Int32Type()
             ft = LLVM.FunctionType(T_Int32, [T_Int32, T_Int32])
             fn = LLVM.Function(mod, "mysum", ft)
-            linkage!(fn, LLVM.API.LLVMExternalLinkage)
+            fn.linkage = LLVM.API.LLVMExternalLinkage
 
             wrapper = LLVM.Function(mod, fname, ft)
             # generate IR
@@ -237,14 +239,14 @@ end
                 entry = BasicBlock(wrapper, "entry")
                 position!(builder, entry)
 
-                tmp = call!(builder, ft, fn, [parameters(wrapper)...])
+                tmp = call!(builder, ft, fn, [wrapper.parameters...])
                 ret!(builder, tmp)
             end
 
-            triple!(mod, triple(lljit))
-            @dispose pm=ModulePassManager() tm=JITTargetMachine() begin
+            mod.triple = lljit.triple
+            @dispose pm=ModulePassManager() tm=LLVM.JITTargetMachine() begin
                 # TODO: Get TM from lljit?
-                add_library_info!(pm, triple(mod))
+                add_library_info!(pm, mod.triple)
                 add_transform_info!(pm, tm)
                 run!(pm, mod)
             end
@@ -262,74 +264,74 @@ end
 
 @testset "Materialization callback errors" begin
     @dispose lljit=LLJIT() begin
-        jd = JITDylib(lljit)
+        jd = lljit.main_dylib
         flags = LLVM.API.LLVMJITSymbolFlags(
             LLVM.API.LLVMJITSymbolGenericFlagsCallable |
             LLVM.API.LLVMJITSymbolGenericFlagsExported, 0)
         sym = LLVM.API.LLVMOrcCSymbolFlagsMapPair(mangle(lljit, "throws"), flags)
 
-        mu = LLVM.CustomMaterializationUnit(
+        mu = CustomMaterializationUnit(
             "throwingMU", Ref(sym),
             mr -> throw(ArgumentError("materialization callback error")),
             (jd, sym) -> nothing)
-        LLVM.define(jd, mu)
+        define(jd, mu)
         @test mu in LLVM.CUSTOM_MU_ROOTS
 
         @test_throws LLVMException lookup(lljit, "throws")
         @test !(mu in LLVM.CUSTOM_MU_ROOTS)
         try
-            LLVM.check_callback_error(mu)
+            check_callback_error(mu)
             @test false
         catch err
-            @test err isa CallbackException
+            @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
             @test occursin("materialization callback error", string(err.ex))
             @test !isempty(err.processed_bt)
         end
-        @test LLVM.check_callback_error(mu) === nothing
+        @test check_callback_error(mu) === nothing
     end
 end
 
 @testset "Materializer errors after emitting" begin
     @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
-        jd = JITDylib(lljit)
+        jd = lljit.main_dylib
         function materialize(mr)
             ts_mod = ThreadSafeModule("jit")
             ts_mod() do mod
                 # emitting directly to a layer bypasses LLJIT's module set-up
-                triple!(mod, triple(lljit))
-                datalayout!(mod, datalayout(lljit))
+                mod.triple = lljit.triple
+                mod.datalayout = lljit.datalayout
                 fn = LLVM.Function(mod, "emitted", LLVM.FunctionType(LLVM.Int32Type()))
                 @dispose builder=IRBuilder() begin
                     position!(builder, BasicBlock(fn, "entry"))
                     ret!(builder, ConstantInt(Int32(42)))
                 end
             end
-            LLVM.emit(LLVM.IRTransformLayer(lljit), mr, ts_mod)
+            emit(lljit.ir_transform_layer, mr, ts_mod)
             # the responsibility has been consumed
             @dispose unused=ThreadSafeModule("jit") begin
-                @test_throws ArgumentError LLVM.emit(LLVM.IRTransformLayer(lljit), mr, unused)
+                @test_throws ArgumentError emit(lljit.ir_transform_layer, mr, unused)
             end
             error("materializer error after emitting")
         end
-        symbols = [mangle(lljit, "emitted") => LLVM.symbol_flags(callable=true)]
-        mu = LLVM.CustomMaterializationUnit("emittingMU", symbols, materialize,
+        symbols = [mangle(lljit, "emitted") => symbol_flags(callable=true)]
+        mu = CustomMaterializationUnit("emittingMU", symbols, materialize,
                                             (jd, sym) -> nothing)
-        LLVM.define(jd, mu)
+        define(jd, mu)
 
         # the code was emitted, so the lookup succeeds
         @test ccall(pointer(lookup(lljit, "emitted")), Int32, ()) == 42
-        @test_throws CallbackException LLVM.check_callback_error(mu)
+        @test_throws LLVM.CallbackException check_callback_error(mu)
     end
 end
 
 @testset "Unmaterialized units" begin
     local mu
     @dispose lljit=LLJIT() begin
-        symbols = [mangle(lljit, "unused") => LLVM.symbol_flags(callable=true)]
-        mu = LLVM.CustomMaterializationUnit("unusedMU", symbols, mr -> nothing,
+        symbols = [mangle(lljit, "unused") => symbol_flags(callable=true)]
+        mu = CustomMaterializationUnit("unusedMU", symbols, mr -> nothing,
                                             (jd, sym) -> nothing)
-        LLVM.define(JITDylib(lljit), mu)
+        define(lljit.main_dylib, mu)
         @test mu in LLVM.CUSTOM_MU_ROOTS
     end
     # destroying the JITDylib destroys the unit
@@ -338,51 +340,51 @@ end
 
 @testset "Absolute symbols" begin
     @dispose lljit=LLJIT() begin
-        jd = JITDylib(lljit)
+        jd = lljit.main_dylib
         data = Ref{Int32}(42)
         ptr = pointer_from_objref(data)
 
-        LLVM.define(jd, LLVM.absolute_symbols(mangle(lljit, "gv") => ptr))
+        define(jd, absolute_symbols(mangle(lljit, "gv") => ptr))
         @test pointer(lookup(lljit, "gv")) == ptr
 
         # multiple symbols, flags, and collections
-        LLVM.define(jd, LLVM.absolute_symbols([
+        define(jd, absolute_symbols([
             mangle(lljit, "gv1") => ptr + 1,
-            mangle(lljit, "gv2") => (UInt(ptr) + 2, LLVM.symbol_flags(callable=true)),
+            mangle(lljit, "gv2") => (UInt(ptr) + 2, symbol_flags(callable=true)),
         ]))
-        LLVM.define(jd, LLVM.absolute_symbols(
+        define(jd, absolute_symbols(
             Dict(mangle(lljit, "gv3") => OrcTargetAddress(ptr + 3))))
         @test pointer(lookup(lljit, "gv1")) == ptr + 1
         @test pointer(lookup(lljit, "gv2")) == ptr + 2
         @test pointer(lookup(lljit, "gv3")) == ptr + 3
 
         # duplicate definitions are rejected
-        @test_throws LLVMException LLVM.define(jd,
-            LLVM.absolute_symbols(mangle(lljit, "gv") => ptr + 4))
+        @test_throws LLVMException define(jd,
+            absolute_symbols(mangle(lljit, "gv") => ptr + 4))
         @test pointer(lookup(lljit, "gv")) == ptr
         sym = mangle(lljit, "dup")
-        @test_throws ArgumentError LLVM.absolute_symbols([sym => ptr, sym => ptr])
-        LLVM.release(sym)
+        @test_throws ArgumentError absolute_symbols([sym => ptr, sym => ptr])
+        release(sym)
     end
 end
 
 @testset "Symbols" begin
     @dispose lljit=LLJIT() begin
         sym = mangle(lljit, "foo")
-        @test String(sym) == string(sym) == (LLVM.global_prefix(lljit) == 0 ? "foo" : "_foo")
+        @test String(sym) == string(sym) == (lljit.global_prefix == 0 ? "foo" : "_foo")
         @test occursin(repr(String(sym)), repr(sym))
 
         # symbols are interned
-        other = intern(ExecutionSession(lljit), String(sym))
+        other = intern(lljit.execution_session, String(sym))
         @test other == sym
-        LLVM.release(other)
-        LLVM.release(sym)
+        release(other)
+        release(sym)
     end
 
-    flags = LLVM.symbol_flags()
+    flags = symbol_flags()
     @test flags.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsExported)
     @test flags.TargetFlags == 0
-    flags = LLVM.symbol_flags(exported=false, callable=true, weak=true, target_flags=1)
+    flags = symbol_flags(exported=false, callable=true, weak=true, target_flags=1)
     @test flags.GenericFlags == UInt8(LLVM.API.LLVMJITSymbolGenericFlagsCallable) |
                                 UInt8(LLVM.API.LLVMJITSymbolGenericFlagsWeak)
     @test flags.TargetFlags == 1
@@ -390,7 +392,7 @@ end
 
 @testset "Lookup in JITDylib" begin
     @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
-        es = ExecutionSession(lljit)
+        es = lljit.execution_session
         jd = JITDylib(es, "other")
 
         ts_mod = ThreadSafeModule("jit")
@@ -427,10 +429,10 @@ end
     end
 
     @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
-        jd = JITDylib(lljit)
+        jd = lljit.main_dylib
 
         add!(lljit, jd, constant_module("untracked", 1))
-        LLVM.ResourceTracker(jd) do rt
+        ResourceTracker(jd) do rt
             add!(lljit, rt, constant_module("tracked", 2))
             @test ccall(pointer(lookup(lljit, "tracked")), Int32, ()) == 2
 
@@ -441,16 +443,16 @@ end
         end
 
         # code of released trackers stays around
-        LLVM.ResourceTracker(jd) do rt
+        ResourceTracker(jd) do rt
             add!(lljit, rt, constant_module("released", 3))
         end
         @test ccall(pointer(lookup(lljit, "released")), Int32, ()) == 3
 
         # transferring resources
-        rt1 = LLVM.ResourceTracker(jd)
-        rt2 = LLVM.ResourceTracker(jd)
+        rt1 = ResourceTracker(jd)
+        rt2 = ResourceTracker(jd)
         add!(lljit, rt1, constant_module("transferred", 4))
-        LLVM.transfer!(rt2, rt1)
+        transfer!(rt2, rt1)
         remove!(rt1)
         @test ccall(pointer(lookup(lljit, "transferred")), Int32, ()) == 4
         remove!(rt2)
@@ -459,7 +461,7 @@ end
         dispose(rt2)
 
         # the default tracker tracks code added without an explicit tracker
-        rt = LLVM.default_resource_tracker(jd)
+        rt = jd.default_resource_tracker
         remove!(rt)
         dispose(rt)
         @test_throws LLVMException lookup(lljit, "untracked")
@@ -468,7 +470,7 @@ end
         # LLVM doesn't retain the default tracker for us, so disposing of it shouldn't
         # release it (which used to corrupt the heap)
         for _ in 1:10
-            dispose(LLVM.default_resource_tracker(jd))
+            dispose(jd.default_resource_tracker)
         end
         add!(lljit, jd, constant_module("after_default", 5))
         @test ccall(pointer(lookup(lljit, "after_default")), Int32, ()) == 5
@@ -489,17 +491,16 @@ end
     end
 
     @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
-        jd = JITDylib(lljit)
-        il = LLVM.IRTransformLayer(lljit)
+        jd = lljit.main_dylib
+        il = lljit.ir_transform_layer
 
         # transformations can modify modules in place
         transformed = String[]
-        LLVM.set_transform!(il) do tsm, mr
+        transform!(il) do tsm, mr
             tsm() do mod
-                for fn in functions(mod)
-                    push!(transformed, LLVM.name(fn))
-                    ret = terminator(entry(fn))
-                    operands(ret)[1] = ConstantInt(Int32(2))
+                for fn in mod.functions
+                    push!(transformed, fn.name)
+                    fn.entry.terminator.operands[1] = ConstantInt(Int32(2))
                 end
             end
         end
@@ -508,7 +509,7 @@ end
         @test transformed == ["transformed"]
 
         # exceptions fail materialization
-        LLVM.set_transform!(il) do tsm, mr
+        transform!(il) do tsm, mr
             throw(ArgumentError("transform error"))
         end
         add!(lljit, jd, constant_module("failing", 1))
@@ -516,20 +517,20 @@ end
             lookup(lljit, "failing")
         end
         try
-            LLVM.check_callback_error(il)
+            check_callback_error(il)
             @test false
         catch err
-            @test err isa CallbackException
+            @test err isa LLVM.CallbackException
             @test err.ex isa ArgumentError
         end
-        @test LLVM.check_callback_error(il) === nothing
+        @test check_callback_error(il) === nothing
         @test length(lljit.roots) == 2
     end
 end
 
 @testset "Loading ObjectFile" begin
-    @dispose lljit=LLJIT(;tm=JITTargetMachine()) begin
-        jd = JITDylib(lljit)
+    @dispose lljit=LLJIT(;tm=LLVM.JITTargetMachine()) begin
+        jd = lljit.main_dylib
 
         sym = "SomeFunction"
         obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
@@ -543,7 +544,7 @@ end
             end
             verify(mod)
 
-            @dispose tm=JITTargetMachine() begin
+            @dispose tm=LLVM.JITTargetMachine() begin
                 emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
@@ -560,8 +561,8 @@ end
         @test_throws LLVMException add!(lljit, jd, MemoryBuffer(rand(UInt8, 64)))
     end
 
-    @dispose lljit=LLJIT(; tm=JITTargetMachine()) begin
-        jd = JITDylib(lljit)
+    @dispose lljit=LLJIT(; tm=LLVM.JITTargetMachine()) begin
+        jd = lljit.main_dylib
 
         sym = "SomeFunction"
         obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
@@ -569,7 +570,7 @@ end
             fn = LLVM.Function(mod, sym, ft)
 
             gv = LLVM.GlobalVariable(mod, LLVM.Int32Type(), "gv")
-            LLVM.extinit!(gv, true)
+            gv.externally_initialized = true
 
             @dispose builder=IRBuilder() begin
                 entry = BasicBlock(fn, "entry")
@@ -579,7 +580,7 @@ end
             end
             verify(mod)
 
-            @dispose tm=JITTargetMachine() begin
+            @dispose tm=LLVM.JITTargetMachine() begin
                 emit(tm, mod, LLVM.API.LLVMObjectFile)
             end
         end
@@ -594,8 +595,8 @@ end
             symbol = LLVM.API.LLVMJITEvaluatedSymbol(address, flags)
             gv = LLVM.API.LLVMOrcCSymbolMapPair(name, symbol)
 
-            mu = LLVM.absolute_symbols(Ref(gv))
-            LLVM.define(jd, mu)
+            mu = absolute_symbols(Ref(gv))
+            define(jd, mu)
 
             add!(lljit, jd, MemoryBuffer(obj))
 
@@ -615,10 +616,10 @@ end
     # JIT a simple function and return the symbol flags ORC recorded for it.
     function jit_symbol_flags(creator=nothing; tm=nothing)
         builder = LLJITBuilder()
-        tm === nothing || targetmachinebuilder!(builder, TargetMachineBuilder(tm()))
-        creator === nothing || linkinglayercreator!(creator, builder)
+        tm === nothing || target_machine_builder!(builder, TargetMachineBuilder(tm()))
+        creator === nothing || linking_layer_creator!(creator, builder)
         @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT(builder) begin
-            jd = JITDylib(lljit)
+            jd = lljit.main_dylib
 
             ts_mod = ThreadSafeModule("jit")
             sym = "SomeFunctionOLL"
@@ -631,7 +632,7 @@ end
                 @dispose builder=IRBuilder() begin
                     entry = BasicBlock(fn, "entry")
                     position!(builder, entry)
-                    ret!(builder, fadd!(builder, parameters(fn)[1], ConstantFP(T, 1.25)))
+                    ret!(builder, fadd!(builder, fn.parameters[1], ConstantFP(T, 1.25)))
                 end
                 verify(mod)
             end
@@ -644,7 +645,7 @@ end
             # the JITDylib is keyed by linker-mangled names (e.g. prefixed with _ on macOS)
             mangled = mangle(lljit, sym)
             name = string(mangled)
-            LLVM.release(mangled)
+            release(mangled)
             m = match(Regex("\"$name\": \\S+ (\\S+)"), string(jd))
             @test m !== nothing
             return m[1]
@@ -663,7 +664,7 @@ end
     # a custom layer should behave like LLJIT's default one
     @test flags == jit_symbol_flags()
     @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es)) == flags
-    let tm = () -> JITTargetMachine()
+    let tm = () -> LLVM.JITTargetMachine()
         tm_flags = jit_symbol_flags(; tm)
         @test jit_symbol_flags((es, triple) -> ObjectLinkingLayer(es, triple); tm) ==
               tm_flags
@@ -674,9 +675,9 @@ end
     # RuntimeDyld can link them on any host, so test that everywhere.
     if Sys.ARCH == :x86_64 && :X86 in LLVM.backends()
         coff_triple = "x86_64-w64-windows-gnu"
-        tm = () -> TargetMachine(LLVM.Target(; triple=coff_triple), coff_triple;
-                                 reloc=LLVM.API.LLVMRelocStatic,
-                                 code=LLVM.API.LLVMCodeModelJITDefault)
+        tm = () -> LLVM.TargetMachine(LLVM.Target(; triple=coff_triple), coff_triple;
+                                      reloc=LLVM.API.LLVMRelocStatic,
+                                      code=LLVM.API.LLVMCodeModelJITDefault)
         coff_flags = jit_symbol_flags(; tm)
         @test coff_flags == "[Callable]"
         # the callback receives the executor's triple on LLVM 21+, so pass the target's
@@ -689,7 +690,7 @@ end
     end
 
     builder = LLJITBuilder()
-    linkinglayercreator!(builder) do es, triple
+    linking_layer_creator!(builder) do es, triple
         throw(ArgumentError("object layer creator error"))
     end
     GC.gc()
@@ -697,7 +698,7 @@ end
         LLJIT(builder)
         @test false
     catch err
-        @test err isa CallbackException
+        @test err isa LLVM.CallbackException
         @test err.ex isa ArgumentError
         @test occursin("object layer creator error", string(err.ex))
         @test !isempty(err.processed_bt)
@@ -706,40 +707,42 @@ end
 
 @testset "Lazy" begin
     @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
-        jd = JITDylib(lljit)
-        es = ExecutionSession(lljit)
+        jd = lljit.main_dylib
+        es = lljit.execution_session
 
-        lctm = LLVM.LocalLazyCallThroughManager(triple(lljit), es)
-        ism = LLVM.LocalIndirectStubsManager(triple(lljit))
+        lctm = LocalLazyCallThroughManager(lljit.triple, es)
+        ism = LocalIndirectStubsManager(lljit.triple)
         try
             # 1. define entry symbol
             entry_sym = "foo_entry"
-            mu = LLVM.lazy_reexports(lctm, ism, jd,
+            mu = lazy_reexports(lctm, ism, jd,
                                      [mangle(lljit, entry_sym) => mangle(lljit, "foo")])
-            LLVM.define(jd, mu)
+            define(jd, mu)
 
             # 2. Lookup address of entry symbol
             addr = lookup(lljit, entry_sym)
             @test pointer(addr) != C_NULL
 
             # 3. add MU that will call back into the compiler
+            requested = String[]
             function materialize(mr)
-                syms = LLVM.requested_symbols(mr)
+                syms = mr.requested_symbols
                 @assert length(syms) == 1
+                append!(requested, String.(collect(syms)))
 
                 # syms contains mangled symbols
                 # we need to emit an unmangled one
 
                 ts_mod = ThreadSafeModule("jit")
                 ts_mod() do mod
-                    dl = datalayout(lljit)
+                    dl = lljit.datalayout
                     if LLVM.version() >= v"20"
                         # XXX: LLVM 20 removed the ability to replace a data layout,
                         #      resulting in Julia's JIT having a different DL from the TM's.
                         #      https://github.com/llvm/llvm-project/pull/102993#issuecomment-2886101618
                         dl = replace(dl, r"-ni.*" => "")
                     end
-                    datalayout!(mod, dl)
+                    mod.datalayout = dl
 
                     T_Int32 = LLVM.Int32Type()
                     ft = LLVM.FunctionType(T_Int32, [T_Int32, T_Int32])
@@ -751,13 +754,13 @@ end
                         entry = BasicBlock(fn, "entry")
                         position!(builder, entry)
 
-                        tmp = add!(builder, parameters(fn)...)
+                        tmp = add!(builder, fn.parameters...)
                         ret!(builder, tmp)
                     end
                 end
 
-                il = LLVM.IRTransformLayer(lljit)
-                LLVM.emit(il, mr, ts_mod)
+                il = lljit.ir_transform_layer
+                emit(il, mr, ts_mod)
 
                 return nothing
             end
@@ -765,11 +768,14 @@ end
             function discard(jd, sym)
             end
 
-            symbols = [mangle(lljit, "foo") => LLVM.symbol_flags(callable=true)]
-            mu = LLVM.CustomMaterializationUnit("fooMU", symbols, materialize, discard)
-            LLVM.define(jd, mu)
+            symbols = [mangle(lljit, "foo") => symbol_flags(callable=true)]
+            mu = CustomMaterializationUnit("fooMU", symbols, materialize, discard)
+            define(jd, mu)
 
             @test ccall(pointer(addr), Int32, (Int32, Int32), 1, 2) == 3
+            foo = mangle(lljit, "foo")
+            @test requested == [String(foo)]
+            release(foo)
             @test !(mu in LLVM.CUSTOM_MU_ROOTS)
         finally
             dispose(lctm)

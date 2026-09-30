@@ -1,11 +1,14 @@
-export LLJITBuilder, LLJIT, ExecutionSession, JITDylib, OrcTargetAddress
-export TargetMachineBuilder, targetmachinebuilder!, linkinglayercreator!
-export mangle, lookup, intern
-export ObjectLinkingLayer, register!
-
-@public define, absolute_symbols, symbol_flags,
-        DynamicLibrarySearchGenerator, CustomDefinitionGenerator,
-        ResourceTracker, IRTransformLayer, set_transform!, check_callback_error
+@vocabulary ORC LLJITBuilder, LLJIT, ExecutionSession, JITDylib, OrcTargetAddress
+@vocabulary ORC TargetMachineBuilder, target_machine_builder!, linking_layer_creator!
+@vocabulary ORC mangle, lookup, intern
+@vocabulary ORC ObjectLinkingLayer, register!
+@vocabulary ORC LLVMSymbol, retain, release, symbol_flags, define, absolute_symbols
+@vocabulary ORC DefinitionGenerator, DynamicLibrarySearchGenerator
+@vocabulary ORC CustomDefinitionGenerator, check_callback_error
+@vocabulary ORC lookup_dylib, ResourceTracker, transfer!
+@vocabulary ORC IRTransformLayer, IRCompileLayer, transform!
+@vocabulary ORC MaterializationResponsibility, CustomMaterializationUnit
+@vocabulary ORC LocalIndirectStubsManager, LocalLazyCallThroughManager, lazy_reexports
 
 include("executionengine/utils.jl")
 
@@ -43,26 +46,26 @@ end
 include("executionengine/lljit.jl")
 
 """
-    ExecutionSession(jit)
+    ExecutionSession
 
-Get the execution session of a JIT, which manages the JIT's JITDylibs and symbol string
-pool.
+The execution session of a JIT, which manages the JIT's JITDylibs and symbol string pool.
+It is available as the `execution_session` property of a JIT.
 """
 @checked struct ExecutionSession
     ref::API.LLVMOrcExecutionSessionRef
 end
 Base.unsafe_convert(::Type{API.LLVMOrcExecutionSessionRef}, es::ExecutionSession) = es.ref
 
-function ExecutionSession(lljit::LLJIT)
-    es = API.LLVMOrcLLJITGetExecutionSession(lljit)
-    ExecutionSession(es)
-end
+execution_session(lljit::LLJIT) =
+    ExecutionSession(API.LLVMOrcLLJITGetExecutionSession(lljit))
+
+@property LLJIT execution_session
 
 """
     ObjectLinkingLayer
 
 An object linking layer, based on RuntimeDyld, for use with
-[`linkinglayercreator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
+[`linking_layer_creator!`](@ref). Use `register!` to attach a `JITEventListener` to it.
 """
 @checked struct ObjectLinkingLayer
     ref::API.LLVMOrcObjectLayerRef
@@ -70,7 +73,7 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) = oll.ref
 
 """
-    ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.triple();
+    ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
                        override_object_flags=nothing, auto_claim_object_symbols=nothing)
 
 Create a RuntimeDyld-based object linking layer that allocates memory using a
@@ -84,11 +87,11 @@ targets the layer uses the symbol flags from the IR instead of from the object f
 generation introduced (`auto_claim_object_symbols`). Pass `true` or `false` to either
 keyword argument to override the default.
 
-The triple defaults to the host's. In a [`linkinglayercreator!`](@ref) callback, pass the
+The triple defaults to the host's. In a [`linking_layer_creator!`](@ref) callback, pass the
 triple the callback receives:
 
 ```julia
-linkinglayercreator!(builder) do es, triple
+linking_layer_creator!(builder) do es, triple
     ObjectLinkingLayer(es, triple)
 end
 ```
@@ -97,7 +100,7 @@ On LLVM 21 and newer, that is the triple of the process executing the code rathe
 that of the target machine, so pass the target's triple explicitly when JIT-compiling for
 a different object format.
 """
-function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.triple();
+function ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
                             override_object_flags::Union{Nothing,Bool}=nothing,
                             auto_claim_object_symbols::Union{Nothing,Bool}=nothing)
     ref = API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
@@ -141,33 +144,33 @@ function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, trip
 end
 
 """
-    linkinglayercreator!(builder::LLJITBuilder, creator)
+    linking_layer_creator!(builder::LLJITBuilder, creator)
 
 Install a Julia object-layer creator, called with the execution session and
 target triple. The builder keeps it rooted until it is consumed by
 [`LLJIT`](@ref). If it throws, the exception is rethrown as a
 [`CallbackException`](@ref) after LLJIT construction returns through LLVM.
 """
-function linkinglayercreator!(builder::LLJITBuilder, creator)
-    linkinglayercreator!(builder, ObjectLinkingLayerCreator(creator))
+function linking_layer_creator!(builder::LLJITBuilder, creator)
+    linking_layer_creator!(builder, ObjectLinkingLayerCreator(creator))
 end
 
-function linkinglayercreator!(builder::LLJITBuilder, state::ObjectLinkingLayerCreator)
+function linking_layer_creator!(builder::LLJITBuilder, state::ObjectLinkingLayerCreator)
     state.exception = nothing
     push!(builder.roots, state)
     cb = @cfunction(ollc_callback,
                     API.LLVMOrcObjectLayerRef,
                     (Ptr{Cvoid}, API.LLVMOrcExecutionSessionRef, Ptr{Cchar}))
-    linkinglayercreator!(builder, cb, Base.pointer_from_objref(state))
+    linking_layer_creator!(builder, cb, Base.pointer_from_objref(state))
 end
 
-linkinglayercreator!(creator::Core.Function, builder::LLJITBuilder) =
-    linkinglayercreator!(builder, creator)
+linking_layer_creator!(creator::Core.Function, builder::LLJITBuilder) =
+    linking_layer_creator!(builder, creator)
 
 include("executionengine/ts_module.jl")
 
 """
-    LLVM.LLVMSymbol
+    LLVMSymbol
 
 An interned symbol name: an entry in the symbol string pool of an [`ExecutionSession`](@ref).
 ORC identifies symbols by their linker-mangled names, which [`mangle`](@ref) computes and
@@ -175,8 +178,8 @@ interns. Symbols from the same session are equal if and only if their names are.
 
 Symbols are reference counted. Functions that return a symbol, like `mangle` and
 [`intern`](@ref), return a new reference, which should eventually be released with
-[`LLVM.release`](@ref), or be passed to an API that takes ownership of it (e.g.,
-[`LLVM.absolute_symbols`](@ref)). Use [`LLVM.retain`](@ref) to create an additional
+[`release`](@ref), or be passed to an API that takes ownership of it (e.g.,
+[`absolute_symbols`](@ref)). Use [`retain`](@ref) to create an additional
 reference, e.g., to pass a symbol to multiple such APIs, or when passing on a symbol that
 was only borrowed.
 """
@@ -201,10 +204,10 @@ function Base.show(io::IO, sym::LLVMSymbol)
 end
 
 """
-    intern(es::ExecutionSession, name) -> LLVM.LLVMSymbol
+    intern(es::ExecutionSession, name) -> LLVMSymbol
 
 Intern `name`, as is, in the symbol string pool of `es`. The caller owns the returned
-reference; see [`LLVM.LLVMSymbol`](@ref).
+reference; see [`LLVMSymbol`](@ref).
 """
 function intern(es::ExecutionSession, string)
     entry = API.LLVMOrcExecutionSessionIntern(es, string)
@@ -212,7 +215,7 @@ function intern(es::ExecutionSession, string)
 end
 
 """
-    LLVM.release(sym::LLVM.LLVMSymbol)
+    release(sym::LLVMSymbol)
 
 Release a reference to the symbol `sym`.
 """
@@ -221,7 +224,7 @@ function release(sym::LLVMSymbol)
 end
 
 """
-    LLVM.retain(sym::LLVM.LLVMSymbol)
+    retain(sym::LLVMSymbol)
 
 Acquire an additional reference to the symbol `sym`.
 """
@@ -236,11 +239,11 @@ end
 # dropping the leading '_' if there is one, or prepending a \01 prefix (see https://llvm.org/docs/LangRef.html#identifiers)
 
 """
-    mangle(jit, name) -> LLVM.LLVMSymbol
+    mangle(jit, name) -> LLVMSymbol
 
 Apply the target's linker mangling to `name` (e.g., prefixing an underscore on macOS), and
 intern the result in the JIT's execution session. The caller owns the returned reference;
-see [`LLVM.LLVMSymbol`](@ref).
+see [`LLVMSymbol`](@ref).
 """
 function mangle(lljit::LLJIT, name)
     entry = API.LLVMOrcLLJITMangleAndIntern(lljit, name)
@@ -251,11 +254,11 @@ end
 ## symbol flags
 
 """
-    LLVM.symbol_flags(; exported=true, callable=false, weak=false,
+    symbol_flags(; exported=true, callable=false, weak=false,
                       materialization_side_effects_only=false, target_flags=0)
 
-Create the flags of a JIT symbol definition, as used by [`LLVM.absolute_symbols`](@ref),
-[`LLVM.CustomMaterializationUnit`](@ref) and [`LLVM.lazy_reexports`](@ref).
+Create the flags of a JIT symbol definition, as used by [`absolute_symbols`](@ref),
+[`CustomMaterializationUnit`](@ref) and [`lazy_reexports`](@ref).
 """
 function symbol_flags(; exported::Bool=true, callable::Bool=false, weak::Bool=false,
                       materialization_side_effects_only::Bool=false,
@@ -269,20 +272,30 @@ function symbol_flags(; exported::Bool=true, callable::Bool=false, weak::Bool=fa
     return API.LLVMJITSymbolFlags(flags, target_flags)
 end
 
+"""
+    LLVM.JITDylib
+
+A JIT dynamic library: a set of symbol definitions in an execution session, which can be
+looked up and linked against.
+
+# Properties
+
+    jd.default_resource_tracker
+
+The resource tracker that tracks code added to the JITDylib without an explicit tracker.
+The tracker is owned by the JITDylib, so disposing of it is not required (and does
+nothing).
+"""
 @checked struct JITDylib
     ref::API.LLVMOrcJITDylibRef
 end
+@properties JITDylib
+
 Base.unsafe_convert(::Type{API.LLVMOrcJITDylibRef}, jd::JITDylib) = jd.ref
 
-"""
-    JITDylib(lljit::LLJIT)
+main_dylib(lljit::LLJIT) = JITDylib(API.LLVMOrcLLJITGetMainJITDylib(lljit))
 
-Get the main JITDylib
-"""
-function JITDylib(lljit::LLJIT)
-    ref = API.LLVMOrcLLJITGetMainJITDylib(lljit)
-    JITDylib(ref)
-end
+@property LLJIT main_dylib
 
 
 """
@@ -313,16 +326,16 @@ end
 ## definition generators
 
 """
-    LLVM.DefinitionGenerator
+    DefinitionGenerator
 
 A generator that ORC consults when a lookup fails to find a symbol in a
 [`JITDylib`](@ref), giving it the opportunity to define that symbol.
 
-Attach a generator to a JITDylib with [`add!`](@ref add!(::JITDylib, ::LLVM.DefinitionGenerator)),
-which transfers ownership to the JITDylib. A generator that is never added should be disposed
-of with [`dispose`](@ref dispose(::LLVM.DefinitionGenerator)).
+Attach a generator to a JITDylib with [`add!`](@ref add!(::JITDylib, ::DefinitionGenerator)),
+which transfers ownership to the JITDylib. A generator that is never added should be
+disposed of with [`dispose`](@ref dispose(::DefinitionGenerator)).
 
-See also: [`LLVM.DynamicLibrarySearchGenerator`](@ref), [`LLVM.CustomDefinitionGenerator`](@ref).
+See also: [`DynamicLibrarySearchGenerator`](@ref), [`CustomDefinitionGenerator`](@ref).
 """
 @checked struct DefinitionGenerator
     ref::API.LLVMOrcDefinitionGeneratorRef
@@ -330,7 +343,7 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) = dg.ref
 
 """
-    dispose(dg::LLVM.DefinitionGenerator)
+    dispose(dg::DefinitionGenerator)
 
 Dispose of a definition generator that was not added to a JITDylib.
 """
@@ -339,7 +352,7 @@ function dispose(dg::DefinitionGenerator)
 end
 
 """
-    add!(jd::JITDylib, dg::LLVM.DefinitionGenerator)
+    add!(jd::JITDylib, dg::DefinitionGenerator)
 
 Attach the definition generator `dg` to `jd`. The JITDylib takes ownership of the
 generator, which should not be used or disposed of afterwards.
@@ -351,10 +364,10 @@ function add!(jd::JITDylib, dg::DefinitionGenerator)
 end
 
 """
-    LLVM.DynamicLibrarySearchGenerator(jit)
-    LLVM.DynamicLibrarySearchGenerator(jit, path::AbstractString)
+    DynamicLibrarySearchGenerator(jit)
+    DynamicLibrarySearchGenerator(jit, path::AbstractString)
 
-Create a [`LLVM.DefinitionGenerator`](@ref) that resolves symbols by looking them up in the
+Create a [`DefinitionGenerator`](@ref) that resolves symbols by looking them up in the
 current process, or in the dynamic library at `path`. That library is loaded when creating
 the generator, and stays loaded for the remainder of the process.
 
@@ -412,7 +425,7 @@ function __dispose_generator(ctx::Ptr{Cvoid})
 end
 
 """
-    LLVM.CustomDefinitionGenerator(f)
+    CustomDefinitionGenerator(f)
 
 Create a definition generator that calls `f(kind, jd, jd_flags, lookup_set)` whenever a
 lookup fails to find symbols in the JITDylib the generator is attached to. The arguments
@@ -423,17 +436,17 @@ mirror those of LLVM's `DefinitionGenerator::tryToGenerate`:
 - `jd::JITDylib`: the JITDylib to define the symbols in;
 - `jd_flags::LLVM.API.LLVMOrcJITDylibLookupFlags`: whether the lookup matches only exported
   symbols, or all of them;
-- `lookup_set::Vector{Pair{LLVM.LLVMSymbol,LLVM.API.LLVMOrcSymbolLookupFlags}}`: the
+- `lookup_set::Vector{Pair{LLVMSymbol,LLVM.API.LLVMOrcSymbolLookupFlags}}`: the
   linker-mangled names of the symbols that were not found, each paired with a flag
   indicating whether the symbol is required or only weakly referenced.
 
-`f` should define the symbols it can provide in `jd`, e.g., using [`LLVM.define`](@ref).
+`f` should define the symbols it can provide in `jd`, e.g., using [`define`](@ref).
 Symbols it does not define are left to other generators and JITDylibs in the search order.
-The names in `lookup_set` are only valid during the call; retain them with `LLVM.retain`
-before handing them to functions that take ownership, like `LLVM.absolute_symbols`.
+The names in `lookup_set` are only valid during the call; retain them with `retain`
+before handing them to functions that take ownership, like `absolute_symbols`.
 
 If `f` throws, the lookup fails with an LLVM error that includes the exception message. The
-original exception can be retrieved by calling `LLVM.check_callback_error` on the generator,
+original exception can be retrieved by calling `check_callback_error` on the generator,
 which rethrows it as a [`CallbackException`](@ref).
 
 `f` runs synchronously on the thread performing the lookup, while LLVM holds locks that
@@ -441,7 +454,7 @@ serialize definition generation. It must not perform lookups that can reach the 
 JITDylib again, as that may deadlock. Asynchronous generation (suspending the lookup) is
 not supported.
 
-The generator is used like a [`LLVM.DefinitionGenerator`](@ref): attach it to a JITDylib
+The generator is used like a [`DefinitionGenerator`](@ref): attach it to a JITDylib
 with `add!`, which keeps it alive for the lifetime of that JITDylib, or `dispose` it.
 """
 mutable struct CustomDefinitionGenerator
@@ -476,10 +489,10 @@ add!(jd::JITDylib, dg::CustomDefinitionGenerator) = add!(jd, dg.dg)
 dispose(dg::CustomDefinitionGenerator) = dispose(dg.dg)
 
 """
-    LLVM.check_callback_error(obj)
+    check_callback_error(obj)
 
 Rethrow the first exception that was captured from a Julia callback of `obj` (e.g., a
-[`LLVM.CustomDefinitionGenerator`](@ref) or [`LLVM.CustomMaterializationUnit`](@ref)) as a
+[`CustomDefinitionGenerator`](@ref) or [`CustomMaterializationUnit`](@ref)) as a
 [`CallbackException`](@ref), clearing it. Returns `nothing` if no exception was captured.
 
 Exceptions cannot propagate through LLVM, so callbacks that throw are reported to LLVM as
@@ -497,7 +510,7 @@ end
 
 
 """
-    LLVM.lookup_dylib(es::ExecutionSession, name) -> Union{JITDylib,Nothing}
+    lookup_dylib(es::ExecutionSession, name) -> Union{JITDylib,Nothing}
 
 Get the JITDylib called `name` in `es`, or `nothing` if there is none.
 """
@@ -512,7 +525,7 @@ end
 """
     add!(lljit::LLJIT, jd::JITDylib, obj::MemoryBuffer)
     add!(lljit::LLJIT, jd::JITDylib, tsm::ThreadSafeModule)
-    add!(lljit::LLJIT, rt::LLVM.ResourceTracker, obj_or_tsm)
+    add!(lljit::LLJIT, rt::ResourceTracker, obj_or_tsm)
 
 Add an object file or IR module to `jd`, or to the JITDylib of the resource tracker `rt`.
 The code is compiled and linked lazily, when one of its symbols is looked up. The object
@@ -551,19 +564,20 @@ end
 ## resource trackers
 
 """
-    LLVM.ResourceTracker(jd::JITDylib)
-    LLVM.ResourceTracker(f, jd::JITDylib)
+    ResourceTracker(jd::JITDylib)
+    ResourceTracker(f, jd::JITDylib)
 
 Create a resource tracker for `jd`. Code added using a tracker, with
 `add!(jit, rt, tsm_or_object)`, can later be removed from the JIT using
-[`remove!`](@ref remove!(::LLVM.ResourceTracker)), without affecting other code in `jd`.
+[`remove!`](@ref remove!(::ResourceTracker)), without affecting other code in `jd`.
 
 Resource trackers are reference counted: the returned reference needs to be released using
-[`dispose`](@ref dispose(::LLVM.ResourceTracker)), or by using the do-block form. Releasing a
+[`dispose`](@ref dispose(::ResourceTracker)), or by using the do-block form. Releasing a
 tracker does not remove the code it tracks; that code then remains in `jd` until `jd` is
 cleared.
 
-See also: [`LLVM.default_resource_tracker`](@ref).
+See also: the [`default_resource_tracker`](@ref LLVM.JITDylib) property of a
+JITDylib.
 """
 @checked mutable struct ResourceTracker
     # mutable, so that the memory checker can tell multiple references apart
@@ -586,12 +600,6 @@ function ResourceTracker(f::Core.Function, jd::JITDylib)
     end
 end
 
-"""
-    LLVM.default_resource_tracker(jd::JITDylib)
-
-Get the resource tracker that tracks code added to `jd` without an explicit tracker. The
-tracker is owned by `jd`, so disposing of it is not required (and does nothing).
-"""
 function default_resource_tracker(jd::JITDylib)
     # contrary to its documentation, LLVMOrcJITDylibGetDefaultResourceTracker does not
     # retain the tracker, so we should not release it either.
@@ -599,8 +607,10 @@ function default_resource_tracker(jd::JITDylib)
     ResourceTracker(API.LLVMOrcJITDylibGetDefaultResourceTracker(jd), false)
 end
 
+@property JITDylib default_resource_tracker
+
 """
-    dispose(rt::LLVM.ResourceTracker)
+    dispose(rt::ResourceTracker)
 
 Release a reference to the resource tracker `rt`. This does not remove the tracked code.
 """
@@ -610,7 +620,7 @@ function dispose(rt::ResourceTracker)
 end
 
 """
-    remove!(rt::LLVM.ResourceTracker)
+    remove!(rt::ResourceTracker)
 
 Remove all code and data tracked by `rt` from the JIT. The tracker becomes defunct, and
 cannot be used to add code anymore (but still needs to be disposed of).
@@ -624,7 +634,7 @@ function remove!(rt::ResourceTracker)
 end
 
 """
-    LLVM.transfer!(dst::LLVM.ResourceTracker, src::LLVM.ResourceTracker)
+    transfer!(dst::ResourceTracker, src::ResourceTracker)
 
 Transfer tracking of all resources from `src` to `dst`, which should belong to the same
 JITDylib.
@@ -707,7 +717,7 @@ function __lookup_result(err::API.LLVMErrorRef, result::API.LLVMOrcCSymbolMapPai
 end
 
 function lookup(lljit::LLJIT, jd::JITDylib, name)
-    es = ExecutionSession(lljit)
+    es = execution_session(lljit)
     order = Ref(API.LLVMOrcCJITDylibSearchOrderElement(
         jd.ref, API.LLVMOrcJITDylibLookupFlagsMatchAllSymbols))
     symbols = Ref(API.LLVMOrcCLookupSetElement(
@@ -737,12 +747,10 @@ function lookup(lljit::LLJIT, jd::JITDylib, name)
 end
 
 """
-    LLVM.IRTransformLayer(lljit::LLJIT)
+    IRTransformLayer
 
-Get the layer of `lljit` that transforms IR modules before they are compiled. Modules added
-with `add!` pass through this layer, as can modules emitted by a materialization unit
-with [`LLVM.emit`](@ref). By default, it does not change modules; use
-[`LLVM.set_transform!`](@ref) to install a transformation.
+The layer of an [`LLJIT`](@ref) that transforms IR modules before they are compiled,
+available as its `ir_transform_layer` property.
 """
 @checked struct IRTransformLayer
     ref::API.LLVMOrcIRTransformLayerRef
@@ -750,10 +758,10 @@ with [`LLVM.emit`](@ref). By default, it does not change modules; use
 end
 Base.unsafe_convert(::Type{API.LLVMOrcIRTransformLayerRef}, il::IRTransformLayer) = il.ref
 
-function IRTransformLayer(lljit::LLJIT)
-    ref = API.LLVMOrcLLJITGetIRTransformLayer(lljit)
-    IRTransformLayer(ref, lljit)
-end
+ir_transform_layer(lljit::LLJIT) =
+    IRTransformLayer(API.LLVMOrcLLJITGetIRTransformLayer(lljit), lljit)
+
+@property LLJIT ir_transform_layer
 
 mutable struct IRTransform
     callback
@@ -783,15 +791,15 @@ function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModul
 end
 
 """
-    LLVM.set_transform!(f, layer::LLVM.IRTransformLayer)
+    transform!(f, layer::IRTransformLayer)
 
-Install `f(tsm::ThreadSafeModule, mr::LLVM.MaterializationResponsibility)` as the
+Install `f(tsm::ThreadSafeModule, mr::MaterializationResponsibility)` as the
 transformation that `layer` applies to IR modules before they are compiled, replacing any
 previous one. `f` should modify the module in place, e.g., by running an optimization
 pipeline on it:
 
 ```julia
-LLVM.set_transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
+transform!(lljit.ir_transform_layer) do tsm, mr
     tsm() do mod
         run!("default<O2>", mod)
     end
@@ -803,9 +811,9 @@ ownership. The transformation is kept alive for as long as the JIT, and should b
 before any code is added to it. It may be called on whichever thread materializes code.
 
 If `f` throws, materialization of the module fails, and the original exception can be
-retrieved by calling [`LLVM.check_callback_error`](@ref) on the layer.
+retrieved by calling [`check_callback_error`](@ref) on the layer.
 """
-function set_transform!(f, il::IRTransformLayer)
+function transform!(f, il::IRTransformLayer)
     state = IRTransform(f)
     # LLVM only holds a raw pointer to the transformation. Earlier transformations may
     # still be in use, so keep all of them alive until the JIT is disposed of.
@@ -832,11 +840,22 @@ end
 
 
 """
-    LLVM.MaterializationResponsibility
+    MaterializationResponsibility
 
 The responsibility for materializing a set of symbols, as passed to the callback of a
-[`LLVM.CustomMaterializationUnit`](@ref). It is fulfilled by emitting code that defines
-these symbols, e.g., using [`LLVM.emit`](@ref).
+[`CustomMaterializationUnit`](@ref). It is fulfilled by emitting code that defines
+these symbols, e.g., using [`emit`](@ref).
+
+# Properties
+
+    mr.requested_symbols
+
+The names of the symbols that were requested from the materialization unit that `mr` is
+responsible for, as a read-only view. The names are only fetched while iterating the view,
+so use `collect` to get a vector.
+
+These names are borrowed: retain them before handing them to APIs that take ownership, or
+using them after the responsibility has been fulfilled.
 """
 @checked mutable struct MaterializationResponsibility
     ref::API.LLVMOrcMaterializationResponsibilityRef
@@ -844,6 +863,7 @@ these symbols, e.g., using [`LLVM.emit`](@ref).
     # and was not borrowed from LLVM
     owned::Bool
 end
+@properties MaterializationResponsibility
 MaterializationResponsibility(ref::API.LLVMOrcMaterializationResponsibilityRef) =
     MaterializationResponsibility(ref, true)
 Base.unsafe_convert(::Type{API.LLVMOrcMaterializationResponsibilityRef}, mr::MaterializationResponsibility) = mr.ref
@@ -855,10 +875,10 @@ function consume!(mr::MaterializationResponsibility)
 end
 
 """
-    LLVM.emit(layer, mr::LLVM.MaterializationResponsibility, tsm::ThreadSafeModule)
+    emit(layer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
 
-Emit the IR module `tsm` through `layer` (an [`LLVM.IRTransformLayer`](@ref) or
-`LLVM.IRCompileLayer`) to fulfill the responsibility `mr`. Both `mr` and `tsm` are
+Emit the IR module `tsm` through `layer` (an [`IRTransformLayer`](@ref) or
+`IRCompileLayer`) to fulfill the responsibility `mr`. Both `mr` and `tsm` are
 consumed; a responsibility that is borrowed, e.g., by an IR transformation, cannot be
 emitted.
 """
@@ -869,19 +889,34 @@ function emit(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::Thre
 end
 
 
-"""
-    LLVM.requested_symbols(mr::LLVM.MaterializationResponsibility)
+struct MaterializationResponsibilityRequestedSymbolSet
+    mr::MaterializationResponsibility
+end
 
-Get the names of the symbols that were requested from the materialization unit that `mr`
-is responsible for. These names are borrowed: retain them before handing them to APIs that
-take ownership, or using them after the responsibility has been fulfilled.
-"""
-function requested_symbols(mr::MaterializationResponsibility)
+requested_symbols(mr::MaterializationResponsibility) =
+    MaterializationResponsibilityRequestedSymbolSet(mr)
+
+@property MaterializationResponsibility requested_symbols
+
+function collect_requested_symbols(mr::MaterializationResponsibility)
     N = Ref{Csize_t}()
     ptr = API.LLVMOrcMaterializationResponsibilityGetRequestedSymbols(mr, N)
     syms = map(LLVMSymbol, Base.unsafe_wrap(Array, ptr, N[], own=false))
     API.LLVMOrcDisposeSymbols(ptr)
     return syms
+end
+
+Base.eltype(::Type{MaterializationResponsibilityRequestedSymbolSet}) = LLVMSymbol
+
+Base.length(set::MaterializationResponsibilityRequestedSymbolSet) =
+    length(collect_requested_symbols(set.mr))
+
+# fetch the names once per iteration, as LLVM only provides a copy of all of them
+function Base.iterate(set::MaterializationResponsibilityRequestedSymbolSet,
+                      state=(collect_requested_symbols(set.mr), 1))
+    syms, i = state
+    i > length(syms) && return nothing
+    return syms[i], (syms, i + 1)
 end
 
 abstract type AbstractMaterializationUnit end
@@ -970,21 +1005,21 @@ function __destroy(ctx::Ptr{Cvoid})
 end
 
 """
-    LLVM.CustomMaterializationUnit(name, symbols, materialize, discard, [init])
+    CustomMaterializationUnit(name, symbols, materialize, discard, [init])
 
 Create a materialization unit that promises to define `symbols`, a collection of
-`name => flags` pairs mapping each [`LLVM.LLVMSymbol`](@ref) to flags created by
-[`LLVM.symbol_flags`](@ref). Add it to a JITDylib with [`LLVM.define`](@ref).
+`name => flags` pairs mapping each [`LLVMSymbol`](@ref) to flags created by
+[`symbol_flags`](@ref). Add it to a JITDylib with [`define`](@ref).
 
 When any of these symbols is looked up, `materialize(mr)` is called with a
-`LLVM.MaterializationResponsibility` for the symbols, which it should fulfill, e.g., by
-generating IR and emitting it with `LLVM.emit(layer, mr, tsm)`; use
-[`LLVM.requested_symbols`](@ref) to see which symbols were requested. If a symbol is
-overridden by another definition before it was materialized, `discard(jd, name)` is called
-instead.
+`MaterializationResponsibility` for the symbols, which it should fulfill, e.g., by
+generating IR and emitting it with `emit(layer, mr, tsm)`; its
+[`requested_symbols`](@ref LLVM.MaterializationResponsibility) property tells which symbols were
+requested. If a symbol is overridden by another definition before it was materialized,
+`discard(jd, name)` is called instead.
 
 If `materialize` throws, materialization of the symbols fails, and lookups report an LLVM
-error. Retrieve the original exception by calling [`LLVM.check_callback_error`](@ref) on the
+error. Retrieve the original exception by calling [`check_callback_error`](@ref) on the
 unit. An exception in `discard` is only reported that way.
 
 The unit takes ownership of the symbol names. `init` can be used to specify an
@@ -1019,21 +1054,21 @@ function CustomMaterializationUnit(name, symbols, materialize, discard, init=C_N
 end
 
 """
-    LLVM.absolute_symbols(name => address, ...)
-    LLVM.absolute_symbols(name => (address, flags), ...)
-    LLVM.absolute_symbols(pairs)
+    absolute_symbols(name => address, ...)
+    absolute_symbols(name => (address, flags), ...)
+    absolute_symbols(pairs)
 
-Create a materialization unit that defines each symbol `name` (a [`LLVM.LLVMSymbol`](@ref))
+Create a materialization unit that defines each symbol `name` (a [`LLVMSymbol`](@ref))
 at a fixed `address` (a pointer, integer, or [`OrcTargetAddress`](@ref)), e.g., to make
 host functions or data available to JIT-compiled code. Symbols default to being exported;
-pass `flags` created by [`LLVM.symbol_flags`](@ref) to change that. The pairs can also be
+pass `flags` created by [`symbol_flags`](@ref) to change that. The pairs can also be
 passed as a collection, e.g., a vector or a dictionary.
 
 The unit takes ownership of the symbol names, and should be added to a JITDylib using
-[`LLVM.define`](@ref):
+[`define`](@ref):
 
 ```julia
-LLVM.define(jd, LLVM.absolute_symbols(mangle(lljit, "counter") => pointer(counter)))
+define(jd, absolute_symbols(mangle(lljit, "counter") => pointer(counter)))
 ```
 """
 absolute_symbols(pair::Pair{LLVMSymbol}, pairs::Pair{LLVMSymbol}...) =
@@ -1067,10 +1102,10 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcIndirectStubsManagerRef}, ism::IndirectStubsManager) = ism.ref
 
 """
-    LLVM.LocalIndirectStubsManager(triple)
+    LocalIndirectStubsManager(triple)
 
 Create a manager of indirect stubs for the current process, as used by
-[`LLVM.lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
 """
 function LocalIndirectStubsManager(triple)
     ref = API.LLVMOrcCreateLocalIndirectStubsManager(triple)
@@ -1087,10 +1122,10 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcLazyCallThroughManagerRef}, lcm::LazyCallThroughManager) = lcm.ref
 
 """
-    LLVM.LocalLazyCallThroughManager(triple, es::ExecutionSession)
+    LocalLazyCallThroughManager(triple, es::ExecutionSession)
 
 Create a manager of lazy call-throughs for the current process, as used by
-[`LLVM.lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
+[`lazy_reexports`](@ref). Needs to be disposed of using `dispose`.
 """
 function LocalLazyCallThroughManager(triple, es)
     ref = Ref{API.LLVMOrcLazyCallThroughManagerRef}()
@@ -1103,11 +1138,11 @@ function dispose(lcm::LazyCallThroughManager)
 end
 
 """
-    LLVM.lazy_reexports(lctm, ism, source_jd, aliases)
+    lazy_reexports(lctm, ism, source_jd, aliases)
 
 Create a materialization unit that defines lazy reexports of symbols in `source_jd`.
 `aliases` is a collection of `alias => target` or `alias => (target, flags)` pairs of
-[`LLVM.LLVMSymbol`](@ref)s, with `flags` defaulting to an exported and callable symbol.
+[`LLVMSymbol`](@ref)s, with `flags` defaulting to an exported and callable symbol.
 
 Looking up an alias does not materialize its target. Instead, the alias resolves to a stub
 (managed by the indirect stubs manager `ism`) that calls into the lazy call-through manager
@@ -1140,12 +1175,12 @@ end
 
 # JuliaOJIT
 
-export JuliaOJIT
+@vocabulary ORC JuliaOJIT
 
-function ExecutionSession(jljit::JuliaOJIT)
-    es = API.JLJITGetLLVMOrcExecutionSession(jljit)
-    ExecutionSession(es)
-end
+execution_session(jljit::JuliaOJIT) =
+    ExecutionSession(API.JLJITGetLLVMOrcExecutionSession(jljit))
+
+@property JuliaOJIT execution_session
 
 function mangle(jljit::JuliaOJIT, name)
     entry = API.JLJITMangleAndIntern(jljit, name)
@@ -1197,7 +1232,7 @@ function decorate_module(mod)
     # This mirrors `jl_decorate_module` in Julia's src/jitlayers.cpp.
     # TODO: check the triple, not the system
     if Sys.iswindows() && Sys.ARCH == :x86_64 &&
-       !contains(inline_asm(mod), "__UnwindData")
+       !contains(String(inline_asm(mod)), "__UnwindData")
         @static if VERSION >= v"1.12.0-DEV.1297"
             # Julia 1.12 (JuliaLang/julia#54841) rewrote the catchjmp asm to use
             # normal relocations and emit a PLT trampoline to __julia_personality.
@@ -1209,7 +1244,7 @@ function decorate_module(mod)
                 section = ".text"
                 offset = ".text"
             end
-            inline_asm!(mod, """
+            push!(inline_asm(mod), """
                 .section $section
                 .globl __julia_personality
 
@@ -1236,7 +1271,7 @@ function decorate_module(mod)
                 """)
         else
             # Julia 1.10 and 1.11
-            inline_asm!(mod, """
+            push!(inline_asm(mod), """
                 .section .text
                 .type   __UnwindData,@object
                 .p2align        2, 0x90
@@ -1285,9 +1320,10 @@ JITDylibs (or only the one returned by `JITDylib(jljit)` if `external_jd_only` i
 """ lookup(::JuliaOJIT, ::JITDylib, ::Any)
 
 """
-    LLVM.IRCompileLayer(jljit::JuliaOJIT)
+    IRCompileLayer
 
-Get the layer of Julia's JIT that compiles IR modules, for use with [`LLVM.emit`](@ref).
+The layer of Julia's JIT that compiles IR modules, available as the `ir_compile_layer`
+property of a [`JuliaOJIT`](@ref), for use with [`emit`](@ref).
 """
 @checked struct IRCompileLayer
     ref::API.LLVMOrcIRCompileLayerRef
@@ -1308,7 +1344,6 @@ function emit(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::Thread
     API.LLVMOrcIRCompileLayerEmit(il, mr, tsm)
 end
 
-function IRCompileLayer(jljit::JuliaOJIT)
-    ref = API.JLJITGetIRCompileLayer(jljit)
-    IRCompileLayer(ref, jljit)
-end
+ir_compile_layer(jljit::JuliaOJIT) = IRCompileLayer(API.JLJITGetIRCompileLayer(jljit), jljit)
+
+@property JuliaOJIT ir_compile_layer

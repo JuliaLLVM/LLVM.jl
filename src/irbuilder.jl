@@ -5,18 +5,33 @@
 # concrete type of their operands (which would compile them for every combination).
 @nospecialize
 
-export IRBuilder,
-       position!,
-       debuglocation, debuglocation!
+@vocabulary Build IRBuilder,
+                  position!
 
 """
     IRBuilder
 
 An instruction builder, which is used to build instructions within a basic block.
+
+# Properties
+
+    builder.context
+
+The context of the instruction builder.
+
+    builder.debug_location
+    builder.debug_location = loc::Union{Metadata,MetadataAsValue,Nothing}
+
+The debug location that the instruction builder attaches to the instructions it creates,
+or `nothing` if no location is set. Assigning `nothing` clears the location.
+
+To give an existing instruction the builder's location, assign it to the instruction
+instead: `inst.debug_location = builder.debug_location`.
 """
 @checked struct IRBuilder
     ref::API.LLVMBuilderRef
 end
+@properties IRBuilder
 
 Base.unsafe_convert(::Type{API.LLVMBuilderRef}, builder::IRBuilder) =
     mark_use(builder).ref
@@ -37,12 +52,9 @@ Dispose of an instruction builder.
 """
 dispose(builder::IRBuilder) = mark_dispose(API.LLVMDisposeBuilder, builder)
 
-"""
-    context(builder::IRBuilder)
-
-Get the context associated with an instruction builder.
-"""
 context(builder::IRBuilder) = Context(API.LLVMGetBuilderContext(builder))
+
+@property IRBuilder context
 
 function IRBuilder(@specialize(f::Core.Function), args...; kwargs...)
     builder = IRBuilder(args...; kwargs...)
@@ -94,45 +106,20 @@ giving it a name.
 Base.insert!(builder::IRBuilder, inst::Instruction, name::String="") =
     API.LLVMInsertIntoBuilderWithName(builder, inst, name)
 
-"""
-    debuglocation(builder::IRBuilder)
-
-Get the current debug location of the instruction builder, or `nothing` if no location is
-set.
-"""
-function debuglocation(builder::IRBuilder)
+function debug_location(builder::IRBuilder)
     ref = API.LLVMGetCurrentDebugLocation2(builder)
     ref == C_NULL ? nothing : Metadata(ref)
 end
 
-"""
-    debuglocation!(builder::IRBuilder)
-
-Clear the current debug location of the instruction builder.
-"""
-debuglocation!(builder::IRBuilder) =
+debug_location!(builder::IRBuilder) =
     API.LLVMSetCurrentDebugLocation2(builder, C_NULL)
-
-"""
-    debuglocation!(builder::IRBuilder, loc)
-
-Set the current debug location of the instruction builder to `loc`, which can be a
-`Metadata` or `MetadataAsValue`.
-"""
-debuglocation!(builder::IRBuilder, loc::Union{Metadata,MetadataAsValue})
-debuglocation!(builder::IRBuilder, loc::Metadata) =
+debug_location!(builder::IRBuilder, loc::Metadata) =
     API.LLVMSetCurrentDebugLocation2(builder, loc)
-debuglocation!(builder::IRBuilder, loc::MetadataAsValue) =
+debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
     API.LLVMSetCurrentDebugLocation2(builder, Metadata(loc))
 
-"""
-    debuglocation!(builder::IRBuilder, inst::Instruction)
-
-Set the current debug location of the instruction builder to the location of the given
-instruction.
-"""
-debuglocation!(builder::IRBuilder, inst::Instruction) =
-    API.LLVMSetInstDebugLocation(builder, inst)
+@property IRBuilder debug_location (builder, loc::Union{Metadata,MetadataAsValue,Nothing}) ->
+    loc === nothing ? debug_location!(builder) : debug_location!(builder, loc)
 
 
 ## build methods
@@ -143,28 +130,29 @@ debuglocation!(builder::IRBuilder, inst::Instruction) =
 # NOTE: the return values for these operations are, according to the C API, always a Value.
 #       however, the C++ API learns us that we can be more strict.
 
-export ret!, br!, switch!, indirectbr!, invoke!, resume!, unreachable!,
+@vocabulary Build ret!, br!, switch!, indirectbr!, invoke!, resume!, unreachable!,
 
-       binop!, add!, nswadd!, nuwadd!, fadd!, sub!, nswsub!, nuwsub!, fsub!, mul!, nswmul!,
-       nuwmul!, fmul!, udiv!, sdiv!, exactsdiv!, fdiv!, urem!, srem!, frem!, neg!, nswneg!,
-       fneg!,
+                  binop!, add!, nswadd!, nuwadd!, fadd!, sub!, nswsub!, nuwsub!, fsub!,
+                  mul!, nswmul!, nuwmul!, fmul!, udiv!, sdiv!, exactsdiv!, fdiv!, urem!,
+                  srem!, frem!, neg!, nswneg!, fneg!,
 
-       shl!, lshr!, ashr!, and!, or!, xor!, not!,
+                  shl!, lshr!, ashr!, and!, or!, xor!, not!,
 
-       extract_element!, insert_element!, shuffle_vector!,
+                  extract_element!, insert_element!, shuffle_vector!,
 
-       extract_value!, insert_value!,
+                  extract_value!, insert_value!,
 
-       alloca!, array_alloca!, malloc!, array_malloc!, memset!, memcpy!, memmove!, free!,
-       load!, store!, fence!, atomic_rmw!, atomic_cmpxchg!, gep!, inbounds_gep!, struct_gep!,
+                  alloca!, array_alloca!, malloc!, array_malloc!, memset!, memcpy!,
+                  memmove!, free!, load!, store!, fence!, atomic_rmw!, atomic_cmpxchg!,
+                  gep!, inbounds_gep!, struct_gep!,
 
-       trunc!, zext!, sext!, fptoui!, fptosi!, uitofp!, sitofp!, fptrunc!, fpext!,
-       ptrtoint!, inttoptr!, bitcast!, addrspacecast!, zextorbitcast!, sextorbitcast!,
-       truncorbitcast!, cast!, pointercast!, intcast!, fpcast!,
+                  trunc!, zext!, sext!, fptoui!, fptosi!, uitofp!, sitofp!, fptrunc!,
+                  fpext!, ptrtoint!, inttoptr!, bitcast!, addrspacecast!, zextorbitcast!,
+                  sextorbitcast!, truncorbitcast!, cast!, pointercast!, intcast!, fpcast!,
 
-       icmp!, fcmp!, phi!, select!, call!, va_arg!, landingpad!,
+                  icmp!, fcmp!, phi!, select!, call!, va_arg!, landingpad!,
 
-       globalstring!, globalstring_ptr!, isnull!, isnotnull!, ptrdiff!
+                  globalstring!, globalstring_ptr!, isnull!, isnotnull!, ptrdiff!
 
 
 # terminator instructions
@@ -190,9 +178,10 @@ switch!(builder::IRBuilder, V::Value, Else::BasicBlock, NumCases::Integer=10) =
 indirectbr!(builder::IRBuilder, Addr::Value, NumDests::Integer=10) =
     Instruction(API.LLVMBuildIndirectBr(builder, Addr, NumDests))
 
-function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value},
+function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                  Then::BasicBlock, Catch::BasicBlock, Name::String="")
-    Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, Args, length(Args), Then, Catch, Name))
+    Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, as_vector(Args), length(Args), Then,
+                                     Catch, Name))
 end
 
 resume!(builder::IRBuilder, Exn::Value) =
@@ -470,7 +459,7 @@ function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope:
 end
 
 check_available(op::API.LLVMAtomicRMWBinOp) =
-    available(op) ||
+    isavailable(op) ||
         throw(ArgumentError("atomicrmw operation $(Integer(op)) is not supported by LLVM $(version())"))
 
 function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
@@ -502,9 +491,10 @@ end
                 ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing, volatile=false)
 
 Atomically apply the operation `op` to the value at `ptr` and `val`, returning the old
-value. The operation must be [`available`](@ref) with the version of LLVM in use, and the
-ordering at least `monotonic`. See [`load!`](@ref) for the meaning of the other keyword
-arguments; by default, the operation is aligned to the size of the value.
+value. The operation must be supported by the version of LLVM in use (see
+[`LLVM.isavailable`](@ref)), and the ordering at least `monotonic`. See [`load!`](@ref)
+for the meaning of the other keyword arguments; by default, the operation is aligned to the
+size of the value.
 """
 function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                      ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing,
@@ -691,23 +681,25 @@ phi!(builder::IRBuilder, Ty::LLVMType, Name::String="") =
 select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::String="") =
     Value(API.LLVMBuildSelect(builder, If, Then, Else, Name))
 
-function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value}=Value[],
-               Name::String="")
+function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
+               Args::AbstractVector{<:Value}=Value[], Name::String="")
     @static if version() >= v"11"
-        Instruction(API.LLVMBuildCall2(builder, Ty, Fn, Args, length(Args), Name))
+        Instruction(API.LLVMBuildCall2(builder, Ty, Fn, as_vector(Args), length(Args),
+                                       Name))
     else
-        Instruction(API.LLVMBuildCall(builder, Fn, Args, length(Args), Name))
+        Instruction(API.LLVMBuildCall(builder, Fn, as_vector(Args), length(Args), Name))
     end
 end
 
-function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value},
+function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                Bundles::Vector{OperandBundle}, Name::String="")
-    Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, Args, length(Args), Bundles,
-                                                    length(Bundles), Name))
+    Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, as_vector(Args),
+                                                    length(Args), Bundles, length(Bundles),
+                                                    Name))
 end
 
-# convenience function to be able to call `call!` with an `operand_bundles(call)` argument
-call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::Vector{<:Value},
+# convenience function to be able to call `call!` with a `call.operand_bundles` argument
+call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
       Bundles::OperandBundleIterator, Name::String="") =
     call!(builder, Ty, Fn, Args, collect(Bundles), Name)
 
@@ -748,7 +740,7 @@ function globalstring!(mod::LLVM.Module, str::String, name::String="";
     gv = GlobalVariable(mod, value_type(constant), name,
                         something(addrspace, globals_addrspace(datalayout(mod))))
     alignment!(gv, 1)
-    unnamed_addr!(gv, true)
+    unnamed_addr!(gv, API.LLVMGlobalUnnamedAddr)
     initializer!(gv, constant)
     constant!(gv, true)
     linkage!(gv, LLVM.API.LLVMPrivateLinkage)

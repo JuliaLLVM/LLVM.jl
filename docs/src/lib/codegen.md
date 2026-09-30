@@ -3,56 +3,48 @@
 ## Targets
 
 ```@docs
-Target
-name(::Target)
-description(::Target)
-hasjit(::Target)
-hastargetmachine(::Target)
-hasasmparser(::Target)
-targets
+LLVM.Target
+LLVM.hasjit(::LLVM.Target)
+LLVM.hastargetmachine(::LLVM.Target)
+LLVM.hasasmparser(::LLVM.Target)
+LLVM.targets
 ```
 
 ## Target machines
 
 ```@docs
-TargetMachine
-dispose(::TargetMachine)
-target(::TargetMachine)
-triple(::TargetMachine)
-triple()
-normalize(::String)
-cpu(::TargetMachine)
-features(::TargetMachine)
-asm_verbosity!
+LLVM.TargetMachine
+dispose(::LLVM.TargetMachine)
+LLVM.default_triple
+LLVM.normalize(::String)
+LLVM.asm_verbosity!
 emit
-add_transform_info!
-add_library_info!
-JITTargetMachine
+LLVM.add_transform_info!
+LLVM.add_library_info!
+LLVM.JITTargetMachine
 ```
 
 ## Data layout
 
 ```@docs
-DataLayout
-dispose(::DataLayout)
-byteorder
-pointersize
-intptr
-globals_addrspace
-sizeof(::DataLayout, ::LLVMType)
-storage_size
-abi_size
-abi_alignment
-frame_alignment
-preferred_alignment
-element_at
-offsetof
+LLVM.DataLayout
+dispose(::LLVM.DataLayout)
+LLVM.pointersize
+LLVM.intptr
+sizeof(::LLVM.DataLayout, ::LLVMType)
+LLVM.storage_size
+LLVM.abi_size
+LLVM.abi_alignment
+LLVM.frame_alignment
+LLVM.preferred_alignment
+LLVM.element_at
+LLVM.offsetof
 ```
 
 ## Disassembly
 
 ```@docs
-Disassembler
-dispose(::Disassembler)
-disassemble
+LLVM.Disassembler
+dispose(::LLVM.Disassembler)
+LLVM.disassemble
 ```

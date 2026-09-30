@@ -1,4 +1,4 @@
-export link!
+@vocabulary IR link!
 
 """
     link!(dst::Module, src::Module; only_needed=false, override_from_src=false)

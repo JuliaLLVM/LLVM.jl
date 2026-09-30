@@ -1,4 +1,4 @@
-export Pass
+@vocabulary Passes Pass
 
 # subtypes are expected to have a 'ref::API.LLVMPassRef' field
 abstract type Pass end
@@ -32,7 +32,7 @@ end
 # Module passes
 #
 
-export ModulePass
+@vocabulary Passes ModulePass
 
 function module_pass_callback(ptr, data)
     mod = Module(convert(API.LLVMModuleRef, ptr))
@@ -61,7 +61,7 @@ end
 # Function passes
 #
 
-export FunctionPass
+@vocabulary Passes FunctionPass
 
 function function_pass_callback(ptr, data)
     fn = Function(convert(API.LLVMValueRef, ptr))

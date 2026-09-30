@@ -1,4 +1,4 @@
-export ThreadSafeModule, ThreadSafeContext
+@vocabulary ORC ThreadSafeModule, ThreadSafeContext
 
 """
     ThreadSafeContext

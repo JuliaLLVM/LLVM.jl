@@ -39,40 +39,40 @@ end
     T_ptr = LLVM.PointerType(T_int)
     ptr_str = supports_typed_pointers(ctx) ? "i32\\* %0" : "ptr %0"
     f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [T_ptr, T_int, T_float]))
-    ptr, int, float = parameters(f)
+    ptr, int, float = f.parameters
     position!(builder, BasicBlock(f, "entry"))
 
     ld = load!(builder, T_int, ptr; ordering=AC, scope="agent", align=8, volatile=true)
     @test occursin(Regex("load atomic volatile i32, $ptr_str syncscope\\(\"agent\"\\) acquire, align 8"),
                    string(ld))
-    @test ordering(ld) == AC && name(syncscope(ld)) == "agent" && isvolatile(ld)
-    @test !is_atomic(load!(builder, T_int, ptr))
+    @test ld.ordering == AC && ld.syncscope.name == "agent" && ld.volatile
+    @test !isatomic(load!(builder, T_int, ptr))
 
     st = store!(builder, int, ptr; ordering=RE, align=4)
     @test occursin(Regex("store atomic i32 %1, $ptr_str release, align 4"), string(st))
 
     fn = fence!(builder, AR; scope="workgroup")
     @test occursin("fence syncscope(\"workgroup\") acq_rel", string(fn))
-    @test ordering(fn) == AR
-    ordering!(fn, SC)
-    @test ordering(fn) == SC
+    @test fn.ordering == AR
+    fn.ordering = SC
+    @test fn.ordering == SC
 
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, int, MO; align=16, volatile=true)
     @test occursin(Regex("atomicrmw volatile add $ptr_str, i32 %1 monotonic, align 16"), string(rmw))
-    ordering!(rmw, AC)
-    @test ordering(rmw) == AC
-    @test_throws "at least monotonic" ordering!(rmw, UN)
-    @test_throws "Fences must have" ordering!(fn, MO)
+    rmw.ordering = AC
+    @test rmw.ordering == AC
+    @test_throws "at least monotonic" rmw.ordering = UN
+    @test_throws "Fences must have" fn.ordering = MO
 
     cx = atomic_cmpxchg!(builder, ptr, int, int, AR; scope="agent", weak=true)
     @test occursin(Regex("cmpxchg weak $ptr_str, i32 %1, i32 %1 syncscope\\(\"agent\"\\) acq_rel acquire"),
                    string(cx))
     @test merged_ordering(cx) == AR
-    @test_throws ArgumentError ordering(cx)
-    @test_throws ArgumentError ordering!(cx, SC)
+    @test_throws "no property `ordering`" cx.ordering
+    @test_throws "no property `ordering`" cx.ordering = SC
     cx2 = atomic_cmpxchg!(builder, ptr, int, int, RE, AC)
-    @test success_ordering(cx2) == RE && failure_ordering(cx2) == AC
-    @test failure_ordering(atomic_cmpxchg!(builder, ptr, int, int, SC)) == SC
+    @test cx2.success_ordering == RE && cx2.failure_ordering == AC
+    @test atomic_cmpxchg!(builder, ptr, int, int, SC).failure_ordering == SC
 
     ret!(builder)
     @test verify(mod) === nothing
@@ -92,7 +92,7 @@ end
     @test_throws "integer or pointer values" atomic_cmpxchg!(builder, ptr, float, float, SC)
     @test_throws "same type" atomic_cmpxchg!(builder, ptr, int, float, SC)
     @test_throws "release or acq_rel" atomic_cmpxchg!(builder, ptr, int, int, SC, RE)
-    @test isempty(instructions(position(builder)))
+    @test isempty(position(builder).instructions)
 end
 end
 
@@ -100,27 +100,27 @@ end
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("atomics") begin
     T_int = LLVM.Int32Type()
     f = LLVM.Function(mod, "f", LLVM.FunctionType(T_int, [LLVM.PointerType(T_int), T_int]))
-    ptr, int = parameters(f)
+    ptr, int = f.parameters
     position!(builder, BasicBlock(f, "entry"))
 
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, int, MO)
     mmra!(rmw, "amdgpu-as" => "local")
-    tag = metadata(rmw)["mmra"]
-    @test length(operands(tag)) == 2
+    tag = rmw.metadata["mmra"]
+    @test length(tag.operands) == 2
     mmra!(rmw, "amdgpu-as" => "local", "amdgpu-as" => "global")
-    @test length(operands(metadata(rmw)["mmra"])) == 2
-    @test all(op -> op isa MDNode, operands(metadata(rmw)["mmra"]))
+    @test length(rmw.metadata["mmra"].operands) == 2
+    @test all(op -> op isa MDNode, rmw.metadata["mmra"].operands)
     mmra!(rmw)
-    @test !haskey(metadata(rmw), "mmra")
+    @test !haskey(rmw.metadata, "mmra")
 
     mmra!(rmw, "amdgpu-as" => "local")
-    metadata(rmw)["amdgpu.no.fine.grained.memory"] = MDNode(Metadata[])
-    metadata(rmw)[LLVM.MD_range] = MDNode([ConstantInt(Int32(0)), ConstantInt(Int32(10))])
+    rmw.metadata["amdgpu.no.fine.grained.memory"] = MDNode(Metadata[])
+    rmw.metadata[LLVM.MD_range] = MDNode([ConstantInt(Int32(0)), ConstantInt(Int32(10))])
     cx = atomic_cmpxchg!(builder, ptr, int, int, MO)
     copy_atomic_metadata!(cx, rmw)
-    @test haskey(metadata(cx), "mmra")
-    @test haskey(metadata(cx), "amdgpu.no.fine.grained.memory")
-    @test !haskey(metadata(cx), LLVM.MD_range)
+    @test haskey(cx.metadata, "mmra")
+    @test haskey(cx.metadata, "amdgpu.no.fine.grained.memory")
+    @test !haskey(cx.metadata, LLVM.MD_range)
 
     ret!(builder, rmw)
 end
@@ -132,7 +132,7 @@ end
     function newfun(name, T)
         f = LLVM.Function(mod, name, LLVM.FunctionType(T, [LLVM.PointerType(T), T]))
         position!(builder, BasicBlock(f, "entry"))
-        return f, parameters(f)...
+        return f, f.parameters...
     end
 
     # computing the values of atomic operations
@@ -142,13 +142,13 @@ end
     f, ptr, val = newfun("fvalue", T_float)
     ret!(builder, atomic_rmw_value!(builder, O.LLVMAtomicRMWBinOpFMax, val, val))
     @test occursin("llvm.maxnum", string(f))
-    if LLVM.available(O.LLVMAtomicRMWBinOpUIncWrap)
+    if LLVM.isavailable(O.LLVMAtomicRMWBinOpUIncWrap)
         f, ptr, val = newfun("uinc", T_i32)
         ret!(builder, atomic_rmw_value!(builder, O.LLVMAtomicRMWBinOpUIncWrap, val, val))
     end
     f, ptr, val = newfun("cas", T_i32)
     loaded, success = atomic_cmpxchg_value!(builder, ptr, val, val; align=4)
-    @test value_type(success) == LLVM.Int1Type()
+    @test success.value_type == LLVM.Int1Type()
     ret!(builder, loaded)
     @test occursin("select", string(f))
 
@@ -248,11 +248,11 @@ end
     xchg = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpXchg, ptr, val, MO)
     ret!(builder, fadd!(builder, ld, xchg))
     new_ld = cast_atomic_to_integer!(ld)
-    @test value_type(new_ld) == T_i32 && ordering(new_ld) == AC
+    @test new_ld.value_type == T_i32 && new_ld.ordering == AC
     new_st = cast_atomic_to_integer!(st)
-    @test isvolatile(new_st) && ordering(new_st) == RE
+    @test new_st.volatile && new_st.ordering == RE
     new_xchg = cast_atomic_to_integer!(xchg)
-    @test value_type(new_xchg) == T_i32
+    @test new_xchg.value_type == T_i32
     @test cast_atomic_to_integer!(new_ld) == new_ld
 
     @test verify(mod) === nothing

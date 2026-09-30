@@ -23,11 +23,11 @@ function create_entry_block_allocation(cg::CodeGen, fn::LLVM.Function, varname::
     local alloc
     LLVM.@dispose builder=LLVM.IRBuilder() begin
         # Set the builder at the start of the function
-        entry_block = LLVM.entry(fn)
-        if isempty(LLVM.instructions(entry_block))
+        entry_block = fn.entry
+        if isempty(entry_block.instructions)
             LLVM.position!(builder, entry_block)
         else
-            LLVM.position!(builder, first(LLVM.instructions(entry_block)))
+            LLVM.position!(builder, first(entry_block.instructions))
         end
         alloc = LLVM.alloca!(builder, LLVM.DoubleType(), varname)
     end
@@ -79,12 +79,12 @@ function codegen(cg::CodeGen, expr::BinaryExprAST)
 end
 
 function codegen(cg::CodeGen, expr::CallExprAST)
-    if !haskey(LLVM.functions(cg.mod), expr.callee)
+    if !haskey(cg.mod.functions, expr.callee)
         error("encountered undeclared function $(expr.callee)")
     end
-    func =  LLVM.functions(cg.mod)[expr.callee]
+    func =  cg.mod.functions[expr.callee]
 
-    if length(LLVM.parameters(func)) != length(expr.args)
+    if length(func.parameters) != length(expr.args)
         error("number of parameters mismatch")
     end
 
@@ -92,21 +92,21 @@ function codegen(cg::CodeGen, expr::CallExprAST)
     for v in expr.args
         push!(args, codegen(cg, v))
     end
-    ft = LLVM.function_type(func)
+    ft = func.function_type
     return LLVM.call!(cg.builder, ft, func, args, "calltmp")
 end
 
 function codegen(cg::CodeGen, expr::PrototypeAST)
-    if haskey(LLVM.functions(cg.mod), expr.name)
+    if haskey(cg.mod.functions, expr.name)
             error("existing function exists")
     end
     args = [LLVM.DoubleType() for i in 1:length(expr.args)]
     func_type = LLVM.FunctionType(LLVM.DoubleType(), args)
     func = LLVM.Function(cg.mod, expr.name, func_type)
-    LLVM.linkage!(func, LLVM.API.LLVMExternalLinkage)
+    func.linkage = LLVM.API.LLVMExternalLinkage
 
-    for (i, param) in enumerate(LLVM.parameters(func))
-        LLVM.name!(param, expr.args[i])
+    for (i, param) in enumerate(func.parameters)
+        param.name = expr.args[i]
     end
     return func
 end
@@ -119,7 +119,7 @@ function codegen(cg::CodeGen, expr::FunctionAST)
     LLVM.position!(cg.builder, entry)
 
     new_scope(cg) do
-        for (i, param) in enumerate(LLVM.parameters(the_function))
+        for (i, param) in enumerate(the_function.parameters)
             argname = expr.proto.args[i]
             alloc = create_entry_block_allocation(cg, the_function, argname)
             LLVM.store!(cg.builder, param, alloc)
@@ -134,7 +134,7 @@ function codegen(cg::CodeGen, expr::FunctionAST)
 end
 
 function codegen(cg::CodeGen, expr::IfExprAST)
-    func = LLVM.parent(LLVM.position(cg.builder))
+    func = LLVM.position(cg.builder).parent
     then = LLVM.BasicBlock(func, "then")
     elsee = LLVM.BasicBlock(func, "else")
     merge = LLVM.BasicBlock(func, "ifcont")
@@ -162,7 +162,7 @@ function codegen(cg::CodeGen, expr::IfExprAST)
         # merge
         LLVM.position!(cg.builder, merge)
         phi = LLVM.phi!(cg.builder, LLVM.DoubleType(), "iftmp")
-        append!(LLVM.incoming(phi), [(thencg, then_block), (elsecg, else_block)])
+        append!(phi.incoming, [(thencg, then_block), (elsecg, else_block)])
     end
 
     return phi
@@ -172,7 +172,7 @@ function codegen(cg::CodeGen, expr::ForExprAST)
     new_scope(cg) do
         # Allocate loop variable
         startblock = position(cg.builder)
-        func = LLVM.parent(startblock)
+        func = startblock.parent
         alloc = create_entry_block_allocation(cg, func, expr.varname)
         current_scope(cg)[expr.varname] = alloc
         start = codegen(cg, expr.start)
@@ -213,9 +213,9 @@ function codegen(cg::CodeGen, expr::VarExprAST)
         local V
         if isglobalscope(current_scope(cg))
             V = LLVM.GlobalVariable(cg.mod, LLVM.DoubleType(), varname)
-            LLVM.initializer!(V, initval)
+            V.initializer = initval
         else
-            func = LLVM.parent(LLVM.position(cg.builder))
+            func = LLVM.position(cg.builder).parent
             V = create_entry_block_allocation(cg, func, varname)
             LLVM.store!(cg.builder, initval, V)
         end

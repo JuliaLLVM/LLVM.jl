@@ -1,3 +1,73 @@
+## public API
+
+# `@public foo, bar` → `public foo, bar` on Julia ≥ 1.11, nothing on older.
+# `public` is only parseable at module top-level on all Julia versions, so a
+# bare `@static if ...; public foo; end` would fail at parse time. Taking the
+# names through a macro sidesteps that: `foo, bar` parses as a plain tuple,
+# and we splice its members into an `Expr(:public, ...)` the lowerer accepts.
+macro public(names)
+    @static if VERSION >= v"1.11"
+        syms = names isa Symbol ? (names,) :
+               Meta.isexpr(names, :tuple) ? names.args :
+               error("@public expects a symbol or a comma-separated list of symbols")
+        return esc(Expr(:public, syms...))
+    else
+        return nothing
+    end
+end
+
+# To avoid clashes, `using LLVM` only brings `@dispose` into scope. The rest of the API is
+# public, and grouped into vocabularies that code can opt into, e.g., `using LLVM.IR` (see
+# src/vocabularies.jl). `@vocabulary IR foo, bar` marks `foo` and `bar` public, and adds
+# them to the `IR` vocabulary.
+#
+# When adding API, use `@vocabulary` instead of `export`, picking the subsystem it belongs
+# to: `IR` for the object model and its traversal and modification, `Build` for
+# constructing IR (including debug info, using the `DIBuilder`), `Passes` for passes and
+# pipelines, `ORC` for the JIT. A type and the functions that operate on it belong to the
+# same vocabulary, and a name can be part of several vocabularies when it is used by
+# several subsystems (e.g., `add!`, `dispose` or `finalize!`). Use `@public` instead for
+# functionality that should always be used qualified, like specialized subsystems
+# (targets, target machines, data layouts, the legacy execution engines). The accessors
+# that back a property are not public at all (see `@property` below).
+#
+# Only add a method to a Base function when the meaning clearly matches its documented
+# contract; e.g., LLVM's `parent` property (the containing object) is not `Base.parent`
+# (which unwraps a view), and the size of a debug info type is a property in bits, not
+# `Base.sizeof`. Mutating Base methods return the collection they modify, like Base does
+# (`push!`, `append!`, `delete!`, `empty!`, `setindex!`).
+#
+# Naming: predicates are named `isfoo` or `hasfoo`, with the words concatenated when that
+# reads well (`isdeclaration`, `isopaque`, `hasjit`), and separated by underscores when it
+# doesn't (`is_acquire_or_stronger`). Other names use underscores to separate words
+# (`linking_layer_creator!`, `target_machine_builder!`, `debug_location`), except for established
+# LLVM terms and abbreviations that are written as one word (`callconv`, `datalayout`,
+# `syncscope`, `threadlocal`, `inbounds_gep!`). Functions that mirror a family of LLVM
+# names, like the instruction builders or the methods of `AbstractTargetTransformInfo`,
+# follow that family.
+const vocabularies = Dict{Symbol,Vector{Symbol}}()
+
+macro vocabulary(vocabulary::Symbol, names)
+    syms = names isa Symbol ? (names,) :
+           Meta.isexpr(names, :tuple) ? names.args :
+           error("@vocabulary expects a symbol or a comma-separated list of symbols")
+    quote
+        @public $names
+        append!(get!(vocabularies, $(QuoteNode(vocabulary)), Symbol[]),
+                $(Expr(:tuple, QuoteNode.(syms)...)))
+    end |> esc
+end
+
+# the vocabulary modules re-export bindings that are defined in LLVM: those declared using
+# `@vocabulary`, and any additional ones that are passed explicitly
+macro reexport(vocabulary::Symbol, extra::Symbol...)
+    names = unique([vocabularies[vocabulary]; extra...])
+    path = Expr(:., :., :., :LLVM)
+    imports = Expr(:import, Expr(:(:), path, (Expr(:., n) for n in names)...))
+    esc(Expr(:toplevel, imports, Expr(:export, names...)))
+end
+
+
 # helpers for wrapping the library
 
 function unsafe_message(ptr, args...)
@@ -6,7 +76,8 @@ function unsafe_message(ptr, args...)
     str
 end
 
-export CallbackException
+@vocabulary IR CallbackException
+@vocabulary ORC CallbackException
 
 """
     CallbackException
@@ -51,23 +122,6 @@ function _take_callback_exception!(state)
         exception
     end
 end
-
-# `@public foo, bar` → `public foo, bar` on Julia ≥ 1.11, nothing on older.
-# `public` is only parseable at module top-level on all Julia versions, so a
-# bare `@static if ...; public foo; end` would fail at parse time. Taking the
-# names through a macro sidesteps that: `foo, bar` parses as a plain tuple,
-# and we splice its members into an `Expr(:public, ...)` the lowerer accepts.
-macro public(names)
-    @static if VERSION >= v"1.11"
-        syms = names isa Symbol ? (names,) :
-               Meta.isexpr(names, :tuple) ? names.args :
-               error("@public expects a symbol or a comma-separated list of symbols")
-        return esc(Expr(:public, syms...))
-    else
-        return nothing
-    end
-end
-
 
 ## defining types in the LLVM type hierarchy
 
@@ -145,9 +199,160 @@ end
     GC.@preserve obj unsafe_load(Ptr{R}(ccall(:jl_value_ptr, Ptr{Cvoid}, (Any,), obj)))
 end
 
+# the C API wrappers convert `Vector`s of wrapper objects, so collect other vectors (like
+# the views that represent collections of IR objects) before passing them
+@inline as_vector(x::Vector) = x
+as_vector(x::AbstractVector) = collect(x)
+
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)
     ref==C_NULL && throw(UndefRefError())
+end
+
+
+## properties
+
+# Attributes of LLVM objects are exposed as properties, e.g., `gv.linkage`,
+# `mod.triple = "..."` or `f.blocks`. Each property is backed by an accessor function of the
+# same name (`linkage(gv)`, and `linkage!(gv, val)` for writable properties). These
+# accessors are internal: the property is the only public spelling, so don't mark them
+# `@public` or add them to a vocabulary, and don't give other public functionality the same
+# name (e.g., `overloaded_name` instead of a `name(intrinsic, types)` method). LLVM.jl
+# itself can keep calling the accessors. Document a property in the docstring of the type it
+# is declared on, in a "Properties" section with signature lines like `gv.linkage` and
+# `gv.linkage = linkage::LLVM.API.LLVMLinkage` and a description of what assignment does,
+# rather than on the accessor, which users do not call. Properties that are declared on a
+# group of instructions are documented on the union type of that group, like `CallBase`, and
+# those of individual instruction types on the group they belong to, or on `Instruction`.
+#
+# The one exception is `context`, which is public (and part of `LLVM.IR`) because of
+# `context()`, the task-local context, and `context(::ThreadSafeContext)`. The `context`
+# property is documented on the types that have it, like other properties.
+#
+# The root of a type hierarchy opts in using `@properties`, after which `@property`
+# declares individual properties for that type or any of its subtypes.
+#
+# When to use a property, as documented for users in the "Properties" section of the manual
+# (docs/src/man/essentials.md):
+# - Properties expose what an object has: its characteristics (`name`, `linkage`), its
+#   relationships (`parent`, `terminator`, `initializer`, `next`), and its contents, as
+#   views (`functions`, `blocks`, `operands`, `uses`, `inline_asm`). Functions ask questions
+#   that cannot be assigned (predicates like `isdeclaration` or `isvararg`), compute from
+#   additional arguments (`overloaded_name(intr, types)`, `dominates`), or act (operations
+#   like `erase!` or `elements!`, builders, and constructors).
+# - A collection is a property that returns a view: a live window onto the IR, which
+#   queries the IR object when used, never a copy of its contents (don't cache contents
+#   either, as they go stale when the IR changes). Make the view mutable where LLVM
+#   supports modifying the collection in place (`inst.operands[i] = val`,
+#   `push!(f.function_attributes, attr)`), and read-only otherwise, so that mutation throws
+#   instead of silently doing nothing (e.g., by subtyping `AbstractVector` without defining
+#   `setindex!`). Keyed lookups index the view (`inst.metadata[kind]`,
+#   `mod.functions[name]`), and collections that are indexed by position are vectors of
+#   views (`f.parameter_attributes[i]`). Assigning to a collection property is not
+#   supported. Functions that take a vector of IR objects should accept an `AbstractVector`,
+#   so that views can be passed to them.
+# - Navigating to a sibling in a list is a relationship, exposed as the read-only `next` and
+#   `prev` properties (like C++'s `getNextNode` and `getPrevNode`), which are only declared
+#   on objects that are part of a list.
+# - A flag that can be assigned is a `Bool` property named without an `is` or `has` prefix
+#   (`gv.constant`, `inst.volatile`), not a predicate with an `x!` setter.
+# - Richer state, like a bundle of flags or the memory effects of a function, is exposed as
+#   a property that returns a view object bound to the IR object (`FastMathFlags`,
+#   `FunctionMemoryEffects`). Reading from the view queries the IR object, modifying it
+#   (`inst.fast_math.nnan = true`, `f.memory_effects[:argmem] = :read`) writes through, and
+#   assigning to the property replaces the state wholesale. Make it easy to convert a view
+#   to a value (`NamedTuple(flags)`, `MemoryEffects(effects)`).
+# - For enum-valued state with a common yes/no question, provide both as properties that
+#   are views of the same state, like LLVM's C++ API does (`threadlocal_mode` and
+#   `threadlocal`, `tailcall_kind` and `tailcall`). Assigning the current value to the
+#   `Bool` view should not change the underlying state.
+# - Reading a property may perform a lookup, convert data, or create a (lazy) view, but must
+#   not run an analysis, traverse the IR, or construct a collection of IR objects. Views
+#   that are derived from other IR (like the `predecessors` of a block, from its uses) only
+#   do that work when they are used.
+# - Declare the property on the types that support it, not on a supertype where the
+#   accessor would fail (e.g., `alignment` is only available on memory instructions). When
+#   support depends on the LLVM version, only declare the property on versions that support
+#   it (e.g., `disjoint`), but keep defining its accessor so that it can be documented.
+# - When a relationship can be absent, the accessor returns `nothing` instead of throwing.
+# - A relationship is a property even if it refers to a different kind of object, like the
+#   execution session of a JIT (`jit.execution_session`, not `ExecutionSession(jit)`).
+#   Constructors are for creating objects (`JITDylib(es, name)`), or for converting and
+#   interpreting values (`MemoryEffects(f.memory_effects)`, `Intrinsic(f)`).
+# - State that can be set but not read back, or that is a callback, is set with a function
+#   named after it (`asm_verbosity!(tm, true)`, `transform!(f, layer)`), as there are no
+#   write-only properties.
+# - When assignment should not simply call `name!(x, v)`, pass an adapter as the setter,
+#   e.g., to accept `nothing` (`debug_location`), or when `name!` is taken by an unrelated
+#   function (`subprogram!` creates a subprogram using a `DIBuilder`). If the underlying API
+#   cannot implement assignment semantics, add the missing functionality to LLVMExtra (as
+#   done to replace fast-math flags), or keep the property read-only.
+
+# the reference of wrapper objects (overridden for hierarchies whose concrete type is only
+# known at run time, to access it without dispatch)
+@inline propref(x) = getfield(x, :ref)
+
+# (type, name) pairs, to implement `propertynames`
+const property_registry = Tuple{Type,Symbol}[]
+
+# fall back to the object's fields, or error with a list of the available properties
+@inline function getprop(x, ::Val{S}) where {S}
+    hasfield(typeof(x), S) || property_error(x, S)
+    getfield(x, S)
+end
+@inline function setprop!(x, ::Val{S}, v) where {S}
+    hasfield(typeof(x), S) || property_error(x, S, v)
+    setfield!(x, S, v)
+end
+@noinline function property_error(x, s::Symbol, v...)
+    names = property_names(x, false)
+    if s in names
+        # the property exists, but its setter does not support this value
+        throw(ArgumentError("cannot set property `$s` of $(typeof(x)) to a value of type " *
+                            string(typeof(only(v)))))
+    end
+    error(typeof(x), " has no property `", s, "`; available properties are: ",
+          join(names, ", "))
+end
+
+function property_names(x, private::Bool)
+    names = Symbol[name for (T, name) in property_registry if x isa T]
+    private && append!(names, fieldnames(typeof(x)))
+    return Tuple(unique!(names))
+end
+
+macro properties(T)
+    quote
+        # `ref` is accessed all over the place, so give it a direct path
+        @inline Base.getproperty(@nospecialize(x::$T), s::Symbol) =
+            s === :ref ? propref(x) : getprop(x, Val(s))
+        @inline Base.setproperty!(@nospecialize(x::$T), s::Symbol, v) =
+            setprop!(x, Val(s), v)
+        Base.propertynames(x::$T, private::Bool=false) = property_names(x, private)
+    end |> esc
+end
+
+# `@property T name` declares a read-only property backed by `name(x)`, while
+# `@property T name setter` makes it writable by calling `setter(x, v)`. For setters that
+# need to adapt the value, `setter` can be an anonymous function `(x, v) -> ...`, which
+# becomes the body of the setter method (so that its arguments can be typed).
+macro property(T, name::Symbol, setter=nothing)
+    sym = QuoteNode(name)
+    setter_method = if setter === nothing
+        :(setprop!(x::$T, ::Val{$sym}, v) =
+            error("property `", $sym, "` of ", typeof(x), " is read-only"))
+    elseif Meta.isexpr(setter, :->)
+        x, v = setter.args[1].args
+        vname = Meta.isexpr(v, :(::)) ? v.args[1] : v
+        :(setprop!($x::$T, ::Val{$sym}, $v) = ($(setter.args[2]); $vname))
+    else
+        :(setprop!(x::$T, ::Val{$sym}, v) = ($setter(x, v); v))
+    end
+    quote
+        @inline getprop(x::$T, ::Val{$sym}) = $name(x)
+        $setter_method
+        push!(property_registry, ($T, $sym))
+    end |> esc
 end
 
 

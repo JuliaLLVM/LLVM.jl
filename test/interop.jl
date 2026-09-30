@@ -19,58 +19,24 @@ end
 
 @testset "base" begin
 
+# hand-written generators, using `generate_llvmcall`
 @generated function foo()
-    @dispose ctx=Context() begin
-        f, ft = create_function()
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(f, "entry")
-            position!(builder, entry)
-
-            ret!(builder)
-        end
-
-        call_function(f, Nothing, Tuple{})
+    generate_llvmcall(Nothing, Tuple{}) do builder
+        nothing
     end
 end
 @test foo() === nothing
 
 @generated function bar()
-    @dispose ctx=Context() begin
-        T_int = convert(LLVMType, Int)
-
-        f, ft = create_function(T_int)
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(f, "entry")
-            position!(builder, entry)
-
-            val = ConstantInt(T_int, 42)
-
-            ret!(builder, val)
-        end
-
-        call_function(f, Int, Tuple{})
+    generate_llvmcall(Int, Tuple{}) do builder
+        ConstantInt(convert(LLVMType, Int), 42)
     end
 end
 @test bar() == 42
 
 @generated function baz(i)
-    @dispose ctx=Context() begin
-        T_int = convert(LLVMType, Int)
-
-        f, ft = create_function(T_int, [T_int])
-
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(f, "entry")
-            position!(builder, entry)
-
-            val = add!(builder, parameters(f)[1], ConstantInt(T_int, 42))
-
-            ret!(builder, val)
-        end
-
-        call_function(f, Int, Tuple{Int}, :i)
+    generate_llvmcall(Int, Tuple{i}, :i) do builder, i
+        add!(builder, i, ConstantInt(i.value_type, 42))
     end
 end
 @test baz(1) == 43
@@ -128,7 +94,7 @@ end
 # Bool arguments and return values lower to i8
 @llvmgenerated builder function lg_iszero(x::Int)::Bool
     cmp = icmp!(builder, LLVM.API.LLVMIntEQ, x, ConstantInt(0))
-    zext!(builder, cmp, value_type(ConstantInt(Int8(0))))
+    zext!(builder, cmp, ConstantInt(Int8(0)).value_type)
 end
 @test lg_iszero(0) === true
 @test lg_iszero(1) === false
@@ -136,7 +102,7 @@ end
 # returning nothing
 @llvmgenerated builder function lg_store(ptr::Ptr{Int}, val::Int)::Nothing
     T_ptr = LLVM.PointerType(convert(LLVMType, Int))
-    if !(value_type(ptr) isa LLVM.PointerType)
+    if !(ptr.value_type isa LLVM.PointerType)
         ptr = inttoptr!(builder, ptr, T_ptr)
     elseif supports_typed_pointers(context())
         ptr = bitcast!(builder, ptr, T_ptr)
@@ -190,7 +156,7 @@ end
 @llvmgenerated builder function lg_upgraded()::Int32
     ft = LLVM.FunctionType(LLVM.Int32Type())
     decl = LLVM.Function(current_module(builder), "lg_readnone_decl", ft)
-    push!(function_attributes(decl), EnumAttribute("readnone", 0))
+    push!(decl.function_attributes, EnumAttribute("readnone", 0))
     ConstantInt(Int32(42))
 end
 @test lg_upgraded() === Int32(42)

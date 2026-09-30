@@ -1,6 +1,6 @@
 ## module and function verification
 
-export verify
+@vocabulary IR verify
 
 """
     verify(mod::Module)
@@ -31,7 +31,7 @@ end
 
 ## dominator analysis
 
-export dominates
+@vocabulary IR dominates
 
 """
     dominates(tree::DomTree, A::Instruction, B::Instruction)
@@ -43,7 +43,7 @@ dominates(tree, A::Instruction, B::Instruction)
 
 # dominance
 
-export DomTree
+@vocabulary IR DomTree
 
 """
     DomTree
@@ -80,7 +80,7 @@ end
 
 ## post-dominance
 
-export PostDomTree
+@vocabulary IR PostDomTree
 
 """
     PostDomTree

@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -11,24 +11,27 @@ end
 ```
 
 Instructions represent the operations that are executed by the program. They are grouped in
-basic blocks, and can be iterated using the `instructions` function. To create instructions,
-an instruction builder is used.
+basic blocks, and are available as the `instructions` property of a block. To create
+instructions, an instruction builder is used.
 
 The abstract `LLVM.Instruction` type supports a few additional APIs on top of the
 functionality from `User` and `Value`:
 
-- `parent`: get the parent basic block of the instruction.
-- `opcode`: get the opcode of the instruction.
+- `inst.parent`: the parent basic block of the instruction, or `nothing` if it is detached.
+- `inst.opcode`: the opcode of the instruction.
+- `inst.debug_location`: the debug location of the instruction, or `nothing`.
+- `inst.alignment`: the alignment of memory instructions (`alloca`, `load`, `store`,
+  `atomicrmw` and `cmpxchg`).
 - `remove!`/`erase!`: delete the instruction from its parent basic block, or additionally
   also delete the instruction itself.
-- `Instruction(::Instruction)`: clone an instruction
+- `copy(inst)`: clone an instruction
 
 
 ## Creating instructions
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -76,7 +79,7 @@ reference.
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -84,29 +87,29 @@ DocTestSetup = quote
 
     mod = LLVM.Module("SomeModule")
     fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
-    push!(function_attributes(fun), StringAttribute("nounwind"))
-    push!(parameter_attributes(fun, 1), StringAttribute("nocapture"))
-    push!(return_attributes(fun), StringAttribute("sret"))
-    caller = LLVM.Function(mod, "CallSomeFunction", function_type(fun))
+    push!(fun.function_attributes, StringAttribute("nounwind"))
+    push!(fun.parameter_attributes[1], StringAttribute("nocapture"))
+    push!(fun.return_attributes, StringAttribute("sret"))
+    caller = LLVM.Function(mod, "CallSomeFunction", fun.function_type)
     top = BasicBlock(caller, "top")
     builder = LLVM.IRBuilder();
     position!(builder, top)
 end
 ```
 
-Call and invoke instructions can have attributes just like functions.
-They can be set and retrieved using the iterators returned by the
-`function_attributes`, `argument_attributes` and `return_attributes` functions
-to respectively set attributes on the instructions, its arguments and its return value:
+Call and invoke instructions can have attributes just like functions. They can be set and
+retrieved using the views returned by the `function_attributes`, `argument_attributes` and
+`return_attributes` properties, to respectively set attributes on the instruction, its
+arguments and its return value:
 
 ```jldoctest function
-julia> instr = call!(builder, function_type(fun), fun, LLVM.Value[ parameters(fun)... ]);
+julia> instr = call!(builder, fun.function_type, fun, LLVM.Value[ fun.parameters... ]);
 
-julia> push!(function_attributes(instr), StringAttribute("nounwind"))
+julia> push!(instr.function_attributes, StringAttribute("nounwind"));
 
-julia> push!(argument_attributes(instr, 1), StringAttribute("nocapture"))
+julia> push!(instr.argument_attributes[1], StringAttribute("nocapture"));
 
-julia> push!(return_attributes(instr), StringAttribute("sret"))
+julia> push!(instr.return_attributes, StringAttribute("sret"));
 
 julia> mod
 ; ModuleID = 'SomeModule'
@@ -125,19 +128,17 @@ attributes #0 = { "nounwind" }
 ### Debug location
 
 When creating instructions with an `IRBuilder`, it is possible to set a debug location for
-the instruction. This is done by calling the `debuglocation!` function on the builder:
-
-- `debuglocation!(builder)`: clear the debug location.
-- `debuglocation!(builder, ::Metadata)`: set the debug location to a specific metadata.
-- `debuglocation!(builder, ::Instruction)`: set the debug location to the same as another
-  instruction.
+the instructions it creates by assigning to the `debug_location` property of the builder
+(assign `nothing` to clear it). Instructions have a `debug_location` property too, so an
+existing instruction can be given the builder's current debug location using
+`inst.debug_location = builder.debug_location`.
 
 
 ## Memory instructions
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -154,19 +155,19 @@ end
 Stack allocations and memory accesses (loads, stores, and atomic read-modify-write and
 compare-and-exchange instructions) have an alignment, which can be specified using the
 `align` keyword argument when building the instruction, and inspected or changed afterwards
-using `alignment`/`alignment!`:
+using the `alignment` property:
 
 ```jldoctest
 julia> slot = alloca!(builder, LLVM.Int64Type(); align=16)
 %0 = alloca i64, align 16
 
-julia> alignment!(slot, 32)
+julia> slot.alignment = 32;
 
-julia> Int(alignment(slot))
+julia> Int(slot.alignment)
 32
 ```
 
-Memory accesses can also be marked volatile, using `isvolatile`/`volatile!` or the
+Memory accesses can also be marked volatile, using the `inst.volatile` property or the
 `volatile` keyword argument when building the instruction.
 
 
@@ -174,15 +175,16 @@ Memory accesses can also be marked volatile, using `isvolatile`/`volatile!` or t
 
 Atomic instructions support a few additional APIs:
 
-- `is_atomic`: check if the instruction is atomic.
-- `isweak`/`weak!`: check if the instruction is weak, or set it to be weak.
-- `syncscope`/`syncscope!`: get or set the synchronization scope of the instruction to
-  a specific `SyncScope`
-- `ordering`/`ordering!`: get or set the ordering of the instruction.
-- `success_ordering`/`success_ordering!`: get or set the success ordering of an atomic
-  compare-and-swap instruction.
-- `failure_ordering`/`failure_ordering!`: get or set the failure ordering of an atomic
-- `binop`: to get the binary operation of an atomic read-modify-write instruction.
+- `isatomic`: check if the instruction is atomic.
+- `cmpxchg.weak`: whether a compare-and-swap instruction is weak, i.e., may fail
+  spuriously.
+- `inst.syncscope`: the synchronization scope of the instruction, a `SyncScope`.
+- `inst.ordering`: the ordering of the instruction.
+- `inst.success_ordering`, `inst.failure_ordering`: the success and failure orderings of an
+  atomic compare-and-swap instruction.
+- `inst.binop`: the binary operation of an atomic read-modify-write instruction.
+
+All of these properties, except for `binop`, can also be assigned to.
 
 
 ## Call sites instructions
@@ -190,24 +192,25 @@ Atomic instructions support a few additional APIs:
 Call site instructions include calls, invokes, and `callbr` instructions. These instruction
 types support a few additional APIs:
 
-- `callconv`/`callconv!`: get or set the calling convention of the call site.
-- `istailcall`/`istailcall!`: get or set whether the call site is a tail call.
-- `called_type`: get the function type of the called value of the call site.
-- `called_operand`: get the called value of the call site.
-- `arguments`: get the arguments of the call site.
+- `call.callconv`: the calling convention of the call site.
+- `call.tailcall`: whether a `call` instruction is a tail call, i.e., is marked `tail` or
+  `musttail`.
+- `call.tailcall_kind`: the tail call marker of a `call` instruction, e.g.,
+  `LLVM.API.LLVMTailCallKindMustTail`.
+- `call.called_type`: the function type of the called value of the call site.
+- `call.called_operand`: the called value of the call site.
+- `call.arguments`: the arguments of the call site, as a mutable view.
 
 ### Operand bundles
 
 Calls can also be associated with operand bundles, which are tagged sets of SSA values that
 can be associated with certain LLVM instructions, but cannot be dropped like metadata can.
 
-To inspect the operand bundle of a call site, use the iterator returned by the
-`operand_bundles` function on a call site instruction. This iterator returns objects
-that support the following APIs:
+To inspect the operand bundles of a call site, use its `operand_bundles` property, a
+read-only view. The operand bundles themselves are copies that support the following APIs:
 
-- `tag`: get the tag of the operand bundle.
-- `inputs`: get the inputs of the operand bundle, which itself is an iterator that can be
-  indexed.
+- `bundle.tag`: the tag of the operand bundle.
+- `bundle.inputs`: the inputs of the operand bundle.
 
 Operand bundles can also be created directly, using the `OperandBundle` constructor:
 
@@ -229,22 +232,22 @@ Terminator instructions are the last instructions in a basic block, and are used
 the flow of execution. They support a few additional APIs:
 
 - `isterminator`: check if the instruction is a terminator.
-- `successors`: get the successors of the terminator.
+- `term.successors`: the successors of the terminator, as a mutable view.
 
 If the terminator is a branch, it's possible to check if the branch is conditional using the
-`isconditional` function, and get or set the condition using the `condition` and
-`condition!` functions.
+`isconditional` function, and get or set the condition using the `condition` property.
 
 If the terminator is a switch, it's possible to get the default destination using the
-`default_dest` function, and to get or set the value of each case using `case_value` and
-`case_value!`.
+`default_dest` property, and to get or set the value of each case using the `case_values`
+property, a mutable view (`switch.case_values[i]` is the value of the case that branches to
+`switch.successors[i+1]`).
 
 
 ## Phi nodes
 
 Phi nodes are used to select a value based on the predecessor of a basic block. It's
-possible to inspect, and mutate, the incoming values using the iterator returned by
-the `incoming` function, which supports the following APIs:
+possible to inspect, and mutate, the incoming values using the view returned by the
+`incoming` property, which supports the following APIs:
 
 - `getindex`: get the incoming value at a specific index.
 - `push!`: add an incoming value (a value, block tuple) to the phi node.
@@ -255,7 +258,7 @@ the `incoming` function, which supports the following APIs:
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -270,26 +273,25 @@ end
 ```
 
 Several integer instructions can carry flags that make the result poison when an assumption
-about the operands does not hold, which enables more aggressive optimization. Each flag can
-be queried and set with a pair of functions, which throw an `ArgumentError` when used with
-an instruction that does not support the flag:
+about the operands does not hold, which enables more aggressive optimization. Each flag is
+a `Bool` property, which only exists on the instructions that support the flag:
 
-- `hasnuw`/`nuw!` and `hasnsw`/`nsw!`: no unsigned or signed wrap, for `add`, `sub`, `mul`,
-  `shl` and (on LLVM 19+) `trunc`;
-- `isexact`/`exact!`: for `udiv`, `sdiv`, `lshr` and `ashr`;
-- `hasdisjoint`/`disjoint!`: for `or` (LLVM 18+);
-- `hasnneg`/`nneg!`: non-negative operand, for `zext` (LLVM 18+) and `uitofp` (LLVM 19+);
-- `hassamesign`/`samesign!`: operands of equal sign, for `icmp` (LLVM 20+).
+- `inst.nuw` and `inst.nsw`: no unsigned or signed wrap, for `add`, `sub`, `mul`, `shl` and
+  (on LLVM 19+) `trunc`;
+- `inst.exact`: for `udiv`, `sdiv`, `lshr` and `ashr`;
+- `inst.disjoint`: for `or` (LLVM 18+);
+- `inst.nneg`: non-negative operand, for `zext` (LLVM 18+) and `uitofp` (LLVM 19+);
+- `inst.samesign`: operands of equal sign, for `icmp` (LLVM 20+).
 
 ```jldoctest
-julia> x, y = parameters(fun);
+julia> x, y = fun.parameters;
 
 julia> inst = add!(builder, x, y)
 %2 = add i32 %0, %1
 
-julia> nuw!(inst, true)
+julia> inst.nuw = true;
 
-julia> hasnuw(inst), hasnsw(inst)
+julia> inst.nuw, inst.nsw
 (true, false)
 
 julia> inst
@@ -301,7 +303,7 @@ julia> inst
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -315,19 +317,40 @@ DocTestSetup = quote
 end
 ```
 
-Arithmetic instructions can be configured with different fast math flags, affecting
-optimizations that can be performed on the instruction. These flags can be queried and
-set using respectively the `fast_math` and `fast_math!` functions:
+Floating-point instructions can be configured with different fast math flags, affecting
+optimizations that can be performed on the instruction. The `fast_math` property returns
+a `FastMathFlags` view of these flags, with a `Bool` property per flag that can be read and
+assigned to:
 
 ```jldoctest
-julia> inst = fadd!(builder, parameters(fun)[1], ConstantFP(1f0))
+julia> inst = fadd!(builder, fun.parameters[1], ConstantFP(1f0))
 %1 = fadd float %0, 1.000000e+00
 
-julia> fast_math(inst)
-(nnan = false, ninf = false, nsz = false, arcp = false, contract = false, afn = false, reassoc = false)
+julia> inst.fast_math
+FastMathFlags()
 
-julia> fast_math!(inst; nnan=true)
+julia> inst.fast_math.nnan = true;
 
 julia> inst
 %1 = fadd nnan float %0, 1.000000e+00
+```
+
+Assigning to the `fast_math` property replaces all flags, clearing the ones that are not
+specified. The `fast` pseudo-flag stands for all flags:
+
+```jldoctest
+julia> inst = fadd!(builder, fun.parameters[1], ConstantFP(1f0));
+
+julia> inst.fast_math = (; ninf=true, nsz=true);
+
+julia> inst.fast_math
+FastMathFlags(ninf=true, nsz=true)
+
+julia> inst.fast_math.fast = true;
+
+julia> inst
+%1 = fadd fast float %0, 1.000000e+00
+
+julia> NamedTuple(inst.fast_math)
+(nnan = true, ninf = true, nsz = true, arcp = true, contract = true, afn = true, reassoc = true)
 ```

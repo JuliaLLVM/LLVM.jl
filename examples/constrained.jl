@@ -9,7 +9,7 @@
 #
 # This example is not complete and could use some better error handling
 
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build
 using LLVM.Interop
 
 # map Julia functions to llvm intrinsic
@@ -29,33 +29,18 @@ meta(::Type{FPExceptStrict}) = "fpexcept.strict"
                                {F, round, fpexcept, T<:AbstractFloat, N}
     @assert N >= 0
 
-    @dispose ctx=Context() begin
+    generate_llvmcall(T, Tuple{(T for i in 1:N)...},
+                      (Expr(:ref, :xs, i) for i in 1:N)...) do builder, xs...
         typ = convert(LLVMType, T)
 
-        # create a function
-        paramtyps = [typ for i in 1:N]
-        llvm_f, _ = create_function(typ, paramtyps)
-
         # create the intrinsic
-        mtyp = LLVM.MetadataType()
         mround = MDString(meta(round))
         mfpexcept = MDString(meta(fpexcept))
-        mod = LLVM.parent(llvm_f)
         intrinsic = Intrinsic("llvm.experimental.constrained.$(func(F))")
-        intrinsic_fun = LLVM.Function(mod, intrinsic, [typ])
-        ftype = LLVM.FunctionType(intrinsic,[typ])
+        intrinsic_fun = LLVM.Function(current_module(builder), intrinsic, [typ])
+        ftype = LLVM.FunctionType(intrinsic, [typ])
 
-        # generate IR
-        @dispose builder=IRBuilder() begin
-            entry = BasicBlock(llvm_f, "entry")
-            position!(builder, entry)
-            val = call!(builder, ftype, intrinsic_fun,
-                        [parameters(llvm_f)..., Value(mround), Value(mfpexcept)])
-            ret!(builder, val)
-        end
-
-        call_function(llvm_f, T, Tuple{(T for i in 1:N)...},
-                      (Expr(:ref, :xs, i) for i in 1:N)...)
+        call!(builder, ftype, intrinsic_fun, [xs..., Value(mround), Value(mfpexcept)])
     end
 end
 

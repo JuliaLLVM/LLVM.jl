@@ -1,4 +1,4 @@
-using LLVM
+using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes
 
 raw_throwing_module_pass(::LLVM.API.LLVMModuleRef, ::Ptr{Cvoid})::Bool =
     error("exception thrown out of a raw pass callback")

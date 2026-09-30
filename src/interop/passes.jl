@@ -65,8 +65,6 @@ end
 # callbacks in the right spots. that's why Julia also provides `jl_build_newpm_pipeline`.
 # is this still true? can we fix that, and continue using the PassBuilder interface?
 
-Base.@deprecate_binding JuliaPipelinePass JuliaPipeline
-
 
 ## legacy passes
 

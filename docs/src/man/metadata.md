@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -33,14 +33,21 @@ julia> md = MDNode([MDString("hello"), MDString("world")])
 <0x6000022c7f20> = !{!"hello", !"world"}
 ```
 
-These operands can be extracted again using the `operands` function:
+These operands are available as the `operands` property, which is a view of the node:
 
 ```jldoctest mdtuple
-julia> operands(md)
-2-element Vector{MDString}:
+julia> md.operands[1]
+!"hello"
+
+julia> collect(md.operands)
+2-element Vector{Union{Nothing, Metadata}}:
  !"hello"
  !"world"
 ```
+
+The view is mutable, so assigning to an element replaces that operand of the node. LLVM
+keeps uniqued nodes like this one unique, so if the change makes the node identical to an
+existing one, the node is made `distinct` instead.
 
 
 ## Converting between Metadata and Value
@@ -67,18 +74,19 @@ julia> val = Value(md)
 !"test"
 
 julia> typeof(val)
-LLVM.MetadataAsValue
+MetadataAsValue
 ```
 
 
 ## Inspecting and attaching
 
-Any global value and instruction can have metadata attached to it. In LLVM.jl, it's possible
-to inspect and mutate that metadata using the `metadata` function:
+Any global object (a function or global variable) and instruction can have metadata attached
+to it. In LLVM.jl, it's possible to inspect and mutate that metadata using the `metadata`
+property, a dictionary-like view that maps the kind of metadata to a metadata node:
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -91,9 +99,9 @@ DocTestSetup = quote
           ret i64 %2
         }"""
     mod = parse(LLVM.Module, ir)
-    add = only(functions(mod))
-    bb = entry(add)
-    inst = first(instructions(bb))
+    add = only(mod.functions)
+    bb = add.entry
+    inst = first(bb.instructions)
 end
 ```
 
@@ -101,10 +109,10 @@ end
 julia> inst
 %2 = add i64 %1, %0
 
-julia> isempty(metadata(inst))
+julia> isempty(inst.metadata)
 true
 
-julia> metadata(inst)["dbg"] = MDNode([MDString("hello")])
+julia> inst.metadata["dbg"] = MDNode([MDString("hello")])
 <0x5ff68c3f2f28> = !{!"hello"}
 
 julia> inst
@@ -113,16 +121,18 @@ julia> inst
 
 Metadata can also be attached to a module, in which case it needs to be grouped in a named
 metadata node (which can only contain other metadata nodes, and not e.g. strings directly).
-Operands can be appended to module-level named metadata with `push!` and removed with
-`empty!`:
+The named metadata of a module is available as its `metadata` property, which creates a
+named metadata node when looking up a name that doesn't exist yet. The operands of a named
+metadata node are a mutable view, so operands can be appended with `push!`, replaced by
+assigning to them, and removed with `empty!`:
 
 ```jldoctest
-julia> md = metadata(mod);
+julia> md = mod.metadata;
 
 julia> isempty(md)
 true
 
-julia> push!(md["hello"], MDNode([MDString("world")]));
+julia> push!(md["hello"].operands, MDNode([MDString("world")]));
 
 julia> md
 ModuleMetadataIterator for module :
@@ -141,22 +151,24 @@ This information can be used by debuggers to provide a better debugging experien
     mostly focussed on the ability to inspect or copy existing information.
 
 LLVM represents debug information as a variety of `DI`-prefixed structures, which are
-subtypes of the above metadata types. In LLVM.jl, various functions are provided to inspect
-properties of these structures:
+subtypes of the above metadata types. In LLVM.jl, these structures expose their contents
+as properties:
 
+- `DINode`: `tag`
 - `DILocation`: `line`, `column`, `scope`, `inlined_at`
 - `DIVariable`: `file`, `scope`, `line`
 - `DIScope`: `file`, `name`
 - `DIFile`: `directory`, `filename`, `source`
-- `DIType`: `name`, `sizeof`, `offset`, `line`, `flags`
-- `DISubProgram`: `line` (and methods inherited from `DIScope`)
+- `DIType`: `name`, `size_in_bits`, `offset_in_bits`, `align_in_bits`, `line`, `flags`
+- `DISubProgram`: `line` (and properties inherited from `DIScope`)
+- `DIGlobalVariableExpression`: `variable`, `expression`
 
 To query the debug info attached to an instruction, one queries the `!dbg` metadata using
-`metadata(inst)["dbg"]`.
+`inst.metadata["dbg"]`.
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -183,9 +195,9 @@ DocTestSetup = quote
         !8 = !{}
         !15 = !DILocation(line: 87, scope: !5)"""
     mod = parse(LLVM.Module, ir)
-    add = only(functions(mod))
-    bb = entry(add)
-    inst = first(instructions(bb))
+    add = only(mod.functions)
+    bb = add.entry
+    inst = first(bb.instructions)
 end
 ```
 
@@ -193,20 +205,20 @@ end
 julia> inst
 %2 = add i64 %1, %0, !dbg !9
 
-julia> dbg = metadata(inst)["dbg"]
+julia> dbg = inst.metadata["dbg"]
 !DILocation(line: 87, scope: <0x6000056c5dd0>) = !DILocation(line: 87, scope: <0x6000056c5dd0>)
 
-julia> line(dbg)
+julia> dbg.line
 87
 
-julia> file(scope(dbg))
+julia> dbg.scope.file
 <0x6000000beb80> = !DIFile(filename: "int.jl", directory: ".")
 ```
 
-Debug info can also be attached to functions, which can be queried and modified using
-respectively `subprogram` and `subprogram!`:
+Debug info can also be attached to functions, which can be queried and modified using the
+`subprogram` property:
 
 ```jldoctest
-julia> sp = subprogram(add)
+julia> sp = add.subprogram
 <0x600003edfad0> = distinct !DISubprogram(name: "+", linkageName: "julia_+", scope: null, file: <0x600003ba6fe0>, line: 87, type: <0x600003494c90>, scopeLine: 87, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: <0x6000021d8428>, retainedNodes: <0x6000010f09d0>)
 ```

@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -42,7 +42,7 @@ ERROR: LLVM error: Instruction does not dominate all uses!
 
 ```@meta
 DocTestSetup = quote
-    using LLVM
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -59,8 +59,8 @@ DocTestSetup = quote
         ret i32 %ret
       }"""
     mod = parse(LLVM.Module, ir)
-    fun = only(functions(mod))
-    entry, foo, bar = blocks(fun)
+    fun = only(mod.functions)
+    entry, foo, bar = fun.blocks
 end
 ```
 
@@ -83,16 +83,16 @@ bar:                                              ; preds = %foo, %entry
 
 julia> tree = DomTree(fun);
 
-julia> dominates(tree, first(instructions(entry)), first(instructions(foo)))
+julia> dominates(tree, first(entry.instructions), first(foo.instructions))
 true
-julia> dominates(tree, first(instructions(foo)), first(instructions(bar)))
+julia> dominates(tree, first(foo.instructions), first(bar.instructions))
 false
 
 julia> tree = PostDomTree(fun);
 
-julia> dominates(tree, first(instructions(bar)), first(instructions(foo)))
+julia> dominates(tree, first(bar.instructions), first(foo.instructions))
 true
 
-julia> dominates(tree, first(instructions(foo)), first(instructions(entry)))
+julia> dominates(tree, first(foo.instructions), first(entry.instructions))
 false
 ```

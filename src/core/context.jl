@@ -1,6 +1,6 @@
 # Contexts are execution states for the core LLVM IR system.
 
-export Context, dispose
+@vocabulary IR Context, dispose
 
 """
     LLVM.Context
@@ -11,10 +11,18 @@ and should be disposed of.
 Most types are tied to a context instance. Multiple contexts can exist simultaneously. A
 single context is not thread safe. However, different contexts can execute on different
 threads simultaneously.
+
+# Properties
+
+    ctx.types
+
+The named types of the context, as a dictionary-like view that supports looking up a type
+by its name (`haskey` and indexing). LLVM does not support iterating these types.
 """
 @checked struct Context
     ref::API.LLVMContextRef
 end
+@properties Context
 
 Base.unsafe_convert(::Type{API.LLVMContextRef}, ctx::Context) = mark_use(ctx).ref
 
@@ -93,7 +101,7 @@ end
 
 ## opaque pointer handling
 
-export supports_typed_pointers
+@vocabulary IR supports_typed_pointers
 
 """
     supports_typed_pointers()
@@ -135,7 +143,7 @@ end
 
 ## wrapper exception type
 
-export LLVMException
+@vocabulary IR LLVMException
 
 """
     LLVMException

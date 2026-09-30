@@ -3,8 +3,7 @@
 # TODO: this is a _very_ ugly wrapper, but hard to improve since we can't deduce the type
 #       of a GenericValue, and need to pass concrete LLVM type objects to the API
 
-export GenericValue, dispose,
-       intwidth
+@public GenericValue, dispose
 
 """
     GenericValue
@@ -15,12 +14,20 @@ Note that only simple types are supported, and for most use cases it is recommen
 to look up the address of the compiled function and `ccall` it directly.
 
 This object needs to be disposed of using [`dispose`](@ref).
+
+# Properties
+
+    val.intwidth
+
+The bit width of the integer value stored in the generic value.
 """
 @checked struct GenericValue
     ref::API.LLVMGenericValueRef
 end
 
 Base.unsafe_convert(::Type{API.LLVMGenericValueRef}, val::GenericValue) = mark_use(val).ref
+
+@properties GenericValue
 
 """
     dispose(val::GenericValue)
@@ -46,12 +53,9 @@ GenericValue(typ::IntegerType, N::Unsigned) =
         API.LLVMCreateGenericValueOfInt(typ,
                                         reinterpret(Culonglong, convert(UInt64, N)), false)))
 
-"""
-    intwidth(val::GenericValue)
+intwidth(val::GenericValue) = Int(API.LLVMGenericValueIntWidth(val))
 
-Get the bit width of the integer value stored in the generic value.
-"""
-intwidth(val::GenericValue) = API.LLVMGenericValueIntWidth(val)
+@property GenericValue intwidth
 
 """
     convert(::Type{<:Integer}, val::GenericValue)
@@ -106,18 +110,26 @@ Base.convert(::Type{Ptr{T}}, val::GenericValue) where {T} =
 
 ## execution engine
 
-export Interpreter, JIT,
-       run, lookup
+@public Interpreter, JIT, lookup
 
 """
     LLVM.ExecutionEngine
 
 An execution engine that can run functions in a module.
+
+# Properties
+
+    engine.functions
+
+The functions in the modules of the execution engine, as a view that supports looking up
+a function by name (`get`, `haskey` and indexing). The functions cannot be iterated.
 """
 @checked struct ExecutionEngine
     ref::API.LLVMExecutionEngineRef
     mods::Set{Module}
 end
+@public ExecutionEngine
+@properties ExecutionEngine
 
 Base.unsafe_convert(::Type{API.LLVMExecutionEngineRef}, engine::ExecutionEngine) =
     mark_use(engine).ref
@@ -211,6 +223,7 @@ This takes ownership of the module.
 function Base.push!(engine::ExecutionEngine, mod::Module)
     push!(engine.mods, mod)
     API.LLVMAddModule(engine.ref, mod.ref)
+    return engine
 end
 
 """
@@ -225,7 +238,7 @@ function Base.delete!(engine::ExecutionEngine, mod::Module)
     API.LLVMRemoveModule(engine.ref, mod.ref, out_ref, Ref{Cstring}()) # out string is not used
     @assert mod == Module(out_ref[])
     delete!(engine.mods, mod)
-    return
+    return engine
 end
 
 """
@@ -254,21 +267,13 @@ end
 
 # function lookup
 
-export functions
-
 struct ExecutionEngineFunctionSet
     engine::ExecutionEngine
 end
 
-"""
-    functions(engine::ExecutionEngine)
-
-Get an iterator over the functions in the execution engine.
-
-The iterator object is not actually iterable, but supports `get` and `haskey` queries with
-function names, and `getindex` to get the function object.
-"""
 functions(engine::ExecutionEngine) = ExecutionEngineFunctionSet(engine)
+
+@property ExecutionEngine functions
 
 Base.IteratorSize(::Type{ExecutionEngineFunctionSet}) = Base.SizeUnknown()
 Base.iterate(::ExecutionEngineFunctionSet) =
@@ -276,9 +281,9 @@ Base.iterate(::ExecutionEngineFunctionSet) =
 
 function Base.get(functionset::ExecutionEngineFunctionSet, name::String, default)
     out_ref = Ref{API.LLVMValueRef}()
-    API.LLVMFindFunction(functionset.engine.ref, name, out_ref)
-    status = API.LLVMFindFunction(functionset.engine.ref, name, out_ref) |> Bool
-    return status == 0 ? Function(out_ref[]) : default
+    # returns 0 on success
+    failed = API.LLVMFindFunction(functionset.engine.ref, name, out_ref) |> Bool
+    return failed ? default : Function(out_ref[])
 end
 
 function Base.haskey(functionset::ExecutionEngineFunctionSet, name::String)
@@ -293,8 +298,8 @@ end
 
 # event listeners
 
-export GDBRegistrationListener, IntelJITEventListener,
-       OProfileJITEventListener, PerfJITEventListener
+@vocabulary ORC GDBRegistrationListener, IntelJITEventListener,
+                OProfileJITEventListener, PerfJITEventListener
 
 @checked struct JITEventListener
     ref::API.LLVMJITEventListenerRef

@@ -1,6 +1,6 @@
 ## disassembler
 
-export Disassembler, dispose, disassemble
+@public Disassembler, dispose, disassemble
 
 """
     Disassembler
@@ -86,6 +86,7 @@ end
 
 ## disassembly
 
+@public DisassembledInstruction
 const DisassembledInstruction =
     @NamedTuple{address::UInt64, size::Int, text::Union{String,Nothing}}
 

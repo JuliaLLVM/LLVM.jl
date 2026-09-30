@@ -1,45 +1,4 @@
-export create_function, call_function, isboxed, isghosttype
-
-"""
-    create_function(rettyp::LLVMType, argtyp::Vector{LLVMType}, [name::String])
-
-Create an LLVM function, given its return type `rettyp` and a vector of argument types
-`argtyp`. The function is marked for inlining, to be embedded in the caller's body.
-Returns both the newly created function, and its type.
-"""
-function create_function(rettyp::LLVMType=LLVM.VoidType(),
-                         argtyp::Vector{<:LLVMType}=LLVMType[],
-                         name::String="entry")
-    mod = LLVM.Module("llvmcall")
-    isempty(name) && throw(ArgumentError("Function name cannot be empty"))
-
-    ft = LLVM.FunctionType(rettyp, argtyp)
-    f = LLVM.Function(mod, name, ft)
-    push!(function_attributes(f), EnumAttribute("alwaysinline", 0))
-
-    return f, ft
-end
-
-"""
-    call_function(f::LLVM.Function, rettyp::Type, argtyp::Type, args...)
-
-Generate a call to an LLVM function `f`, given its return type `rettyp` and a tuple-type for
-the arguments. The arguments should be passed as a tuple expression containing the argument
-values (eg. `:((1,2))`), which will be splatted into the call to the function.
-"""
-function call_function(llvmf::LLVM.Function, rettyp::Type=Nothing, argtyp::Type=Tuple{},
-                       args...)
-    mod = LLVM.parent(llvmf)
-    ir = string(mod)
-    fn = LLVM.name(llvmf)
-    @assert !isempty(fn)
-    dispose(mod)
-    quote
-        Base.@inline
-        Base.llvmcall(($ir,$fn), $rettyp, $argtyp, $(args...))
-    end
-end
-
+export isboxed, isghosttype
 
 """
     isboxed(typ::Type)

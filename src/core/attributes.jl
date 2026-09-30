@@ -1,12 +1,12 @@
 # Attributes that can be associated with parameters, function results, or the function
 # itself.
 
-export Attribute,
-       EnumAttribute, StringAttribute, TypeAttribute,
-       ConstantRangeAttribute, ConstantRangeListAttribute,
-       kind, value
+@vocabulary IR Attribute,
+               EnumAttribute, StringAttribute, TypeAttribute,
+               ConstantRangeAttribute, ConstantRangeListAttribute
 
 abstract type Attribute end
+@properties Attribute
 
 Base.unsafe_convert(::Type{API.LLVMAttributeRef}, attr::Attribute) = attr.ref
 
@@ -126,7 +126,7 @@ kind(attr::ConstantRangeListAttribute) = API.LLVMGetEnumAttributeKind(attr)
 
 ## memory effects
 
-export MemoryEffects, access
+@vocabulary IR MemoryEffects
 
 """
     MemoryEffects(default::Symbol=:none; argmem, inaccessiblemem, errnomem, other, ...)
@@ -135,7 +135,10 @@ The memory effects of a function or call, i.e., the kind of access that may happ
 location of memory. These effects are encoded in the `memory` attribute, which since LLVM 16
 replaces the `readnone`, `readonly`, `writeonly`, `argmemonly`, `inaccessiblememonly` and
 `inaccessiblemem_or_argmemonly` function attributes. Use `EnumAttribute(effects)` to create
-that attribute, or [`memory_effects`](@ref) and [`memory_effects!`](@ref) to get and set it.
+that attribute and `MemoryEffects(attrs)` to decode it from a set of function or call
+attributes, or the [`memory_effects`](@ref LLVM.Function) property of a function to
+get and set it directly. That property returns a [`FunctionMemoryEffects`](@ref) view,
+which `MemoryEffects(effects)` converts to a value.
 
 The access kind of every location is one of `:none`, `:read`, `:write` or `:readwrite`, and
 defaults to `default`. The locations are:
@@ -148,8 +151,9 @@ defaults to `default`. The locations are:
 
 These effects are an upper bound: an access kind like `:read` does not guarantee that a
 read happens. The access kind of a single location can be queried by indexing, e.g.,
-`effects[:argmem]`, while [`access`](@ref) returns the access kind for all locations
-combined. Effects can be combined with `|` (union) and `&` (intersection).
+`effects[:argmem]`, while the [`access`](@ref LLVM.MemoryEffects) property returns the access kind
+for all locations combined. Effects can be combined with `|` (union) and `&`
+(intersection).
 
 # Examples
 
@@ -162,6 +166,14 @@ MemoryEffects(:read; argmem=:readwrite) # memory(read, argmem: readwrite)
 
 !!! note
     The `memory` attribute requires LLVM 16 or later.
+
+# Properties
+
+    effects.access
+
+The kind of memory access that is possible for any location: `:none` if no memory may be
+accessed, `:read` if it may only be read, `:write` if it may only be written, and
+`:readwrite` otherwise.
 """
 struct MemoryEffects
     # LLVM's encoding (`MemoryEffects::toIntValue`): two bits per location, holding the
@@ -169,6 +181,9 @@ struct MemoryEffects
     data::UInt32
     MemoryEffects(data::UInt32) = new(data)
 end
+@properties MemoryEffects
+
+MemoryEffects(effects::MemoryEffects) = effects
 
 # The memory locations of the LLVM version in use, in the order of LLVM's `IRMemLocation`.
 # This needs to be kept in sync with `llvm/Support/ModRef.h` when adding a new LLVM version.
@@ -225,13 +240,6 @@ function Base.getindex(effects::MemoryEffects, loc::Symbol)
     memory_access_kinds[((effects.data >> memory_location_pos(loc)) & 0x3) + 1]
 end
 
-"""
-    access(effects::MemoryEffects) -> Symbol
-
-The kind of memory access that is possible for any location: `:none` if no memory may be
-accessed, `:read` if it may only be read, `:write` if it may only be written, and
-`:readwrite` otherwise.
-"""
 function access(effects::MemoryEffects)
     val = UInt32(0)
     for loc in memory_locations()
@@ -239,6 +247,8 @@ function access(effects::MemoryEffects)
     end
     return memory_access_kinds[val + 1]
 end
+
+@property MemoryEffects access
 
 Base.:(|)(a::MemoryEffects, b::MemoryEffects) = MemoryEffects(a.data | b.data)
 Base.:(&)(a::MemoryEffects, b::MemoryEffects) = MemoryEffects(a.data & b.data)
@@ -283,3 +293,9 @@ function MemoryEffects(attr::EnumAttribute)
         throw(ArgumentError("Expected a memory attribute, got $attr"))
     return MemoryEffects(UInt32(value(attr)))
 end
+
+
+## properties
+
+@property Attribute kind
+@property Union{EnumAttribute,StringAttribute,TypeAttribute} value

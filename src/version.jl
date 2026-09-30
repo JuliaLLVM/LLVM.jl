@@ -1,17 +1,17 @@
 # Version management
 
-export version
+@public version
 
 version() = libllvm_version
 
 """
-    LLVM.available(x)
+    LLVM.isavailable(x)
 
 Check whether `x`, e.g. a value of one of the enums in `LLVM.API`, is supported by the
 version of LLVM in use. Such values can be named on every LLVM version, even ones that
 predate them, so that code does not need to be version-gated just to compile.
 """
-function available end
+function isavailable end
 
 function runtime_version()
     # FIXME: add a proper C API to LLVM

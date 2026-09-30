@@ -7,7 +7,7 @@ export @llvmgenerated, generate_llvmcall, current_function, current_module
 
 Return the function containing the builder's insertion point.
 """
-current_function(builder::IRBuilder) = LLVM.parent(position(builder))
+current_function(builder::IRBuilder) = position(builder).parent
 
 """
     current_module(builder::IRBuilder) -> LLVM.Module
@@ -15,7 +15,7 @@ current_function(builder::IRBuilder) = LLVM.parent(position(builder))
 Return the module containing the builder's insertion point, e.g., to declare intrinsics or
 add globals from the body of an [`@llvmgenerated`](@ref) function.
 """
-current_module(builder::IRBuilder) = LLVM.parent(current_function(builder))
+current_module(builder::IRBuilder) = current_function(builder).parent
 
 # Arguments whose value is known at generation time are not passed to `llvmcall`, but
 # bound to that value in the generator body. This is not the same as being a ghost type
@@ -38,13 +38,13 @@ function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
                       @nospecialize(rettyp), T_ret::LLVMType, what::String)
     ref = API.LLVMGetInsertBlock(builder)
     bb = ref == C_NULL ? nothing : BasicBlock(ref)
-    if bb === nothing || LLVM.parent(bb) != f
+    if bb === nothing || bb.parent != f
         if rv isa Value && !(rv isa Instruction && isterminator(rv))
             error("$what: the body returned an LLVM value, but the builder is not positioned in the entry function anymore")
         end
         return
     end
-    terminator(bb) === nothing || return
+    bb.terminator === nothing || return
 
     if rettyp === Union{}
         rv === nothing ||
@@ -57,8 +57,8 @@ function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
     else
         rv isa Value ||
             error("$what: the body should return an LLVM value of type $(string(T_ret)), for return type $rettyp (got $(typeof(rv)))")
-        value_type(rv) == T_ret ||
-            error("$what: the body returned a value of type $(string(value_type(rv))), but return type $rettyp lowers to $(string(T_ret))")
+        rv.value_type == T_ret ||
+            error("$what: the body returned a value of type $(string(rv.value_type)), but return type $rettyp lowers to $(string(T_ret))")
         ret!(builder, rv)
     end
     return
@@ -94,8 +94,8 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
 
         @dispose mod=LLVM.Module("llvmcall") builder=IRBuilder() begin
             f = LLVM.Function(mod, "entry", LLVM.FunctionType(T_ret, T_args))
-            push!(function_attributes(f), EnumAttribute("alwaysinline", 0))
-            for (param, i) in zip(parameters(f), abi_args)
+            push!(f.function_attributes, EnumAttribute("alwaysinline", 0))
+            for (param, i) in zip(f.parameters, abi_args)
                 values[i] = param
             end
 
@@ -121,7 +121,7 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
                 dispose(parsed)
             end
 
-            ir, LLVM.name(f)
+            ir, f.name
         end
     end
 
@@ -169,9 +169,8 @@ generate_llvmcall(gen, @nospecialize(rettyp::Type), @nospecialize(argtypes::Type
     end
 
 Define a staged function `f` whose body is executed once per specialization, at compile
-time, to generate the LLVM IR that implements it. This is a convenient alternative to
-writing a `@generated` function that calls [`create_function`](@ref) and
-[`call_function`](@ref), deriving the LLVM signature from the Julia one:
+time, to generate the LLVM IR that implements it. The LLVM signature of the generated
+function is derived from the Julia one:
 
 ```julia
 @llvmgenerated builder function add(x::T, y::T)::T where {T<:Integer}

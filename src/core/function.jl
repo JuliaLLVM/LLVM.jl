@@ -1,18 +1,109 @@
-export erase!,
-       personality, personality!,
-       callconv, callconv!,
-       gc, gc!,
-       entry, function_type
+@vocabulary IR erase!
 
 """
     LLVM.Function
 
 A function in the IR.
+
+# Properties
+
+    f.function_type
+
+The function type of the function, as opposed to the `value_type` property, which is the
+pointer type of the function constant.
+
+    f.personality
+    f.personality = persfn::Union{LLVM.Constant,Nothing}
+
+The personality function of the function, or `nothing` if it has none. Assigning `nothing`
+removes the personality function.
+
+The personality is usually a `Function`, but can be any constant referring to one, such as
+a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed pointers).
+
+    f.callconv
+    f.callconv = cc
+
+The calling convention of the function, e.g., `LLVM.API.LLVMFastCallConv`.
+
+    f.gc
+    f.gc = name::String
+
+The name of the garbage collector of the function, or an empty string if it has none.
+
+    f.alignment
+    f.alignment = bytes::Integer
+
+The alignment of the code of the function in bytes, or 0 if it has no explicit alignment.
+The assigned alignment must be a power of 2, or 0 to remove the explicit alignment.
+
+    f.entry
+
+The entry basic block of the function, or `nothing` if the function has no body.
+
+    f.function_attributes
+
+The attributes of the function itself, as a mutable view that can be iterated, and
+supports `push!`, `append!` and `delete!`. Adding an attribute replaces any existing
+attribute of the same kind.
+
+See also the `return_attributes` and `parameter_attributes` properties.
+
+    f.parameter_attributes
+
+The attributes of the parameters of the function, as a vector with a view of the attributes
+of each parameter. These views work like the `function_attributes` of the function, e.g.,
+`push!(f.parameter_attributes[1], EnumAttribute("nocapture"))`.
+
+    f.return_attributes
+
+The attributes of the return value of the function, as a mutable view that works like the
+`function_attributes` of the function.
+
+    f.memory_effects
+    f.memory_effects = effects::Union{MemoryEffects,FunctionMemoryEffects}
+
+The memory effects of the function, as described by its `memory` attribute, or
+`MemoryEffects(:readwrite)` if it doesn't have one. The effects are returned as a
+[`FunctionMemoryEffects`](@ref) view, which can be used to change the access kind of a
+single location, e.g., `f.memory_effects[:argmem] = :read`. Assigning adds a `memory`
+attribute, replacing any existing one.
+
+See also: [`MemoryEffects`](@ref)
+
+    f.parameters
+
+The parameters of the function, as a read-only view. These are `Argument` values that can
+be used as inputs to other instructions.
+
+    f.blocks
+
+The basic blocks of the function, in order, as a read-only view that always reflects the
+current body of the function. Create a `BasicBlock` to add one, and use operations like
+`remove!` or `move_before` to change the list of blocks. Indexing the view walks the list
+of blocks, so iterate instead of indexing each block.
+
+    f.subprogram
+    f.subprogram = sp::DISubProgram
+
+The subprogram that describes the function, or `nothing` if it has none.
+
+    f.next
+    f.prev
+
+The next or previous function in the module, or `nothing` if there is none.
+
+The properties of [`GlobalObject`](@ref LLVM.GlobalObject), [`GlobalValue`](@ref
+LLVM.GlobalValue), [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available
+too.
 """
 Function
 # forward declaration of Function in src/core/basicblock.jl
 
 register(Function, API.LLVMFunctionValueKind)
+
+# not part of a vocabulary, as it would clash with `Base.Function`
+@public Function
 
 """
     LLVM.Function(mod::Module, name::String, ft::FunctionType)
@@ -22,20 +113,19 @@ Create a new function in the given module with the given name and function type.
 Function(mod::Module, name::String, ft::FunctionType) =
     Function(API.LLVMAddFunction(mod, name, ft))
 
-"""
-    function_type(f::Function) -> LLVM.FunctionType
-
-Get the function type of the given function. This returns a function type, as opposed to
-[`value_type`](@ref) which returns the pointer type of the function constant.
-"""
 function_type(Fn::Function) = FunctionType(API.LLVMGetFunctionType(Fn))
+
+@property Function function_type
 
 """
     empty!(f::Function)
 
 Delete the body of the given function, and convert the linkage to external.
 """
-Base.empty!(f::Function) = API.LLVMFunctionDeleteBody(f)
+function Base.empty!(f::Function)
+    API.LLVMFunctionDeleteBody(f)
+    return f
+end
 
 """
     erase!(f::Function)
@@ -64,125 +154,83 @@ module. Both functions must reside in the same module.
 """
 move_after(f::Function, pos::Function) = API.LLVMMoveFunctionAfter(f, pos)
 
-"""
-    personality(f::Function)
-
-Get the personality function of the given function, or `nothing` if it has none.
-
-The personality is usually a `Function`, but can be any constant referring to one, such as
-a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed pointers).
-"""
 function personality(f::Function)
     has_personality = API.LLVMHasPersonalityFn(f) |> Bool
     return has_personality ? Value(API.LLVMGetPersonalityFn(f)) : nothing
 end
 
-"""
-    personality!(f::Function, persfn::Constant)
-
-Set the personality function of the given function, which can be a `Function` or any other
-constant referring to one. Pass `nothing` to remove the personality function.
-"""
 function personality!(f::Function, persfn::Union{Nothing,Constant})
     api = version() >= v"20" ? API.LLVMSetPersonalityFn : API.LLVMSetPersonalityFn2
     api(f, something(persfn, C_NULL))
 end
 
-"""
-    callconv(f::Function)
+@property Function personality personality!
 
-Get the calling convention of the given function.
-"""
 callconv(f::Function) = API.LLVMGetFunctionCallConv(f)
 
-"""
-    callconv!(f::Function, cc)
-
-Set the calling convention of the given function.
-"""
 callconv!(f::Function, cc) = API.LLVMSetFunctionCallConv(f, cc)
 
-"""
-    gc(f::Function)
+@property Function callconv callconv!
 
-Get the garbage collector name of the given function, or an empty string if it has none.
-"""
 function gc(f::Function)
   ptr = API.LLVMGetGC(f)
   return ptr==C_NULL ? "" : unsafe_string(ptr)
 end
 
-"""
-    gc!(f::Function, name::String)
-
-Set the garbage collector name of the given function.
-"""
 gc!(f::Function, name::String) = API.LLVMSetGC(f, name)
 
-"""
-    alignment(f::Function)
+@property Function gc gc!
 
-Get the alignment of the code of the given function in bytes, or 0 if it has no explicit
-alignment.
-"""
 alignment(f::Function) = API.LLVMGetAlignment(f)
 
-"""
-    alignment!(f::Function, bytes::Integer)
-
-Set the alignment of the code of the given function to `bytes`, which must be a power of 2.
-Passing 0 removes the explicit alignment.
-"""
 function alignment!(f::Function, bytes::Integer)
     check_alignment(bytes; allow_zero=true)
     API.LLVMSetAlignment(f, bytes)
 end
 
-"""
-    entry(f::Function) -> BasicBlock
+@property Function alignment alignment!
 
-Get the entry basic block of the given function.
-"""
-entry(f::Function) = BasicBlock(API.LLVMGetEntryBasicBlock(f))
+function entry(f::Function)
+    # LLVM does not check whether the function has a body
+    API.LLVMCountBasicBlocks(f) == 0 && return nothing
+    BasicBlock(API.LLVMGetEntryBasicBlock(f))
+end
+
+@property Function entry
 
 
 # attributes
-
-export function_attributes, parameter_attributes, return_attributes
 
 struct FunctionAttrSet
     f::Function
     idx::API.LLVMAttributeIndex
 end
 
-"""
-    function_attributes(f::Function)
-
-Get the attributes of the given function.
-
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
 function_attributes(f::Function) =
     FunctionAttrSet(f, reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex))
 
-"""
-    parameter_attributes(f::Function, idx::Integer)
+@property Function function_attributes
 
-Get the attributes of the given parameter of the given function.
+struct FunctionParameterAttrSets <: AbstractVector{FunctionAttrSet}
+    f::Function
+end
 
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
-parameter_attributes(f::Function, idx::Integer) =
-    FunctionAttrSet(f, API.LLVMAttributeIndex(idx))
+parameter_attributes(f::Function) = FunctionParameterAttrSets(f)
 
-"""
-    return_attributes(f::Function)
+@property Function parameter_attributes
 
-Get the attributes of the return value of the given function.
+Base.size(iter::FunctionParameterAttrSets) = (Int(API.LLVMCountParams(iter.f)),)
 
-This is a mutable iterator, supporting `push!`, `append!` and `delete!`.
-"""
+Base.IndexStyle(::FunctionParameterAttrSets) = IndexLinear()
+
+function Base.getindex(iter::FunctionParameterAttrSets, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return FunctionAttrSet(iter.f, API.LLVMAttributeIndex(i))
+end
+
 return_attributes(f::Function) = FunctionAttrSet(f, API.LLVMAttributeReturnIndex)
+
+@property Function return_attributes
 
 Base.eltype(::FunctionAttrSet) = Attribute
 
@@ -195,46 +243,60 @@ function Base.collect(iter::FunctionAttrSet)
     return Attribute[Attribute(elem) for elem in elems]
 end
 
-Base.push!(iter::FunctionAttrSet, attr::Attribute) =
+function Base.push!(iter::FunctionAttrSet, attr::Attribute)
     API.LLVMAddAttributeAtIndex(iter.f, iter.idx, attr)
+    return iter
+end
 
-Base.delete!(iter::FunctionAttrSet, attr::EnumAttribute) =
+function Base.delete!(iter::FunctionAttrSet,
+                      attr::Union{EnumAttribute,TypeAttribute,ConstantRangeAttribute,
+                                  ConstantRangeListAttribute})
     API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-
-Base.delete!(iter::FunctionAttrSet, attr::TypeAttribute) =
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-
-Base.delete!(iter::FunctionAttrSet, attr::ConstantRangeAttribute) =
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-
-Base.delete!(iter::FunctionAttrSet, attr::ConstantRangeListAttribute) =
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
+    return iter
+end
 
 function Base.delete!(iter::FunctionAttrSet, attr::StringAttribute)
     k = kind(attr)
     API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, k, length(k))
+    return iter
 end
 
 function Base.length(iter::FunctionAttrSet)
     API.LLVMGetAttributeCountAtIndex(iter.f, iter.idx)
 end
 
-export memory_effects, memory_effects!
+# LLVM only supports fetching all attributes at once
+function Base.iterate(iter::FunctionAttrSet, (attrs, i)=(collect(iter), 1))
+    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
+end
+
+function Base.append!(iter::FunctionAttrSet, attrs)
+    for attr in attrs
+        push!(iter, attr)
+    end
+    return iter
+end
+
+function Base.show(io::IO, iter::FunctionAttrSet)
+    print(io, "FunctionAttrSet(")
+    join(io, collect(iter), ", ")
+    print(io, ")")
+end
 
 """
-    memory_effects(f::Function) -> MemoryEffects
-    memory_effects(attrs) -> MemoryEffects
+    MemoryEffects(attrs)
 
-Get the memory effects of a function, as described by its `memory` attribute, or
-`MemoryEffects(:readwrite)` if it doesn't have one. This also works on the function
-attributes of a call, `function_attributes(call)`, in which case only the attributes of the
-call site are considered (and not, e.g., those of the called function).
+Get the memory effects described by the `memory` attribute in the given function
+attributes, or `MemoryEffects(:readwrite)` if there is no such attribute. `attrs` can be
+the attributes of a function, `f.function_attributes`, or of a call,
+`call.function_attributes`. In the latter case, only the attributes of the call site are
+considered, and not, e.g., those of the called function. To set the memory effects, push
+the corresponding attribute: `push!(attrs, EnumAttribute(effects))`, which replaces any
+existing one.
 
-See also: [`MemoryEffects`](@ref), [`memory_effects!`](@ref)
+See also the `memory_effects` property of functions.
 """
-memory_effects(f::Function) = memory_effects(function_attributes(f))
-
-function memory_effects(iter::FunctionAttrSet)
+function MemoryEffects(iter::FunctionAttrSet)
     check_memory_effects_index(iter.idx)
     memory_locations()  # check that the attribute is supported
     ref = API.LLVMGetEnumAttributeAtIndex(iter.f, iter.idx, memory_kind())
@@ -242,23 +304,63 @@ function memory_effects(iter::FunctionAttrSet)
     return MemoryEffects(EnumAttribute(ref))
 end
 
+@vocabulary IR FunctionMemoryEffects
+
 """
-    memory_effects!(f::Function, effects::MemoryEffects)
-    memory_effects!(attrs, effects::MemoryEffects)
+    FunctionMemoryEffects
 
-Set the memory effects of a function, or of a call when passing `function_attributes(call)`,
-by adding a `memory` attribute (replacing any existing one).
+The memory effects of a function, as returned by its `memory_effects` property. This is a
+view of the function's `memory` attribute, which supports the same operations as a
+[`MemoryEffects`](@ref) value: indexing (`effects[:argmem]`), the `access` property, `|`
+and `&`, and comparing to other effects. In addition, the access kind of a single location
+can be changed in place, which replaces the `memory` attribute of the function:
 
-See also: [`MemoryEffects`](@ref), [`memory_effects`](@ref)
+```julia
+f.memory_effects[:argmem] = :read
+```
+
+Use `MemoryEffects(effects)` to get the current effects as a value, which doesn't change
+along with the function.
 """
-memory_effects!(f::Function, effects::MemoryEffects) =
-    memory_effects!(function_attributes(f), effects)
+struct FunctionMemoryEffects
+    f::Function
+end
+@properties FunctionMemoryEffects
 
-function memory_effects!(iter::FunctionAttrSet, effects::MemoryEffects)
-    check_memory_effects_index(iter.idx)
-    push!(iter, EnumAttribute(effects))
+MemoryEffects(effects::FunctionMemoryEffects) =
+    MemoryEffects(function_attributes(getfield(effects, :f)))
+
+Base.getindex(effects::FunctionMemoryEffects, loc::Symbol) = MemoryEffects(effects)[loc]
+
+function Base.setindex!(effects::FunctionMemoryEffects, kind::Symbol, loc::Symbol)
+    pos = memory_location_pos(loc)
+    data = MemoryEffects(effects).data & ~(UInt32(0x3) << pos)
+    data |= memory_access_value(kind) << pos
+    memory_effects!(getfield(effects, :f), MemoryEffects(data))
+    return effects
+end
+
+access(effects::FunctionMemoryEffects) = access(MemoryEffects(effects))
+@property FunctionMemoryEffects access
+
+EnumAttribute(effects::FunctionMemoryEffects) = EnumAttribute(MemoryEffects(effects))
+
+# the view behaves like the effects it currently describes
+const AnyMemoryEffects = Union{MemoryEffects, FunctionMemoryEffects}
+Base.:(|)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) | MemoryEffects(b)
+Base.:(&)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) & MemoryEffects(b)
+Base.:(==)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) === MemoryEffects(b)
+Base.hash(effects::FunctionMemoryEffects, h::UInt) = hash(MemoryEffects(effects), h)
+Base.show(io::IO, effects::FunctionMemoryEffects) = show(io, MemoryEffects(effects))
+
+memory_effects(f::Function) = FunctionMemoryEffects(f)
+
+function memory_effects!(f::Function, effects::AnyMemoryEffects)
+    push!(function_attributes(f), EnumAttribute(MemoryEffects(effects)))
     return
 end
+
+@property Function memory_effects memory_effects!
 
 check_memory_effects_index(idx::API.LLVMAttributeIndex) =
     idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex) ||
@@ -267,8 +369,26 @@ check_memory_effects_index(idx::API.LLVMAttributeIndex) =
 
 # parameter iteration
 
-export Argument, parameters
+@vocabulary IR Argument
 
+"""
+    LLVM.Argument
+
+A parameter of a function, as a value that can be used in its body.
+
+# Properties
+
+    arg.parent
+
+The function that the parameter belongs to.
+
+    arg.next
+    arg.prev
+
+The next or previous parameter of the function, or `nothing` if there is none.
+
+The properties of [`Value`](@ref LLVM.Value) are available too.
+"""
 @checked struct Argument <: Value
     ref::API.LLVMValueRef
 end
@@ -278,13 +398,9 @@ struct FunctionParameterSet <: AbstractVector{Argument}
     f::Function
 end
 
-"""
-    parameters(f::Function)
-
-Get an iterator over the parameters of the given function. These are values that can be
-used as inputs to other instructions.
-"""
 parameters(f::Function) = FunctionParameterSet(f)
+
+@property Function parameters
 
 Base.size(iter::FunctionParameterSet) = (API.LLVMCountParams(iter.f),)
 
@@ -318,24 +434,33 @@ function Base.collect(iter::FunctionParameterSet)
     return map(el->Argument(el), elems)
 end
 
+function next(arg::Argument)
+    ref = API.LLVMGetNextParam(arg)
+    ref == C_NULL ? nothing : Argument(ref)
+end
+
+function prev(arg::Argument)
+    ref = API.LLVMGetPreviousParam(arg)
+    ref == C_NULL ? nothing : Argument(ref)
+end
+
+@property Argument next
+@property Argument prev
+
+parent(arg::Argument) = Function(API.LLVMGetParamParent(arg))
+
+@property Argument parent
+
 
 # basic block iteration
 
-export blocks, prevblock, nextblock
-
 struct FunctionBlockSet <: AbstractVector{BasicBlock}
     f::Function
-    cache::Vector{API.LLVMValueRef}
-
-    FunctionBlockSet(f::Function) = new(f, API.LLVMValueRef[])
 end
 
-"""
-    blocks(f::Function)
-
-Get an iterator over the basic blocks of the given function.
-"""
 blocks(f::Function) = FunctionBlockSet(f)
+
+@property Function blocks
 
 Base.size(iter::FunctionBlockSet) = (Int(API.LLVMCountBasicBlocks(iter.f)),)
 
@@ -355,42 +480,39 @@ end
     state == C_NULL ? nothing : (BasicBlock(state), API.LLVMGetNextBasicBlock(state))
 end
 
-"""
-    prevblock(bb::BasicBlock)
-
-Get the previous basic block of the given basic block, or `nothing` if there is none.
-"""
-function prevblock(bb::BasicBlock)
-    ref = API.LLVMGetPreviousBasicBlock(bb)
-    ref == C_NULL && return nothing
-    BasicBlock(ref)
-end
-
-"""
-    nextblock(bb::BasicBlock)
-
-Get the next basic block of the given basic block, or `nothing` if there is none.
-"""
-function nextblock(bb::BasicBlock)
+function next(bb::BasicBlock)
+    API.LLVMGetBasicBlockParent(bb) == C_NULL && return nothing
     ref = API.LLVMGetNextBasicBlock(bb)
-    ref == C_NULL && return nothing
-    BasicBlock(ref)
+    ref == C_NULL ? nothing : BasicBlock(ref)
 end
 
-# provide a random access interface by maintaining a cache of blocks
+function prev(bb::BasicBlock)
+    API.LLVMGetBasicBlockParent(bb) == C_NULL && return nothing
+    ref = API.LLVMGetPreviousBasicBlock(bb)
+    ref == C_NULL ? nothing : BasicBlock(ref)
+end
+
+@property BasicBlock next
+@property BasicBlock prev
+
+# LLVM keeps blocks in a linked list, so random access walks the list (from whichever end
+# is closest). caching the blocks would make the view go stale when blocks are added or
+# removed.
 function Base.getindex(iter::FunctionBlockSet, i::Int)
-    i <= 0 && throw(BoundsError(iter, i))
-    i == 1 && return first(iter)
-    while i > length(iter.cache)
-        next = if isempty(iter.cache)
-            iterate(iter)
-        else
-            iterate(iter, iter.cache[end])
+    n = length(iter)
+    @boundscheck 1 <= i <= n || throw(BoundsError(iter, i))
+    if i <= n ÷ 2
+        ref = API.LLVMGetFirstBasicBlock(iter.f)
+        for _ in 2:i
+            ref = API.LLVMGetNextBasicBlock(ref)
         end
-        next === nothing && throw(BoundsError(iter, i))
-        push!(iter.cache, next[2])
+    else
+        ref = API.LLVMGetLastBasicBlock(iter.f)
+        for _ in i+1:n
+            ref = API.LLVMGetPreviousBasicBlock(ref)
+        end
     end
-    return BasicBlock(iter.cache[i-1])
+    return BasicBlock(ref)
 end
 
 # NOTE: optimized `collect`
@@ -403,7 +525,8 @@ end
 
 # intrinsics
 
-export isintrinsic, Intrinsic, isoverloaded
+@vocabulary IR isintrinsic, Intrinsic, isoverloaded
+@public overloaded_name
 
 """
     isintrinsic(f::Function)
@@ -412,6 +535,18 @@ Check if the given function is an intrinsic.
 """
 isintrinsic(f::Function) = API.LLVMGetIntrinsicID(f) != 0
 
+"""
+    LLVM.Intrinsic
+
+An LLVM intrinsic function, identified by its ID.
+
+# Properties
+
+    intr.name
+
+The name of the intrinsic. For overloaded intrinsics, this is the base name, e.g.,
+`llvm.sin`; see [`LLVM.overloaded_name`](@ref) to get the name of a specific overload.
+"""
 struct Intrinsic
     id::UInt32
 
@@ -425,28 +560,30 @@ struct Intrinsic
         new(API.LLVMLookupIntrinsicID(name, length(name)))
     end
 end
+@properties Intrinsic
 
 Base.convert(::Type{UInt32}, intr::Intrinsic) = intr.id
 
-"""
-    name(intr::LLVM.Intrinsic)
-
-Get the name of the given intrinsic.
-"""
 function name(intr::Intrinsic)
+    # LLVMIntrinsicGetName asserts that the intrinsic is not overloaded, but the name of an
+    # overload without any types is the base name
+    isoverloaded(intr) && return overloaded_name(intr, LLVMType[])
     len = Ref{Csize_t}()
     str = API.LLVMIntrinsicGetName(intr, len)
     unsafe_string(convert(Ptr{Cchar}, str), len[])
 end
 
-"""
-    name(intr::LLVM.Intrinsic, params::Vector{<:LLVMType})
+@property Intrinsic name
 
-Get the name of the given overloaded intrinsic with the given parameter types.
 """
-function name(intr::Intrinsic, params::Vector{<:LLVMType})
+    LLVM.overloaded_name(intr::LLVM.Intrinsic, params::AbstractVector{<:LLVMType})
+
+Get the name of the given overloaded intrinsic with the given parameter types, e.g.,
+`llvm.sin.f64`.
+"""
+function overloaded_name(intr::Intrinsic, params::AbstractVector{<:LLVMType})
     len = Ref{Csize_t}()
-    str = API.LLVMIntrinsicCopyOverloadedName(intr, params, length(params), len)
+    str = API.LLVMIntrinsicCopyOverloadedName(intr, as_vector(params), length(params), len)
     unsafe_message(convert(Ptr{Cchar}, str), len[])
 end
 
@@ -460,21 +597,22 @@ function isoverloaded(intr::Intrinsic)
 end
 
 """
-    Function(mod::Module, intr::Intrinsic, params::Vector{<:LLVMType}=LLVMType[])
+    Function(mod::Module, intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMType[])
 
 Get the declaration of the given intrinsic in the given module.
 """
-function Function(mod::Module, intr::Intrinsic, params::Vector{<:LLVMType}=LLVMType[])
-    Value(API.LLVMGetIntrinsicDeclaration(mod, intr, params, length(params)))
+function Function(mod::Module, intr::Intrinsic,
+                  params::AbstractVector{<:LLVMType}=LLVMType[])
+    Value(API.LLVMGetIntrinsicDeclaration(mod, intr, as_vector(params), length(params)))
 end
 
 """
-    FunctionType(intr::Intrinsic, params::Vector{<:LLVMType}=LLVMType[])
+    FunctionType(intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMType[])
 
 Get the function type of the given intrinsic with the given parameter types.
 """
-function FunctionType(intr::Intrinsic, params::Vector{<:LLVMType}=LLVMType[])
-    LLVMType(API.LLVMIntrinsicGetType(context(), intr, params, length(params)))
+function FunctionType(intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMType[])
+    LLVMType(API.LLVMIntrinsicGetType(context(), intr, as_vector(params), length(params)))
 end
 
 function Base.show(io::IO, intr::Intrinsic)

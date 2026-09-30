@@ -6,25 +6,6 @@ copy(::LLVM.Module)
 dispose(::LLVM.Module)
 ```
 
-
-## Properties and operations
-
-```@docs
-context(::LLVM.Module)
-name(::LLVM.Module)
-name!(::LLVM.Module, ::String)
-triple(::LLVM.Module)
-triple!(::LLVM.Module, ::String)
-datalayout
-datalayout!
-inline_asm!
-inline_asm
-sdk_version
-sdk_version!
-set_used!
-set_compiler_used!
-```
-
 ## Textual representation
 
 ```@docs
@@ -45,21 +26,8 @@ write(io::IO, mod::LLVM.Module)
 ## Contents
 
 ```@docs
-globals
 sort!(::LLVM.ModuleGlobalSet)
-prevglobal
-nextglobal
-functions(::LLVM.Module)
 sort!(::LLVM.ModuleFunctionSet)
-prevfun
-nextfun
-aliases
-prevalias
-nextalias
-ifuncs
-previfunc
-nextifunc
-flags(::LLVM.Module)
 ```
 
 ## Linking

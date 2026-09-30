@@ -2549,6 +2549,13 @@ end
     @test_throws BoundsError args[3]
     @test_throws BoundsError args[3] = x
 
+    # the operands of instructions can be replaced, but not those of constants
+    call.operands[2] = x
+    @test replace!(call.operands, x => y) == call.operands
+    @test call.arguments == [y, y]
+    ce = const_inttoptr(ConstantInt(Int64(42)), LLVM.PointerType(LLVM.Int32Type()))
+    @test_throws ArgumentError ce.operands[1] = ConstantInt(Int64(0))
+
     # the successors of a terminator are a mutable view
     succs = br.successors
     @test succs == [exit]

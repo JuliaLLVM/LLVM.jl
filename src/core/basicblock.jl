@@ -145,7 +145,7 @@ instructions(bb::BasicBlock) = BasicBlockInstructionSet(bb)
 
 @property BasicBlock instructions
 
-Base.eltype(::BasicBlockInstructionSet) = Instruction
+Base.eltype(::Type{BasicBlockInstructionSet}) = Instruction
 
 @inline function Base.iterate(iter::BasicBlockInstructionSet,
                               state=API.LLVMGetFirstInstruction(iter.bb))

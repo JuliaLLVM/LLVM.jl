@@ -255,7 +255,7 @@ kind(attr::ConstantRangeListAttribute) = attribute_kind_name(attribute_kind_id(a
 # attribute) or `C_NULL`, and `remove_attribute!(set, kind)`.
 abstract type AttributeSet end
 
-Base.eltype(::AttributeSet) = Attribute
+Base.eltype(::Type{<:AttributeSet}) = Attribute
 
 # LLVM only supports fetching all attributes at once
 function Base.iterate(iter::AttributeSet, (attrs, i)=(collect(iter), 1))

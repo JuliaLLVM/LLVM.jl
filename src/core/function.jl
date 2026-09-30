@@ -255,7 +255,7 @@ parameter_attributes(f::Function) = FunctionParameterAttrSets(f)
 
 Base.size(iter::FunctionParameterAttrSets) = (Int(API.LLVMCountParams(iter.f)),)
 
-Base.IndexStyle(::FunctionParameterAttrSets) = IndexLinear()
+Base.IndexStyle(::Type{FunctionParameterAttrSets}) = IndexLinear()
 
 function Base.getindex(iter::FunctionParameterAttrSets, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -418,9 +418,9 @@ parameters(f::Function) = FunctionParameterSet(f)
 
 @property Function parameters
 
-Base.size(iter::FunctionParameterSet) = (API.LLVMCountParams(iter.f),)
+Base.size(iter::FunctionParameterSet) = (Int(API.LLVMCountParams(iter.f)),)
 
-Base.IndexStyle(::FunctionParameterSet) = IndexLinear()
+Base.IndexStyle(::Type{FunctionParameterSet}) = IndexLinear()
 
 function Base.getindex(iter::FunctionParameterSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -483,6 +483,8 @@ blocks(f::Function) = FunctionBlockSet(f)
 @property Function blocks
 
 Base.size(iter::FunctionBlockSet) = (Int(API.LLVMCountBasicBlocks(iter.f)),)
+
+Base.IndexStyle(::Type{FunctionBlockSet}) = IndexLinear()
 
 function Base.first(iter::FunctionBlockSet)
     ref = API.LLVMGetFirstBasicBlock(iter.f)

@@ -282,7 +282,7 @@ uses(val::Value) = ValueUseSet(val)
 
 @property Value uses
 
-Base.eltype(::ValueUseSet) = Use
+Base.eltype(::Type{ValueUseSet}) = Use
 
 @inline function Base.iterate(iter::ValueUseSet, state=first_use(iter.val))
     state == C_NULL ? nothing : (Use(state), API.LLVMGetNextUse(state))
@@ -304,7 +304,7 @@ users(val::Value) = ValueUserSet(val)
 
 @property Value users
 
-Base.eltype(::ValueUserSet) = User
+Base.eltype(::Type{ValueUserSet}) = User
 
 @inline function Base.iterate(iter::ValueUserSet, state=first_use(iter.val))
     state == C_NULL ? nothing : (Value(API.LLVMGetUser(state))::User,

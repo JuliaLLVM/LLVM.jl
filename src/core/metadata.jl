@@ -204,7 +204,7 @@ operands(md::MDNode) = MDNodeOperandSet(md)
 
 Base.size(iter::MDNodeOperandSet) = (Int(API.LLVMGetMDNodeNumOperands2(iter.md)),)
 
-Base.IndexStyle(::MDNodeOperandSet) = IndexLinear()
+Base.IndexStyle(::Type{MDNodeOperandSet}) = IndexLinear()
 
 function Base.getindex(iter::MDNodeOperandSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
@@ -494,7 +494,7 @@ end
 Base.size(iter::NamedMDNodeOperandSet) =
     (Int(API.LLVMGetNamedMetadataNumOperands2(iter.node)),)
 
-Base.IndexStyle(::NamedMDNodeOperandSet) = IndexLinear()
+Base.IndexStyle(::Type{NamedMDNodeOperandSet}) = IndexLinear()
 
 function Base.getindex(iter::NamedMDNodeOperandSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))

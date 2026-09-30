@@ -426,7 +426,7 @@ globals(mod::Module) = ModuleGlobalSet(mod)
 
 @property Module globals
 
-Base.eltype(::ModuleGlobalSet) = GlobalVariable
+Base.eltype(::Type{ModuleGlobalSet}) = GlobalVariable
 
 @inline function Base.iterate(iter::ModuleGlobalSet, state=API.LLVMGetFirstGlobal(iter.mod))
     state == C_NULL ? nothing : (GlobalVariable(state), API.LLVMGetNextGlobal(state))
@@ -544,7 +544,7 @@ functions(mod::Module) = ModuleFunctionSet(mod)
 
 @property Module functions
 
-Base.eltype(::ModuleFunctionSet) = Function
+Base.eltype(::Type{ModuleFunctionSet}) = Function
 
 @inline function Base.iterate(iter::ModuleFunctionSet, state=API.LLVMGetFirstFunction(iter.mod))
     state == C_NULL ? nothing : (Function(state), API.LLVMGetNextFunction(state))
@@ -652,7 +652,7 @@ aliases(mod::Module) = ModuleAliasSet(mod)
 
 @property Module aliases
 
-Base.eltype(::ModuleAliasSet) = GlobalAlias
+Base.eltype(::Type{ModuleAliasSet}) = GlobalAlias
 
 function Base.iterate(iter::ModuleAliasSet, state=API.LLVMGetFirstGlobalAlias(iter.mod))
     state == C_NULL ? nothing : (GlobalAlias(state), API.LLVMGetNextGlobalAlias(state))
@@ -714,7 +714,7 @@ ifuncs(mod::Module) = ModuleIFuncSet(mod)
 
 @property Module ifuncs
 
-Base.eltype(::ModuleIFuncSet) = GlobalIFunc
+Base.eltype(::Type{ModuleIFuncSet}) = GlobalIFunc
 
 function Base.iterate(iter::ModuleIFuncSet, state=API.LLVMGetFirstGlobalIFunc(iter.mod))
     state == C_NULL ? nothing : (GlobalIFunc(state), API.LLVMGetNextGlobalIFunc(state))

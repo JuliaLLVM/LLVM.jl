@@ -2721,6 +2721,30 @@ end
 
 @testset "collection views" begin
 
+# views implement the traits of Julia's collection interfaces on their type
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
+    f = LLVM.Function(mod, "f", ft)
+    bb = BasicBlock(f, "entry")
+    position!(builder, bb)
+    x = f.parameters[1]
+    call = call!(builder, ft, f, [x])
+    ret!(builder, call)
+
+    for view in (f.parameters, f.blocks, f.parameter_attributes, call.operands,
+                 call.arguments, call.argument_attributes, call.operand_bundles,
+                 bb.terminator.successors, ft.parameters)
+        T = typeof(view)
+        @test IndexStyle(T) == IndexLinear()
+        @test size(view) isa Tuple{Int}
+        @test eltype(T) != Any
+    end
+    for view in (mod.functions, mod.globals, bb.instructions, x.uses, x.users,
+                 f.function_attributes)
+        @test eltype(typeof(view)) != Any
+    end
+end
+
 # the operands of a metadata node are a mutable view
 @dispose ctx=Context() begin
     a, b = MDString("a"), MDString("b")

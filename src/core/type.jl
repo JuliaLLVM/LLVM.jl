@@ -287,7 +287,7 @@ parameters(ft::FunctionType) = FunctionTypeParameterSet(ft)
 
 Base.size(iter::FunctionTypeParameterSet) = (Int(API.LLVMCountParamTypes(iter.typ)),)
 
-Base.IndexStyle(::FunctionTypeParameterSet) = IndexLinear()
+Base.IndexStyle(::Type{FunctionTypeParameterSet}) = IndexLinear()
 
 # LLVM only supports fetching all parameter types at once. since types are immutable,
 # fetching them once when iterating does not change the semantics of the view.
@@ -562,7 +562,7 @@ elements(typ::StructType) = StructTypeElementSet(typ)
 
 Base.size(iter::StructTypeElementSet) = (Int(API.LLVMCountStructElementTypes(iter.typ)),)
 
-Base.IndexStyle(::StructTypeElementSet) = IndexLinear()
+Base.IndexStyle(::Type{StructTypeElementSet}) = IndexLinear()
 
 function Base.getindex(iter::StructTypeElementSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))

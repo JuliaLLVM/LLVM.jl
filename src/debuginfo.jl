@@ -1783,7 +1783,7 @@ end
 Base.size(iter::DbgRecordLocationOperandSet) =
     (Int(API.LLVMExtraDbgVariableRecordGetNumValues(iter.record)),)
 
-Base.IndexStyle(::DbgRecordLocationOperandSet) = IndexLinear()
+Base.IndexStyle(::Type{DbgRecordLocationOperandSet}) = IndexLinear()
 
 function Base.getindex(iter::DbgRecordLocationOperandSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))

@@ -185,9 +185,11 @@ end
             @test haskey(engine.functions, "add_1")
             @test engine.functions["add_1"] isa LLVM.Function
 
-            delete!(engine, mod1)
+            @test delete!(engine, mod1) === engine
             @test_throws KeyError engine.functions["add_1"]
             @test !haskey(engine.functions, "add_1")
+            # modules that aren't part of the engine are ignored
+            @test delete!(engine, mod1) === engine
             dispose(mod1)
 
             push!(engine, mod2)

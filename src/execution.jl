@@ -232,12 +232,17 @@ end
 
 Remove a module from the execution engine.
 
-Ownership of the module is transferred back to the user.
+Ownership of the module is transferred back to the user. Does nothing if the module isn't
+part of the engine.
 """
 function Base.delete!(engine::ExecutionEngine, mod::Module)
+    mod in engine.mods || return engine
     out_ref = Ref{API.LLVMModuleRef}()
-    API.LLVMRemoveModule(engine.ref, mod.ref, out_ref, Ref{Cstring}()) # out string is not used
-    @assert mod == Module(out_ref[])
+    out_error = Ref{Cstring}(C_NULL)
+    # the C API can report a failure, although LLVM's implementation doesn't
+    if API.LLVMRemoveModule(engine, mod, out_ref, out_error) |> Bool
+        throw(LLVMException(unsafe_message(out_error[])))
+    end
     delete!(engine.mods, mod)
     return engine
 end

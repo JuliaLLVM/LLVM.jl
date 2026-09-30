@@ -79,8 +79,6 @@ end # module API
 
 include("enums.jl")
 
-has_oldpm() = LLVM.version() < v"17"
-
 # helpers
 include("debug.jl")
 
@@ -93,21 +91,16 @@ include("linker.jl")
 include("irbuilder.jl")
 include("atomics.jl")
 include("analysis.jl")
-include("pass.jl")
-include("passmanager.jl")
 include("execution.jl")
 include("target.jl")
 include("targetmachine.jl")
 include("datalayout.jl")
 include("disasm.jl")
-if has_oldpm()
-    include("transform.jl")
-end
 include("debuginfo.jl")
 include("utils.jl")
 include("orc.jl")
 include("targetinfo.jl")
-include("newpm.jl")
+include("passes.jl")
 
 # high-level functionality
 include("state.jl")

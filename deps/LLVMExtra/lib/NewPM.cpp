@@ -3,6 +3,7 @@
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/TargetTransformInfoImpl.h>
+#include <llvm/CodeGen/ExpandReductions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
@@ -583,6 +584,18 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
     PB.registerPipelineParsingCallback(Callback);
 #if LLVM_VERSION_MAJOR >= 17 && LLVM_VERSION_MAJOR < 22
   registerCallbackParsing(PB);
+#endif
+#if LLVM_VERSION_MAJOR < 21
+  // `expand-reductions` is only registered with the new pass manager since LLVM 21
+  // (llvm/llvm-project#148109), but the pass itself is available
+  PB.registerPipelineParsingCallback(
+      [](StringRef Name, FunctionPassManager &PM,
+         ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
+        if (Name != "expand-reductions" || !InnerPipeline.empty())
+          return false;
+        PM.addPass(ExpandReductionsPass());
+        return true;
+      });
 #endif
 
   LoopAnalysisManager LAM;

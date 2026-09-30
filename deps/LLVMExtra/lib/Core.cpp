@@ -10,9 +10,7 @@
 #endif
 #include <llvm/ADT/SetVector.h>
 #include <llvm/Analysis/PostDominators.h>
-#include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
-#include <llvm/CodeGen/Passes.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
@@ -26,25 +24,15 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
-#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/ReplaceConstant.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/Transforms/IPO.h>
-#include <llvm/Transforms/Scalar.h>
-#include <llvm/Transforms/Scalar/SimpleLoopUnswitch.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
-#if LLVM_VERSION_MAJOR < 18
-#include <llvm/Transforms/Vectorize.h>
-#else
-#include <llvm/Transforms/Vectorize/LoadStoreVectorizer.h>
-#endif
 
 using namespace llvm;
-using namespace llvm::legacy;
 
 //
 // Initialization functions
@@ -66,187 +54,9 @@ LLVMBool LLVMExtraInitializeNativeDisassembler() {
 
 
 //
-// Missing LegacyPM passes
-//
-
-void LLVMAddBarrierNoopPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createBarrierNoopPass());
-}
-
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddDivRemPairsPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createDivRemPairsPass());
-}
-
-void LLVMAddLoopDistributePass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createLoopDistributePass());
-}
-
-void LLVMAddLoopFusePass(LLVMPassManagerRef PM) { unwrap(PM)->add(createLoopFusePass()); }
-
-void LLVMAddLoopLoadEliminationPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createLoopLoadEliminationPass());
-}
-#endif
-
-void LLVMAddLoadStoreVectorizerPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createLoadStoreVectorizerPass());
-}
-
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddVectorCombinePass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createVectorCombinePass());
-}
-#endif
-
-void LLVMAddSpeculativeExecutionIfHasBranchDivergencePass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createSpeculativeExecutionIfHasBranchDivergencePass());
-}
-
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddSimpleLoopUnrollPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createSimpleLoopUnrollPass());
-}
-
-void LLVMAddInductiveRangeCheckEliminationPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createInductiveRangeCheckEliminationPass());
-}
-#endif
-
-#if LLVM_VERSION_MAJOR < 18
-void LLVMAddSimpleLoopUnswitchLegacyPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createSimpleLoopUnswitchLegacyPass());
-}
-#endif
-
-void LLVMAddExpandReductionsPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createExpandReductionsPass());
-}
-#if LLVM_VERSION_MAJOR >= 17
-void LLVMAddCFGSimplificationPass2(LLVMPassManagerRef PM, int BonusInstThreshold,
-                                   LLVMBool ForwardSwitchCondToPhi,
-                                   LLVMBool ConvertSwitchToLookupTable,
-                                   LLVMBool NeedCanonicalLoop, LLVMBool HoistCommonInsts,
-                                   LLVMBool SinkCommonInsts, LLVMBool SimplifyCondBranch,
-                                   LLVMBool SpeculateBlocks) {
-  auto simplifyCFGOptions = SimplifyCFGOptions()
-                                .bonusInstThreshold(BonusInstThreshold)
-                                .forwardSwitchCondToPhi(ForwardSwitchCondToPhi)
-                                .convertSwitchToLookupTable(ConvertSwitchToLookupTable)
-                                .needCanonicalLoops(NeedCanonicalLoop)
-                                .hoistCommonInsts(HoistCommonInsts)
-                                .sinkCommonInsts(SinkCommonInsts)
-                                .setSimplifyCondBranch(SimplifyCondBranch)
-                                .speculateBlocks(SpeculateBlocks);
-  unwrap(PM)->add(createCFGSimplificationPass(simplifyCFGOptions));
-}
-#else
-void LLVMAddCFGSimplificationPass2(LLVMPassManagerRef PM, int BonusInstThreshold,
-                                   LLVMBool ForwardSwitchCondToPhi,
-                                   LLVMBool ConvertSwitchToLookupTable,
-                                   LLVMBool NeedCanonicalLoop, LLVMBool HoistCommonInsts,
-                                   LLVMBool SinkCommonInsts, LLVMBool SimplifyCondBranch,
-                                   LLVMBool FoldTwoEntryPHINode) {
-  auto simplifyCFGOptions = SimplifyCFGOptions()
-                                .bonusInstThreshold(BonusInstThreshold)
-                                .forwardSwitchCondToPhi(ForwardSwitchCondToPhi)
-                                .convertSwitchToLookupTable(ConvertSwitchToLookupTable)
-                                .needCanonicalLoops(NeedCanonicalLoop)
-                                .hoistCommonInsts(HoistCommonInsts)
-                                .sinkCommonInsts(SinkCommonInsts)
-                                .setSimplifyCondBranch(SimplifyCondBranch)
-                                .setFoldTwoEntryPHINode(FoldTwoEntryPHINode);
-  unwrap(PM)->add(createCFGSimplificationPass(simplifyCFGOptions));
-}
-#endif
-
-#if LLVM_VERSION_MAJOR < 17
-void LLVMAddInternalizePassWithExportList(LLVMPassManagerRef PM, const char **ExportList,
-                                          size_t Length) {
-  auto PreserveFobj = [=](const GlobalValue &GV) {
-    for (size_t i = 0; i < Length; i++) {
-      if (strcmp(ExportList[i], GV.getName().data()) == 0)
-        return true;
-    }
-    return false;
-  };
-  unwrap(PM)->add(createInternalizePass(PreserveFobj));
-}
-#endif
-
-
-//
-// Custom LegacyPM pass infrastructure
-//
-
-typedef struct LLVMOpaquePass *LLVMPassRef;
-DEFINE_STDCXX_CONVERSION_FUNCTIONS(Pass, LLVMPassRef)
-
-void LLVMAddPass(LLVMPassManagerRef PM, LLVMPassRef P) { unwrap(PM)->add(unwrap(P)); }
-
-typedef LLVMBool (*LLVMPassCallback)(void *Ref, void *Data);
-
-namespace {
-StringMap<char *> PassIDs;
-char &CreatePassID(const char *Name) {
-  std::string NameStr(Name);
-  if (PassIDs.find(NameStr) != PassIDs.end())
-    return *PassIDs[NameStr];
-  else
-    return *(PassIDs[NameStr] = new char);
-}
-
-class JuliaModulePass : public ModulePass {
-public:
-  JuliaModulePass(const char *Name, LLVMPassCallback Callback, void *Data)
-      : ModulePass(CreatePassID(Name)), Callback(Callback), Data(Data) {}
-
-  bool runOnModule(Module &M) override {
-    void *Ref = (void *)wrap(&M);
-    bool Changed = Callback(Ref, Data);
-    return Changed;
-  }
-
-private:
-  LLVMPassCallback Callback;
-  void *Data;
-};
-
-class JuliaFunctionPass : public FunctionPass {
-public:
-  JuliaFunctionPass(const char *Name, LLVMPassCallback Callback, void *Data)
-      : FunctionPass(CreatePassID(Name)), Callback(Callback), Data(Data) {}
-
-  bool runOnFunction(Function &Fn) override {
-    void *Ref = (void *)wrap(&Fn);
-    bool Changed = Callback(Ref, Data);
-    return Changed;
-  }
-
-private:
-  LLVMPassCallback Callback;
-  void *Data;
-};
-
-}; // namespace
-
-LLVMPassRef LLVMCreateModulePass2(const char *Name, LLVMPassCallback Callback, void *Data) {
-  return wrap(new JuliaModulePass(Name, Callback, Data));
-}
-
-LLVMPassRef LLVMCreateFunctionPass2(const char *Name, LLVMPassCallback Callback,
-                                    void *Data) {
-  return wrap(new JuliaFunctionPass(Name, Callback, Data));
-}
-
-
-//
 // Missing functionality
 //
 
-void LLVMAddTargetLibraryInfoByTriple(const char *T, LLVMPassManagerRef PM) {
-  unwrap(PM)->add(new TargetLibraryInfoWrapperPass(Triple(T)));
-}
 
 void LLVMAppendToUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t Count) {
   SmallVector<GlobalValue *, 1> GlobalValues;
@@ -325,9 +135,6 @@ void LLVMRemoveFromCompilerUsed(LLVMModuleRef Mod, LLVMValueRef *Values, size_t 
   removeFromUsedList(*unwrap(Mod), "llvm.compiler.used", ArrayRef(Values, Count));
 }
 
-void LLVMAddGenericAnalysisPasses(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createTargetTransformInfoWrapperPass(TargetIRAnalysis()));
-}
 
 const char *LLVMDIScopeGetName(LLVMMetadataRef File, unsigned *Len) {
   auto Name = unwrap<DIScope>(File)->getName();

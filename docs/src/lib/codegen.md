@@ -21,8 +21,6 @@ LLVM.host_cpu_features
 LLVM.normalize(::String)
 LLVM.asm_verbosity!
 emit
-LLVM.add_transform_info!
-LLVM.add_library_info!
 LLVM.JITTargetMachine
 ```
 

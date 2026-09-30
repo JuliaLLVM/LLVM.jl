@@ -31,13 +31,6 @@ function codegen!(mod::LLVM.Module, name, tm)
 
     verify(mod)
 
-    @dispose pm=ModulePassManager() begin
-        LLVM.add_library_info!(pm, mod.triple)
-        LLVM.add_transform_info!(pm, tm)
-        run!(pm, mod)
-    end
-
-    verify(mod)
 end
 
 tm = LLVM.JITTargetMachine()

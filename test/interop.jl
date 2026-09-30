@@ -362,31 +362,6 @@ function test_module()
 end
 
 @testset "passes" begin
-    if VERSION < v"1.11.0-DEV.428"
-        @dispose ctx=Context() mod=test_module() pm=ModulePassManager() begin
-
-            demote_float16!(pm)
-            julia_licm!(pm)
-            alloc_opt!(pm)
-            barrier_noop!(pm)
-            gc_invariant_verifier!(pm)
-            gc_invariant_verifier!(pm, true)
-            lower_exc_handlers!(pm)
-            combine_mul_add!(pm)
-            multi_versioning!(pm)
-            propagate_julia_addrsp!(pm)
-            lower_ptls!(pm)
-            lower_ptls!(pm, true)
-            lower_simdloop!(pm)
-            remove_ni!(pm)
-            late_lower_gc_frame!(pm)
-            final_lower_gc!(pm)
-            cpu_features!(pm)
-
-        end
-        @test "we didn't crash!" != ""
-    end
-
     @dispose ctx=Context() mod=test_module() begin
         # by string
         @test run!("julia", mod) === nothing

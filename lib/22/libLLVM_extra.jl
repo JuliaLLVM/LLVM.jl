@@ -23,53 +23,6 @@ end
     LLVMDebugEmissionKindDebugDirectivesOnly = 3
 end
 
-function LLVMAddBarrierNoopPass(PM)
-    ccall((:LLVMAddBarrierNoopPass, libLLVMExtra), Cvoid, (LLVMPassManagerRef,), PM)
-end
-
-function LLVMAddLoadStoreVectorizerPass(PM)
-    ccall((:LLVMAddLoadStoreVectorizerPass, libLLVMExtra), Cvoid, (LLVMPassManagerRef,), PM)
-end
-
-function LLVMAddSpeculativeExecutionIfHasBranchDivergencePass(PM)
-    ccall((:LLVMAddSpeculativeExecutionIfHasBranchDivergencePass, libLLVMExtra), Cvoid, (LLVMPassManagerRef,), PM)
-end
-
-function LLVMAddSimpleLoopUnswitchLegacyPass(PM)
-    ccall((:LLVMAddSimpleLoopUnswitchLegacyPass, libLLVMExtra), Cvoid, (LLVMPassManagerRef,), PM)
-end
-
-function LLVMAddExpandReductionsPass(PM)
-    ccall((:LLVMAddExpandReductionsPass, libLLVMExtra), Cvoid, (LLVMPassManagerRef,), PM)
-end
-
-function LLVMAddCFGSimplificationPass2(PM, BonusInstThreshold, ForwardSwitchCondToPhi, ConvertSwitchToLookupTable, NeedCanonicalLoop, HoistCommonInsts, SinkCommonInsts, SimplifyCondBranch, SpeculateBlocks)
-    ccall((:LLVMAddCFGSimplificationPass2, libLLVMExtra), Cvoid, (LLVMPassManagerRef, Cint, LLVMBool, LLVMBool, LLVMBool, LLVMBool, LLVMBool, LLVMBool, LLVMBool), PM, BonusInstThreshold, ForwardSwitchCondToPhi, ConvertSwitchToLookupTable, NeedCanonicalLoop, HoistCommonInsts, SinkCommonInsts, SimplifyCondBranch, SpeculateBlocks)
-end
-
-mutable struct LLVMOpaquePass end
-
-const LLVMPassRef = Ptr{LLVMOpaquePass}
-
-function LLVMAddPass(PM, P)
-    ccall((:LLVMAddPass, libLLVMExtra), Cvoid, (LLVMPassManagerRef, LLVMPassRef), PM, P)
-end
-
-# typedef LLVMBool ( * LLVMPassCallback ) ( void * Ref , void * Data )
-const LLVMPassCallback = Ptr{Cvoid}
-
-function LLVMCreateModulePass2(Name, Callback, Data)
-    ccall((:LLVMCreateModulePass2, libLLVMExtra), LLVMPassRef, (Cstring, LLVMPassCallback, Ptr{Cvoid}), Name, Callback, Data)
-end
-
-function LLVMCreateFunctionPass2(Name, Callback, Data)
-    ccall((:LLVMCreateFunctionPass2, libLLVMExtra), LLVMPassRef, (Cstring, LLVMPassCallback, Ptr{Cvoid}), Name, Callback, Data)
-end
-
-function LLVMAddTargetLibraryInfoByTriple(T, PM)
-    ccall((:LLVMAddTargetLibraryInfoByTriple, libLLVMExtra), Cvoid, (Cstring, LLVMPassManagerRef), T, PM)
-end
-
 function LLVMAppendToUsed(Mod, Values, Count)
     ccall((:LLVMAppendToUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
 end
@@ -100,10 +53,6 @@ end
 
 function LLVMRemoveFromCompilerUsed(Mod, Values, Count)
     ccall((:LLVMRemoveFromCompilerUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
-end
-
-function LLVMAddGenericAnalysisPasses(PM)
-    ccall((:LLVMAddGenericAnalysisPasses, libLLVMExtra), Cvoid, (LLVMPassManagerRef,), PM)
 end
 
 function LLVMDumpMetadata(MD)

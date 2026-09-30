@@ -47,19 +47,6 @@ end
         @test_throws LLVMException emit(tm, mod, LLVM.API.LLVMAssemblyFile, "/")
     end
 
-    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
-        @dispose fpm=FunctionPassManager(mod) begin
-            add_transform_info!(fpm)
-            add_transform_info!(fpm, tm)
-            add_library_info!(fpm, tm.triple)
-        end
-        @dispose mpm=ModulePassManager() begin
-            add_transform_info!(mpm)
-            add_transform_info!(mpm, tm)
-            add_library_info!(mpm, tm.triple)
-        end
-    end
-
     dispose(LLVM.DataLayout(tm))
 end
 

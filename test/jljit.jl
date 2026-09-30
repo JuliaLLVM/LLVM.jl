@@ -78,12 +78,6 @@ end
             end
 
             mod.triple = jljit.triple
-            @dispose pm=ModulePassManager() tm=LLVM.JITTargetMachine() begin
-                # TODO: Get TM from jljit?
-                add_library_info!(pm, mod.triple)
-                add_transform_info!(pm, tm)
-                run!(pm, mod)
-            end
             verify(mod)
         end
 

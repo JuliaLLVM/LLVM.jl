@@ -61,6 +61,14 @@ end
             dm = LLVM.dimodule!(dib, cu, "MyModule")
             @test dm isa DIModule
             @test dm.name == "MyModule"
+
+            # scopes without a file
+            @test ns.file === nothing
+            @test cu.file == file
+
+            # top-level declarations
+            @test LLVM.namespace!(dib, nothing, "TopNS") isa DINamespace
+            @test LLVM.dimodule!(dib, nothing, "TopModule") isa DIModule
         end
 
         # emitted DWARF should round-trip as text IR (compile unit is retained)
@@ -225,6 +233,14 @@ end
             # void return
             @test LLVM.subroutine_type!(dib, file, nothing) isa LLVM.DISubroutineType
 
+            # top-level types
+            DW_TAG_structure_type = 0x13
+            @test LLVM.typedef_type!(dib, i64, "TopInt", file, 1, nothing) isa LLVM.DIDerivedType
+            @test LLVM.struct_type!(dib, nothing, "Top", file, 1, 64, 64,
+                                    LLVM.Metadata[]) isa LLVM.DICompositeType
+            @test LLVM.forward_decl!(dib, DW_TAG_structure_type, "TopFwd", nothing, file,
+                                     1) isa LLVM.DICompositeType
+
             # forward decl (a permanent declaration); the temporary
             # `replaceable_composite_type!` is exercised in the mutation testset
             # because it must be RAUW'd before finalize.
@@ -248,6 +264,7 @@ end
             # subprogram
             sp = LLVM.subprogram!(dib, file, "add", file, 1, stype)
             @test sp isa DISubprogram
+            @test LLVM.subprogram!(dib, nothing, "top", file, 1, stype).file == file
             @test sp.line == 1
             @test LLVM.subprogram!(dib, file, "unknown", file, typemax(UInt32), stype).line == -1
 
@@ -273,6 +290,9 @@ end
             gve = LLVM.global_variable_expression!(dib, cu, "g", "g",
                                                   file, 1, i64, false, e)
             @test gve isa LLVM.DIGlobalVariableExpression
+            gve2 = LLVM.global_variable_expression!(dib, nothing, "g2", "g2",
+                                                   file, 1, i64, false, e)
+            @test gve2.variable.scope === nothing
             gv = gve.variable
             @test gv isa LLVM.DIGlobalVariable
             @test gv.line == 1
@@ -531,6 +551,8 @@ end
             ns = LLVM.namespace!(dib, cu, "MyNS")
             ie = LLVM.imported_module_from_namespace!(dib, cu, ns, file, 1)
             @test ie isa LLVM.DIImportedEntity
+            @test LLVM.imported_module_from_namespace!(dib, nothing, ns, file, 1) isa
+                  LLVM.DIImportedEntity
 
             ie2 = LLVM.imported_module_from_alias!(dib, cu, ie, file, 2)
             @test ie2 isa LLVM.DIImportedEntity
@@ -689,6 +711,14 @@ end
       @test bar.subprogram === nothing
       bar.subprogram = sp
       @test bar.subprogram == sp
+
+      # clearing the subprogram keeps other metadata
+      bar.metadata["other"] = MDNode([MDString("keep")])
+      bar.subprogram = nothing
+      @test bar.subprogram === nothing
+      @test haskey(bar.metadata, "other")
+      bar.subprogram = nothing
+      @test bar.subprogram === nothing
     end
 
     bb = foo.entry

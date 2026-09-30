@@ -383,7 +383,12 @@ end
 
 ## metadata
 
-@vocabulary IR MDKind
+@vocabulary IR MDKind, MD_dbg, MD_tbaa, MD_prof, MD_fpmath, MD_range, MD_tbaa_struct,
+               MD_invariant_load, MD_alias_scope, MD_noalias, MD_nontemporal,
+               MD_mem_parallel_loop_access, MD_nonnull, MD_dereferenceable,
+               MD_dereferenceable_or_null, MD_make_implicit, MD_unpredictable,
+               MD_invariant_group, MD_align, MD_loop, MD_type, MD_section_prefix,
+               MD_absolute_symbol, MD_associated
 
 @cenum(MDKind, MD_dbg = 0,
                MD_tbaa = 1,
@@ -411,15 +416,51 @@ end
 
 """
     MDKind
+    MDKind(name::AbstractString; context=context())
 
-The kinds of metadata that LLVM knows about, like `MD_dbg` (for `!dbg`) or `MD_tbaa`, which
-index the metadata of instructions and global objects (`inst.metadata[MD_dbg]`) like the
-names of the kinds (`inst.metadata["dbg"]`).
+The kinds of metadata, which index the metadata of instructions and global objects. The
+kinds that LLVM knows about have a fixed value, like `MD_dbg` (for `!dbg`), `MD_tbaa` or
+`MD_invariant_load`, while the kinds of other names are specific to a context, and can be
+looked up by name (in the active context by default).
+
+Instead of a kind, the metadata of instructions and global objects can also be indexed by
+the name of the kind, like `inst.metadata["tbaa"]`, which is looked up in the context of
+the instruction or global object.
 """
 MDKind
 
-MDKind(name::String) = MDKind(API.LLVMGetMDKindIDInContext(context(), name, ncodeunits(name)))
+function MDKind(name::AbstractString; context::Context=LLVM.context())
+    str = String(name)
+    MDKind(API.LLVMGetMDKindIDInContext(context, str, ncodeunits(str)))
+end
 MDKind(kind::MDKind) = kind
+
+# the names of the fixed metadata kinds, from llvm/IR/FixedMetadataKinds.def
+const fixed_md_kind_names = (
+    :MD_dbg => "dbg", :MD_tbaa => "tbaa", :MD_prof => "prof", :MD_fpmath => "fpmath",
+    :MD_range => "range", :MD_tbaa_struct => "tbaa.struct",
+    :MD_invariant_load => "invariant.load", :MD_alias_scope => "alias.scope",
+    :MD_noalias => "noalias", :MD_nontemporal => "nontemporal",
+    :MD_mem_parallel_loop_access => "llvm.mem.parallel_loop_access",
+    :MD_nonnull => "nonnull", :MD_dereferenceable => "dereferenceable",
+    :MD_dereferenceable_or_null => "dereferenceable_or_null",
+    :MD_make_implicit => "make.implicit", :MD_unpredictable => "unpredictable",
+    :MD_invariant_group => "invariant.group", :MD_align => "align",
+    :MD_loop => "llvm.loop", :MD_type => "type", :MD_section_prefix => "section_prefix",
+    :MD_absolute_symbol => "absolute_symbol", :MD_associated => "associated")
+
+for (sym, name) in fixed_md_kind_names
+    doc = """
+        $sym
+
+    The kind of `!$name` metadata, which has a fixed value. See [`MDKind`](@ref).
+    """
+    @eval @doc $doc $sym
+end
+
+# the metadata kind for a key of the metadata of a value, looking up names in its context
+md_kind(val::Value, kind) = MDKind(kind)
+md_kind(val::Value, name::AbstractString) = MDKind(name; context=context(val))
 
 # instructions (using MetadataAsValue values)
 
@@ -434,22 +475,22 @@ metadata(inst::Instruction) = InstructionMetadataDict(inst)
 Base.isempty(md::InstructionMetadataDict) = !Bool(API.LLVMHasMetadata(md.val))
 
 Base.haskey(md::InstructionMetadataDict, key) =
-  API.LLVMGetMetadata(md.val, MDKind(key)) != C_NULL
+  API.LLVMGetMetadata(md.val, md_kind(md.val, key)) != C_NULL
 
 function Base.getindex(md::InstructionMetadataDict, key)
-    kind = MDKind(key)
+    kind = md_kind(md.val, key)
     objref = API.LLVMGetMetadata(md.val, kind)
     objref == C_NULL && throw(KeyError(kind))
     return Metadata(MetadataAsValue(objref))
   end
 
 function Base.setindex!(md::InstructionMetadataDict, node::MDNode, key)
-    API.LLVMSetMetadata(md.val, MDKind(key), Value(node))
+    API.LLVMSetMetadata(md.val, md_kind(md.val, key), Value(node))
     return md
 end
 
 function Base.delete!(md::InstructionMetadataDict, key)
-    API.LLVMSetMetadata(md.val, MDKind(key), C_NULL)
+    API.LLVMSetMetadata(md.val, md_kind(md.val, key), C_NULL)
     return md
 end
 
@@ -521,11 +562,11 @@ function Base.iterate(md::GlobalMetadataDict, (state, metadata))
 end
 
 function Base.setindex!(md::GlobalMetadataDict, node::Metadata, key)
-    API.LLVMGlobalSetMetadata(md.val, MDKind(key), node)
+    API.LLVMGlobalSetMetadata(md.val, md_kind(md.val, key), node)
     return md
 end
 
-Base.get(md::GlobalMetadataDict, key, default) = get(md, MDKind(key), default)
+Base.get(md::GlobalMetadataDict, key, default) = get(md, md_kind(md.val, key), default)
 function Base.get(md::GlobalMetadataDict, key::MDKind, default)
     for (k, v) in md
         if k == key
@@ -543,7 +584,7 @@ function Base.getindex(md::GlobalMetadataDict, key)
 end
 
 function Base.delete!(md::GlobalMetadataDict, key)
-    API.LLVMGlobalEraseMetadata(md.val, MDKind(key))
+    API.LLVMGlobalEraseMetadata(md.val, md_kind(md.val, key))
     return md
 end
 

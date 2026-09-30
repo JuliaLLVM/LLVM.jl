@@ -36,6 +36,32 @@ NamedMDNode
 MDKind
 ```
 
+```@docs
+MD_dbg
+MD_tbaa
+MD_prof
+MD_fpmath
+MD_range
+MD_tbaa_struct
+MD_invariant_load
+MD_alias_scope
+MD_noalias
+MD_nontemporal
+MD_mem_parallel_loop_access
+MD_nonnull
+MD_dereferenceable
+MD_dereferenceable_or_null
+MD_make_implicit
+MD_unpredictable
+MD_invariant_group
+MD_align
+MD_loop
+MD_type
+MD_section_prefix
+MD_absolute_symbol
+MD_associated
+```
+
 ## Debug information
 
 ```@docs

@@ -1377,6 +1377,35 @@ end
 
 @testset "metadata" begin
 
+# metadata kinds
+@dispose ctx=Context() begin
+    # the fixed kinds are public, and have the IDs of LLVM's kinds with those names
+    for (sym, name) in LLVM.fixed_md_kind_names
+        @test isdefined(LLVM.IR, sym)
+        @test MDKind(name) == getfield(LLVM, sym)
+    end
+    @test MDKind(SubString("tbaa")) == MD_tbaa
+
+    # other kinds are specific to a context
+    kind = MDKind("some.kind")
+    @dispose other_ctx=Context() mod=LLVM.Module("SomeModule") begin
+        MDKind("another.kind")
+        @test MDKind("some.kind"; context=ctx) == kind
+
+        # names are looked up in the context of the object whose metadata is accessed
+        gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+        md = MDNode([MDString("x")])
+        context!(ctx) do
+            gv.metadata["another.kind"] = md
+            @test haskey(gv.metadata, "another.kind")
+            @test gv.metadata["another.kind"] == md
+            @test gv.metadata[MDKind("another.kind"; context=other_ctx)] == md
+            delete!(gv.metadata, "another.kind")
+            @test !haskey(gv.metadata, "another.kind")
+        end
+    end
+end
+
 @dispose ctx=Context() begin
     str = MDString("foo")
     @test convert(String, str) == "foo"

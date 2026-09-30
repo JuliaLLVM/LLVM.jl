@@ -252,6 +252,22 @@ ORC:
 - Memory buffers keep track of being consumed too, by `add!` to a JIT and by lazily parsing
   bitcode (`parse(LLVM.Module, membuf; lazy=true)`), so that they can be disposed of after
   being handed over, e.g., using `@dispose`.
+- `JITDylib(jljit[, name])` returned the JITDylib that is shared by all users of Julia's
+  JIT before Julia 1.14.0-DEV.2171, but created a new one on every call on newer Julia, so
+  code that called it to get "the" JITDylib silently used new, empty ones there. It is
+  replaced by `jljit.external_dylib`, the shared JITDylib (before Julia 1.14.0-DEV.2171),
+  and `JITDylib(jljit, name)`, which creates one (from Julia 1.14.0-DEV.2171). Each throws
+  an error on the versions of Julia that don't support it, so choose one when
+  initializing, and keep using it. `LLVM.supports_jit_dylib_creation(jljit)` tells which.
+- `LLVM.consume!(obj)` hands an object that LLVM.jl tracks the ownership of over to foreign
+  code, e.g., a `ccall` that takes ownership of a thread-safe module, returning its handle,
+  after which the wrapper can't be used anymore and disposing of it does nothing.
+  `ThreadSafeModule(ref)` and `ThreadSafeModule(ref; borrowed=true)` wrap a handle from
+  foreign code, taking over the responsibility to dispose of it or not, and
+  `LLVM.unsafe_module(tsm)` returns the module of a thread-safe module without locking its
+  context, for when calling the thread-safe module isn't possible, and
+  `LLVM.unsafe_take_module!(tsm)` (LLVM 16+) moves the module out of a thread-safe module
+  that foreign code owns, e.g., the one of Julia's code generator.
 - Materialization responsibilities can't be used after being consumed by `emit!`, and the
   responsibility that an IR transformation receives is borrowed, like its module. Resource
   trackers can't be used after being disposed of, and disposing of them again does
@@ -307,6 +323,11 @@ Types, constants and data layouts:
   which divided by 8 as a float and threw for `i1`. The size and alignment queries of data
   layouts return `Int`s. `LLVM.element_at` returns, and `LLVM.offsetof` takes, a 1-based
   element index, like the `elements` of the struct type, and they check their arguments.
+- The floating-point types are public types named like their constructors:
+  `LLVM.DoubleType()` returns an `LLVM.DoubleType` instead of an internal `LLVM.LLVMDouble`,
+  and similarly for `HalfType`, `BFloatType`, `FloatType`, `FP128Type`, `X86FP80Type` and
+  `PPCFP128Type`. Code can dispatch on them (`T isa LLVM.DoubleType`), instead of comparing
+  with a type that belongs to the active context or checking the type kind.
 - `mod.metadata[name]` throws a `KeyError` for missing named metadata instead of creating
   it; use `get!(mod.metadata, name)`, or `get`. The view supports `length`, and `first`
   returns a `name => node` pair.
@@ -395,6 +416,36 @@ New functionality:
   ones of pass plugins, to use passes implemented in C++ with a `PassBuilder`.
 - `LLVM.host_cpu_name()` and `LLVM.host_cpu_features()` return the name and features of
   the host CPU, e.g., to create a `TargetMachine` for it.
+- `tryparse(Intrinsic, name)` looks up an intrinsic, returning `nothing` for names that the
+  version of LLVM in use doesn't know, and `parse(Intrinsic, name)` is the same as
+  `Intrinsic(name)`.
+- `cmpxchg.compare_operand` and `cmpxchg.new_value_operand` are the operands of a
+  `cmpxchg` instruction, and `LLVM.irname` returns the name of an `atomicrmw` operation or
+  an atomic ordering in LLVM IR, the inverse of `parse`.
+- `alloca!` and `array_alloca!` take an `addrspace` keyword argument, for allocations in
+  another address space than the one of the data layout.
+- `ce.source_element_type` works on `getelementptr` constant expressions, and
+  `LLVM.constant_offset(gep, dl)` computes the constant byte offset of a GEP instruction or
+  constant expression, as a `BigInt`, or with `LLVM.constant_offset(Int, gep, dl)` as an
+  `Int`.
+- `const_splat(vectyp, value)` creates a vector constant of which all elements are
+  `value`, a constant or a Julia number.
+- `run!(pass, mod)` runs a single custom pass (`ModulePass` or `FunctionPass`) on a module
+  or function, without having to register it with a pass builder first.
+- The memory effects of functions and calls (`f.memory_effects`, `call.memory_effects`)
+  can be used on LLVM 15, which doesn't have the `memory` attribute: they read and write
+  the attributes it replaced (`readnone`, `readonly`, `argmemonly`, ...), and throw for
+  effects that those can't represent. This makes `if LLVM.version() >= v"16"` branches
+  between both unnecessary. `LLVM.memory_attributes(effects)` creates the attributes for
+  some effects on any version, e.g., for function declarations.
+- The fixed metadata kinds (`MD_dbg`, `MD_tbaa`, ...) are public and part of `LLVM.IR`,
+  and `MDKind(name; context)` looks up a kind in another context than the active one.
+- `LLVM.Interop.volatile_load` and `volatile_store!` are like `unsafe_load` and
+  `unsafe_store!` on `Core.LLVMPtr`, using volatile memory accesses.
+- The `memcheck` debugging mode reports every problem once for objects allocated and
+  disposed of at the same locations in user code, counting where it happens, with an update
+  when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects
+  by where they were allocated, instead of printing a full report every time.
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.
@@ -403,6 +454,22 @@ Bug fixes:
 
 - `LLVM.pointersize` returns an `Int`, like the other size queries of data layouts,
   instead of a `Cuint`.
+- `InternalizePass(; preserved_gvs)` works on every supported version of LLVM, where it
+  failed to parse on versions that don't support the `preserve-gv` parameter (before
+  LLVM 19, except for Julia's LLVM 18).
+- Synchronization scopes belong to the context they were created in: `inst.syncscope`
+  records the instruction's context, so that its `name` and display no longer depend on
+  the active context, in which the scope's ID can refer to another scope. Scopes of
+  different contexts are different, and using a scope with an instruction or builder of
+  another context throws an `ArgumentError`. Scope names passed to the builders resolve in
+  the builder's context, and `SyncScope(name; context)` creates a scope in another context
+  than the active one. A scope can also be assigned to an instruction by name
+  (`inst.syncscope = "agent"`). The constructor from an integer ID has been removed.
+- `parse(LLVM.AtomicRMWBinOp.T, name)` supports `fmaximumnum` and `fminimumnum`.
+- The names of metadata kinds used to index the metadata of instructions and global
+  objects (`inst.metadata["tbaa"]`) are looked up in their context instead of the active
+  one.
+- Loading LLVM.jl on Julia 1.10 no longer prints a warning about a soft-scope variable.
 - The docstrings of debug info functionality that is only defined for some versions of
   LLVM, like `DbgRecord` and `DILabel`, are no longer dropped.
 - Running a `PassBuilder` with custom passes multiple times no longer uses the
@@ -446,6 +513,8 @@ Other changes:
 - Attribute sets support `append!` as documented, and they, the metadata of an instruction
   and the flags of a module can be iterated.
 - Property access on values whose concrete type is only known at run time doesn't dispatch.
+- The documentation of `expand_to_cmpxchg!`, `expand_partword!`, `lower_atomic!` and
+  `atomic_rmw_value!` says that they can change the control flow and call intrinsics.
 - `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
   calling it, which created an LLVM context when none was active, so it is cheap and can
   be constant-folded (#620).

@@ -147,6 +147,9 @@ soon as LLVM.jl is loaded, without having to import `LLVM.Interop`:
   comparison, etc.
 - `LLVM.Interop.addrspacecast(Core.LLVMPtr{T,AS}, ptr)`: convert between pointers with
   different address spaces
+- `LLVM.Interop.volatile_load(ptr, [i=1], [Val(align)])` and
+  `LLVM.Interop.volatile_store!(ptr, x, [i=1], [Val(align)])`: like `unsafe_load` and
+  `unsafe_store!`, using volatile memory accesses
 
 ```jldoctest
 julia> a = [1];

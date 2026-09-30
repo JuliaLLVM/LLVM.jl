@@ -31,6 +31,8 @@ LLVM.Interop.@asmcall
 ```@docs
 LLVM.Interop.@typed_ccall
 LLVM.Interop.addrspacecast
+LLVM.Interop.volatile_load
+LLVM.Interop.volatile_store!
 ```
 
 ## LLVM intrinsics

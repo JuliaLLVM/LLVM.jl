@@ -513,6 +513,20 @@ end
     # alignment must be a power of 2 (LLVM requirement)
     @test_throws "power of 2" unsafe_load(ptr, 1, Val(3))
     @test_throws "power of 2" unsafe_store!(ptr, Int64(0), 1, Val(6))
+
+    # volatile accesses
+    @test volatile_load(ptr) == 2
+    @test volatile_store!(ptr, 3) === ptr
+    @test volatile_load(ptr, 1, Val(8)) == 3
+    @test a[1] == 3
+    ir = sprint(io->code_llvm(io, volatile_load, Tuple{typeof(ptr), Int, Val{8}}))
+    @test contains(ir, r"load volatile i64, (i64\*|ptr) %.+?, align 8")
+    ir = sprint(io->code_llvm(io, volatile_store!, Tuple{typeof(ptr), Int64}))
+    @test contains(ir, r"store volatile i64 %.+?, (i64\*|ptr) %.+?, align 1")
+    ir = sprint(io->code_llvm(io, unsafe_load, Tuple{typeof(ptr)}))
+    # (coverage instrumentation uses volatile accesses too, of constant addresses)
+    @test !contains(ir, r"load volatile i64, (i64\*|ptr) %")
+    @test_throws "power of 2" volatile_load(ptr, 1, Val(3))
 end
 
 @testset "unsigned index extension" begin

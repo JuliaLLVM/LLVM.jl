@@ -1695,6 +1695,38 @@ end
     @test anotherfn.next === nothing
 end
 
+# copying the attributes of functions and global variables
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
+    src = LLVM.Function(mod, "src", ft)
+    src.linkage = LLVM.API.LLVMInternalLinkage
+    src.callconv = LLVM.API.LLVMFastCallConv
+    src.section = "foo"
+    src.gc = "bar"
+    push!(src.function_attributes, EnumAttribute(:nounwind))
+    push!(src.parameter_attributes[1], EnumAttribute(:noundef))
+
+    dest = LLVM.Function(mod, "dest", ft)
+    @test copy_attributes!(dest, src) === dest
+    @test dest.callconv == LLVM.API.LLVMFastCallConv
+    @test dest.section == "foo"
+    @test dest.gc == "bar"
+    @test haskey(dest.function_attributes, :nounwind)
+    @test haskey(dest.parameter_attributes[1], :noundef)
+    @test dest.linkage == LLVM.API.LLVMExternalLinkage
+    @test dest.name == "dest"
+
+    src = GlobalVariable(mod, LLVM.Int32Type(), "src_gv")
+    src.threadlocal = true
+    src.externally_initialized = true
+    src.alignment = 16
+    dest = GlobalVariable(mod, LLVM.Int32Type(), "dest_gv")
+    @test copy_attributes!(dest, src) === dest
+    @test dest.threadlocal
+    @test dest.externally_initialized
+    @test dest.alignment == 16
+end
+
 # looking up or declaring functions
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())

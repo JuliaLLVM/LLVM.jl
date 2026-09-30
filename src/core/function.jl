@@ -116,6 +116,32 @@ Create a new function in the given module with the given name and function type.
 Function(mod::Module, name::String, ft::FunctionType) =
     Function(API.LLVMAddFunction(mod, name, ft))
 
+@vocabulary IR copy_attributes!
+
+"""
+    copy_attributes!(dest::LLVM.Function, src::LLVM.Function)
+    copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+
+Copy the attributes of `src` that are not needed to create it to `dest`, like C++'s
+`copyAttributesFrom`, e.g., when replacing a function by one with a different signature.
+This copies the visibility, DLL storage class, `unnamed_addr`, thread-local mode,
+alignment and section, and for functions also the calling convention, garbage collector,
+personality, and function, return and parameter attributes, and for global variables
+whether they are externally initialized, their attributes and code model. Returns `dest`.
+
+The name, linkage, body or initializer, and metadata are not copied. Parameter attributes
+are copied by position, so if the parameters of `dest` differ from those of `src`, fix up
+`dest.parameter_attributes` afterwards.
+"""
+function copy_attributes!(dest::Function, src::Function)
+    API.LLVMExtraCopyAttributesFrom(dest, src)
+    return dest
+end
+function copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+    API.LLVMExtraCopyAttributesFrom(dest, src)
+    return dest
+end
+
 function_type(Fn::Function) = FunctionType(API.LLVMGetFunctionType(Fn))
 
 @property Function function_type

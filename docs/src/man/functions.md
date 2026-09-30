@@ -34,6 +34,9 @@ Several APIs can be used to interact with functions:
 - `fun.entry`: the entry block of the function, or `nothing` if it has no body.
 - `isintrinsic`: check if the function is an intrinsic.
 - `erase!`: delete the function from its parent module, and delete the object.
+- `copy_attributes!(dest, src)`: copy the attributes of a function that aren't needed to
+  create it, like its calling convention, section and function attributes, e.g., when
+  replacing it by a function with a different signature.
 
 To call a function that may or may not have been declared already, like a runtime
 function, use `get!` on the `functions` of the module. It returns the existing function, or

@@ -4,6 +4,7 @@
 LLVM.Function
 LLVM.Function(::LLVM.Module, ::String, ::LLVM.FunctionType)
 Argument
+copy_attributes!
 ```
 
 ## Operations

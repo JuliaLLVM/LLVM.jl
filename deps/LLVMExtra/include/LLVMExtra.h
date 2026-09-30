@@ -534,6 +534,13 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
 LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned AddrSpace,
                                   LLVMValueRef ArraySize, const char *Name);
 
+// the constant byte offset of a GEP instruction or constant expression, as a signed integer
+// of the index size of its address space, written to `Words` (which must have room for
+// that many bits). returns false if the offset isn't constant.
+unsigned LLVMExtraGetIndexSizeInBits(LLVMTargetDataRef TD, unsigned AddrSpace);
+LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRef TD,
+                                              uint64_t *Words);
+
 // insertion points: a block, the instruction to insert before (NULL for the end of the
 // block), and whether to insert before the debug records at that position (the head bit
 // of the iterator, which is ignored before LLVM 19)

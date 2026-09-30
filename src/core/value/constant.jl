@@ -706,6 +706,11 @@ the LLVM IR instructions: `const_neg`, `const_not`, etc.
 
 The opcode of the constant expression, e.g., `LLVM.Opcode.Add`.
 
+    ce.source_element_type
+
+The type that a `getelementptr` constant expression indexes into. Throws an
+`ArgumentError` for other constant expressions.
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantExpr <: Constant

@@ -577,6 +577,14 @@ function LLVMExtraBuildAlloca(B, Ty, AddrSpace, ArraySize, Name)
     ccall((:LLVMExtraBuildAlloca, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, Cuint, LLVMValueRef, Cstring), B, Ty, AddrSpace, ArraySize, Name)
 end
 
+function LLVMExtraGetIndexSizeInBits(TD, AddrSpace)
+    ccall((:LLVMExtraGetIndexSizeInBits, libLLVMExtra), Cuint, (LLVMTargetDataRef, Cuint), TD, AddrSpace)
+end
+
+function LLVMExtraGEPAccumulateConstantOffset(GEP, TD, Words)
+    ccall((:LLVMExtraGEPAccumulateConstantOffset, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMTargetDataRef, Ptr{UInt64}), GEP, TD, Words)
+end
+
 function LLVMExtraMoveInstruction(Inst, BB, Before, Head)
     ccall((:LLVMExtraMoveInstruction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
 end

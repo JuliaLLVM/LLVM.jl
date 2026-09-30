@@ -39,6 +39,7 @@ LLVM.frame_alignment
 LLVM.preferred_alignment
 LLVM.element_at
 LLVM.offsetof
+LLVM.constant_offset
 ```
 
 ## Disassembly

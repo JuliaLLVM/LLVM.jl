@@ -26,6 +26,7 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Operator.h>
 #include <llvm/IR/ReplaceConstant.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
@@ -1197,6 +1198,21 @@ LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned Add
                                   LLVMValueRef ArraySize, const char *Name) {
   return wrap(unwrap(B)->CreateAlloca(unwrap(Ty), AddrSpace,
                                       ArraySize ? unwrap(ArraySize) : nullptr, Name));
+}
+
+unsigned LLVMExtraGetIndexSizeInBits(LLVMTargetDataRef TD, unsigned AddrSpace) {
+  return unwrap(TD)->getIndexSizeInBits(AddrSpace);
+}
+
+LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRef TD,
+                                              uint64_t *Words) {
+  auto *Op = cast<GEPOperator>(unwrap(GEP));
+  const DataLayout &DL = *unwrap(TD);
+  APInt Offset(DL.getIndexSizeInBits(Op->getPointerAddressSpace()), 0);
+  if (!Op->accumulateConstantOffset(DL, Offset))
+    return false;
+  std::copy_n(Offset.getRawData(), Offset.getNumWords(), Words);
+  return true;
 }
 
 

@@ -920,6 +920,59 @@ end
 
     # gep, inbounds_gep, select, extractelement, insertelement, shufflevector, exactvalue, insertvalue
 
+    # getelementptr
+    @dispose mod=LLVM.Module("gep") dl=LLVM.DataLayout("e-i64:64-p1:64:64:64:32") begin
+        T_struct = LLVM.StructType([LLVM.Int8Type(), LLVM.Int32Type(), LLVM.Int64Type()])
+        gv = GlobalVariable(mod, T_struct, "gv")
+        ce = const_gep(T_struct, gv, [ConstantInt(Int32(0)), ConstantInt(Int32(2))])
+        @test ce isa ConstantExpr
+        @test ce.source_element_type == T_struct
+        @test LLVM.constant_offset(ce, dl) == 8
+        @test LLVM.constant_offset(ce, dl) isa BigInt
+        @test LLVM.constant_offset(Int, ce, dl) === 8
+        @test LLVM.constant_offset(Int8, ce, dl) === Int8(8)
+
+        gv8 = GlobalVariable(mod, LLVM.Int8Type(), "gv8")
+        ce = const_inbounds_gep(LLVM.Int8Type(), gv8, [ConstantInt(Int64(-4))])
+        @test ce.source_element_type == LLVM.Int8Type()
+        @test LLVM.constant_offset(ce, dl) == -4
+        @test_throws InexactError LLVM.constant_offset(UInt, ce, dl)
+
+        # the index width of the address space determines the width of the offset
+        gv1 = GlobalVariable(mod, LLVM.Int8Type(), "gv1", 1)
+        ce = const_gep(LLVM.Int8Type(), gv1, [ConstantInt(Int64(2)^32 - 1)])
+        @test LLVM.constant_offset(ce, dl) == -1
+
+        ce = const_ptrtoint(gv, LLVM.Int64Type())
+        @test ce isa ConstantExpr
+        @test_throws ArgumentError ce.source_element_type
+        @test_throws ArgumentError LLVM.constant_offset(ce, dl)
+
+        # instructions
+        ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(T_struct),
+                                                 LLVM.PointerType(LLVM.Int8Type()),
+                                                 LLVM.Int64Type()])
+        fn = LLVM.Function(mod, "f", ft)
+        p_struct, p_i8, idx = fn.parameters
+        @dispose builder=IRBuilder() begin
+            position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
+            inst = gep!(builder, T_struct, p_struct,
+                        [ConstantInt(Int64(1)), ConstantInt(Int32(1))])
+            @test inst isa LLVM.GetElementPtrInst
+            @test LLVM.constant_offset(inst, dl) == 16 + 4
+            inst = gep!(builder, LLVM.Int8Type(), p_i8, [idx])
+            @test LLVM.constant_offset(inst, dl) === nothing
+            @test LLVM.constant_offset(Int, inst, dl) === nothing
+
+            # vectors of pointers
+            T_vec = LLVM.VectorType(LLVM.Int64Type(), 2)
+            inst = gep!(builder, LLVM.Int8Type(), p_i8, [null(T_vec)])
+            @test inst.value_type isa LLVM.VectorType
+            @test_throws ArgumentError LLVM.constant_offset(inst, dl)
+            ret!(builder)
+        end
+    end
+
     end
 end
 

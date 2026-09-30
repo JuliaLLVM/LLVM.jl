@@ -1686,6 +1686,59 @@ source_element_type(inst::GetElementPtrInst) =
 
 @property GetElementPtrInst source_element_type
 
+function check_gep(ce::ConstantExpr)
+    opcode(ce) == API.LLVMGetElementPtr ||
+        throw(ArgumentError("Expected a getelementptr constant expression, got a $(opcode(ce)) expression"))
+    return ce
+end
+
+source_element_type(ce::ConstantExpr) =
+    LLVMType(API.LLVMGetGEPSourceElementType(check_gep(ce)))
+
+@property ConstantExpr source_element_type
+
+@public constant_offset
+
+"""
+    LLVM.constant_offset(gep, dl::DataLayout)
+
+Compute the offset in bytes that a `getelementptr` instruction or constant expression adds
+to its pointer operand, according to the data layout `dl`, or `nothing` if the offset isn't
+constant. The offset is a signed integer, computed with the index width of the pointer's
+address space, and returned as a `BigInt`.
+
+Only GEPs that compute a single pointer are supported, not those that compute a vector of
+pointers.
+
+    LLVM.constant_offset(T::Type{<:Integer}, gep, dl::DataLayout)
+
+Compute the offset like `LLVM.constant_offset(gep, dl)`, but return it as an integer of type
+`T` (e.g., `Int`), throwing an `InexactError` if it doesn't fit.
+"""
+function constant_offset(::Type{T}, gep::Union{GetElementPtrInst,ConstantExpr},
+                         dl::DataLayout) where {T<:Integer}
+    offset = constant_offset(gep, dl)
+    return offset === nothing ? nothing : convert(T, offset)
+end
+function constant_offset(gep::Union{GetElementPtrInst,ConstantExpr}, dl::DataLayout)
+    gep isa ConstantExpr && check_gep(gep)
+    T = value_type(gep)
+    T isa PointerType ||
+        throw(ArgumentError("Cannot compute the constant offset of a GEP of vectors of pointers"))
+    bits = Int(API.LLVMExtraGetIndexSizeInBits(dl, addrspace(T)))
+    words = zeros(UInt64, cld(bits, 64))
+    Bool(API.LLVMExtraGEPAccumulateConstantOffset(gep, dl, words)) || return nothing
+    offset = BigInt(0)
+    for (i, word) in enumerate(words)
+        offset |= BigInt(word) << (64 * (i - 1))
+    end
+    # the offset is a signed integer of `bits` bits
+    if bits > 0 && isodd(offset >> (bits - 1))
+        offset -= BigInt(1) << bits
+    end
+    return offset
+end
+
 inbounds(inst::GetElementPtrInst) = API.LLVMIsInBounds(inst) |> Bool
 
 inbounds!(inst::GetElementPtrInst, flag::Bool) = API.LLVMSetIsInBounds(inst, flag)

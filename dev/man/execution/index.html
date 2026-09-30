@@ -4,18 +4,18 @@ define i64 @add(i64 %0, i64 %1) {
 top:
   %2 = add i64 %1, %0
   ret i64 %2
-}</code></pre><h2 id="Interpreter"><a class="docs-heading-anchor" href="#Interpreter">Interpreter</a><a id="Interpreter-1"></a><a class="docs-heading-anchor-permalink" href="#Interpreter" title="Permalink"></a></h2><p>LLVM&#39;s interpreter is a simple way to execute LLVM IR code, and can be constructed from just a module. Executing code is done using the <code>run</code> function, which takes a reference to the function to execute, and an array of <code>GenericValue</code> arguments, returning a <code>GenericValue</code> result:</p><pre><code class="language-julia-repl hljs">julia&gt; engine = Interpreter(mod);
+}</code></pre><h2 id="Interpreter"><a class="docs-heading-anchor" href="#Interpreter">Interpreter</a><a id="Interpreter-1"></a><a class="docs-heading-anchor-permalink" href="#Interpreter" title="Permalink"></a></h2><p>LLVM&#39;s interpreter is a simple way to execute LLVM IR code, and can be constructed from just a module. Executing code is done using the <code>run</code> function, which takes a reference to the function to execute, and an array of <code>GenericValue</code> arguments, returning a <code>GenericValue</code> result. These legacy execution engines are not part of any vocabulary, so they are used qualified:</p><pre><code class="language-julia-repl hljs">julia&gt; engine = LLVM.Interpreter(mod);
 
-julia&gt; res = run(engine, add, [GenericValue(LLVM.Int64Type(), 1),
-                               GenericValue(LLVM.Int64Type(), 2)]);
+julia&gt; res = run(engine, add, [LLVM.GenericValue(LLVM.Int64Type(), 1),
+                               LLVM.GenericValue(LLVM.Int64Type(), 2)]);
 
 julia&gt; convert(Int, res)
-3</code></pre><p>After having constructed an engine, more modules can be added to it using <code>push!</code>, and removed from it using <code>delete!</code>.</p><h2 id="MCJIT"><a class="docs-heading-anchor" href="#MCJIT">MCJIT</a><a id="MCJIT-1"></a><a class="docs-heading-anchor-permalink" href="#MCJIT" title="Permalink"></a></h2><p>Interpreting IR is obviously slow, so for all but the simplest programs you&#39;ll want to use the JIT engine instead, which is based on LLVM&#39;s MCJIT. Usage of the JIT engine is almost identical to the interpreter, using <code>JIT</code> objects instead.</p><p>One crucial difference is that MCJIT does not support the <code>run</code> function with arguments. Instead, you need to look up the address of the compiled function, and call it directly:</p><pre><code class="language-julia-repl hljs">julia&gt; engine = JIT(mod);
+3</code></pre><p>After having constructed an engine, more modules can be added to it using <code>push!</code>, and removed from it using <code>delete!</code>.</p><h2 id="MCJIT"><a class="docs-heading-anchor" href="#MCJIT">MCJIT</a><a id="MCJIT-1"></a><a class="docs-heading-anchor-permalink" href="#MCJIT" title="Permalink"></a></h2><p>Interpreting IR is obviously slow, so for all but the simplest programs you&#39;ll want to use the JIT engine instead, which is based on LLVM&#39;s MCJIT. Usage of the JIT engine is almost identical to the interpreter, using <code>JIT</code> objects instead.</p><p>One crucial difference is that MCJIT does not support the <code>run</code> function with arguments. Instead, you need to look up the address of the compiled function, and call it directly:</p><pre><code class="language-julia-repl hljs">julia&gt; engine = LLVM.JIT(mod);
 
-julia&gt; addr = lookup(engine, &quot;add&quot;);
+julia&gt; addr = LLVM.lookup(engine, &quot;add&quot;);
 
 julia&gt; res = ccall(addr, Int64, (Int64, Int64), 1, 2)
-3</code></pre><h2 id="ORC"><a class="docs-heading-anchor" href="#ORC">ORC</a><a id="ORC-1"></a><a class="docs-heading-anchor-permalink" href="#ORC" title="Permalink"></a></h2><p>ORC is LLVM&#39;s modern JIT framework, and the recommended way to execute LLVM IR. LLVM.jl supports LLJIT, a ready-to-use JIT built on ORC, as well as adding code to Julia&#39;s own JIT.</p><h3 id="Thread-safe-contexts-and-modules"><a class="docs-heading-anchor" href="#Thread-safe-contexts-and-modules">Thread-safe contexts and modules</a><a id="Thread-safe-contexts-and-modules-1"></a><a class="docs-heading-anchor-permalink" href="#Thread-safe-contexts-and-modules" title="Permalink"></a></h3><p>Because ORC can compile code lazily, possibly on other threads, it works with thread-safe wrappers of LLVM contexts and modules. A <code>ThreadSafeContext</code> is created much like a regular context, and similarly becomes the task&#39;s active thread-safe context:</p><pre><code class="language-julia-repl hljs">julia&gt; ts_ctx = ThreadSafeContext();
+3</code></pre><h2 id="ORC"><a class="docs-heading-anchor" href="#ORC">ORC</a><a id="ORC-1"></a><a class="docs-heading-anchor-permalink" href="#ORC" title="Permalink"></a></h2><p>ORC is LLVM&#39;s modern JIT framework, and the recommended way to execute LLVM IR. LLVM.jl supports LLJIT, a ready-to-use JIT built on ORC, as well as adding code to Julia&#39;s own JIT. Its functionality is available in the <code>LLVM.ORC</code> vocabulary (<code>using LLVM.ORC</code>).</p><h3 id="Thread-safe-contexts-and-modules"><a class="docs-heading-anchor" href="#Thread-safe-contexts-and-modules">Thread-safe contexts and modules</a><a id="Thread-safe-contexts-and-modules-1"></a><a class="docs-heading-anchor-permalink" href="#Thread-safe-contexts-and-modules" title="Permalink"></a></h3><p>Because ORC can compile code lazily, possibly on other threads, it works with thread-safe wrappers of LLVM contexts and modules. A <code>ThreadSafeContext</code> is created much like a regular context, and similarly becomes the task&#39;s active thread-safe context:</p><pre><code class="language-julia-repl hljs">julia&gt; ts_ctx = ThreadSafeContext();
 
 julia&gt; ts_context() == ts_ctx
 true
@@ -34,49 +34,49 @@ true</code></pre><p>A <code>ThreadSafeModule</code> wraps a module in the active
 julia&gt; ts_mod = ThreadSafeModule(&quot;jit&quot;);
 
 julia&gt; ts_mod() do mod
-           triple!(mod, triple(lljit))
+           mod.triple = lljit.triple
            ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
            fn = LLVM.Function(mod, &quot;add&quot;, ft)
            @dispose builder=IRBuilder() begin
                position!(builder, BasicBlock(fn, &quot;entry&quot;))
-               ret!(builder, add!(builder, parameters(fn)...))
+               ret!(builder, add!(builder, fn.parameters...))
            end
            return
        end
 
-julia&gt; jd = JITDylib(lljit);
+julia&gt; jd = lljit.main_dylib;
 
 julia&gt; add!(lljit, jd, ts_mod)
 
 julia&gt; addr = lookup(lljit, &quot;add&quot;);
 
 julia&gt; ccall(pointer(addr), Int64, (Int64, Int64), 1, 2)
-3</code></pre><p>Adding a module consumes it. The JIT, and all code it compiled, stays alive until it is disposed of, which should only happen once its code is not used anymore. Alternatively, use the do-block form <code>LLJIT() do lljit ... end</code>, or <code>@dispose lljit=LLJIT() begin ... end</code>.</p><p>To customize the JIT, e.g., to use a different object linking layer, create it from an <code>LLJITBuilder</code>.</p><h3 id="JITDylibs-and-symbols"><a class="docs-heading-anchor" href="#JITDylibs-and-symbols">JITDylibs and symbols</a><a id="JITDylibs-and-symbols-1"></a><a class="docs-heading-anchor-permalink" href="#JITDylibs-and-symbols" title="Permalink"></a></h3><p>Code is added to JITDylibs, which are the JIT&#39;s equivalent of dynamic libraries. Every <code>LLJIT</code> has a main JITDylib, <code>JITDylib(lljit)</code>, which <code>lookup(lljit, name)</code> searches. More JITDylibs can be created in the JIT&#39;s execution session, and searched explicitly:</p><pre><code class="language-julia-repl hljs">julia&gt; es = ExecutionSession(lljit);
+3</code></pre><p>Adding a module consumes it. The JIT, and all code it compiled, stays alive until it is disposed of, which should only happen once its code is not used anymore. Alternatively, use the do-block form <code>LLJIT() do lljit ... end</code>, or <code>@dispose lljit=LLJIT() begin ... end</code>.</p><p>To customize the JIT, e.g., to use a different object linking layer, create it from an <code>LLJITBuilder</code>.</p><h3 id="JITDylibs-and-symbols"><a class="docs-heading-anchor" href="#JITDylibs-and-symbols">JITDylibs and symbols</a><a id="JITDylibs-and-symbols-1"></a><a class="docs-heading-anchor-permalink" href="#JITDylibs-and-symbols" title="Permalink"></a></h3><p>Code is added to JITDylibs, which are the JIT&#39;s equivalent of dynamic libraries. Every <code>LLJIT</code> has a main JITDylib, <code>lljit.main_dylib</code>, which <code>lookup(lljit, name)</code> searches. More JITDylibs can be created in the JIT&#39;s execution session, and searched explicitly:</p><pre><code class="language-julia-repl hljs">julia&gt; es = lljit.execution_session;
 
 julia&gt; other = JITDylib(es, &quot;other&quot;);
 
-julia&gt; LLVM.lookup_dylib(es, &quot;other&quot;) == other
+julia&gt; lookup_dylib(es, &quot;other&quot;) == other
 true
 
 julia&gt; lookup(lljit, other, &quot;add&quot;)
 ERROR: LLVM error: Symbols not found: [ add ]</code></pre><p>Internally, ORC identifies symbols by their linker-mangled names, e.g., with an underscore prepended on macOS. <code>lookup</code> takes care of this, but other APIs take symbols created by <code>mangle</code>, which applies the target&#39;s mangling and interns the result in the execution session:</p><pre><code class="language-julia-repl hljs">julia&gt; sym = mangle(lljit, &quot;add&quot;);
 
 julia&gt; String(sym) in (&quot;add&quot;, &quot;_add&quot;)
-true</code></pre><p>Symbols are reference counted. <code>mangle</code> returns a new reference, which most APIs that take symbols take ownership of. Otherwise, release it:</p><pre><code class="language-julia-repl hljs">julia&gt; LLVM.release(sym)</code></pre><h3 id="Making-host-symbols-available"><a class="docs-heading-anchor" href="#Making-host-symbols-available">Making host symbols available</a><a id="Making-host-symbols-available-1"></a><a class="docs-heading-anchor-permalink" href="#Making-host-symbols-available" title="Permalink"></a></h3><p>A JITDylib does not see any symbols from the host process by default. To call host functions or access host data, define them as absolute symbols:</p><pre><code class="language-julia-repl hljs">julia&gt; counter = Ref(41);
+true</code></pre><p>Symbols are reference counted. <code>mangle</code> returns a new reference, which most APIs that take symbols take ownership of. Otherwise, release it:</p><pre><code class="language-julia-repl hljs">julia&gt; release(sym)</code></pre><h3 id="Making-host-symbols-available"><a class="docs-heading-anchor" href="#Making-host-symbols-available">Making host symbols available</a><a id="Making-host-symbols-available-1"></a><a class="docs-heading-anchor-permalink" href="#Making-host-symbols-available" title="Permalink"></a></h3><p>A JITDylib does not see any symbols from the host process by default. To call host functions or access host data, define them as absolute symbols:</p><pre><code class="language-julia-repl hljs">julia&gt; counter = Ref(41);
 
-julia&gt; LLVM.define(jd, LLVM.absolute_symbols(
+julia&gt; define(jd, absolute_symbols(
            mangle(lljit, &quot;counter&quot;) =&gt; pointer_from_objref(counter)))
 
 julia&gt; pointer(lookup(lljit, &quot;counter&quot;)) == pointer_from_objref(counter)
-true</code></pre><p>Alternatively, attach a definition generator to the JITDylib, which is consulted whenever a symbol cannot be found. <code>LLVM.DynamicLibrarySearchGenerator</code> makes all symbols of the current process, or of a specific library, available:</p><pre><code class="language-julia-repl hljs">julia&gt; add!(jd, LLVM.DynamicLibrarySearchGenerator(lljit))
+true</code></pre><p>Alternatively, attach a definition generator to the JITDylib, which is consulted whenever a symbol cannot be found. <code>DynamicLibrarySearchGenerator</code> makes all symbols of the current process, or of a specific library, available:</p><pre><code class="language-julia-repl hljs">julia&gt; add!(jd, DynamicLibrarySearchGenerator(lljit))
 
-julia&gt; lookup(lljit, &quot;jl_apply_generic&quot;);</code></pre><p>For other policies, <code>LLVM.CustomDefinitionGenerator</code> calls a Julia function with the symbols that could not be found, which can then define them:</p><pre><code class="language-julia-repl hljs">julia&gt; answer = Ref(42);
+julia&gt; lookup(lljit, &quot;jl_apply_generic&quot;);</code></pre><p>For other policies, <code>CustomDefinitionGenerator</code> calls a Julia function with the symbols that could not be found, which can then define them:</p><pre><code class="language-julia-repl hljs">julia&gt; answer = Ref(42);
 
-julia&gt; dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
+julia&gt; dg = CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_set
            for (name, flags) in lookup_set
                if String(name) in (&quot;answer&quot;, &quot;_answer&quot;)
-                   LLVM.retain(name)   # the lookup set&#39;s names are borrowed
-                   LLVM.define(jd, LLVM.absolute_symbols(name =&gt; pointer_from_objref(answer)))
+                   retain(name)   # the lookup set&#39;s names are borrowed
+                   define(jd, absolute_symbols(name =&gt; pointer_from_objref(answer)))
                end
            end
        end;
@@ -84,7 +84,7 @@ julia&gt; dg = LLVM.CustomDefinitionGenerator() do kind, jd, jd_flags, lookup_se
 julia&gt; add!(jd, dg)
 
 julia&gt; pointer(lookup(lljit, &quot;answer&quot;)) == pointer_from_objref(answer)
-true</code></pre><h3 id="Removing-code"><a class="docs-heading-anchor" href="#Removing-code">Removing code</a><a id="Removing-code-1"></a><a class="docs-heading-anchor-permalink" href="#Removing-code" title="Permalink"></a></h3><p>Code can be removed from a JITDylib by clearing it with <code>empty!</code>, or selectively, by adding it using a resource tracker:</p><pre><code class="language-julia-repl hljs">julia&gt; rt = LLVM.ResourceTracker(jd);
+true</code></pre><h3 id="Removing-code"><a class="docs-heading-anchor" href="#Removing-code">Removing code</a><a id="Removing-code-1"></a><a class="docs-heading-anchor-permalink" href="#Removing-code" title="Permalink"></a></h3><p>Code can be removed from a JITDylib by clearing it with <code>empty!</code>, or selectively, by adding it using a resource tracker:</p><pre><code class="language-julia-repl hljs">julia&gt; rt = ResourceTracker(jd);
 
 julia&gt; ts_mod = ThreadSafeModule(&quot;jit&quot;);
 
@@ -104,27 +104,27 @@ julia&gt; lookup(lljit, &quot;temporary&quot;);
 julia&gt; remove!(rt)
 
 julia&gt; lookup(lljit, &quot;temporary&quot;)
-ERROR: LLVM error: Symbols not found: [ temporary ]</code></pre><p>Resource trackers are reference counted too; <code>dispose</code> releases the reference, without removing the tracked code:</p><pre><code class="language-julia-repl hljs">julia&gt; dispose(rt)
+ERROR: LLVM error: Symbols not found: [ temporary ]</code></pre><p>Code that is added without a tracker is tracked by the JITDylib&#39;s default tracker, <code>jd.default_resource_tracker</code>. Resource trackers are reference counted too; <code>dispose</code> releases the reference, without removing the tracked code:</p><pre><code class="language-julia-repl hljs">julia&gt; dispose(rt)
 
-julia&gt; dispose(lljit)</code></pre><h3 id="Lazy-compilation"><a class="docs-heading-anchor" href="#Lazy-compilation">Lazy compilation</a><a id="Lazy-compilation-1"></a><a class="docs-heading-anchor-permalink" href="#Lazy-compilation" title="Permalink"></a></h3><p>Instead of adding code upfront, a materialization unit can promise to define symbols, and only generate code when one of them is looked up. <code>LLVM.CustomMaterializationUnit</code> calls a Julia function to do so, which typically generates a module and emits it through one of the JIT&#39;s layers:</p><pre><code class="language-julia hljs">flags = LLVM.symbol_flags(callable=true)
-mu = LLVM.CustomMaterializationUnit(&quot;lazy&quot;, [mangle(lljit, &quot;foo&quot;) =&gt; flags],
+julia&gt; dispose(lljit)</code></pre><h3 id="Lazy-compilation"><a class="docs-heading-anchor" href="#Lazy-compilation">Lazy compilation</a><a id="Lazy-compilation-1"></a><a class="docs-heading-anchor-permalink" href="#Lazy-compilation" title="Permalink"></a></h3><p>Instead of adding code upfront, a materialization unit can promise to define symbols, and only generate code when one of them is looked up. <code>CustomMaterializationUnit</code> calls a Julia function to do so, which typically generates a module and emits it through one of the JIT&#39;s layers:</p><pre><code class="language-julia hljs">flags = symbol_flags(callable=true)
+mu = CustomMaterializationUnit(&quot;lazy&quot;, [mangle(lljit, &quot;foo&quot;) =&gt; flags],
     function materialize(mr)
         ts_mod = ThreadSafeModule(&quot;foo&quot;)
         ts_mod() do mod
             # generate IR defining `foo`
         end
-        LLVM.emit(LLVM.IRTransformLayer(lljit), mr, ts_mod)
+        emit(lljit.ir_transform_layer, mr, ts_mod)
     end,
     function discard(jd, sym)
         # `sym` was overridden before being materialized
     end)
-LLVM.define(jd, mu)</code></pre><p>Looking up <code>foo</code> then materializes it. To defer compilation even further, until a function is first <em>called</em>, create a lazy reexport. Looking it up returns the address of a stub, which calls into the JIT to look up (and thus materialize) the target the first time it is called:</p><pre><code class="language-julia hljs">es = ExecutionSession(lljit)
-lctm = LLVM.LocalLazyCallThroughManager(triple(lljit), es)
-ism = LLVM.LocalIndirectStubsManager(triple(lljit))
-LLVM.define(jd, LLVM.lazy_reexports(lctm, ism, jd,
-                                    [mangle(lljit, &quot;foo_stub&quot;) =&gt; mangle(lljit, &quot;foo&quot;)]))
-addr = lookup(lljit, &quot;foo_stub&quot;)    # doesn&#39;t materialize `foo` yet</code></pre><p>Both managers need to stay alive for as long as the stubs can be called, and need to be disposed of afterwards.</p><p>Finally, to process all modules before they are compiled, e.g., to optimize them, install a transformation on the JIT&#39;s IR transform layer:</p><pre><code class="language-julia hljs">LLVM.set_transform!(LLVM.IRTransformLayer(lljit)) do tsm, mr
+define(jd, mu)</code></pre><p>Looking up <code>foo</code> then materializes it. When a unit defines multiple symbols, the <code>requested_symbols</code> property of the materialization responsibility tells which of them were looked up.</p><p>To defer compilation even further, until a function is first <em>called</em>, create a lazy reexport. Looking it up returns the address of a stub, which calls into the JIT to look up (and thus materialize) the target the first time it is called:</p><pre><code class="language-julia hljs">es = lljit.execution_session
+lctm = LocalLazyCallThroughManager(lljit.triple, es)
+ism = LocalIndirectStubsManager(lljit.triple)
+define(jd, lazy_reexports(lctm, ism, jd,
+                          [mangle(lljit, &quot;foo_stub&quot;) =&gt; mangle(lljit, &quot;foo&quot;)]))
+addr = lookup(lljit, &quot;foo_stub&quot;)    # doesn&#39;t materialize `foo` yet</code></pre><p>Both managers need to stay alive for as long as the stubs can be called, and need to be disposed of afterwards.</p><p>Finally, to process all modules before they are compiled, e.g., to optimize them, install a transformation on the JIT&#39;s IR transform layer:</p><pre><code class="language-julia hljs">transform!(lljit.ir_transform_layer) do tsm, mr
     tsm() do mod
         run!(&quot;default&lt;O2&gt;&quot;, mod)
     end
-end</code></pre><h3 id="Errors-in-callbacks"><a class="docs-heading-anchor" href="#Errors-in-callbacks">Errors in callbacks</a><a id="Errors-in-callbacks-1"></a><a class="docs-heading-anchor-permalink" href="#Errors-in-callbacks" title="Permalink"></a></h3><p>Julia exceptions cannot propagate through LLVM. When a callback like a materializer, definition generator or transformation throws, the operation that triggered it fails with a generic <code>LLVMException</code>. The original exception is kept, and can be rethrown as a <code>CallbackException</code> by calling <code>LLVM.check_callback_error</code> on the object that owns the callback.</p><h3 id="Julia&#39;s-JIT"><a class="docs-heading-anchor" href="#Julia&#39;s-JIT">Julia&#39;s JIT</a><a id="Julia&#39;s-JIT-1"></a><a class="docs-heading-anchor-permalink" href="#Julia&#39;s-JIT" title="Permalink"></a></h3><p>Code can also be added to Julia&#39;s own JIT, using <code>JuliaOJIT()</code>, e.g., to make it callable from Julia code. Its API is similar to that of <code>LLJIT</code>, but lookups always need an explicit JITDylib: <code>lookup(jljit, jd, name)</code>.</p><p>How JITDylibs work depends on the Julia version: on Julia 1.14 and later, <code>JITDylib(jljit, name)</code> creates a new JITDylib, which can see Julia&#39;s symbols but is not visible to other code. On older versions, it returns a single JITDylib that is shared by all users of Julia&#39;s JIT, and whose symbols are visible to Julia code.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../codegen/">« Code generation</a><a class="docs-footer-nextpage" href="../interop/">Julia integration »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 29 September 2026 16:17">Tuesday 29 September 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre><h3 id="Errors-in-callbacks"><a class="docs-heading-anchor" href="#Errors-in-callbacks">Errors in callbacks</a><a id="Errors-in-callbacks-1"></a><a class="docs-heading-anchor-permalink" href="#Errors-in-callbacks" title="Permalink"></a></h3><p>Julia exceptions cannot propagate through LLVM. When a callback like a materializer, definition generator or transformation throws, the operation that triggered it fails with a generic <code>LLVMException</code>. The original exception is kept, and can be rethrown as a <code>LLVM.CallbackException</code> by calling <code>check_callback_error</code> on the object that owns the callback.</p><h3 id="Julia&#39;s-JIT"><a class="docs-heading-anchor" href="#Julia&#39;s-JIT">Julia&#39;s JIT</a><a id="Julia&#39;s-JIT-1"></a><a class="docs-heading-anchor-permalink" href="#Julia&#39;s-JIT" title="Permalink"></a></h3><p>Code can also be added to Julia&#39;s own JIT, using <code>JuliaOJIT()</code>, e.g., to make it callable from Julia code. Its API is similar to that of <code>LLJIT</code>, but lookups always need an explicit JITDylib: <code>lookup(jljit, jd, name)</code>.</p><p>How JITDylibs work depends on the Julia version: on Julia 1.14 and later, <code>JITDylib(jljit, name)</code> creates a new JITDylib, which can see Julia&#39;s symbols but is not visible to other code. On older versions, it returns a single JITDylib that is shared by all users of Julia&#39;s JIT, and whose symbols are visible to Julia code.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../codegen/">« Code generation</a><a class="docs-footer-nextpage" href="../interop/">Julia integration »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Wednesday 30 September 2026 05:16">Wednesday 30 September 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

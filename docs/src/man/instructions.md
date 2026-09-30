@@ -121,7 +121,11 @@ reference.
 Most of these functions correspond to a function of the C API, e.g., `add!` builds an
 `add` instruction using `LLVMBuildAdd`. Some also support functionality that C++'s
 `IRBuilder` offers, like accessing nested elements of an aggregate using a vector of
-(zero-based) indices, as in textual IR:
+indices. Indices that are part of an instruction, like these, the indices of
+`getelementptr` instructions, and the field index of `struct_gep!`, are zero-based as in
+textual IR. That's different from positions in Julia collections, like the element types
+of a struct type (`typ.elements[i]`) or the operands of an instruction, which are
+one-based:
 
 ```jldoctest
 julia> typ = LLVM.StructType([LLVM.Int32Type(), LLVM.ArrayType(LLVM.Int8Type(), 4)]);

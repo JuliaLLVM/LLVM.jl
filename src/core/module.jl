@@ -69,30 +69,34 @@ values, which supports:
     mod.globals
 
 The global variables of the module, as a view that can be iterated, and indexed by name
-(`mod.globals["name"]`, `haskey`). The global variables can be reordered using
-[`sort!`](@ref sort!(::LLVM.ModuleGlobalSet)). Create a `GlobalVariable` to add one.
+(`mod.globals["name"]`, `haskey`, `get`). The global variables can be reordered using
+[`sort!`](@ref sort!(::LLVM.ModuleGlobalSet)). Create a `GlobalVariable` to add one, or use
+[`get!`](@ref get!(::Base.Callable, ::LLVM.ModuleGlobalSet, ::String)) to only create it if
+it doesn't exist yet.
 
     mod.functions
 
 The functions of the module, as a view that can be iterated, and indexed by name
-(`mod.functions["name"]`, `haskey`). The functions can be reordered using
-[`sort!`](@ref sort!(::LLVM.ModuleFunctionSet)). Create an `LLVM.Function` to add one.
+(`mod.functions["name"]`, `haskey`, `get`). The functions can be reordered using
+[`sort!`](@ref sort!(::LLVM.ModuleFunctionSet)). Create an `LLVM.Function` to add one, or
+use [`get!`](@ref get!(::Base.Callable, ::LLVM.ModuleFunctionSet, ::String)) to only
+declare it if it doesn't exist yet, e.g., to call a runtime function.
 
     mod.aliases
 
 The global aliases of the module, as a view that can be iterated, and indexed by name
-(`mod.aliases["name"]`, `haskey`). Create a `GlobalAlias` to add one.
+(`mod.aliases["name"]`, `haskey`, `get`). Create a `GlobalAlias` to add one.
 
     mod.ifuncs
 
 The ifuncs of the module, as a view that can be iterated, and indexed by name
-(`mod.ifuncs["name"]`, `haskey`). Create a `GlobalIFunc` to add one.
+(`mod.ifuncs["name"]`, `haskey`, `get`). Create a `GlobalIFunc` to add one.
 
     mod.flags
 
 The module flags of the module, as a dictionary-like view mapping the name of each flag to
 its value. Flags can be looked up by name, and added using
-`mod.flags[name, behavior] = md`, where `behavior` is an `LLVM.API.LLVMModuleFlagBehavior`
+`mod.flags[name, behavior] = md`, where `behavior` is an `LLVM.ModuleFlagBehavior.T`
 that determines how the flag is merged when linking modules. Module flags cannot be
 removed.
 
@@ -469,6 +473,51 @@ function Base.getindex(iter::ModuleGlobalSet, name::String)
     return GlobalVariable(objref)
 end
 
+function Base.get(iter::ModuleGlobalSet, name::String, default)
+    objref = API.LLVMGetNamedGlobal(iter.mod, name)
+    objref == C_NULL ? default : GlobalVariable(objref)
+end
+
+"""
+    get!(f, mod.globals, name::String)
+
+Look up the global variable called `name`, or call `f()` to create it if the module
+doesn't contain one, e.g.:
+
+```julia
+gv = get!(mod.globals, "counter") do
+    gv = GlobalVariable(mod, LLVM.Int64Type(), "counter")
+    gv.initializer = ConstantInt(Int64(0))
+    gv
+end
+```
+
+`f` must return a global variable called `name` in the module. Throws an `ArgumentError`
+if another kind of global value, like a function, already uses the name. Like C++'s
+`Module::getOrInsertGlobal`, an existing global variable is returned as is, even if it has
+a different type.
+"""
+function Base.get!(f::Base.Callable, iter::ModuleGlobalSet, name::String)
+    objref = API.LLVMGetNamedGlobal(iter.mod, name)
+    objref == C_NULL || return GlobalVariable(objref)
+    check_unused_name(iter.mod, name)
+    gv = f()
+    gv isa GlobalVariable && gv.name == name && gv.parent == iter.mod ||
+        throw(ArgumentError("get! must create a global variable called \"$name\" in the module"))
+    return gv
+end
+
+# the global values of a module share a namespace
+function check_unused_name(mod::Module, name::String)
+    for (kind, ref) in (("function", API.LLVMGetNamedFunction(mod, name)),
+                        ("global variable", API.LLVMGetNamedGlobal(mod, name)),
+                        ("global alias", API.LLVMGetNamedGlobalAlias(mod, name, ncodeunits(name))),
+                        ("ifunc", API.LLVMGetNamedGlobalIFunc(mod, name, ncodeunits(name))))
+        ref == C_NULL ||
+            throw(ArgumentError("Module already contains a $kind called \"$name\""))
+    end
+end
+
 """
     sort!(mod.globals; by=gv->gv.name, kwargs...)
 
@@ -540,6 +589,41 @@ function Base.getindex(iter::ModuleFunctionSet, name::String)
     objref = API.LLVMGetNamedFunction(iter.mod, name)
     objref == C_NULL && throw(KeyError(name))
     return Function(objref)
+end
+
+function Base.get(iter::ModuleFunctionSet, name::String, default)
+    objref = API.LLVMGetNamedFunction(iter.mod, name)
+    objref == C_NULL ? default : Function(objref)
+end
+
+"""
+    get!(f, mod.functions, name::String)
+
+Look up the function called `name`, or call `f()` to declare it if the module doesn't
+contain one, e.g., to call a runtime function that may or may not have been declared yet:
+
+```julia
+abort = get!(mod.functions, "abort") do
+    f = LLVM.Function(mod, "abort", LLVM.FunctionType(LLVM.VoidType()))
+    push!(f.function_attributes, EnumAttribute(:noreturn))
+    f
+end
+```
+
+`f` must return a function called `name` in the module. Throws an `ArgumentError` if
+another kind of global value, like a global variable, already uses the name. Like C++'s
+`Module::getOrInsertFunction`, an existing function is returned as is, even if it has a
+different function type, so call it using the function type you expect, e.g.,
+`call!(builder, ft, abort)`.
+"""
+function Base.get!(f::Base.Callable, iter::ModuleFunctionSet, name::String)
+    objref = API.LLVMGetNamedFunction(iter.mod, name)
+    objref == C_NULL || return Function(objref)
+    check_unused_name(iter.mod, name)
+    fn = f()
+    fn isa Function && fn.name == name && fn.parent == iter.mod ||
+        throw(ArgumentError("get! must create a function called \"$name\" in the module"))
+    return fn
 end
 
 """
@@ -615,6 +699,11 @@ function Base.getindex(iter::ModuleAliasSet, name::String)
     return GlobalAlias(objref)
 end
 
+function Base.get(iter::ModuleAliasSet, name::String, default)
+    objref = API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name))
+    objref == C_NULL ? default : GlobalAlias(objref)
+end
+
 ## ifunc iteration
 
 struct ModuleIFuncSet
@@ -670,6 +759,11 @@ function Base.getindex(iter::ModuleIFuncSet, name::String)
     objref = API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return GlobalIFunc(objref)
+end
+
+function Base.get(iter::ModuleIFuncSet, name::String, default)
+    objref = API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name))
+    objref == C_NULL ? default : GlobalIFunc(objref)
 end
 
 ## module flag iteration

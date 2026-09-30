@@ -1,7 +1,7 @@
 ## target machine
 
 @public TargetMachine, dispose,
-        asm_verbosity!, normalize, default_triple,
+        asm_verbosity!, normalize, default_triple, host_cpu_name, host_cpu_features,
         emit
 # these add analyses to a legacy pass manager
 @vocabulary Passes add_transform_info!, add_library_info!
@@ -87,6 +87,21 @@ triple(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineTriple(tm))
 Get the default target triple, i.e., the triple of the host that LLVM was configured for.
 """
 default_triple() = unsafe_message(API.LLVMGetDefaultTargetTriple())
+
+"""
+    LLVM.host_cpu_name()
+
+Get the name of the CPU of the host, e.g., `"znver4"`, for use with a `TargetMachine`.
+"""
+host_cpu_name() = unsafe_message(API.LLVMGetHostCPUName())
+
+"""
+    LLVM.host_cpu_features()
+
+Get the features of the CPU of the host, as a string of comma-separated features that are
+enabled (`+feature`) or disabled (`-feature`), for use with a `TargetMachine`.
+"""
+host_cpu_features() = unsafe_message(API.LLVMGetHostCPUFeatures())
 
 """
     normalize(triple::String)
@@ -177,7 +192,7 @@ add_library_info!(pm::PassManager, triple::String) =
 
 """
     JITTargetMachine(; triple=LLVM.default_triple(), cpu="", features="",
-                     optlevel=API.LLVMCodeGenLevelDefault)
+                     optlevel=LLVM.CodeGenOptLevel.Default)
 
 Create a target machine suitable for JIT compilation with the ORC JIT.
 """

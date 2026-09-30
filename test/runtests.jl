@@ -25,6 +25,7 @@ end
 
 include("essential.jl")
 include("support.jl")
+include("enums.jl")
 include("core.jl")
 include("properties.jl")
 include("linker.jl")

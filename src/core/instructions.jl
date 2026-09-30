@@ -14,7 +14,7 @@ of a basic block.
 
     inst.opcode
 
-The opcode of the instruction, e.g., `LLVM.API.LLVMAdd`.
+The opcode of the instruction, e.g., `LLVM.Opcode.Add`.
 
     inst.metadata
     gv.metadata
@@ -50,13 +50,37 @@ the instruction is not part of a basic block).
     cmp.predicate
 
 The comparison predicate of an integer or floating-point comparison instruction, e.g.,
-`LLVM.API.LLVMIntEQ` or `LLVM.API.LLVMRealOLT`.
+`LLVM.IntPredicate.EQ` or `LLVM.RealPredicate.OLT`.
 
     phi.incoming
 
 The incoming values of the phi node, as a view of `(value, block)` tuples of the incoming
 value and the block it originates from. The view is mutable: incoming values can be added
 using `push!` or `append!`.
+
+    alloca.allocated_type
+
+The type that an `alloca` instruction allocates memory for.
+
+    gep.pointer_operand
+
+The pointer that a `getelementptr` instruction indexes into.
+
+    gep.source_element_type
+
+The type that a `getelementptr` instruction indexes into, as passed to the builder.
+
+    gep.inbounds
+    gep.inbounds = flag::Bool
+
+Whether a `getelementptr` instruction is `inbounds`, i.e., whether the resulting pointer is
+known to be within the bounds of the object that the pointer operand is based on.
+
+    inst.indices
+
+The indices of an `extractvalue` or `insertvalue` instruction, as a read-only view. These
+are the zero-based indices that select the element of the aggregate, like in textual IR,
+e.g., `[1, 0]` for `extractvalue {i32, {i8, i8}} %agg, 1, 0`.
 
     or.disjoint
     or.disjoint = flag::Bool
@@ -131,6 +155,73 @@ Remove the given instruction from the containing basic block and delete the obje
 """
 erase!(inst::Instruction) = API.LLVMInstructionEraseFromParent(inst)
 
+@vocabulary IR comes_before, may_read_from_memory, may_write_to_memory,
+               may_have_side_effects
+
+"""
+    move_before(inst::Instruction, pos::Instruction)
+
+Move the given instruction before the given position, which can be in another basic block
+of the same function. It is up to the caller to keep the IR valid, e.g., to keep the
+instruction dominating its uses, and PHI nodes at the start of a block.
+"""
+move_before(inst::Instruction, pos::Instruction) =
+    API.LLVMExtraMoveInstructionBefore(check_attached(inst), check_attached(pos))
+
+"""
+    move_after(inst::Instruction, pos::Instruction)
+
+Move the given instruction after the given position, which can be in another basic block of
+the same function. See [`move_before`](@ref move_before(::Instruction, ::Instruction)).
+"""
+move_after(inst::Instruction, pos::Instruction) =
+    API.LLVMExtraMoveInstructionAfter(check_attached(inst), check_attached(pos))
+
+function check_attached(inst::Instruction)
+    API.LLVMGetInstructionParent(inst) == C_NULL &&
+        throw(ArgumentError("Instruction is not part of a basic block"))
+    return inst
+end
+
+"""
+    comes_before(a::Instruction, b::Instruction)
+
+Check whether instruction `a` comes before `b`, which should be part of the same basic
+block. An instruction does not come before itself.
+"""
+function comes_before(a::Instruction, b::Instruction)
+    bb = API.LLVMGetInstructionParent(check_attached(a))
+    bb == API.LLVMGetInstructionParent(check_attached(b)) ||
+        throw(ArgumentError("Instructions are not part of the same basic block"))
+    API.LLVMExtraInstructionComesBefore(a, b) |> Bool
+end
+
+"""
+    may_read_from_memory(inst::Instruction)
+
+Check whether the given instruction may read from memory. This is a conservative check,
+e.g., calls may access memory unless their memory effects say otherwise, and ordered
+stores are considered to also read memory.
+"""
+may_read_from_memory(inst::Instruction) = API.LLVMExtraMayReadFromMemory(inst) |> Bool
+
+"""
+    may_write_to_memory(inst::Instruction)
+
+Check whether the given instruction may write to memory. This is a conservative check,
+e.g., calls may access memory unless their memory effects say otherwise, and ordered loads
+are considered to also write memory.
+"""
+may_write_to_memory(inst::Instruction) = API.LLVMExtraMayWriteToMemory(inst) |> Bool
+
+"""
+    may_have_side_effects(inst::Instruction)
+
+Check whether the given instruction may have side effects: whether it may write to memory,
+unwind, or not return.
+"""
+may_have_side_effects(inst::Instruction) = API.LLVMExtraMayHaveSideEffects(inst) |> Bool
+
 function parent(inst::Instruction)
     ref = API.LLVMGetInstructionParent(inst)
     ref == C_NULL && return nothing
@@ -204,7 +295,7 @@ The group of instructions that can be atomic: `load`, `store`, `fence`, `atomicr
 # Properties
 
     inst.ordering
-    inst.ordering = ordering::LLVM.API.LLVMAtomicOrdering
+    inst.ordering = ordering::LLVM.AtomicOrdering.T
 
 The atomic ordering of a load, store, fence or `atomicrmw` instruction. Reading it
 requires the instruction to be atomic, while assigning an ordering to a load or store makes
@@ -220,7 +311,7 @@ instruction.
     rmw.binop
 
 The binary operation of an atomic read-modify-write instruction, e.g.,
-`LLVM.API.LLVMAtomicRMWBinOpAdd`.
+`LLVM.AtomicRMWBinOp.Add`.
 
     cmpxchg.weak
     cmpxchg.weak = flag::Bool
@@ -229,12 +320,12 @@ Whether an atomic compare-and-exchange instruction is weak, i.e., whether it is 
 fail spuriously, even if the comparison succeeds.
 
     cmpxchg.success_ordering
-    cmpxchg.success_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+    cmpxchg.success_ordering = ordering::LLVM.AtomicOrdering.T
 
 The ordering of an atomic compare-and-exchange instruction when the comparison succeeds.
 
     cmpxchg.failure_ordering
-    cmpxchg.failure_ordering = ordering::LLVM.API.LLVMAtomicOrdering
+    cmpxchg.failure_ordering = ordering::LLVM.AtomicOrdering.T
 
 The ordering of an atomic compare-and-exchange instruction when the comparison fails.
 
@@ -301,7 +392,7 @@ const ORDERING_NAMES = Dict(
     "sequentially_consistent" => API.LLVMAtomicOrderingSequentiallyConsistent)
 
 """
-    parse(API.LLVMAtomicOrdering, name::AbstractString)
+    parse(LLVM.AtomicOrdering.T, name::AbstractString)
 
 Get the atomic ordering with the given name, as used in LLVM IR (e.g. `"acq_rel"`), or as
 used by Julia's atomics (e.g. `"acquire_release"`).
@@ -328,7 +419,7 @@ const RMW_BINOP_NAMES = Dict(
     "fminimum" => API.LLVMAtomicRMWBinOpFMinimum)
 
 """
-    parse(API.LLVMAtomicRMWBinOp, name::AbstractString)
+    parse(LLVM.AtomicRMWBinOp.T, name::AbstractString)
 
 Get the `atomicrmw` operation with the given name, as used in LLVM IR (e.g. `"uinc_wrap"`).
 This works for every operation, whether or not the version of LLVM in use supports it (see
@@ -358,7 +449,7 @@ const ORDERING_LATTICE = let
 end
 
 """
-    is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering)
+    is_stronger(a::LLVM.AtomicOrdering.T, b::LLVM.AtomicOrdering.T)
 
 Check whether ordering `a` is strictly stronger than `b`. Orderings are only partially
 ordered: `acquire` and `release` are incomparable, and both are weaker than `acq_rel`.
@@ -366,7 +457,7 @@ ordered: `acquire` and `release` are incomparable, and both are weaker than `acq
 is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering) = b in ORDERING_LATTICE[a]
 
 """
-    is_acquire_or_stronger(ordering::API.LLVMAtomicOrdering)
+    is_acquire_or_stronger(ordering::LLVM.AtomicOrdering.T)
 
 Check whether an ordering has acquire semantics: `acquire`, `acq_rel` or `seq_cst`.
 """
@@ -374,7 +465,7 @@ is_acquire_or_stronger(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingAcquire || is_stronger(o, API.LLVMAtomicOrderingAcquire)
 
 """
-    is_release_or_stronger(ordering::API.LLVMAtomicOrdering)
+    is_release_or_stronger(ordering::LLVM.AtomicOrdering.T)
 
 Check whether an ordering has release semantics: `release`, `acq_rel` or `seq_cst`.
 """
@@ -382,7 +473,7 @@ is_release_or_stronger(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingRelease || is_stronger(o, API.LLVMAtomicOrderingRelease)
 
 """
-    merged_ordering(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering)
+    merged_ordering(a::LLVM.AtomicOrdering.T, b::LLVM.AtomicOrdering.T)
     merged_ordering(inst::AtomicCmpXchgInst)
 
 Get the weakest ordering that is at least as strong as both `a` and `b`, e.g., to perform
@@ -400,7 +491,7 @@ merged_ordering(inst::AtomicCmpXchgInst) =
     merged_ordering(success_ordering(inst), failure_ordering(inst))
 
 """
-    strongest_failure_ordering(success::API.LLVMAtomicOrdering)
+    strongest_failure_ordering(success::LLVM.AtomicOrdering.T)
 
 Get the strongest failure ordering that is valid for a `cmpxchg` with the given success
 ordering, i.e., the success ordering without its release semantics. This is the
@@ -514,7 +605,7 @@ const ATOMIC_RMW_BINOP_SINCE = (
 )
 
 """
-    isavailable(op::API.LLVMAtomicRMWBinOp)
+    isavailable(op::LLVM.AtomicRMWBinOp.T)
 
 Check whether the atomic read-modify-write operation `op` is supported by the version of
 LLVM in use. All operations can be named on every LLVM version, but instructions can only
@@ -546,6 +637,15 @@ The group of instructions that access memory: `load`, `store`, `atomicrmw` and `
 
 Whether a memory access (a `load`, `store`, `atomicrmw` or `cmpxchg` instruction) is
 volatile.
+
+    inst.pointer_operand
+
+The pointer operand of a memory access, i.e., the address of the memory that it accesses.
+
+    inst.value_operand
+
+The value operand of a `store` or `atomicrmw` instruction, i.e., the value that is stored
+or combined with the value in memory.
 
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
@@ -640,12 +740,25 @@ The group of call sites: `call`, `invoke` and `callbr` instructions, like LLVM's
     call.callconv = cc
 
 The calling convention of a `call`, `invoke` or `callbr` instruction, e.g.,
-`LLVM.API.LLVMFastCallConv`.
+`LLVM.CallConv.Fast`.
 
     call.called_operand
+    call.called_operand = callee::Value
 
 The operand of a `call`, `invoke` or `callbr` instruction that represents the called
-function.
+function. This can be any value, e.g., a function, a cast of one, or a function pointer.
+
+Assigning to this property only replaces the callee: the function type of the call (its
+`called_type`), arguments and attributes remain unchanged, so the new callee should be
+callable using that function type.
+
+    call.called_function
+
+The function that a `call`, `invoke` or `callbr` instruction calls directly, or `nothing`
+for other calls, e.g., of a function pointer. Like C++'s `CallBase::getCalledFunction`,
+this does not look through casts or aliases (use `strip_pointer_casts` on the
+`called_operand` for that), and is `nothing` if the function's type differs from the
+function type of the call.
 
     call.called_type
 
@@ -660,8 +773,9 @@ argument can be replaced by assigning to it: `call.arguments[i] = val`.
     call.function_attributes
 
 The function attributes of a `call`, `invoke` or `callbr` instruction, as a mutable view
-that can be iterated, and supports `push!`, `append!` and `delete!`. These are the
-attributes of the call site, which do not include those of the called function.
+that can be iterated, indexed by attribute kind, and supports `push!`, `append!` and
+`delete!`, like the `function_attributes` of a function. These are the attributes of the
+call site, which do not include those of the called function.
 
 See also the `return_attributes` and `argument_attributes` properties.
 
@@ -691,11 +805,11 @@ call that is not a tail call marks it `tail`, while assigning `false` to a tail 
 removes the marker. Assigning the current value does not change the kind of tail call.
 
     call.tailcall_kind
-    call.tailcall_kind = kind::LLVM.API.LLVMTailCallKind
+    call.tailcall_kind = kind::LLVM.TailCallKind.T
 
-The tail call marker of a `call` instruction: `LLVM.API.LLVMTailCallKindNone`,
-`LLVMTailCallKindTail` (`tail`), `LLVMTailCallKindMustTail` (`musttail`) or
-`LLVMTailCallKindNoTail` (`notail`). See also the `tailcall` property.
+The tail call marker of a `call` instruction: `LLVM.TailCallKind.None`,
+`LLVM.TailCallKind.Tail` (`tail`), `LLVM.TailCallKind.MustTail` (`musttail`) or
+`LLVM.TailCallKind.NoTail` (`notail`). See also the `tailcall` property.
 
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
@@ -730,6 +844,22 @@ tailcall_kind!(inst::CallInst, kind::API.LLVMTailCallKind) =
 
 called_operand(inst::CallBase) = Value(API.LLVMGetCalledValue(inst))
 
+function called_operand!(inst::CallBase, callee::Value)
+    # the callee is the last operand of every kind of call site
+    idx = API.LLVMGetNumOperands(inst) - 1
+    old_type = API.LLVMTypeOf(API.LLVMGetOperand(inst, idx))
+    API.LLVMTypeOf(callee) == old_type ||
+        throw(ArgumentError("Callee of type $(value_type(callee)) does not match the called operand of type $(LLVMType(old_type))"))
+    API.LLVMSetOperand(inst, idx, callee)
+end
+
+function called_function(inst::CallBase)
+    ref = API.LLVMGetCalledValue(inst)
+    (API.LLVMIsAFunction(ref) != C_NULL &&
+     API.LLVMGetFunctionType(ref) == API.LLVMGetCalledFunctionType(inst)) || return nothing
+    return Function(ref)
+end
+
 function called_type(inst::CallBase)
     @static if version() >= v"11"
         LLVMType(API.LLVMGetCalledFunctionType(inst))
@@ -738,7 +868,8 @@ function called_type(inst::CallBase)
     end
 end
 
-@property CallBase called_operand
+@property CallBase called_operand called_operand!
+@property CallBase called_function
 @property CallBase called_type
 
 struct CallArgumentSet <: AbstractVector{Value}
@@ -767,7 +898,7 @@ end
 
 # attributes
 
-struct CallSiteAttrSet
+struct CallSiteAttrSet <: AttributeSet
     instr::LLVM.CallBase
     idx::LLVM.API.LLVMAttributeIndex
 end
@@ -797,8 +928,6 @@ return_attributes(instr::LLVM.CallBase) = CallSiteAttrSet(instr, LLVM.API.LLVMAt
 @property CallBase argument_attributes
 @property CallBase return_attributes
 
-Base.eltype(::CallSiteAttrSet) = Attribute
-
 function Base.collect(iter::CallSiteAttrSet)
     elems = Vector{LLVM.API.LLVMAttributeRef}(undef, length(iter))
     if length(iter) > 0
@@ -813,41 +942,19 @@ function Base.push!(iter::CallSiteAttrSet, attr::LLVM.Attribute)
     return iter
 end
 
-function Base.delete!(iter::CallSiteAttrSet,
-                      attr::Union{LLVM.EnumAttribute,LLVM.TypeAttribute,
-                                  LLVM.ConstantRangeAttribute,
-                                  LLVM.ConstantRangeListAttribute})
-    LLVM.API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, kind(attr))
-    return iter
-end
-
-function Base.delete!(iter::CallSiteAttrSet, attr::LLVM.StringAttribute)
-    k = kind(attr)
-    LLVM.API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, k, length(k))
-    return iter
-end
-
 function Base.length(iter::CallSiteAttrSet)
     return LLVM.API.LLVMGetCallSiteAttributeCount(iter.instr, iter.idx)
 end
 
-# LLVM only supports fetching all attributes at once
-function Base.iterate(iter::CallSiteAttrSet, (attrs, i)=(collect(iter), 1))
-    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
-end
+attribute_ref(iter::CallSiteAttrSet, id::Integer) =
+    API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, id)
+attribute_ref(iter::CallSiteAttrSet, kind::AbstractString) =
+    API.LLVMGetCallSiteStringAttribute(iter.instr, iter.idx, kind, ncodeunits(kind))
 
-function Base.append!(iter::CallSiteAttrSet, attrs)
-    for attr in attrs
-        push!(iter, attr)
-    end
-    return iter
-end
-
-function Base.show(io::IO, iter::CallSiteAttrSet)
-    print(io, "CallSiteAttrSet(")
-    join(io, collect(iter), ", ")
-    print(io, ")")
-end
+remove_attribute!(iter::CallSiteAttrSet, id::Integer) =
+    API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, id)
+remove_attribute!(iter::CallSiteAttrSet, kind::AbstractString) =
+    API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, kind, ncodeunits(kind))
 
 function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)
@@ -1006,10 +1113,69 @@ end
 
 function Base.setindex!(iter::SwitchCaseValueSet, value::ConstantInt, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
-    cond = Value(API.LLVMGetOperand(iter.switch, 0))
+    check_case_value(iter.switch, value, i)
+    API.LLVMSetSwitchCaseValue(iter.switch, i, value)
+    return iter
+end
+
+function check_case_value(switch::SwitchInst, value::ConstantInt, except::Int=0)
+    cond = Value(API.LLVMGetOperand(switch, 0))
     value_type(value) == value_type(cond) ||
         throw(ArgumentError("Switch case value of type $(value_type(value)) does not match the condition of type $(value_type(cond))"))
+    for i in 1:API.LLVMGetNumSuccessors(switch)-1
+        i == except && continue
+        API.LLVMGetSwitchCaseValue(switch, i) == value.ref &&
+            throw(ArgumentError("Switch already has a case for $(value)"))
+    end
+end
+
+function check_case_dest(switch::SwitchInst, dest::BasicBlock)
+    bb = API.LLVMGetInstructionParent(switch)
+    bb == C_NULL && return
+    API.LLVMGetBasicBlockParent(dest) == API.LLVMGetBasicBlockParent(bb) ||
+        throw(ArgumentError("Switch case destination is not part of the same function"))
+end
+
+struct SwitchCaseSet <: AbstractVector{Tuple{ConstantInt,BasicBlock}}
+    switch::SwitchInst
+end
+
+cases(switch::SwitchInst) = SwitchCaseSet(switch)
+
+@property SwitchInst cases
+
+Base.size(iter::SwitchCaseSet) = (API.LLVMGetNumSuccessors(iter.switch) - 1,)
+
+Base.IndexStyle(::SwitchCaseSet) = IndexLinear()
+
+# the C API indexes cases by the index of their successor
+function Base.getindex(iter::SwitchCaseSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return (Value(API.LLVMGetSwitchCaseValue(iter.switch, i))::ConstantInt,
+            BasicBlock(API.LLVMGetSuccessor(iter.switch, i)))
+end
+
+function Base.setindex!(iter::SwitchCaseSet, (value, dest)::Tuple{ConstantInt,BasicBlock},
+                        i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    check_case_value(iter.switch, value, i)
+    check_case_dest(iter.switch, dest)
     API.LLVMSetSwitchCaseValue(iter.switch, i, value)
+    API.LLVMSetSuccessor(iter.switch, i, dest)
+    return iter
+end
+
+function Base.push!(iter::SwitchCaseSet, (value, dest)::Tuple{ConstantInt,BasicBlock})
+    check_case_value(iter.switch, value)
+    check_case_dest(iter.switch, dest)
+    API.LLVMAddCase(iter.switch, value, dest)
+    return iter
+end
+
+function Base.append!(iter::SwitchCaseSet, cases)
+    for case in cases
+        push!(iter, case)
+    end
     return iter
 end
 
@@ -1045,6 +1211,15 @@ The values of the cases of a switch instruction, as a mutable view. The destinat
 `i`th case is `switch.successors[i+1]`, the first successor being the default destination.
 Assigning to an element changes the value of that case, which needs to have the same type
 as the switch condition.
+
+    switch.cases
+
+The cases of a switch instruction, as a view of `(value, block)` tuples of the value of the
+condition and the block to branch to, not including the default destination. The view is
+mutable: cases can be added using `push!` or `append!`, and replaced by assigning to an
+element, e.g., `switch.cases[1] = (ConstantInt(Int32(42)), bb)`. The value needs to have
+the same type as the condition, there can only be one case for each value, and the block
+needs to be part of the same function.
 
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
@@ -1379,7 +1554,8 @@ The fast-math flags of a floating-point instruction, as a [`FastMathFlags`](@ref
 that can be used to inspect and change individual flags, e.g.,
 `inst.fast_math.nnan = true`. Only available on the instructions that LLVM considers
 floating-point operations; `phi`, `select` and `call` instructions only have fast-math
-flags if they produce a floating-point value, and throw an `ArgumentError` otherwise.
+flags if they produce a floating-point value, and throw an `ArgumentError` otherwise. Use
+[`supports_fast_math`](@ref) to check whether an instruction has fast-math flags.
 
 Assigning replaces all flags: with a named tuple of `Bool`s (e.g., `(; nnan=true,
 ninf=true)`), the flags that are not specified are cleared, while `fast=true` sets all
@@ -1394,7 +1570,69 @@ const FPMathInst = Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemI
                          (version() >= v"20" ? (FPTruncInst, FPExtInst) : ())...,
                          (version() >= v"23" ? (UIToFPInst, SIToFPInst) : ())...}
 
+@vocabulary IR supports_fast_math
+
+"""
+    supports_fast_math(inst::Instruction)
+
+Check whether the given instruction supports fast-math flags, i.e., whether it is a
+floating-point operation like C++'s `FPMathOperator`. For `phi`, `select` and `call`
+instructions, this depends on whether they produce a floating-point value.
+"""
+supports_fast_math(inst::Instruction) = Bool(API.LLVMCanValueUseFastMathFlags(inst))
+
 @property FPMathInst fast_math fast_math!
+
+
+## memory operations
+
+pointer_operand(inst::LoadInst) = Value(API.LLVMGetOperand(inst, 0))
+pointer_operand(inst::StoreInst) = Value(API.LLVMGetOperand(inst, 1))
+pointer_operand(inst::GetElementPtrInst) = Value(API.LLVMGetOperand(inst, 0))
+pointer_operand(inst::AtomicRMWInst) = Value(API.LLVMGetOperand(inst, 0))
+pointer_operand(inst::AtomicCmpXchgInst) = Value(API.LLVMGetOperand(inst, 0))
+
+@property Union{LoadInst,StoreInst,GetElementPtrInst,AtomicRMWInst,AtomicCmpXchgInst} pointer_operand
+
+value_operand(inst::StoreInst) = Value(API.LLVMGetOperand(inst, 0))
+value_operand(inst::AtomicRMWInst) = Value(API.LLVMGetOperand(inst, 1))
+
+@property Union{StoreInst,AtomicRMWInst} value_operand
+
+allocated_type(inst::AllocaInst) = LLVMType(API.LLVMGetAllocatedType(inst))
+
+@property AllocaInst allocated_type
+
+source_element_type(inst::GetElementPtrInst) =
+    LLVMType(API.LLVMGetGEPSourceElementType(inst))
+
+@property GetElementPtrInst source_element_type
+
+inbounds(inst::GetElementPtrInst) = API.LLVMIsInBounds(inst) |> Bool
+
+inbounds!(inst::GetElementPtrInst, flag::Bool) = API.LLVMSetIsInBounds(inst, flag)
+
+@property GetElementPtrInst inbounds inbounds!
+
+
+## aggregate operations
+
+struct AggregateIndexSet <: AbstractVector{Int}
+    inst::Instruction
+end
+
+indices(inst::Union{ExtractValueInst,InsertValueInst}) = AggregateIndexSet(inst)
+
+@property Union{ExtractValueInst,InsertValueInst} indices
+
+Base.size(iter::AggregateIndexSet) = (Int(API.LLVMGetNumIndices(iter.inst)),)
+
+Base.IndexStyle(::AggregateIndexSet) = IndexLinear()
+
+function Base.getindex(iter::AggregateIndexSet, i::Int)
+    @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
+    return Int(unsafe_load(API.LLVMGetIndices(iter.inst), i))
+end
 
 
 ## alignment

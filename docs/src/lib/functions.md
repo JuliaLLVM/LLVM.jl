@@ -4,6 +4,7 @@
 LLVM.Function
 LLVM.Function(::LLVM.Module, ::String, ::LLVM.FunctionType)
 Argument
+copy_attributes!
 ```
 
 ## Operations
@@ -13,6 +14,15 @@ empty!
 erase!(::LLVM.Function)
 move_before(::LLVM.Function, ::LLVM.Function)
 move_after(::LLVM.Function, ::LLVM.Function)
+```
+
+## Attributes
+
+```@docs
+Attribute
+EnumAttribute(::Union{Symbol,String}, ::Integer)
+TypeAttribute(::Union{Symbol,String}, ::LLVMType)
+StringAttribute(::AbstractString, ::AbstractString)
 ```
 
 ## Memory effects

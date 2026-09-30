@@ -11,6 +11,15 @@ end
 LLVM.TargetMachine(host_t, host_triple) do tm
 end
 
+# the host CPU
+@test LLVM.host_cpu_name() isa String
+@test !isempty(LLVM.host_cpu_name())
+@test LLVM.host_cpu_features() isa String
+@dispose tm=LLVM.TargetMachine(host_t, host_triple, LLVM.host_cpu_name(),
+                               LLVM.host_cpu_features()) begin
+    @test tm.cpu == LLVM.host_cpu_name()
+end
+
 @dispose tm=LLVM.TargetMachine(host_t, host_triple) begin
     @test tm.target == host_t
     @test tm.triple == host_triple

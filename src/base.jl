@@ -220,7 +220,7 @@ end
 # name (e.g., `overloaded_name` instead of a `name(intrinsic, types)` method). LLVM.jl
 # itself can keep calling the accessors. Document a property in the docstring of the type it
 # is declared on, in a "Properties" section with signature lines like `gv.linkage` and
-# `gv.linkage = linkage::LLVM.API.LLVMLinkage` and a description of what assignment does,
+# `gv.linkage = linkage::LLVM.Linkage.T` and a description of what assignment does,
 # rather than on the accessor, which users do not call. Properties that are declared on a
 # group of instructions are documented on the union type of that group, like `CallBase`, and
 # those of individual instruction types on the group they belong to, or on `Instruction`.
@@ -262,6 +262,8 @@ end
 #   (`inst.fast_math.nnan = true`, `f.memory_effects[:argmem] = :read`) writes through, and
 #   assigning to the property replaces the state wholesale. Make it easy to convert a view
 #   to a value (`NamedTuple(flags)`, `MemoryEffects(effects)`).
+# - Enum-valued state uses the enums of the C API, which are documented using their scoped
+#   names (`LLVM.Linkage.Internal`, see src/enums.jl), not their `LLVM.API` names.
 # - For enum-valued state with a common yes/no question, provide both as properties that
 #   are views of the same state, like LLVM's C++ API does (`threadlocal_mode` and
 #   `threadlocal`, `tailcall_kind` and `tailcall`). Assigning the current value to the

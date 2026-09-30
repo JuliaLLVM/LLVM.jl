@@ -140,6 +140,8 @@
 
     allocainst = alloca!(builder, LLVM.Int32Type())
     @check_ir allocainst "alloca i32"
+    @test allocainst.allocated_type == LLVM.Int32Type()
+    @test !hasproperty(xorinst, :allocated_type)
     @test allocainst.alignment == 4
     allocainst.alignment = 16
     @test allocainst.alignment == 16
@@ -217,6 +219,8 @@
     end
     loadinst.alignment = 4
     @test loadinst.alignment == 4
+    @test loadinst.pointer_operand == ptr1
+    @test !hasproperty(loadinst, :value_operand)
 
     @test !isatomic(loadinst)
     loadinst.ordering = LLVM.API.LLVMAtomicOrderingSequentiallyConsistent
@@ -238,6 +242,8 @@
     else
         @check_ir storeinst "store i32 %0, ptr %4"
     end
+    @test storeinst.pointer_operand == ptr1
+    @test storeinst.value_operand == int1
 
     fenceinst = fence!(builder, LLVM.API.LLVMAtomicOrderingSequentiallyConsistent)
     @check_ir fenceinst "fence"
@@ -248,6 +254,14 @@
     else
         @check_ir gepinst "getelementptr i32, ptr %4, i32 %0"
     end
+    @test gepinst.pointer_operand == ptr1
+    @test gepinst.source_element_type == LLVM.Int32Type()
+    @test !gepinst.inbounds
+    gepinst.inbounds = true
+    @test gepinst.inbounds
+    @check_ir gepinst "getelementptr inbounds i32"
+    gepinst.inbounds = false
+    @test !gepinst.inbounds
 
     gepinst1 = inbounds_gep!(builder, LLVM.Int32Type(), ptr1, [int1])
     if supports_typed_pointers(ctx)
@@ -255,6 +269,7 @@
     else
         @check_ir gepinst1 "getelementptr inbounds i32, ptr %4, i32 %0"
     end
+    @test gepinst1.inbounds
 
     single_thread = false
     atomic_rmw_inst = atomic_rmw!(builder,
@@ -266,6 +281,8 @@
         @check_ir atomic_rmw_inst "atomicrmw add ptr %4, i32 %0 seq_cst"
     end
     @test atomic_rmw_inst.binop == LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test atomic_rmw_inst.pointer_operand == ptr1
+    @test atomic_rmw_inst.value_operand == int1
     @test atomic_rmw_inst.syncscope == SyncScope("system")
     atomic_rmw_inst.syncscope = SyncScope("agent")
     @test atomic_rmw_inst.syncscope == SyncScope("agent")
@@ -454,6 +471,7 @@
 
     @check_ir callinst "call void @llvm.trap()"
     @test callinst.called_operand == trap
+    @test callinst.called_function == trap
     @test callinst.called_type == LLVM.FunctionType(LLVM.VoidType())
 
     # tail calls: `tailcall` is a Bool view of `tailcall_kind`
@@ -526,9 +544,273 @@ end
 end
 
 
-@testset "LLVM 22 instructions" begin
-    LLVM.version() >= v"22" || return
+@testset "call sites" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    f = LLVM.Function(mod, "f", ft)
+    g = LLVM.Function(mod, "g", ft)
+    h = LLVM.Function(mod, "h", LLVM.FunctionType(LLVM.Int32Type()))
+    caller = LLVM.Function(mod, "caller", LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(ft)]))
+    position!(builder, BasicBlock(caller, "entry"))
 
+    # direct calls
+    call = call!(builder, ft, f)
+    @test call.called_function == f
+    call.called_operand = g
+    @test call.called_function == g
+    @test call.called_type == ft
+    @check_ir call "call void @g()"
+
+    # indirect calls, or calls of a function with a different type, are not direct calls
+    ptr = caller.parameters[1]
+    indirect = call!(builder, ft, ptr)
+    @test indirect.called_function === nothing
+    @test indirect.called_operand == ptr
+    if !supports_typed_pointers(ctx)
+        mismatch = call!(builder, ft, h)
+        @test mismatch.called_function === nothing
+        @test mismatch.called_operand == h
+    end
+
+    # the callee needs to have the same type as the called operand
+    @test_throws ArgumentError call.called_operand = ConstantInt(Int32(0))
+
+    ret!(builder)
+    verify(mod)
+end
+end
+
+@testset "aggregates" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    inner = LLVM.StructType([LLVM.Int8Type(), LLVM.Int16Type()])
+    outer = LLVM.StructType([LLVM.Int32Type(), inner])
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int8Type(), [outer]))
+    position!(builder, BasicBlock(f, "entry"))
+    agg = f.parameters[1]
+
+    ev = extract_value!(builder, agg, 1)
+    @test ev.indices == [1]
+    @test_throws BoundsError ev.indices[2]
+    @test_throws CanonicalIndexError ev.indices[1] = 0
+    ev2 = extract_value!(builder, ev, 0)
+    @test ev2.indices == [0]
+    iv = insert_value!(builder, agg, ev, 1)
+    @test iv.indices == [1]
+    @test !hasproperty(ev2, :pointer_operand)
+
+    # nested elements can be selected using a path of indices
+    ev3 = extract_value!(builder, agg, [1, 0])
+    @check_ir ev3 "extractvalue { i32, { i8, i16 } } %0, 1, 0"
+    @test ev3.indices == [1, 0]
+    @test ev3.value_type == LLVM.Int8Type()
+    iv2 = insert_value!(builder, agg, ev3, [1, 0])
+    @check_ir iv2 r"insertvalue \{ i32, \{ i8, i16 \} \} %0, i8 %\d+, 1, 0"
+    @test iv2.indices == [1, 0]
+
+    # indices are checked
+    @test_throws ArgumentError extract_value!(builder, agg, 2)
+    @test_throws ArgumentError extract_value!(builder, agg, [1, 2])
+    @test_throws ArgumentError extract_value!(builder, agg, [0, 0])
+    @test_throws ArgumentError extract_value!(builder, agg, Int[])
+    @test_throws ArgumentError insert_value!(builder, agg, ev3, [1, 1])
+    @test_throws ArgumentError insert_value!(builder, agg, ev3, 0)
+
+    ret!(builder, ev2)
+    verify(mod)
+end
+end
+
+@testset "positioning" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))
+    bb = BasicBlock(f, "entry")
+    position!(builder, bb)
+    x = f.parameters[1]
+    a = add!(builder, x, x)
+    ret = ret!(builder, a)
+
+    # after an instruction in the middle of a block
+    position!(builder, a; after=true)
+    b = mul!(builder, a, a)
+    @test a.next == b
+    @test b.next == ret
+
+    # after the last instruction of a block, i.e., at the end of the block
+    position!(builder, ret; after=true)
+    c = exactudiv!(builder, a, a)
+    @check_ir c "udiv exact i32"
+    @test ret.next == c
+    erase!(c)
+
+    # before an instruction
+    position!(builder, a)
+    d = sub!(builder, x, x)
+    @test d.next == a
+
+    # instructions need to be part of a block
+    remove!(d)
+    @test_throws ArgumentError position!(builder, d; after=true)
+    insert!(builder, d)
+    @test d.next == a
+
+    verify(mod)
+end
+
+# positioning after an instruction inserts before the debug records of the next one
+if LLVM.version() >= v"19"
+@dispose ctx=Context() builder=IRBuilder() begin
+    mod = parse(LLVM.Module, """
+        define void @f(i32 %x) !dbg !5 {
+          %p = alloca i32, align 4
+            #dbg_value(i32 %x, !9, !DIExpression(), !10)
+          ret void, !dbg !10
+        }
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+
+        !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "test.c", directory: "/tmp")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+        !6 = !DISubroutineType(types: !7)
+        !7 = !{null}
+        !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+        !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
+        !10 = !DILocation(line: 2, column: 1, scope: !5)
+        """)
+    f = mod.functions["f"]
+    alloca, ret = f.entry.instructions
+    position!(builder, alloca; after=true)
+    inst = add!(builder, f.parameters[1], f.parameters[1])
+    @test alloca.next == inst
+    @test isempty(inst.debug_records)
+    @test length(collect(ret.debug_records)) == 1
+    dispose(mod)
+end
+end
+end
+
+@testset "operations" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type(), LLVM.PointerType(LLVM.Int32Type())])
+    f = LLVM.Function(mod, "f", ft)
+    entry = BasicBlock(f, "entry")
+    exit = BasicBlock(f, "exit")
+    x, ptr = f.parameters
+    position!(builder, entry)
+    a = add!(builder, x, x, "a")
+    b = mul!(builder, x, x, "b")
+    ld = load!(builder, LLVM.Int32Type(), ptr)
+    st = store!(builder, a, ptr)
+    br!(builder, exit)
+    position!(builder, exit)
+    c = sub!(builder, a, b, "c")
+    ret = ret!(builder, c)
+
+    # ordering within a block
+    @test comes_before(a, b)
+    @test !comes_before(b, a)
+    @test !comes_before(a, a)
+    @test_throws ArgumentError comes_before(a, c)
+
+    # moving instructions, also to other blocks
+    move_before(b, a)
+    @test collect(entry.instructions)[1:2] == [b, a]
+    move_after(b, a)
+    @test collect(entry.instructions)[1:2] == [a, b]
+    move_before(b, c)
+    @test collect(exit.instructions) == [b, c, ret]
+    move_after(b, ld)
+    @test collect(exit.instructions) == [c, ret]
+    @test b.parent == entry
+    move_before(a, a)
+    @test first(entry.instructions) == a
+    verify(mod)
+
+    # memory effects
+    @test !may_read_from_memory(a) && !may_write_to_memory(a) && !may_have_side_effects(a)
+    @test may_read_from_memory(ld) && !may_write_to_memory(ld)
+    @test !may_read_from_memory(st) && may_write_to_memory(st) && may_have_side_effects(st)
+
+    # transferring names
+    position!(builder, ret)
+    d = sub!(builder, a, b)
+    @test take_name!(d, c) == d
+    @test d.name == "c"
+    @test c.name == ""
+    replace_uses!(c, d)
+    erase!(c)
+    verify(mod)
+    @test take_name!(d, d) == d
+    @test d.name == "c"
+
+    # transferring the name of an intrinsic makes a function the intrinsic
+    trap = LLVM.Function(mod, "llvm.trap", LLVM.FunctionType(LLVM.VoidType()))
+    other = LLVM.Function(mod, "other", LLVM.FunctionType(LLVM.VoidType()))
+    take_name!(other, trap)
+    @test other.name == "llvm.trap"
+    @test isintrinsic(other)
+    @test !isintrinsic(trap)
+    erase!(trap)
+
+    # stripping pointer casts
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    alias = GlobalAlias(mod, LLVM.Int32Type(), gv, "alias")
+    cast = const_addrspacecast(gv, LLVM.PointerType(LLVM.Int32Type(), 1))
+    @test strip_pointer_casts(cast) == gv
+    @test strip_pointer_casts(gv) == gv
+    @test strip_pointer_casts(alias) == alias
+    @test strip_pointer_casts_and_aliases(alias) == gv
+    @test strip_pointer_casts_and_aliases(const_addrspacecast(alias, LLVM.PointerType(LLVM.Int32Type(), 1))) == gv
+end
+end
+
+@testset "erasing while iterating" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
+    bb = BasicBlock(f, "entry")
+    position!(builder, bb)
+    x = f.parameters[1]
+    for i in 1:10
+        add!(builder, x, ConstantInt(Int32(i)))
+    end
+    ret!(builder)
+
+    # the instruction that was just returned can be erased
+    for inst in bb.instructions
+        if inst isa LLVM.AddInst
+            erase!(inst)
+        end
+    end
+    @test length(collect(bb.instructions)) == 1
+
+    # the same holds for blocks
+    for i in 1:3
+        position!(builder, BasicBlock(f, "unreachable$i"))
+        unreachable!(builder)
+    end
+    for bb in f.blocks
+        bb.name == "entry" || erase!(bb)
+    end
+    @test length(f.blocks) == 1
+    verify(mod)
+end
+end
+
+@testset "arguments" begin
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])
+    f = LLVM.Function(mod, "f", ft)
+    for (i, arg) in enumerate(f.parameters)
+        @test arg.index == i
+        @test arg.parent.parameters[arg.index] == arg
+    end
+end
+end
+
+@testset "LLVM 22 instructions" begin
+if LLVM.version() >= v"22"
     @dispose ctx=Context() begin
         mod = parse(LLVM.Module, """
             define i64 @ptrtoaddr_test(ptr %p) {
@@ -543,6 +825,7 @@ end
 
         dispose(mod)
     end
+end
 end
 
 @testset "switch cases" begin
@@ -574,6 +857,43 @@ end
         @check_ir switch "i32 3, label %two"
         @test_throws BoundsError switch.case_values[0] = ConstantInt(Int32(0))
         @test_throws ArgumentError switch.case_values[1] = ConstantInt(Int64(0))
+        @test_throws ArgumentError switch.case_values[1] = ConstantInt(Int32(3))
+        # assigning a case its current value is fine
+        switch.case_values[2] = switch.case_values[2]
+        @test convert(Int, switch.case_values[2]) == 3
+
+        # the cases of a switch are a mutable view of values and destinations
+        f = mod.functions["switch_test"]
+        _, one, two, default = f.blocks
+        cases = switch.cases
+        @test length(cases) == 2
+        @test cases[1] == (ConstantInt(Int32(1)), one)
+        @test cases[2] == (ConstantInt(Int32(3)), two)
+        @test_throws BoundsError cases[3]
+
+        @test push!(cases, (ConstantInt(Int32(4)), default)) === cases
+        @test length(cases) == 3
+        @test cases[3] == (ConstantInt(Int32(4)), default)
+        @check_ir switch "i32 4, label %default"
+        append!(cases, [(ConstantInt(Int32(5)), one), (ConstantInt(Int32(6)), two)])
+        @test [convert(Int, val) for (val, _) in cases] == [1, 3, 4, 5, 6]
+        @test switch.default_dest == default
+
+        cases[1] = (ConstantInt(Int32(7)), two)
+        @test cases[1] == (ConstantInt(Int32(7)), two)
+        cases[1] = (ConstantInt(Int32(7)), one)   # the same value is fine
+        @test cases[1] == (ConstantInt(Int32(7)), one)
+
+        @test_throws ArgumentError push!(cases, (ConstantInt(Int32(4)), one))
+        @test_throws ArgumentError push!(cases, (ConstantInt(Int64(8)), one))
+        @test_throws ArgumentError cases[1] = (ConstantInt(Int32(3)), one)
+        other = LLVM.Function(mod, "other", LLVM.FunctionType(LLVM.VoidType()))
+        elsewhere = BasicBlock(other, "elsewhere")
+        @test_throws ArgumentError push!(cases, (ConstantInt(Int32(9)), elsewhere))
+        @test_throws ArgumentError cases[1] = (ConstantInt(Int32(9)), elsewhere)
+        erase!(other)
+        @test length(cases) == 5
+        verify(mod)
 
         dispose(mod)
     end
@@ -849,6 +1169,8 @@ end
     @test !hasproperty(instns[3], :fast_math)
     @test_throws "has no property `fast_math`" instns[3].fast_math
     @test_throws "has no property `fast_math`" instns[3].fast_math = (; fast=true)
+    @test supports_fast_math(instns[1])
+    @test !supports_fast_math(instns[3])
 
     # optimize again
     optimize(mod)
@@ -860,6 +1182,20 @@ end
     instns = collect(bb.instructions)
     @test length(instns) == 1
     @test instns[1] isa LLVM.RetInst
+end
+
+# whether phi, select and call instructions support fast-math flags depends on their type
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.FloatType(), LLVM.Int32Type(), LLVM.Int1Type()])
+    f = LLVM.Function(mod, "f", ft)
+    position!(builder, BasicBlock(f, "entry"))
+    x, y, c = f.parameters
+    fsel = select!(builder, c, x, x)
+    isel = select!(builder, c, y, y)
+    @test supports_fast_math(fsel)
+    @test !supports_fast_math(isel)
+    @test hasproperty(isel, :fast_math)
+    @test_throws ArgumentError isel.fast_math
 end
 end
 

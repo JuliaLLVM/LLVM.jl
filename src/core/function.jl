@@ -24,7 +24,7 @@ a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed point
     f.callconv
     f.callconv = cc
 
-The calling convention of the function, e.g., `LLVM.API.LLVMFastCallConv`.
+The calling convention of the function, e.g., `LLVM.CallConv.Fast`.
 
     f.gc
     f.gc = name::String
@@ -45,7 +45,10 @@ The entry basic block of the function, or `nothing` if the function has no body.
 
 The attributes of the function itself, as a mutable view that can be iterated, and
 supports `push!`, `append!` and `delete!`. Adding an attribute replaces any existing
-attribute of the same kind.
+attribute of the same kind. The view can also be indexed by the kind of an attribute: a
+`Symbol` for LLVM's attribute kinds, and a string for string attributes, e.g.,
+`haskey(f.function_attributes, :nounwind)`, `f.function_attributes["target-cpu"]` or
+`delete!(f.function_attributes, :noinline)`.
 
 See also the `return_attributes` and `parameter_attributes` properties.
 
@@ -81,12 +84,17 @@ be used as inputs to other instructions.
 The basic blocks of the function, in order, as a read-only view that always reflects the
 current body of the function. Create a `BasicBlock` to add one, and use operations like
 `remove!` or `move_before` to change the list of blocks. Indexing the view walks the list
-of blocks, so iterate instead of indexing each block.
+of blocks, so iterate instead of indexing each block. While iterating over the view, it is
+safe to remove or erase the block that was just returned, but not other blocks.
 
     f.subprogram
     f.subprogram = sp::DISubProgram
 
 The subprogram that describes the function, or `nothing` if it has none.
+
+    f.intrinsic
+
+The intrinsic that the function declares, or `nothing` if it isn't an intrinsic.
 
     f.next
     f.prev
@@ -112,6 +120,32 @@ Create a new function in the given module with the given name and function type.
 """
 Function(mod::Module, name::String, ft::FunctionType) =
     Function(API.LLVMAddFunction(mod, name, ft))
+
+@vocabulary IR copy_attributes!
+
+"""
+    copy_attributes!(dest::LLVM.Function, src::LLVM.Function)
+    copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+
+Copy the attributes of `src` that are not needed to create it to `dest`, like C++'s
+`copyAttributesFrom`, e.g., when replacing a function by one with a different signature.
+This copies the visibility, DLL storage class, `unnamed_addr`, thread-local mode,
+alignment and section, and for functions also the calling convention, garbage collector,
+personality, and function, return and parameter attributes, and for global variables
+whether they are externally initialized, their attributes and code model. Returns `dest`.
+
+The name, linkage, body or initializer, and metadata are not copied. Parameter attributes
+are copied by position, so if the parameters of `dest` differ from those of `src`, fix up
+`dest.parameter_attributes` afterwards.
+"""
+function copy_attributes!(dest::Function, src::Function)
+    API.LLVMExtraCopyAttributesFrom(dest, src)
+    return dest
+end
+function copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+    API.LLVMExtraCopyAttributesFrom(dest, src)
+    return dest
+end
 
 function_type(Fn::Function) = FunctionType(API.LLVMGetFunctionType(Fn))
 
@@ -201,7 +235,7 @@ end
 
 # attributes
 
-struct FunctionAttrSet
+struct FunctionAttrSet <: AttributeSet
     f::Function
     idx::API.LLVMAttributeIndex
 end
@@ -232,8 +266,6 @@ return_attributes(f::Function) = FunctionAttrSet(f, API.LLVMAttributeReturnIndex
 
 @property Function return_attributes
 
-Base.eltype(::FunctionAttrSet) = Attribute
-
 function Base.collect(iter::FunctionAttrSet)
     elems = Vector{API.LLVMAttributeRef}(undef, length(iter))
     if length(iter) > 0
@@ -248,40 +280,19 @@ function Base.push!(iter::FunctionAttrSet, attr::Attribute)
     return iter
 end
 
-function Base.delete!(iter::FunctionAttrSet,
-                      attr::Union{EnumAttribute,TypeAttribute,ConstantRangeAttribute,
-                                  ConstantRangeListAttribute})
-    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, kind(attr))
-    return iter
-end
-
-function Base.delete!(iter::FunctionAttrSet, attr::StringAttribute)
-    k = kind(attr)
-    API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, k, length(k))
-    return iter
-end
-
 function Base.length(iter::FunctionAttrSet)
     API.LLVMGetAttributeCountAtIndex(iter.f, iter.idx)
 end
 
-# LLVM only supports fetching all attributes at once
-function Base.iterate(iter::FunctionAttrSet, (attrs, i)=(collect(iter), 1))
-    i > length(attrs) ? nothing : (attrs[i], (attrs, i+1))
-end
+attribute_ref(iter::FunctionAttrSet, id::Integer) =
+    API.LLVMGetEnumAttributeAtIndex(iter.f, iter.idx, id)
+attribute_ref(iter::FunctionAttrSet, kind::AbstractString) =
+    API.LLVMGetStringAttributeAtIndex(iter.f, iter.idx, kind, ncodeunits(kind))
 
-function Base.append!(iter::FunctionAttrSet, attrs)
-    for attr in attrs
-        push!(iter, attr)
-    end
-    return iter
-end
-
-function Base.show(io::IO, iter::FunctionAttrSet)
-    print(io, "FunctionAttrSet(")
-    join(io, collect(iter), ", ")
-    print(io, ")")
-end
+remove_attribute!(iter::FunctionAttrSet, id::Integer) =
+    API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, id)
+remove_attribute!(iter::FunctionAttrSet, kind::AbstractString) =
+    API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, kind, ncodeunits(kind))
 
 """
     MemoryEffects(attrs)
@@ -382,6 +393,11 @@ A parameter of a function, as a value that can be used in its body.
 
 The function that the parameter belongs to.
 
+    arg.index
+
+The position of the parameter in the parameter list of its function, starting at 1, so
+that `arg.parent.parameters[arg.index] == arg`.
+
     arg.next
     arg.prev
 
@@ -450,6 +466,10 @@ end
 parent(arg::Argument) = Function(API.LLVMGetParamParent(arg))
 
 @property Argument parent
+
+index(arg::Argument) = Int(API.LLVMExtraGetArgNo(arg)) + 1
+
+@property Argument index
 
 
 # basic block iteration
@@ -529,16 +549,13 @@ end
 @public overloaded_name
 
 """
-    isintrinsic(f::Function)
-
-Check if the given function is an intrinsic.
-"""
-isintrinsic(f::Function) = API.LLVMGetIntrinsicID(f) != 0
-
-"""
     LLVM.Intrinsic
+    Intrinsic(name::String)
+    Intrinsic(f::LLVM.Function)
 
-An LLVM intrinsic function, identified by its ID.
+An LLVM intrinsic function, identified by its (base) name, e.g., `Intrinsic("llvm.memcpy")`,
+or the intrinsic that a function declares. Throws an `ArgumentError` if there is no such
+intrinsic; see the `intrinsic` property of functions for a non-throwing alternative.
 
 # Properties
 
@@ -557,10 +574,35 @@ struct Intrinsic
     end
 
     function Intrinsic(name::String)
-        new(API.LLVMLookupIntrinsicID(name, length(name)))
+        id = API.LLVMLookupIntrinsicID(name, ncodeunits(name))
+        id == 0 && throw(ArgumentError("Unknown intrinsic: $name"))
+        new(id)
     end
 end
 @properties Intrinsic
+
+intrinsic(f::Function) = isintrinsic(f) ? Intrinsic(f) : nothing
+
+@property Function intrinsic
+
+"""
+    isintrinsic(val::Value)
+    isintrinsic(val::Value, intr::Intrinsic)
+
+Check if the given value is a function that is an intrinsic, or a specific intrinsic. This
+works with any value, e.g., to check the `called_operand` of a call instruction:
+
+```julia
+memcpy = Intrinsic("llvm.memcpy")
+isintrinsic(call.called_operand, memcpy)
+```
+
+Intrinsics are identified by their ID, so unlike C++'s `Function::isIntrinsic`, which
+checks for the `llvm.` prefix that is reserved for intrinsics, this is false for functions
+that are named like intrinsics that the current version of LLVM does not know.
+"""
+isintrinsic(val::Value) = API.LLVMGetIntrinsicID(val) != 0
+isintrinsic(val::Value, intr::Intrinsic) = API.LLVMGetIntrinsicID(val) == intr.id
 
 Base.convert(::Type{UInt32}, intr::Intrinsic) = intr.id
 
@@ -615,11 +657,5 @@ function FunctionType(intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMTy
     LLVMType(API.LLVMIntrinsicGetType(context(), intr, as_vector(params), length(params)))
 end
 
-function Base.show(io::IO, intr::Intrinsic)
-    print(io, "Intrinsic($(intr.id))")
-    if isoverloaded(intr)
-        print(io, ": overloaded intrinsic")
-    else
-        print(io, ": \"$(name(intr))\"")
-    end
-end
+# display intrinsics as the call that creates them, as their IDs differ between versions
+Base.show(io::IO, intr::Intrinsic) = print(io, "Intrinsic(", repr(name(intr)), ")")

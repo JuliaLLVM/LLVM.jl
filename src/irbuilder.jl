@@ -75,12 +75,37 @@ Return the current position of the instruction builder.
 Base.position(builder::IRBuilder) = BasicBlock(API.LLVMGetInsertBlock(builder))
 
 """
-    position!(builder::IRBuilder, inst::Instruction)
+    position!(builder::IRBuilder, inst::Instruction; after::Bool=false)
 
-Position the instruction builder before the given instruction.
+Position the instruction builder before the given instruction, or, when `after` is set,
+directly after it (at the end of the basic block if it is the last instruction). Like C++'s
+`Instruction::insertAfter`, new instructions are then inserted before any debug records
+that precede the next instruction.
+
+Positioning is literal: after a `phi` instruction, the builder is positioned before the next
+instruction, even if that is another `phi` instruction where other instructions cannot be
+inserted.
 """
-position!(builder::IRBuilder, inst::Instruction) =
-    API.LLVMPositionBuilderBefore(builder, inst)
+function position!(builder::IRBuilder, inst::Instruction; after::Bool=false)
+    if after
+        bb = API.LLVMGetInstructionParent(inst)
+        bb == C_NULL &&
+            throw(ArgumentError("Cannot position after an instruction that is not part of a basic block"))
+        next = API.LLVMGetNextInstruction(inst)
+        if next == C_NULL
+            API.LLVMPositionBuilderAtEnd(builder, bb)
+        else
+            @static if version() >= v"19"
+                API.LLVMPositionBuilderBeforeInstrAndDbgRecords(builder, next)
+            else
+                API.LLVMPositionBuilderBefore(builder, next)
+            end
+        end
+    else
+        API.LLVMPositionBuilderBefore(builder, inst)
+    end
+    return
+end
 
 """
     position!(builder::IRBuilder, bb::BasicBlock)
@@ -133,8 +158,8 @@ debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
 @vocabulary Build ret!, br!, switch!, indirectbr!, invoke!, resume!, unreachable!,
 
                   binop!, add!, nswadd!, nuwadd!, fadd!, sub!, nswsub!, nuwsub!, fsub!,
-                  mul!, nswmul!, nuwmul!, fmul!, udiv!, sdiv!, exactsdiv!, fdiv!, urem!,
-                  srem!, frem!, neg!, nswneg!, fneg!,
+                  mul!, nswmul!, nuwmul!, fmul!, udiv!, exactudiv!, sdiv!, exactsdiv!, fdiv!,
+                  urem!, srem!, frem!, neg!, nswneg!, fneg!,
 
                   shl!, lshr!, ashr!, and!, or!, xor!, not!,
 
@@ -238,6 +263,9 @@ udiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
 sdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
     Value(API.LLVMBuildSDiv(builder, LHS, RHS, Name))
 
+exactudiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+    Value(API.LLVMBuildExactUDiv(builder, LHS, RHS, Name))
+
 exactsdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
     Value(API.LLVMBuildExactSDiv(builder, LHS, RHS, Name))
 
@@ -289,11 +317,72 @@ shuffle_vector!(builder::IRBuilder, V1::Value, V2::Value, Mask::Value, Name::Str
 
 # aggregate operations
 
-extract_value!(builder::IRBuilder, AggVal::Value, Index, Name::String="") =
-    Value(API.LLVMBuildExtractValue(builder, AggVal, Index, Name))
+# check that indices select an element of an aggregate type, as LLVM asserts this
+function check_aggregate_indices(typ::LLVMType, indices)
+    isempty(indices) && throw(ArgumentError("At least one index is required"))
+    for idx in indices
+        n = if typ isa StructType
+            length(typ.elements)
+        elseif typ isa ArrayType
+            length(typ)
+        else
+            throw(ArgumentError("Cannot index into non-aggregate type $typ"))
+        end
+        0 <= idx < n && idx <= typemax(Cuint) ||
+            throw(ArgumentError("Index $idx is out of bounds for type $typ"))
+        typ = typ isa StructType ? typ.elements[idx+1] : eltype(typ)
+    end
+    return typ
+end
 
-insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value, Index, Name::String="") =
+function check_inserted_value(agg::Value, val::Value, indices)
+    elty = check_aggregate_indices(value_type(agg), indices)
+    value_type(val) == elty ||
+        throw(ArgumentError("Cannot insert a value of type $(value_type(val)) into an element of type $elty"))
+end
+
+"""
+    extract_value!(builder::IRBuilder, agg::Value, index::Integer, [name::String])
+    extract_value!(builder::IRBuilder, agg::Value, indices::AbstractVector{<:Integer},
+                   [name::String])
+
+Extract an element from an aggregate value. The zero-based indices select the element,
+like in textual IR: e.g., `extract_value!(builder, agg, [1, 0])` extracts the first element
+of the second element of `agg`.
+"""
+function extract_value!(builder::IRBuilder, AggVal::Value, Index::Integer, Name::String="")
+    check_aggregate_indices(value_type(AggVal), (Index,))
+    Value(API.LLVMBuildExtractValue(builder, AggVal, Index, Name))
+end
+
+function extract_value!(builder::IRBuilder, AggVal::Value,
+                        Indices::AbstractVector{<:Integer}, Name::String="")
+    check_aggregate_indices(value_type(AggVal), Indices)
+    idxs = Vector{Cuint}(Indices)
+    Value(API.LLVMExtraBuildExtractValue(builder, AggVal, idxs, length(idxs), Name))
+end
+
+"""
+    insert_value!(builder::IRBuilder, agg::Value, val::Value, index::Integer,
+                  [name::String])
+    insert_value!(builder::IRBuilder, agg::Value, val::Value,
+                  indices::AbstractVector{<:Integer}, [name::String])
+
+Insert a value into an aggregate value, returning the updated aggregate. The zero-based
+indices select the element to replace, like for [`extract_value!`](@ref).
+"""
+function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value, Index::Integer,
+                       Name::String="")
+    check_inserted_value(AggVal, EltVal, (Index,))
     Value(API.LLVMBuildInsertValue(builder, AggVal, EltVal, Index, Name))
+end
+
+function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value,
+                       Indices::AbstractVector{<:Integer}, Name::String="")
+    check_inserted_value(AggVal, EltVal, Indices)
+    idxs = Vector{Cuint}(Indices)
+    Value(API.LLVMExtraBuildInsertValue(builder, AggVal, EltVal, idxs, length(idxs), Name))
+end
 
 
 # memory access and addressing operations
@@ -386,7 +475,7 @@ end
 
 """
     load!(builder::IRBuilder, T::LLVMType, ptr::Value, name::String="";
-          ordering=API.LLVMAtomicOrderingNotAtomic, scope=nothing, align=nothing,
+          ordering=LLVM.AtomicOrdering.NotAtomic, scope=nothing, align=nothing,
           volatile=false)
 
 Load a value of type `T` from `ptr`. The load is atomic if an `ordering` other than
@@ -415,7 +504,7 @@ end
 
 """
     store!(builder::IRBuilder, val::Value, ptr::Value;
-           ordering=API.LLVMAtomicOrderingNotAtomic, scope=nothing, align=nothing,
+           ordering=LLVM.AtomicOrdering.NotAtomic, scope=nothing, align=nothing,
            volatile=false)
 
 Store `val` to `ptr`. See [`load!`](@ref) for the meaning of the keyword arguments.
@@ -436,7 +525,7 @@ function store!(builder::IRBuilder, Val::Value, Ptr::Value;
 end
 
 """
-    fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering; scope=nothing)
+    fence!(builder::IRBuilder, ordering::LLVM.AtomicOrdering.T; scope=nothing)
 
 Create a fence with the given ordering, which must be `acquire`, `release`, `acq_rel` or
 `seq_cst`, in the given synchronization `scope` (see [`load!`](@ref)).
@@ -487,8 +576,8 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
 end
 
 """
-    atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, ptr::Value, val::Value,
-                ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing, volatile=false)
+    atomic_rmw!(builder::IRBuilder, op::LLVM.AtomicRMWBinOp.T, ptr::Value, val::Value,
+                ordering::LLVM.AtomicOrdering.T; scope=nothing, align=nothing, volatile=false)
 
 Atomically apply the operation `op` to the value at `ptr` and `val`, returning the old
 value. The operation must be supported by the version of LLVM in use (see
@@ -528,8 +617,8 @@ end
 
 """
     atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
-                    success::API.LLVMAtomicOrdering,
-                    failure::API.LLVMAtomicOrdering=strongest_failure_ordering(success);
+                    success::LLVM.AtomicOrdering.T,
+                    failure::LLVM.AtomicOrdering.T=strongest_failure_ordering(success);
                     scope=nothing, align=nothing, volatile=false, weak=false)
 
 Atomically compare the value at `ptr` with `cmp`, and if equal, replace it with `new`.

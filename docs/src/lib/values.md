@@ -8,6 +8,9 @@ isconstant(::Value)
 isundef
 ispoison
 isnull
+take_name!
+strip_pointer_casts
+strip_pointer_casts_and_aliases
 ```
 
 ## User values
@@ -33,6 +36,8 @@ ConstantStruct
 ConstantDataArray
 ConstantDataArray(::LLVMType, ::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
 ConstantDataArray(::AbstractVector)
+isstring
+String(::ConstantDataArray)
 ConstantDataVector
 ConstantArray
 ConstantArray(::LLVMType, ::AbstractArray{<:LLVM.Constant,N}) where {N}
@@ -41,6 +46,7 @@ collect(::ConstantArray)
 InlineAsm
 LLVM.ConstantExpr
 convert_users_to_instructions!
+remove_dead_constant_users!
 ```
 
 ## Global values

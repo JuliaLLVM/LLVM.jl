@@ -4,6 +4,7 @@
 
 ```@docs
 verify
+verification_error
 ```
 
 ## Dominator and post-dominator

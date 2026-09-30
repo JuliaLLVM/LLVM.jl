@@ -23,6 +23,11 @@ a range of general APIs that are common to all values:
 - `val.value_type`: the type of the value.
 - `val.name`: the name of the value, which can also be assigned to.
 - `context(val)`: the context in which the value was created.
+- `take_name!(val, from)`: give `val` the name of `from`, which becomes unnamed. Assigning
+  the name instead would make LLVM add a suffix, as `from` still uses it.
+- `strip_pointer_casts(val)`: the value behind any bitcasts, address space casts and
+  `getelementptr`s with all-zero indices, like C++'s `Value::stripPointerCasts`.
+  `strip_pointer_casts_and_aliases` also looks through global aliases.
 
 
 ## User values
@@ -245,7 +250,7 @@ couple of additional APIs:
 - `gv.linkage`, `gv.visibility`, `gv.section`, `gv.dllstorage`: the linkage, visibility,
   section and DLL storage class of the global value.
 - `gv.unnamed_addr`: whether the address of the global value is significant, e.g.,
-  `LLVM.API.LLVMGlobalUnnamedAddr` for an `unnamed_addr` global.
+  `LLVM.UnnamedAddr.Global` for an `unnamed_addr` global.
 - `isdeclaration(gv)`: whether the global value is a declaration, i.e., it does not have a
   body.
 
@@ -286,9 +291,9 @@ julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGV");
 julia> gv.threadlocal = true;
 
 julia> gv.threadlocal_mode
-LLVMGeneralDynamicTLSModel::LLVMThreadLocalMode = 0x00000001
+LLVM.ThreadLocalMode.GeneralDynamic
 
-julia> gv.threadlocal_mode = LLVM.API.LLVMLocalExecTLSModel;
+julia> gv.threadlocal_mode = LLVM.ThreadLocalMode.LocalExec;
 
 julia> gv
 @SomeGV = external thread_local(localexec) global i32
@@ -377,3 +382,13 @@ julia> replace_uses!(inst1, ConstantInt(Int64(42)))
 julia> inst2
 ret i64 42
 ```
+
+To only replace the uses of a value in a specific instruction, replace the matching
+operands of the instruction using `replace!(inst.operands, old => new)`.
+
+When only the users of a value are needed, use its `users` property, which returns the
+`user` of each use (so a user that uses the value multiple times occurs multiple times).
+After replacing or erasing the instructions that use a constant, constant expressions that
+used it may linger without being used themselves. These can be removed with
+`remove_dead_constant_users!(c)`, e.g., before checking whether a global variable is still
+used.

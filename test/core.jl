@@ -149,6 +149,14 @@ end
     arrtyp = LLVM.ArrayType(eltyp, 0)
     @test isempty(arrtyp)
 end
+if LLVM.version() >= v"17" && Sys.WORD_SIZE == 64
+    # arrays can have more than 2^32 elements
+    @dispose ctx=Context() begin
+        arrtyp = LLVM.ArrayType(LLVM.Int8Type(), 2^32 + 1)
+        @test length(arrtyp) == 2^32 + 1
+        @test string(arrtyp) == "[4294967297 x i8]"
+    end
+end
 @dispose ctx=Context() begin
     eltyp = LLVM.Int32Type()
 
@@ -320,6 +328,31 @@ end
 
     replace_uses!(valueinst1, valueinst2)
     @test [use.user for use in valueinst2.uses] == [userinst]
+
+    # the users of a value, once per use
+    @test eltype(valueinst2.users) == LLVM.User
+    @test collect(valueinst2.users) == [userinst]
+    twice = mul!(builder, userinst, userinst)
+    @test collect(userinst.users) == [twice, twice]
+end
+
+# removing dead constant users
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    ce = const_addrspacecast(gv, LLVM.PointerType(LLVM.Int32Type(), 1))
+    @test collect(gv.users) == [ce]
+    @test remove_dead_constant_users!(gv) == gv
+    @test isempty(gv.users)
+
+    # constants that are used are kept
+    ce = const_addrspacecast(gv, LLVM.PointerType(LLVM.Int32Type(), 1))
+    other = GlobalVariable(mod, ce.value_type, "other")
+    other.initializer = ce
+    remove_dead_constant_users!(gv)
+    @test collect(gv.users) == [ce]
+
+    # constant data does not track its users since LLVM 21, which is fine
+    remove_dead_constant_users!(ConstantInt(Int32(42)))
 end
 
 # users
@@ -616,6 +649,16 @@ end
         @test cda isa ConstantDataArray
         @test cda.value_type == LLVM.ArrayType(eltyp, 4)
         @test collect(cda) == ConstantInt.(vec)
+    end
+
+    # strings
+    let
+        str = ConstantDataArray(codeunits("hello\0"))
+        @test isstring(str)
+        @test String(str) == "hello\0"
+        @test !isstring(ConstantDataArray(Int32[1, 2]))
+        @test_throws ArgumentError String(ConstantDataArray(Int32[1, 2]))
+        @test !isstring(ConstantInt(Int8(1)))
     end
 
     # from Julia values
@@ -1570,6 +1613,8 @@ end
 
         @test !haskey(gvs, "SomeOtherGlobal")
         @test_throws KeyError gvs["SomeOtherGlobal"]
+        @test get(gvs, "SomeGlobal", nothing) == dummygv
+        @test get(gvs, "SomeOtherGlobal", nothing) === nothing
     end
 end
 
@@ -1633,6 +1678,8 @@ end
         @test iter[y.name] == y
         @test !haskey(iter, "z")
         @test_throws KeyError iter["z"]
+        @test get(iter, y.name, nothing) == y
+        @test get(iter, "z", nothing) === nothing
     end
 
     # aliases and ifuncs are not global variables or functions
@@ -1670,6 +1717,8 @@ end
 
         @test !haskey(fns, "SomeOtherFunction")
         @test_throws KeyError fns["SomeOtherFunction"]
+        @test get(fns, "SomeFunction", nothing) == dummyfn
+        @test get(fns, "SomeOtherFunction", nothing) === nothing
     end
 
     anotherfn = LLVM.Function(mod, "SomeOtherFunction", ft)
@@ -1679,6 +1728,85 @@ end
     @test dummyfn.next == anotherfn
     @test anotherfn.prev == dummyfn
     @test anotherfn.next === nothing
+end
+
+# copying the attributes of functions and global variables
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
+    src = LLVM.Function(mod, "src", ft)
+    src.linkage = LLVM.API.LLVMInternalLinkage
+    src.callconv = LLVM.API.LLVMFastCallConv
+    src.section = "foo"
+    src.gc = "bar"
+    push!(src.function_attributes, EnumAttribute(:nounwind))
+    push!(src.parameter_attributes[1], EnumAttribute(:noundef))
+
+    dest = LLVM.Function(mod, "dest", ft)
+    @test copy_attributes!(dest, src) === dest
+    @test dest.callconv == LLVM.API.LLVMFastCallConv
+    @test dest.section == "foo"
+    @test dest.gc == "bar"
+    @test haskey(dest.function_attributes, :nounwind)
+    @test haskey(dest.parameter_attributes[1], :noundef)
+    @test dest.linkage == LLVM.API.LLVMExternalLinkage
+    @test dest.name == "dest"
+
+    src = GlobalVariable(mod, LLVM.Int32Type(), "src_gv")
+    src.threadlocal = true
+    src.externally_initialized = true
+    src.alignment = 16
+    dest = GlobalVariable(mod, LLVM.Int32Type(), "dest_gv")
+    @test copy_attributes!(dest, src) === dest
+    @test dest.threadlocal
+    @test dest.externally_initialized
+    @test dest.alignment == 16
+end
+
+# looking up or declaring functions
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    other_ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
+
+    # the function is declared when it doesn't exist
+    calls = Ref(0)
+    f = get!(mod.functions, "f") do
+        calls[] += 1
+        f = LLVM.Function(mod, "f", ft)
+        push!(f.function_attributes, EnumAttribute(:noreturn))
+        f
+    end
+    @test f isa LLVM.Function
+    @test f.name == "f"
+    @test isdeclaration(f)
+    @test calls[] == 1
+    @test haskey(f.function_attributes, :noreturn)
+
+    # an existing function is returned as is, even if it has another type
+    @test get!(() -> error("should not be called"), mod.functions, "f") == f
+    @test get!(() -> LLVM.Function(mod, "f", other_ft), mod.functions, "f") == f
+    @test f.function_type == ft
+    @test collect(mod.functions) == [f]
+
+    # the function needs to be created in the module, with the requested name
+    @test_throws ArgumentError get!(() -> LLVM.Function(mod, "g", ft), mod.functions, "h")
+    @test_throws ArgumentError get!(() -> nothing, mod.functions, "h")
+
+    # the global values of a module share a namespace
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    @test_throws "already contains a global variable" get!(mod.functions, "gv") do
+        error("should not be called")
+    end
+    @test_throws "already contains a function" get!(mod.globals, "f") do
+        error("should not be called")
+    end
+
+    # the same works for global variables
+    @test get!(() -> error("should not be called"), mod.globals, "gv") == gv
+    counter = get!(mod.globals, "counter") do
+        GlobalVariable(mod, LLVM.Int64Type(), "counter")
+    end
+    @test counter isa GlobalVariable
+    @test mod.globals["counter"] == counter
 end
 
 # function ordering
@@ -1875,7 +2003,7 @@ end
     @test isintrinsic(intr_fn)
 
     intr = Intrinsic(intr_fn)
-    show(devnull, intr)
+    @test repr(intr) == "Intrinsic(\"llvm.trap\")"
 
     @test !isoverloaded(intr)
 
@@ -1903,7 +2031,7 @@ end
     @test isintrinsic(intr_fn)
 
     intr = Intrinsic(intr_fn)
-    show(devnull, intr)
+    @test repr(intr) == "Intrinsic(\"llvm.sin\")"
 
     @test isoverloaded(intr)
 
@@ -1924,6 +2052,27 @@ end
     @test intr == Intrinsic("llvm.sin")
 end
 
+# identifying intrinsics
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    trap = Intrinsic("llvm.trap")
+    @test_throws ArgumentError Intrinsic("llvm.nonexisting")
+
+    f = LLVM.Function(mod, trap)
+    @test f.intrinsic == trap
+    @test isintrinsic(f, trap)
+    @test !isintrinsic(f, Intrinsic("llvm.debugtrap"))
+
+    g = LLVM.Function(mod, "g", LLVM.FunctionType(LLVM.VoidType()))
+    @test g.intrinsic === nothing
+    @test !isintrinsic(g)
+    @test !isintrinsic(g, trap)
+    @test_throws ArgumentError Intrinsic(g)
+
+    # any value can be checked
+    @test !isintrinsic(ConstantInt(Int32(0)))
+    @test !isintrinsic(ConstantInt(Int32(0)), trap)
+end
+
 # function and instruction attributes
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=LLVM.IRBuilder() begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
@@ -1941,7 +2090,7 @@ end
         @test length(instr_attrs) == 0
 
         let attr = EnumAttribute("sspreq", 0)
-            @test attr.kind != 0
+            @test attr.kind == :sspreq
             @test attr.value == 0
             push!(attrs, attr)
             @test collect(attrs) == [attr]
@@ -1949,8 +2098,8 @@ end
             delete!(attrs, attr)
             @test length(attrs) == 0
         end
-        let instr_attr = EnumAttribute("sspreq", 0)
-            @test instr_attr.kind != 0
+        let instr_attr = EnumAttribute(:sspreq, 0)
+            @test instr_attr.kind == :sspreq
             @test instr_attr.value == 0
             push!(instr_attrs, instr_attr)
             @test collect(instr_attrs) == [instr_attr]
@@ -1979,7 +2128,7 @@ end
         end
 
         let attr = TypeAttribute("sret", LLVM.Int32Type())
-            @test attr.kind != 0
+            @test attr.kind == :sret
             @test attr.value ==  LLVM.Int32Type()
 
             push!(attrs, attr)
@@ -1988,8 +2137,8 @@ end
             delete!(attrs, attr)
             @test length(attrs) == 0
         end
-        let instr_attr = TypeAttribute("sret", LLVM.Int32Type())
-            @test instr_attr.kind != 0
+        let instr_attr = TypeAttribute(:sret, LLVM.Int32Type())
+            @test instr_attr.kind == :sret
             @test instr_attr.value ==  LLVM.Int32Type()
 
             push!(instr_attrs, instr_attr)
@@ -2002,7 +2151,7 @@ end
         if LLVM.version() >= v"19"
             let attr = ConstantRangeAttribute("range", 32, UInt64[0], UInt64[100])
                 @test attr isa ConstantRangeAttribute
-                @test attr.kind != 0
+                @test attr.kind == :range
                 push!(fn.return_attributes, attr)
                 collected = collect(fn.return_attributes)
                 @test any(a -> a isa ConstantRangeAttribute, collected)
@@ -2031,6 +2180,78 @@ end
     let attrs = instr.return_attributes
         @test eltype(attrs) == Attribute
         @test length(attrs) == 0
+    end
+end
+
+# attributes are looked up by kind: a Symbol for LLVM's kinds, a string for string attributes
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=LLVM.IRBuilder() begin
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(LLVM.Int8Type())])
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    caller = LLVM.Function(mod, "CallSomeFunction", ft)
+    position!(builder, LLVM.BasicBlock(caller, "top"))
+    instr = call!(builder, ft, fn, LLVM.Value[caller.parameters[1]])
+
+    @test_throws ArgumentError EnumAttribute(:nonexisting)
+    @test_throws ArgumentError TypeAttribute("nonexisting", LLVM.Int32Type())
+    # kinds need to be used with the right kind of attribute
+    @test_throws "use TypeAttribute" EnumAttribute(:sret)
+    @test_throws "use EnumAttribute" TypeAttribute(:nounwind, LLVM.Int32Type())
+    @test_throws "does not take a value" EnumAttribute(:nounwind, 1)
+    @test EnumAttribute(:align, 16).value == 16
+    if LLVM.version() < v"16"
+        @test_throws "requires a value" EnumAttribute(:align)
+    end
+    if LLVM.version() >= v"19"
+        @test_throws "use ConstantRangeAttribute" EnumAttribute(:range)
+        @test_throws "use EnumAttribute" ConstantRangeAttribute(:nounwind, 32, UInt64[0],
+                                                                UInt64[100])
+    end
+    @test EnumAttribute("nounwind") == EnumAttribute(:nounwind)
+    @test sprint(show, EnumAttribute(:nounwind)) == "EnumAttribute(:nounwind)"
+    @test sprint(show, EnumAttribute(:align, 16)) == "EnumAttribute(:align, 16)"
+    @test sprint(show, StringAttribute("foo")) == "StringAttribute(\"foo\")"
+    @test sprint(show, StringAttribute("foo", "bar")) == "StringAttribute(\"foo\", \"bar\")"
+
+    for (attrs, params) in ((fn.function_attributes, fn.parameter_attributes),
+                            (instr.function_attributes, instr.argument_attributes))
+        # an enum attribute and a string attribute with the same name are different
+        push!(attrs, EnumAttribute(:nounwind))
+        @test haskey(attrs, :nounwind)
+        @test !haskey(attrs, "nounwind")
+        push!(attrs, StringAttribute("nounwind", "foo"))
+        @test haskey(attrs, "nounwind")
+        @test attrs[:nounwind] == EnumAttribute(:nounwind)
+        @test attrs["nounwind"].value == "foo"
+
+        @test !haskey(attrs, :noinline)
+        @test !haskey(attrs, :nonexisting)
+        @test_throws KeyError attrs[:noinline]
+        @test_throws KeyError attrs["noinline"]
+        @test get(attrs, :noinline, nothing) === nothing
+        @test get(attrs, :nounwind, nothing) == EnumAttribute(:nounwind)
+
+        # attributes are indexed by their kind
+        for attr in attrs
+            @test attrs[attr.kind] == attr
+        end
+
+        # deleting by kind, which does nothing when the attribute is absent
+        @test delete!(attrs, :nounwind) === attrs
+        @test !haskey(attrs, :nounwind)
+        @test haskey(attrs, "nounwind")
+        delete!(attrs, "nounwind")
+        @test isempty(collect(attrs))
+        delete!(attrs, :noinline)
+        delete!(attrs, :nonexisting)
+        delete!(attrs, "nonexisting")
+
+        # attributes with a value
+        push!(params[1], EnumAttribute(:align, 16))
+        push!(params[1], TypeAttribute(:byval, LLVM.Int32Type()))
+        @test params[1][:align].value == 16
+        @test params[1][:byval].value == LLVM.Int32Type()
+        delete!(params[1], :byval)
+        @test [attr.kind for attr in params[1]] == [:align]
     end
 end
 
@@ -2541,6 +2762,13 @@ end
     @test_throws BoundsError args[3]
     @test_throws BoundsError args[3] = x
 
+    # the operands of instructions can be replaced, but not those of constants
+    call.operands[2] = x
+    @test replace!(call.operands, x => y) == call.operands
+    @test call.arguments == [y, y]
+    ce = const_inttoptr(ConstantInt(Int64(42)), LLVM.PointerType(LLVM.Int32Type()))
+    @test_throws ArgumentError ce.operands[1] = ConstantInt(Int64(0))
+
     # the successors of a terminator are a mutable view
     succs = br.successors
     @test succs == [exit]
@@ -2553,11 +2781,10 @@ end
     attrs = fn.function_attributes
     append!(attrs, [EnumAttribute("nounwind"), StringAttribute("foo", "bar")])
     @test length(attrs) == 2
-    @test Set(attr.kind for attr in attrs) ==
-          Set([EnumAttribute("nounwind").kind, "foo"])
+    @test Set(attr.kind for attr in attrs) == Set([:nounwind, "foo"])
     call_attrs = call.function_attributes
     append!(call_attrs, [EnumAttribute("nounwind")])
-    @test [attr.kind for attr in call_attrs] == [EnumAttribute("nounwind").kind]
+    @test [attr.kind for attr in call_attrs] == [:nounwind]
 end
 
 # the elements of a structure type are a read-only view

@@ -11,6 +11,12 @@
 
     @test_throws LLVMException verify(mod)
     @test_throws LLVMException verify(fn)
+
+    # the error contains the verifier's message
+    @test_throws "Function return type does not match operand type of return inst!" verify(mod)
+    @test_throws "Function return type does not match operand type of return inst!" verify(fn)
+    @test occursin("does not match", verification_error(mod))
+    @test occursin("does not match", verification_error(fn))
 end
 
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
@@ -22,8 +28,10 @@ end
 
     ret!(builder)
 
-    verify(mod)
-    verify(fn)
+    @test verify(mod) === nothing
+    @test verify(fn) === nothing
+    @test verification_error(mod) === nothing
+    @test verification_error(fn) === nothing
 end
 
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin

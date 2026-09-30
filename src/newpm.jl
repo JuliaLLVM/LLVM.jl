@@ -225,11 +225,11 @@ See also: [`register!`](@ref), [`add!`](@ref), [`run!`](@ref)
 """
 mutable struct NewPMPassBuilder <: AbstractPassManager
     opts::API.LLVMPassBuilderOptionsRef
-    exts::API.LLVMPassBuilderExtensionsRef
     passes::Vector{String}
     aa_passes::Vector{String}
     custom_passes::Vector{NewPMCustomPass}
     custom_tti::Union{AbstractTargetTransformInfo,Nothing}
+    registration_callbacks::Vector{Ptr{Cvoid}}
 end
 
 Base.string(pm::NewPMPassBuilder) = join(pm.passes, ",")
@@ -239,8 +239,7 @@ Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::NewPMPassBuilder)
 
 function NewPMPassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
-    exts = API.LLVMCreatePassBuilderExtensions()
-    obj = mark_alloc(NewPMPassBuilder(opts, exts, [], [], [], nothing))
+    obj = mark_alloc(NewPMPassBuilder(opts, [], [], [], nothing, []))
 
     for (name, value) in pairs(kwargs)
         if name == :verify_each
@@ -275,7 +274,6 @@ end
 
 function dispose(pb::NewPMPassBuilder)
     API.LLVMDisposePassBuilderOptions(pb.opts)
-    API.LLVMDisposePassBuilderExtensions(pb.exts)
     mark_dispose(pb)
 end
 
@@ -289,6 +287,32 @@ See also: [`NewPMModulePass`](@ref), [`NewPMFunctionPass`](@ref)
 """
 function register!(pb::NewPMPassBuilder, pass::NewPMCustomPass)
     push!(pb.custom_passes, pass)
+end
+
+@vocabulary Passes register_callbacks!
+
+"""
+    register_callbacks!(pb::NewPMPassBuilder, callback::Ptr{Cvoid})
+
+Register a native callback that is called with LLVM's C++ `PassBuilder` (as a `void *`)
+when the pass builder is used to run passes. This makes it possible to use passes that are
+implemented in C++, by calling the `PassBuilder`'s `register*Callback` methods, like pass
+plugins do. For example, for a library that provides a `registerCallbacks` function:
+
+```julia
+register_callbacks!(pb, cglobal((:registerCallbacks, libfoo)))
+```
+
+The callback needs to have the signature `void (*)(void *)`, and the library that provides
+it needs to be built against the same version of LLVM as the one that Julia uses, and remain
+loaded while the pass builder is used. Callbacks are called in the order they were
+registered, after LLVM.jl registers Julia's passes, and must not throw Julia exceptions. To
+implement a pass in Julia instead, use [`register!`](@ref).
+"""
+function register_callbacks!(pb::NewPMPassBuilder, callback::Ptr{Cvoid})
+    callback == C_NULL && throw(ArgumentError("Registration callback cannot be NULL"))
+    push!(pb.registration_callbacks, callback)
+    return pb
 end
 
 @vocabulary Passes target_transform_info!
@@ -322,7 +346,6 @@ end
 
 function target_transform_info!(pb::NewPMPassBuilder, ::Nothing)
     pb.custom_tti = nothing
-    API.LLVMPassBuilderExtensionsSetTTI(pb.exts, API.LLVMTTIOptionsRef(C_NULL))
     return pb
 end
 
@@ -344,10 +367,23 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
     #      or Julia's pass registration callback
     #@check API.LLVMRunPasses(mod, string(pb), tm, pb.opts)
 
+    # the extensions only live for the duration of this run, as they hold references to
+    # the state of the callbacks (which would be stale during a later run)
+    exts = API.LLVMCreatePassBuilderExtensions()
+    try
+        run_passes!(pb, exts, target, tm, pipeline, aa_pipeline)
+    finally
+        API.LLVMDisposePassBuilderExtensions(exts)
+    end
+end
+
+function run_passes!(pb::NewPMPassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
+                     target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
+                     pipeline::String, aa_pipeline::String)
     # Create state objects to hold callbacks and any caught exceptions
     states = [CustomPassState(pass.callback) for pass in pb.custom_passes]
     tti_state = pb.custom_tti === nothing ? nothing :
-                install_custom_tti!(pb.exts, pb.custom_tti)
+                install_custom_tti!(exts, pb.custom_tti)
     ctx = context(target)
     prepare_diagnostic(ctx)
     GC.@preserve states tti_state aa_pipeline begin
@@ -362,28 +398,40 @@ function run!(pb::NewPMPassBuilder, target::Union{Module,Function}, tm::Union{No
             else
                 throw(ArgumentError("invalid pass type $(pass.type)"))
             end
-            api(pb.exts, pass.name, cb, Ref(states, i))
+            api(exts, pass.name, cb, Ref(states, i))
         end
 
         # register Julia passes
         julia_callback = cglobal(:jl_register_passbuilder_callbacks)
-        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(pb.exts, julia_callback)
+        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+
+        # register native callbacks
+        for callback in pb.registration_callbacks
+            API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, callback)
+        end
 
         # register AA pipeline
         if !isempty(aa_pipeline)
             if version() >= v"20"
                 API.LLVMPassBuilderOptionsSetAAPipeline(pb.opts, aa_pipeline)
             else
-                API.LLVMPassBuilderExtensionsSetAAPipeline(pb.exts, aa_pipeline)
+                API.LLVMPassBuilderExtensionsSetAAPipeline(exts, aa_pipeline)
             end
         end
 
-        if target isa Module
-            @check API.LLVMRunJuliaPasses(target, pipeline, something(tm, C_NULL),
-                                          pb.opts, pb.exts)
-        elseif target isa Function
-            @check API.LLVMRunJuliaPassesOnFunction(target, pipeline, something(tm, C_NULL),
-                                                    pb.opts, pb.exts)
+        try
+            if target isa Module
+                @check API.LLVMRunJuliaPasses(target, pipeline, something(tm, C_NULL),
+                                              pb.opts, exts)
+            elseif target isa Function
+                @check API.LLVMRunJuliaPassesOnFunction(target, pipeline,
+                                                        something(tm, C_NULL), pb.opts, exts)
+            end
+        finally
+            # the options keep a pointer to the AA pipeline, which is only valid during the run
+            if !isempty(aa_pipeline) && version() >= v"20"
+                API.LLVMPassBuilderOptionsSetAAPipeline(pb.opts, C_NULL)
+            end
         end
 
         # Check for any exceptions caught in custom pass callbacks

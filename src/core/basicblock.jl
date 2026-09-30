@@ -23,7 +23,8 @@ a terminator.
 
 The instructions of the basic block, in order, as a read-only view that always reflects the
 current contents of the block. Use an `IRBuilder` to add instructions, and operations like
-`remove!` or `erase!` to remove them.
+`remove!` or `erase!` to remove them. While iterating over the view, it is safe to remove or
+erase the instruction that was just returned, but not other instructions.
 
     bb.predecessors
 

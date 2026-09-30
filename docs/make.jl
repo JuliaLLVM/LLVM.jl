@@ -32,6 +32,7 @@ function main()
             ],
             "API reference" => [
                 "lib/essentials.md",
+                "lib/enums.md",
                 "lib/types.md",
                 "lib/values.md",
                 "lib/modules.md",

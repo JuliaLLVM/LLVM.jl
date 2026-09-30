@@ -234,6 +234,29 @@ end
     end
 end
 
+@testset "registration callbacks" begin
+    # native callbacks are called with the PassBuilder, for every run
+    calls = @eval begin
+        const registration_calls = Ref(0)
+        function count_registration(pb::Ptr{Cvoid})
+            pb == C_NULL || (registration_calls[] += 1)
+            return
+        end
+        registration_calls
+    end
+    @dispose ctx=Context() mod=LLVM.Module("test") pb=NewPMPassBuilder() begin
+        callback = @eval @cfunction(count_registration, Cvoid, (Ptr{Cvoid},))
+        @test register_callbacks!(pb, callback) === pb
+        @test_throws ArgumentError register_callbacks!(pb, C_NULL)
+        add!(pb, NoOpModulePass())
+        calls[] = 0
+        run!(pb, mod)
+        @test calls[] == 1
+        run!(pb, mod)
+        @test calls[] == 2
+    end
+end
+
 @testset "custom TTI" begin
     # IR with an `addrspacecast` from AS 2 to the generic AS. With no TTI
     # attached, `InferAddressSpacesPass` has no flat AS to infer against and
@@ -442,6 +465,28 @@ end
 
             @test_throws LLVM.PassException run!(pb, mod)
             @test success_count == 1
+        end
+    end
+
+    # a pass builder can be run multiple times, with the callbacks of each run using
+    # their own state (they used to refer to the state of the first run)
+    @dispose ctx=Context() mod=LLVM.Module("test") begin
+        runs = Ref(0)
+        function counting_pass!(mod)
+            runs[] += 1
+            runs[] == 3 && error("third run")
+            return false
+        end
+
+        @dispose pb=NewPMPassBuilder() begin
+            register!(pb, NewPMModulePass("counting-pass", counting_pass!))
+            add!(pb, "counting-pass")
+            run!(pb, mod)
+            GC.gc(true)
+            run!(pb, mod)
+            @test runs[] == 2
+            @test_throws LLVM.PassException run!(pb, mod)
+            @test runs[] == 3
         end
     end
 

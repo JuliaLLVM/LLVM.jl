@@ -25,6 +25,13 @@ functionality from `User` and `Value`:
 - `remove!`/`erase!`: delete the instruction from its parent basic block, or additionally
   also delete the instruction itself.
 - `copy(inst)`: clone an instruction
+- `move_before(inst, pos)`/`move_after(inst, pos)`: move the instruction before or after
+  another one, which can be in a different basic block.
+- `comes_before(a, b)`: check whether an instruction comes before another one in the same
+  basic block.
+- `may_read_from_memory`, `may_write_to_memory` and `may_have_side_effects`: LLVM's
+  conservative checks of what an instruction may do, e.g., to decide whether it can be
+  removed or moved.
 
 
 ## Creating instructions
@@ -50,6 +57,8 @@ To position an `IRBuilder`, several APIs are available:
 
 - `position`: get the basic block where the builder is currently positioned.
 - `position!(builder, ::Instruction)`: position the builder before an instruction.
+- `position!(builder, ::Instruction; after=true)`: position the builder after an
+  instruction, which is at the end of its basic block if it is the last instruction.
 - `position!(builder, ::BasicBlock)`: position the builder at the end of a basic block.
 - `position!(builder)`: clear the position of the builder.
 
@@ -75,6 +84,27 @@ entry:
 For a full list of functions that can be used to create instructions, consult the API
 reference.
 
+Most of these functions correspond to a function of the C API, e.g., `add!` builds an
+`add` instruction using `LLVMBuildAdd`. Some also support functionality that C++'s
+`IRBuilder` offers, like accessing nested elements of an aggregate using a vector of
+(zero-based) indices, as in textual IR:
+
+```jldoctest
+julia> typ = LLVM.StructType([LLVM.Int32Type(), LLVM.ArrayType(LLVM.Int8Type(), 4)]);
+
+julia> f = LLVM.Function(mod, "extract", LLVM.FunctionType(LLVM.Int8Type(), [typ]));
+
+julia> builder = IRBuilder();
+
+julia> position!(builder, BasicBlock(f, "entry"))
+
+julia> ev = extract_value!(builder, f.parameters[1], [1, 2])
+%1 = extractvalue { i32, [4 x i8] } %0, 1, 2
+
+julia> ev.indices == [1, 2]
+true
+```
+
 ### Attributes
 
 ```@meta
@@ -86,10 +116,10 @@ DocTestSetup = quote
     end
 
     mod = LLVM.Module("SomeModule")
-    fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
-    push!(fun.function_attributes, StringAttribute("nounwind"))
-    push!(fun.parameter_attributes[1], StringAttribute("nocapture"))
-    push!(fun.return_attributes, StringAttribute("sret"))
+    fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))
+    push!(fun.function_attributes, EnumAttribute(:nounwind))
+    push!(fun.parameter_attributes[1], EnumAttribute(:noundef))
+    push!(fun.return_attributes, EnumAttribute(:noundef))
     caller = LLVM.Function(mod, "CallSomeFunction", fun.function_type)
     top = BasicBlock(caller, "top")
     builder = LLVM.IRBuilder();
@@ -105,25 +135,31 @@ arguments and its return value:
 ```jldoctest function
 julia> instr = call!(builder, fun.function_type, fun, LLVM.Value[ fun.parameters... ]);
 
-julia> push!(instr.function_attributes, StringAttribute("nounwind"));
+julia> push!(instr.function_attributes, EnumAttribute(:nounwind));
 
-julia> push!(instr.argument_attributes[1], StringAttribute("nocapture"));
+julia> push!(instr.argument_attributes[1], EnumAttribute(:noundef));
 
-julia> push!(instr.return_attributes, StringAttribute("sret"));
+julia> push!(instr.return_attributes, EnumAttribute(:noundef));
 
 julia> mod
 ; ModuleID = 'SomeModule'
 source_filename = "SomeModule"
 
-declare "sret" void @SomeFunction(i32 "nocapture") #0
+; Function Attrs: nounwind
+declare noundef i32 @SomeFunction(i32 noundef) #0
 
-define void @CallSomeFunction(i32 %0) {
+define i32 @CallSomeFunction(i32 %0) {
 top:
-  call "sret" void @SomeFunction(i32 "nocapture" %0) #0
+  %1 = call noundef i32 @SomeFunction(i32 noundef %0) #0
 }
 
-attributes #0 = { "nounwind" }
+attributes #0 = { nounwind }
 ```
+
+Like the attributes of functions, these views can be indexed by the kind of an attribute
+(e.g., `haskey(instr.function_attributes, :nounwind)`), and attributes can be removed using
+`delete!`. They only contain the attributes of the call site, not those of the called
+function.
 
 ### Debug location
 
@@ -170,6 +206,33 @@ julia> Int(slot.alignment)
 Memory accesses can also be marked volatile, using the `inst.volatile` property or the
 `volatile` keyword argument when building the instruction.
 
+The operands of memory instructions are available as properties too, so that code that
+inspects or rewrites them doesn't need to know their position in `inst.operands`:
+
+- `inst.pointer_operand`: the address that a load, store, `atomicrmw` or `cmpxchg`
+  instruction accesses, or that a `getelementptr` instruction indexes into.
+- `inst.value_operand`: the value that a store or `atomicrmw` instruction writes.
+- `alloca.allocated_type`: the type that an `alloca` instruction allocates.
+- `gep.source_element_type`: the type that a `getelementptr` instruction indexes into.
+- `gep.inbounds`: whether a `getelementptr` instruction is `inbounds`, which can also be
+  assigned to.
+
+```jldoctest
+julia> slot = alloca!(builder, LLVM.Int64Type());
+
+julia> store = store!(builder, ConstantInt(Int64(1)), slot)
+store i64 1, ptr %0, align 4
+
+julia> store.pointer_operand == slot
+true
+
+julia> store.value_operand
+i64 1
+
+julia> slot.allocated_type
+i64
+```
+
 
 ## Atomic instructions
 
@@ -196,10 +259,18 @@ types support a few additional APIs:
 - `call.tailcall`: whether a `call` instruction is a tail call, i.e., is marked `tail` or
   `musttail`.
 - `call.tailcall_kind`: the tail call marker of a `call` instruction, e.g.,
-  `LLVM.API.LLVMTailCallKindMustTail`.
+  `LLVM.TailCallKind.MustTail`.
 - `call.called_type`: the function type of the called value of the call site.
-- `call.called_operand`: the called value of the call site.
+- `call.called_operand`: the called value of the call site, which can be any value (e.g.,
+  a function pointer). Assigning to it replaces the callee, but keeps the function type,
+  arguments and attributes of the call.
+- `call.called_function`: the function that is called directly, or `nothing` (e.g., for
+  calls of a function pointer). Like C++'s `CallBase::getCalledFunction`, this does not
+  look through casts.
 - `call.arguments`: the arguments of the call site, as a mutable view.
+
+To check whether a call calls a specific intrinsic, pass its callee to `isintrinsic`, e.g.,
+`isintrinsic(call.called_operand, Intrinsic("llvm.memcpy"))`.
 
 ### Operand bundles
 
@@ -238,9 +309,11 @@ If the terminator is a branch, it's possible to check if the branch is condition
 `isconditional` function, and get or set the condition using the `condition` property.
 
 If the terminator is a switch, it's possible to get the default destination using the
-`default_dest` property, and to get or set the value of each case using the `case_values`
-property, a mutable view (`switch.case_values[i]` is the value of the case that branches to
-`switch.successors[i+1]`).
+`default_dest` property, and to inspect and change its cases using the `cases` property, a
+mutable view of `(value, block)` tuples: `push!(switch.cases, (ConstantInt(Int32(1)), bb))`
+adds a case, and `switch.cases[i] = (val, bb)` replaces one. To only change the value of a
+case, use the `case_values` property, a mutable view of the values (`switch.case_values[i]`
+is the value of the case that branches to `switch.successors[i+1]`).
 
 
 ## Phi nodes

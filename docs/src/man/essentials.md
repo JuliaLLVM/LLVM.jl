@@ -175,6 +175,14 @@ julia> mod
 [94707] signal (11.2): Segmentation fault: 11
 ```
 
+Most LLVM.jl objects, like modules, values, types and metadata, are lightweight wrappers
+around a pointer to the LLVM object. Wrappers of the same object are equal (both `==` and
+`===`) and have the same hash, so they can be compared, and used as keys of a `Dict` or as
+elements of a `Set`, without converting them to a pointer. This is object identity: two
+instructions that compute the same thing are different objects, while changing an object
+does not change its identity. Wrappers do not keep the object alive, so they become invalid
+when the object is disposed of or erased.
+
 ### Scoped disposal
 
 For convenience, many of these objects can be created and disposed using do-block variants
@@ -294,10 +302,10 @@ julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "counter");
 
 julia> gv.initializer = ConstantInt(Int32(0));
 
-julia> gv.linkage = LLVM.API.LLVMInternalLinkage;
+julia> gv.linkage = LLVM.Linkage.Internal;
 
 julia> gv.name, gv.linkage
-("counter", LLVM.API.LLVMInternalLinkage)
+("counter", LLVM.Linkage.Internal)
 
 julia> gv
 @counter = internal global i32 0
@@ -384,6 +392,25 @@ though LLVM stores their elements in a linked list, which makes indexing linear 
 position of the element; iterate the view instead of indexing it in a loop. To get a copy
 that doesn't change along with the IR, use `collect`.
 
+Because views reflect changes to the IR, changing a collection while iterating over it
+requires care. The views of linked lists, like the instructions of a block, the blocks of a
+function, or the functions and global variables of a module, look up the next element
+before returning the current one, so it is safe to remove or erase the element that was
+just returned (and only that element):
+
+```julia
+for inst in bb.instructions
+    if inst isa LLVM.CallInst && inst.called_function == f
+        erase!(inst)
+    end
+end
+```
+
+Similarly, the use that was just returned when iterating over the `uses` of a value can be
+replaced, or its user erased, as long as that doesn't also remove the next use (e.g., when
+the user uses the value multiple times). In other cases, `collect` the view first, and
+iterate over the copy.
+
 ### Views of richer state
 
 Some state is richer than a single value, like the fast-math flags of an instruction or the
@@ -408,3 +435,33 @@ do flags like `GV->isThreadLocal()`/`GV->setThreadLocal(true)`, which become
 `I->operands()` become `mod.functions` and `inst.operands`, navigation like
 `I->getNextNode()` becomes `inst.next`, and iteration like `for (auto &I : BB)` becomes
 `for inst in bb.instructions`.
+
+
+## Enumerations
+
+LLVM's C API defines enumerations for things like the linkage of a global value, the
+predicate of a comparison, or the opcode of an instruction. LLVM.jl uses these values
+directly, as returned by properties like `gv.linkage` or taken by functions like `icmp!`.
+They are available as `LLVM.API.LLVMInternalLinkage`, but also with a shorter name, in a
+module per enumeration:
+
+```jldoctest
+julia> LLVM.Linkage.Internal
+LLVM.Linkage.Internal
+
+julia> LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage
+true
+
+julia> LLVM.IntPredicate.EQ, LLVM.Opcode.BitCast, LLVM.AtomicOrdering.Acquire
+(LLVM.IntPredicate.EQ, LLVM.Opcode.BitCast, LLVM.AtomicOrdering.Acquire)
+```
+
+These names are those of the C API, without their common prefix and suffix. The modules
+contain the values that `LLVM.API` defines for the current version of LLVM (including
+values that LLVM.jl backfills, like newer `atomicrmw` operations, whose availability can be
+checked with `LLVM.isavailable`), and `T`, their type (e.g., `LLVM.Linkage.T ===
+LLVM.API.LLVMLinkage`), to use in type annotations or with functions like
+`parse(LLVM.AtomicOrdering.T, "acquire")`. The modules are public, but not
+part of any vocabulary, so they are always qualified by default. To use them unqualified,
+import them explicitly: `using LLVM: Linkage, IntPredicate`.
+

@@ -16,6 +16,8 @@ LLVM.targets
 LLVM.TargetMachine
 dispose(::LLVM.TargetMachine)
 LLVM.default_triple
+LLVM.host_cpu_name
+LLVM.host_cpu_features
 LLVM.normalize(::String)
 LLVM.asm_verbosity!
 emit

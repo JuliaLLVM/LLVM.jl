@@ -34,6 +34,12 @@ The context in which the value was created.
 The uses of the value, as a read-only view that can be iterated. Each [`LLVM.Use`](@ref)
 refers to the `user` that has the value as an operand. Since LLVM 21, constants like
 integers do not keep track of their uses, so their `uses` are always empty.
+
+    val.users
+
+The users of the value, i.e., the `user` of each of its `uses`, as a read-only view that
+can be iterated. Like C++'s `Value::users()`, a user that uses the value multiple times
+(e.g., `add %x, %x`) occurs multiple times.
 """
 abstract type Value end
 @properties Value
@@ -104,6 +110,35 @@ name!(val::Value, name::String) = API.LLVMSetValueName(val, name)
 
 @property Value value_type
 @property Value name name!
+
+@vocabulary IR take_name!, strip_pointer_casts, strip_pointer_casts_and_aliases
+
+"""
+    take_name!(val::Value, from::Value)
+
+Give `val` the name of `from`, which becomes unnamed. Unlike assigning the name, this avoids
+LLVM making the name unique (by adding a suffix) because `from` still uses it.
+"""
+take_name!(val::Value, from::Value) = (API.LLVMExtraTakeName(val, from); val)
+
+"""
+    strip_pointer_casts(val::Value)
+
+Strip pointer casts from a value, like C++'s `Value::stripPointerCasts`: bitcasts, address
+space casts, and `getelementptr` instructions or constant expressions with all-zero
+indices. Returns the underlying value, or `val` itself if it isn't a cast. This does not
+look through global aliases; see [`strip_pointer_casts_and_aliases`](@ref) for that.
+"""
+strip_pointer_casts(val::Value) = Value(API.LLVMExtraStripPointerCasts(val))
+
+"""
+    strip_pointer_casts_and_aliases(val::Value)
+
+Strip pointer casts from a value, like [`strip_pointer_casts`](@ref), and also look through
+global aliases to the value they alias.
+"""
+strip_pointer_casts_and_aliases(val::Value) =
+    Value(API.LLVMExtraStripPointerCastsAndAliases(val))
 
 Base.string(val::Value) = unsafe_message(API.LLVMPrintValueToString(val))
 
@@ -260,3 +295,20 @@ first_use(val::Value) = API.LLVMGetFirstUse(val)
 end
 
 Base.IteratorSize(::Type{ValueUseSet}) = Base.SizeUnknown()
+
+struct ValueUserSet
+    val::Value
+end
+
+users(val::Value) = ValueUserSet(val)
+
+@property Value users
+
+Base.eltype(::ValueUserSet) = User
+
+@inline function Base.iterate(iter::ValueUserSet, state=first_use(iter.val))
+    state == C_NULL ? nothing : (Value(API.LLVMGetUser(state))::User,
+                                 API.LLVMGetNextUse(state))
+end
+
+Base.IteratorSize(::Type{ValueUserSet}) = Base.SizeUnknown()

@@ -557,5 +557,48 @@ LLVMMetadataRef LLVMDbgVariableRecordGetExpression(LLVMDbgRecordRef Rec);
 unsigned LLVMExtraDbgVariableRecordGetNumValues(LLVMDbgRecordRef Rec);
 #endif
 
+// the name of an attribute kind, as used in textual IR, or NULL for an invalid kind
+const char *LLVMExtraGetAttributeKindName(unsigned KindID, size_t *Len);
+
+// the category of an attribute kind, which determines the attributes it can be used for
+LLVMBool LLVMExtraIsEnumAttributeKind(unsigned KindID);
+LLVMBool LLVMExtraIsIntAttributeKind(unsigned KindID);
+LLVMBool LLVMExtraIsTypeAttributeKind(unsigned KindID);
+#if LLVM_VERSION_MAJOR >= 19
+LLVMBool LLVMExtraIsConstantRangeAttributeKind(unsigned KindID);
+#endif
+
+// extractvalue and insertvalue with a path of indices
+LLVMValueRef LLVMExtraBuildExtractValue(LLVMBuilderRef B, LLVMValueRef AggVal,
+                                        const unsigned *Idxs, unsigned NumIdxs,
+                                        const char *Name);
+LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
+                                       LLVMValueRef EltVal, const unsigned *Idxs,
+                                       unsigned NumIdxs, const char *Name);
+
+// instructions
+void LLVMExtraMoveInstructionBefore(LLVMValueRef Inst, LLVMValueRef MovePos);
+void LLVMExtraMoveInstructionAfter(LLVMValueRef Inst, LLVMValueRef MovePos);
+LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other);
+LLVMBool LLVMExtraMayReadFromMemory(LLVMValueRef Inst);
+LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst);
+LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst);
+
+// values
+void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);
+LLVMValueRef LLVMExtraStripPointerCasts(LLVMValueRef Val);
+LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val);
+unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
+
+// functions and global variables
+void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src);
+
+// constants
+void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
+
+// verify a function, returning true and the verifier's message (to be disposed of using
+// LLVMDisposeMessage) if it is broken
+LLVMBool LLVMExtraVerifyFunction(LLVMValueRef Fn, char **OutMessage);
+
 LLVM_C_EXTERN_C_END
 #endif

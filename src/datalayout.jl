@@ -15,7 +15,7 @@ required to generate the right target data for the target being codegen'd to.
 
     dl.byteorder
 
-The byte order of the data layout, `LLVM.API.LLVMBigEndian` or `LLVM.API.LLVMLittleEndian`.
+The byte order of the data layout, `LLVM.ByteOrdering.Big` or `LLVM.ByteOrdering.Little`.
 
     dl.globals_addrspace
 

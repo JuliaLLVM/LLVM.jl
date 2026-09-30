@@ -698,3 +698,79 @@ function LLVMExtraConstFPGetBits(ConstantVal, N)
     ccall((:LLVMExtraConstFPGetBits, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
 end
 
+
+function LLVMExtraGetAttributeKindName(KindID, Len)
+    ccall((:LLVMExtraGetAttributeKindName, libLLVMExtra), Cstring, (Cuint, Ptr{Csize_t}), KindID, Len)
+end
+
+function LLVMExtraIsEnumAttributeKind(KindID)
+    ccall((:LLVMExtraIsEnumAttributeKind, libLLVMExtra), LLVMBool, (Cuint,), KindID)
+end
+
+function LLVMExtraIsIntAttributeKind(KindID)
+    ccall((:LLVMExtraIsIntAttributeKind, libLLVMExtra), LLVMBool, (Cuint,), KindID)
+end
+
+function LLVMExtraIsTypeAttributeKind(KindID)
+    ccall((:LLVMExtraIsTypeAttributeKind, libLLVMExtra), LLVMBool, (Cuint,), KindID)
+end
+
+function LLVMExtraBuildExtractValue(B, AggVal, Idxs, NumIdxs, Name)
+    ccall((:LLVMExtraBuildExtractValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, Idxs, NumIdxs, Name)
+end
+
+function LLVMExtraBuildInsertValue(B, AggVal, EltVal, Idxs, NumIdxs, Name)
+    ccall((:LLVMExtraBuildInsertValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, EltVal, Idxs, NumIdxs, Name)
+end
+
+function LLVMExtraMoveInstructionBefore(Inst, MovePos)
+    ccall((:LLVMExtraMoveInstructionBefore, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Inst, MovePos)
+end
+
+function LLVMExtraMoveInstructionAfter(Inst, MovePos)
+    ccall((:LLVMExtraMoveInstructionAfter, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Inst, MovePos)
+end
+
+function LLVMExtraInstructionComesBefore(Inst, Other)
+    ccall((:LLVMExtraInstructionComesBefore, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef), Inst, Other)
+end
+
+function LLVMExtraMayReadFromMemory(Inst)
+    ccall((:LLVMExtraMayReadFromMemory, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraMayWriteToMemory(Inst)
+    ccall((:LLVMExtraMayWriteToMemory, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraMayHaveSideEffects(Inst)
+    ccall((:LLVMExtraMayHaveSideEffects, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraTakeName(Val, From)
+    ccall((:LLVMExtraTakeName, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Val, From)
+end
+
+function LLVMExtraStripPointerCasts(Val)
+    ccall((:LLVMExtraStripPointerCasts, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
+end
+
+function LLVMExtraStripPointerCastsAndAliases(Val)
+    ccall((:LLVMExtraStripPointerCastsAndAliases, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
+end
+
+function LLVMExtraGetArgNo(Arg)
+    ccall((:LLVMExtraGetArgNo, libLLVMExtra), Cuint, (LLVMValueRef,), Arg)
+end
+
+function LLVMExtraCopyAttributesFrom(Dst, Src)
+    ccall((:LLVMExtraCopyAttributesFrom, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Dst, Src)
+end
+
+function LLVMExtraRemoveDeadConstantUsers(C)
+    ccall((:LLVMExtraRemoveDeadConstantUsers, libLLVMExtra), Cvoid, (LLVMValueRef,), C)
+end
+
+function LLVMExtraVerifyFunction(Fn, OutMessage)
+    ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
+end

@@ -1,31 +1,44 @@
 ## module and function verification
 
-@vocabulary IR verify
+@vocabulary IR verify, verification_error
 
 """
     verify(mod::Module)
     verify(f::Function)
 
-Verify the module or function `mod` or `f`. If verification fails, an exception is thrown.
+Verify the module or function `mod` or `f`. If verification fails, an `LLVMException` is
+thrown with the verifier's message. See [`verification_error`](@ref) for a variant that
+does not throw.
 """
-verify(::Union{Module, Function})
-
-function verify(mod::Module)
-    out_error = Ref{Cstring}()
-    status = API.LLVMVerifyModule(mod, API.LLVMReturnStatusAction, out_error) |> Bool
-
-    if status
-        error = unsafe_message(out_error[])
-        throw(LLVMException(error))
-    end
+function verify(x::Union{Module, Function})
+    msg = verification_error(x)
+    msg === nothing || throw(LLVMException(msg))
+    return
 end
 
-function verify(f::Function)
-    status = API.LLVMVerifyFunction(f, API.LLVMReturnStatusAction) |> Bool
+"""
+    verification_error(mod::Module)
+    verification_error(f::Function)
 
-    if status
-        throw(LLVMException("broken function"))
-    end
+Verify the module or function `mod` or `f`, returning the verifier's message if it is
+broken, or `nothing` if it is valid. This is useful to report errors with more context:
+
+```julia
+msg = verification_error(f)
+msg === nothing || error("Generated invalid code for \$name:\n\$msg\n\$(string(f))")
+```
+"""
+function verification_error(mod::Module)
+    out_error = Ref{Cstring}()
+    status = API.LLVMVerifyModule(mod, API.LLVMReturnStatusAction, out_error) |> Bool
+    msg = unsafe_message(out_error[])
+    return status ? msg : nothing
+end
+
+function verification_error(f::Function)
+    out_error = Ref{Cstring}()
+    status = API.LLVMExtraVerifyFunction(f, out_error) |> Bool
+    return status ? unsafe_message(out_error[]) : nothing
 end
 
 

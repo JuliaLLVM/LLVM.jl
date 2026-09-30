@@ -401,7 +401,11 @@ Create an array type with `count` elements of type `eltyp`.
 See also: [`length`](@ref), [`isempty`](@ref).
 """
 function ArrayType(eltyp::LLVMType, count)
-    return ArrayType(API.LLVMArrayType(eltyp, count))
+    @static if version() >= v"17"
+        return ArrayType(API.LLVMArrayType2(eltyp, count))
+    else
+        return ArrayType(API.LLVMArrayType(eltyp, count))
+    end
 end
 
 """
@@ -409,7 +413,13 @@ end
 
 Get the length of the given array type.
 """
-Base.length(arrtyp::ArrayType) = Int(API.LLVMGetArrayLength(arrtyp))
+function Base.length(arrtyp::ArrayType)
+    @static if version() >= v"17"
+        Int(API.LLVMGetArrayLength2(arrtyp))
+    else
+        Int(API.LLVMGetArrayLength(arrtyp))
+    end
+end
 
 """
     isempty(arrtyp::LLVM.ArrayType)

@@ -133,6 +133,25 @@ Removed functionality:
   and `get_requested_symbols`. `string(::MDString)` now returns the textual form of the
   metadata, like for other metadata; use `convert(String, md)` for the string's contents.
 
+Pass managers:
+
+- The legacy pass manager has been removed: `ModulePassManager()` and
+  `FunctionPassManager(mod)` from the legacy API, legacy custom passes, `PassManagerBuilder`
+  and the legacy transform functions (`instruction_combining!`, ..., which only existed
+  before LLVM 17), the legacy Julia passes in `LLVM.Interop` (`alloc_opt!`, ...),
+  `add_transform_info!`, `add_library_info!` and `LLVM.has_oldpm()`. LLVM deprecated the
+  legacy pass manager, and LLVM.jl's interface to the new one works on every supported
+  version of LLVM, including custom passes written in Julia.
+- The new pass manager's types lost their `NewPM` prefix: `PassBuilder`, `PassManager`,
+  `ModulePassManager()`, `CGSCCPassManager()`, `FunctionPassManager()`,
+  `LoopPassManager()`, `AAManager()`, custom passes created with `ModulePass(name, f)` and
+  `FunctionPass(name, f)` (of type `CustomPass`), and the `DebugifyPass` and
+  `CheckDebugifyPass` constructors.
+- `add!` and `register!` return the pass builder or pass manager, including when adding a
+  nested pass manager using a do-block, instead of internal state.
+- `ExpandReductionsPass()` (`expand-reductions`) is available on every supported version of
+  LLVM; LLVM itself only registers it with the new pass manager since LLVM 21.
+
 Enumerations:
 
 - The enums of the C API, which LLVM.jl uses for enum-valued state, are available using
@@ -203,7 +222,7 @@ New functionality:
 - `verify(f)` reports the verifier's message instead of "broken function", and
   `verification_error` returns the message (or `nothing`) instead of throwing.
 - `register_callbacks!(pb, callback)` registers a native pass builder callback, like the
-  ones of pass plugins, to use passes implemented in C++ with a `NewPMPassBuilder`.
+  ones of pass plugins, to use passes implemented in C++ with a `PassBuilder`.
 - `LLVM.host_cpu_name()` and `LLVM.host_cpu_features()` return the name and features of
   the host CPU, e.g., to create a `TargetMachine` for it.
 - It is documented that the element that was just returned by iterating the views of the
@@ -212,7 +231,7 @@ New functionality:
 
 Bug fixes:
 
-- Running a `NewPMPassBuilder` with custom passes multiple times no longer uses the
+- Running a `PassBuilder` with custom passes multiple times no longer uses the
   callbacks, and garbage-collected state, of the first run.
 - Array types with 2^32 or more elements can be created, and their `length` is correct
   (on LLVM 17 and later), instead of being truncated to 32 bits.
@@ -232,7 +251,7 @@ Bug fixes:
   operand lists that don't fit the C API's buffer are reported instead of truncated.
 - `replace_metadata_uses!` replaces by values of another type directly on LLVM 18+, and no
   longer loops forever on older versions when the new value isn't a global value.
-- `NewPMPassBuilder` no longer leaks its options when given an invalid keyword argument.
+- `PassBuilder` no longer leaks its options when given an invalid keyword argument.
 - `unsafe_store!` on `Core.LLVMPtr` returns the pointer, like Base.
 
 Other changes:

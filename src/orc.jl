@@ -2,7 +2,7 @@
 @vocabulary ORC TargetMachineBuilder, target_machine_builder!, linking_layer_creator!
 @vocabulary ORC mangle, lookup, intern
 @vocabulary ORC ObjectLinkingLayer, register!
-@vocabulary ORC LLVMSymbol, retain, release, symbol_flags, define!, absolute_symbols
+@vocabulary ORC LLVMSymbol, retain, release, SymbolFlags, define!, absolute_symbols
 @vocabulary ORC DefinitionGenerator, DynamicLibrarySearchGenerator
 @vocabulary ORC CustomDefinitionGenerator, check_callback_error!
 @vocabulary ORC lookup_dylib, ResourceTracker, transfer!
@@ -294,22 +294,66 @@ end
 ## symbol flags
 
 """
-    symbol_flags(; exported=true, callable=false, weak=false,
-                      materialization_side_effects_only=false, target_flags=0)
+    SymbolFlags(; exported=true, callable=false, weak=false,
+                materialization_side_effects_only=false, target_flags=0)
 
-Create the flags of a JIT symbol definition, as used by [`absolute_symbols`](@ref),
-[`CustomMaterializationUnit`](@ref) and [`lazy_reexports`](@ref).
+The flags of a JIT symbol definition, as used by [`absolute_symbols`](@ref),
+[`CustomMaterializationUnit`](@ref) and [`lazy_reexports`](@ref): whether the symbol is
+`exported` from its JITDylib, whether it is `callable` (a function), whether it is `weak`
+(and can be overridden by another definition), and whether it only stands for the side
+effects of materializing it, without an address. `target_flags` are specific to the target
+(e.g., whether an ARM function uses the Thumb instruction set), and must fit in a byte.
 """
-function symbol_flags(; exported::Bool=true, callable::Bool=false, weak::Bool=false,
-                      materialization_side_effects_only::Bool=false,
-                      target_flags::Integer=0)
-    flags = UInt8(0)
-    exported && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsExported))
-    weak && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsWeak))
-    callable && (flags |= UInt8(API.LLVMJITSymbolGenericFlagsCallable))
-    materialization_side_effects_only &&
-        (flags |= UInt8(API.LLVMJITSymbolGenericFlagsMaterializationSideEffectsOnly))
-    return API.LLVMJITSymbolFlags(flags, target_flags)
+struct SymbolFlags
+    exported::Bool
+    callable::Bool
+    weak::Bool
+    materialization_side_effects_only::Bool
+    target_flags::UInt8
+end
+
+function SymbolFlags(; exported::Bool=true, callable::Bool=false, weak::Bool=false,
+                     materialization_side_effects_only::Bool=false,
+                     target_flags::Integer=0)
+    0 <= target_flags <= typemax(UInt8) ||
+        throw(ArgumentError("target_flags must be between 0 and 255, got $target_flags"))
+    SymbolFlags(exported, callable, weak, materialization_side_effects_only,
+                UInt8(target_flags))
+end
+
+function Base.show(io::IO, flags::SymbolFlags)
+    default = SymbolFlags()
+    kwargs = String[]
+    for field in fieldnames(SymbolFlags)
+        val = getfield(flags, field)
+        val == getfield(default, field) && continue
+        push!(kwargs, "$field=$(val isa Bool ? val : Int(val))")
+    end
+    print(io, "SymbolFlags(", join(kwargs, ", "), ")")
+end
+
+function Base.convert(::Type{API.LLVMJITSymbolFlags}, flags::SymbolFlags)
+    generic = UInt8(0)
+    flags.exported && (generic |= UInt8(API.LLVMJITSymbolGenericFlagsExported))
+    flags.weak && (generic |= UInt8(API.LLVMJITSymbolGenericFlagsWeak))
+    flags.callable && (generic |= UInt8(API.LLVMJITSymbolGenericFlagsCallable))
+    flags.materialization_side_effects_only &&
+        (generic |= UInt8(API.LLVMJITSymbolGenericFlagsMaterializationSideEffectsOnly))
+    return API.LLVMJITSymbolFlags(generic, flags.target_flags)
+end
+
+check_symbol_flags(flags::SymbolFlags) = flags
+check_symbol_flags(flags) =
+    throw(ArgumentError("symbol flags must be SymbolFlags, got a $(typeof(flags))"))
+
+# check the names of a symbol map before any of them is handed over to LLVM
+function check_symbol_names(names, what="symbol")
+    for name in names
+        name isa LLVMSymbol ||
+            throw(ArgumentError("$what names must be LLVMSymbols, got a $(typeof(name))"))
+    end
+    allunique(names) || throw(ArgumentError("duplicate $what names"))
+    return
 end
 
 """
@@ -483,7 +527,8 @@ mirror those of LLVM's `DefinitionGenerator::tryToGenerate`:
   indicating whether the symbol is required or only weakly referenced.
 
 `f` should define the symbols it can provide in `jd`, e.g., using [`define!`](@ref).
-Symbols it does not define are left to other generators and JITDylibs in the search order.
+Symbols it does not define are left to other generators and JITDylibs in the search order,
+and its return value is ignored.
 The names in `lookup_set` are only valid during the call; retain them with `retain`
 before handing them to functions that take ownership, like `absolute_symbols`.
 
@@ -1075,11 +1120,11 @@ function __destroy(ctx::Ptr{Cvoid})
 end
 
 """
-    CustomMaterializationUnit(name, symbols, materialize, discard, [init])
+    CustomMaterializationUnit(name, symbols, materialize, discard; init=nothing)
 
 Create a materialization unit that promises to define `symbols`, a collection of
-`name => flags` pairs mapping each [`LLVMSymbol`](@ref) to flags created by
-[`symbol_flags`](@ref). Add it to a JITDylib with [`define!`](@ref).
+`name => flags` pairs mapping each [`LLVMSymbol`](@ref) to its [`SymbolFlags`](@ref).
+Add it to a JITDylib with [`define!`](@ref).
 
 When any of these symbols is looked up, `materialize(mr)` is called with a
 `MaterializationResponsibility` for the symbols, which it should fulfill, e.g., by
@@ -1097,32 +1142,44 @@ error. Retrieve the original exception by calling [`check_callback_error!`](@ref
 unit. An exception in `discard` is only reported that way.
 
 The unit takes ownership of the symbol names. `init` can be used to specify an
-initializer symbol, which takes ownership of an additional reference.
+initializer symbol (an [`LLVMSymbol`](@ref)), which needs to be one of the `symbols`,
+with flags that have `materialization_side_effects_only` set. The unit takes ownership of
+an additional reference to it.
 """
 function CustomMaterializationUnit(name, symbols::Union{AbstractVector{<:Pair},AbstractDict},
-                                   materialize, discard, init=C_NULL)
+                                   materialize, discard;
+                                   init::Union{Nothing,LLVMSymbol}=nothing)
     # validate everything before taking ownership of the names
-    syms = LLVMSymbol[first(pair) for pair in symbols]
-    allunique(syms) || throw(ArgumentError("duplicate symbol names"))
-    symbols = [API.LLVMOrcCSymbolFlagsMapPair(sym, flags) for (sym, flags) in symbols]
-    CustomMaterializationUnit(name, symbols, materialize, discard, init)
-end
+    check_symbol_names([first(pair) for pair in symbols])
+    pairs = API.LLVMOrcCSymbolFlagsMapPair[
+        API.LLVMOrcCSymbolFlagsMapPair(sym, convert(API.LLVMJITSymbolFlags,
+                                                    check_symbol_flags(flags)))
+        for (sym, flags) in symbols]
+    if init !== nothing
+        # LLVM asserts that the initializer is one of the symbols, and requires it to
+        # only have side effects
+        i = findfirst(pair -> first(pair) == init, collect(symbols))
+        i === nothing &&
+            throw(ArgumentError("the initializer symbol needs to be one of the symbols"))
+        last(collect(symbols)[i]).materialization_side_effects_only ||
+            throw(ArgumentError("the initializer symbol needs to be materialization_side_effects_only"))
+    end
+    init_ref = init === nothing ? API.LLVMOrcSymbolStringPoolEntryRef(C_NULL) : init.ref
 
-# raw form, taking a collection of `API.LLVMOrcCSymbolFlagsMapPair`s
-function CustomMaterializationUnit(name, symbols, materialize, discard, init=C_NULL)
     this = CustomMaterializationUnit(materialize, discard)
-    @lock CUSTOM_MU_LOCK push!(CUSTOM_MU_ROOTS, this)
-
+    # LLVM doesn't call back before the unit is defined or disposed of, so only root the
+    # unit once it has been created, so that a failure to create it doesn't leak the root
     ref = API.LLVMOrcCreateCustomMaterializationUnit(
         name,
-        Base.pointer_from_objref(this), # escaping this, rooted in CUSTOM_MU_ROOTS
-        symbols,
-        length(symbols),
-        init,
+        Base.pointer_from_objref(this), # escaping this, rooted in CUSTOM_MU_ROOTS below
+        pairs,
+        length(pairs),
+        init_ref,
         @cfunction(__materialize, Cvoid, (Ptr{Cvoid}, API.LLVMOrcMaterializationResponsibilityRef)),
         @cfunction(__discard, Cvoid, (Ptr{Cvoid}, API.LLVMOrcJITDylibRef, API.LLVMOrcSymbolStringPoolEntryRef) ),
         @cfunction(__destroy, Cvoid, (Ptr{Cvoid},))
     )
+    @lock CUSTOM_MU_LOCK push!(CUSTOM_MU_ROOTS, this)
     this.mu = MaterializationUnit(ref)
     return this
 end
@@ -1135,8 +1192,9 @@ end
 Create a materialization unit that defines each symbol `name` (a [`LLVMSymbol`](@ref))
 at a fixed `address` (a pointer, integer, or [`OrcTargetAddress`](@ref)), e.g., to make
 host functions or data available to JIT-compiled code. Symbols default to being exported;
-pass `flags` created by [`symbol_flags`](@ref) to change that. The pairs can also be
-passed as a collection, e.g., a vector or a dictionary.
+pass [`SymbolFlags`](@ref) to change that (absolute symbols have an address, so they can't
+be `materialization_side_effects_only`). The pairs can also be passed as a collection,
+e.g., a vector or a dictionary.
 
 The unit takes ownership of the symbol names, and should be added to a JITDylib using
 [`define!`](@ref):
@@ -1150,25 +1208,25 @@ absolute_symbols(pair::Pair{LLVMSymbol}, pairs::Pair{LLVMSymbol}...) =
 
 function absolute_symbols(pairs::Union{AbstractVector{<:Pair},AbstractDict})
     # validate everything before taking ownership of the names
-    syms = LLVMSymbol[first(pair) for pair in pairs]
-    allunique(syms) || throw(ArgumentError("duplicate symbol names"))
-    symbols = map(collect(pairs)) do (sym, def)
-        address, flags = def isa Tuple ? def : (def, symbol_flags())
-        API.LLVMOrcCSymbolMapPair(sym, API.LLVMJITEvaluatedSymbol(_target_address(address),
-                                                                 flags))
+    check_symbol_names([first(pair) for pair in pairs])
+    symbols = API.LLVMOrcCSymbolMapPair[]
+    for (sym, def) in pairs
+        address, flags = def isa Tuple{Any,Any} ? def : (def, SymbolFlags())
+        # LLVM asserts when resolving such symbols
+        check_symbol_flags(flags).materialization_side_effects_only &&
+            throw(ArgumentError("absolute symbols can't be materialization_side_effects_only"))
+        push!(symbols, API.LLVMOrcCSymbolMapPair(sym, API.LLVMJITEvaluatedSymbol(
+            target_address(address), convert(API.LLVMJITSymbolFlags,
+                                             check_symbol_flags(flags)))))
     end
-    absolute_symbols(symbols)
+    MaterializationUnit(API.LLVMOrcAbsoluteSymbols(symbols, length(symbols)))
 end
 
-_target_address(ptr::Ptr) = API.LLVMOrcJITTargetAddress(reinterpret(UInt, ptr))
-_target_address(addr::Integer) = API.LLVMOrcJITTargetAddress(addr)
-_target_address(addr::OrcTargetAddress) = addr.ptr
-
-# raw form, taking a collection of `API.LLVMOrcCSymbolMapPair`s
-function absolute_symbols(symbols)
-    ref = API.LLVMOrcAbsoluteSymbols(symbols, length(symbols))
-    MaterializationUnit(ref)
-end
+target_address(ptr::Ptr) = API.LLVMOrcJITTargetAddress(reinterpret(UInt, ptr))
+target_address(addr::Integer) = API.LLVMOrcJITTargetAddress(addr)
+target_address(addr::OrcTargetAddress) = addr.ptr
+target_address(addr) = throw(ArgumentError(
+    "symbol addresses must be pointers, integers or OrcTargetAddresses, got a $(typeof(addr))"))
 
 @checked struct IndirectStubsManager
     ref::API.LLVMOrcIndirectStubsManagerRef
@@ -1216,7 +1274,8 @@ end
 
 Create a materialization unit that defines lazy reexports of symbols in `source_jd`.
 `aliases` is a collection of `alias => target` or `alias => (target, flags)` pairs of
-[`LLVMSymbol`](@ref)s, with `flags` defaulting to an exported and callable symbol.
+[`LLVMSymbol`](@ref)s, with [`SymbolFlags`](@ref) that default to an exported and
+callable symbol. Lazy reexports need to be callable.
 
 Looking up an alias does not materialize its target. Instead, the alias resolves to a stub
 (managed by the indirect stubs manager `ism`) that calls into the lazy call-through manager
@@ -1229,21 +1288,19 @@ aliases share a target, retain the target an additional time for every extra ali
 function lazy_reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager,
                         jd::JITDylib, aliases::Union{AbstractVector{<:Pair},AbstractDict})
     # validate everything before taking ownership of the names
-    syms = LLVMSymbol[first(pair) for pair in aliases]
-    allunique(syms) || throw(ArgumentError("duplicate alias names"))
-    aliases = map(collect(aliases)) do (alias, def)
-        target, flags = def isa Tuple ? def : (def, symbol_flags(callable=true))
-        API.LLVMOrcCSymbolAliasMapPair(alias,
-            API.LLVMOrcCSymbolAliasMapEntry(target, flags))
+    check_symbol_names([first(pair) for pair in aliases], "alias")
+    entries = API.LLVMOrcCSymbolAliasMapPair[]
+    for (alias, def) in aliases
+        target, flags = def isa Tuple{Any,Any} ? def : (def, SymbolFlags(callable=true))
+        target isa LLVMSymbol ||
+            throw(ArgumentError("alias targets must be LLVMSymbols, got a $(typeof(target))"))
+        # LLVM asserts that lazy reexports are callable
+        check_symbol_flags(flags).callable ||
+            throw(ArgumentError("lazy reexports must be callable"))
+        push!(entries, API.LLVMOrcCSymbolAliasMapPair(alias,
+            API.LLVMOrcCSymbolAliasMapEntry(target, convert(API.LLVMJITSymbolFlags, flags))))
     end
-    lazy_reexports(lctm, ism, jd, aliases)
-end
-
-# raw form, taking a collection of `API.LLVMOrcCSymbolAliasMapPair`s
-function lazy_reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager,
-                        jd::JITDylib, aliases)
-    ref = API.LLVMOrcLazyReexports(lctm, ism, jd, aliases, length(aliases))
-    MaterializationUnit(ref)
+    MaterializationUnit(API.LLVMOrcLazyReexports(lctm, ism, jd, entries, length(entries)))
 end
 
 

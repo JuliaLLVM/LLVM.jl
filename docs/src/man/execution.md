@@ -304,7 +304,7 @@ Julia function to do so, which typically generates a module and emits it through
 JIT's layers:
 
 ```julia
-flags = symbol_flags(callable=true)
+flags = SymbolFlags(callable=true)
 mu = CustomMaterializationUnit("lazy", [mangle(lljit, "foo") => flags],
     function materialize(mr)
         ts_mod = ThreadSafeModule("foo")

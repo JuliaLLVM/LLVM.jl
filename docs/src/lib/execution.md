@@ -100,7 +100,7 @@ mangle
 intern
 retain
 release
-symbol_flags
+SymbolFlags
 define!
 absolute_symbols
 ```

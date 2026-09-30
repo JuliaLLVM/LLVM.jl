@@ -2180,6 +2180,18 @@ end
                 @test any(a -> a isa ConstantRangeAttribute, collected)
                 delete!(fn.return_attributes, attr)
             end
+            # the bounds need as many words as the width requires
+            @test_throws ArgumentError ConstantRangeAttribute("range", 32, UInt64[], UInt64[])
+            @test_throws ArgumentError ConstantRangeAttribute("range", 128, UInt64[0], UInt64[1])
+            @test_throws ArgumentError ConstantRangeAttribute("range", 0, UInt64[], UInt64[])
+            # equal bounds only denote the empty range, as the full range is not allowed
+            @test_throws ArgumentError ConstantRangeAttribute("range", 32, UInt64[5], UInt64[5])
+            @test_throws ArgumentError ConstantRangeAttribute("range", 32, UInt64[typemax(UInt32)],
+                                                              UInt64[typemax(UInt32)])
+            @test ConstantRangeAttribute("range", 32, UInt64[0], UInt64[0]) isa
+                  ConstantRangeAttribute
+            @test ConstantRangeAttribute("range", 128, UInt64[0, 0], UInt64[1, 0]) isa
+                  ConstantRangeAttribute
         end
     end
 

@@ -2195,6 +2195,14 @@ end
     trap = Intrinsic("llvm.trap")
     @test_throws ArgumentError Intrinsic("llvm.nonexisting")
 
+    # non-throwing lookup, e.g., for intrinsics that only some LLVM versions know
+    @test tryparse(Intrinsic, "llvm.trap") == trap
+    @test tryparse(Intrinsic, SubString("llvm.trap")) == trap
+    @test tryparse(Intrinsic, "llvm.nonexisting") === nothing
+    @test tryparse(Intrinsic, "llvm.sin.f64") == Intrinsic("llvm.sin")
+    @test parse(Intrinsic, "llvm.trap") == trap
+    @test_throws ArgumentError parse(Intrinsic, "llvm.nonexisting")
+
     f = LLVM.Function(mod, trap)
     @test f.intrinsic == trap
     @test isintrinsic(f, trap)

@@ -563,12 +563,14 @@ end
 
 """
     LLVM.Intrinsic
-    Intrinsic(name::String)
+    Intrinsic(name::AbstractString)
     Intrinsic(f::LLVM.Function)
 
 An LLVM intrinsic function, identified by its (base) name, e.g., `Intrinsic("llvm.memcpy")`,
 or the intrinsic that a function declares. Throws an `ArgumentError` if there is no such
-intrinsic; see the `intrinsic` property of functions for a non-throwing alternative.
+intrinsic; use [`tryparse`](@ref tryparse(::Type{LLVM.Intrinsic}, ::AbstractString)) to
+look up a name that the version of LLVM in use may not know, and the `intrinsic` property
+of functions to check whether a function is an intrinsic.
 
 # Properties
 
@@ -586,13 +588,40 @@ struct Intrinsic
         new(id)
     end
 
-    function Intrinsic(name::String)
-        id = API.LLVMLookupIntrinsicID(name, ncodeunits(name))
+    function Intrinsic(name::AbstractString)
+        id = lookup_intrinsic_id(name)
         id == 0 && throw(ArgumentError("Unknown intrinsic: $name"))
         new(id)
     end
+
+    # for IDs that are known to be valid
+    Intrinsic(id::UInt32, ::Val{:unchecked}) = new(id)
 end
 @properties Intrinsic
+
+lookup_intrinsic_id(name::AbstractString) =
+    API.LLVMLookupIntrinsicID(name, ncodeunits(name))
+
+"""
+    tryparse(LLVM.Intrinsic, name::AbstractString)
+
+Look up the intrinsic with the given name, like [`Intrinsic(name)`](@ref LLVM.Intrinsic),
+but return `nothing` if the version of LLVM in use doesn't know it. The name can be the
+base name of an overloaded intrinsic (e.g., `"llvm.sin"`) or the name of an overload
+(e.g., `"llvm.sin.f64"`), as LLVM recognizes them.
+"""
+function Base.tryparse(::Type{Intrinsic}, name::AbstractString)
+    id = lookup_intrinsic_id(name)
+    return id == 0 ? nothing : Intrinsic(id, Val(:unchecked))
+end
+
+"""
+    parse(LLVM.Intrinsic, name::AbstractString)
+
+Look up the intrinsic with the given name, throwing an `ArgumentError` if the version of
+LLVM in use doesn't know it. This is the same as [`Intrinsic(name)`](@ref LLVM.Intrinsic).
+"""
+Base.parse(::Type{Intrinsic}, name::AbstractString) = Intrinsic(name)
 
 intrinsic(f::Function) = isintrinsic(f) ? Intrinsic(f) : nothing
 

@@ -40,6 +40,8 @@ LLVM.memory_attributes
 
 ```@docs
 Intrinsic
+tryparse(::Type{Intrinsic}, ::AbstractString)
+parse(::Type{Intrinsic}, ::AbstractString)
 isintrinsic
 isoverloaded
 LLVM.overloaded_name

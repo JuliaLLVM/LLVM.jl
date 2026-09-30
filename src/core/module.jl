@@ -110,6 +110,15 @@ stored in the `SDK Version` module flag, dropping any prerelease or build metada
     mod.debug_metadata_version
 
 The debug info version number emitted in the module, or `0` if none is attached.
+
+# Ownership
+
+Some operations take ownership of a module: [`ThreadSafeModule(mod)`](@ref
+ThreadSafeModule(::LLVM.Module)), [`link!(dst, src)`](@ref link!) (which destroys `src`),
+the constructors of execution engines, and `push!(engine, mod)`. They do so even if they
+fail, so the module must not be disposed of afterwards. Unlike, e.g., memory buffers,
+modules don't keep track of that, because the same module can have many handles (like
+the `parent` of a function).
 """
 Module
 # forward definition of Module in src/core/value/constant.jl

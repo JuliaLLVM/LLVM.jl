@@ -124,6 +124,13 @@ An execution engine that can run functions in a module.
 The functions in the modules of the execution engine, as a view that supports looking up
 a function by name (`get`, `haskey` and indexing). The functions cannot be iterated, so
 the view is not a collection.
+
+# Ownership
+
+An execution engine takes ownership of the modules it is created with or that are
+added to it using `push!`, and disposes of them together with itself, so these modules
+must not be disposed of separately. The constructors take ownership of the module even if
+they fail. Use `delete!(engine, mod)` to take back ownership of a module.
 """
 @checked struct ExecutionEngine
     ref::API.LLVMExecutionEngineRef
@@ -135,13 +142,22 @@ end
 Base.unsafe_convert(::Type{API.LLVMExecutionEngineRef}, engine::ExecutionEngine) =
     mark_use(engine).ref
 
-# NOTE: these takes ownership of the module
+"""
+    LLVM.ExecutionEngine(mod::Module)
+
+Create an execution engine for the given module, taking ownership of it: a JIT compiler
+if possible, or an interpreter otherwise.
+
+This object needs to be disposed of using [`dispose`](@ref).
+"""
 function ExecutionEngine(mod::Module)
     out_ref = Ref{API.LLVMExecutionEngineRef}()
     out_error = Ref{Cstring}()
     status = API.LLVMCreateExecutionEngineForModule(out_ref, mod, out_error) |> Bool
 
     if status
+        # the module is consumed, even on failure
+        mark_dispose(mod)
         error = unsafe_message(out_error[])
         throw(LLVMException(error))
     end
@@ -152,7 +168,7 @@ end
 """
     Interpreter(mod::Module)
 
-Create an interpreter for the given module.
+Create an interpreter for the given module, taking ownership of it.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
@@ -164,6 +180,8 @@ function Interpreter(mod::Module)
     status = API.LLVMCreateInterpreterForModule(out_ref, mod, out_error) |> Bool
 
     if status
+        # the module is consumed, even on failure
+        mark_dispose(mod)
         error = unsafe_message(out_error[])
         throw(LLVMException(error))
     end
@@ -186,6 +204,8 @@ function JIT(mod::Module; opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLeve
     status = API.LLVMCreateJITCompilerForModule(out_ref, mod, opt_level, out_error) |> Bool
 
     if status
+        # the module is consumed, even on failure
+        mark_dispose(mod)
         error = unsafe_message(out_error[])
         throw(LLVMException(error))
     end

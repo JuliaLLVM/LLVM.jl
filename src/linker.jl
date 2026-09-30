@@ -4,7 +4,8 @@
     link!(dst::Module, src::Module; only_needed=false, override_from_src=false)
 
 Link the source module `src` into the destination module `dst`. The source module
-is destroyed in the process.
+is destroyed in the process, even if linking fails, so it must not be used or disposed of
+afterwards.
 
 Keyword arguments:
 

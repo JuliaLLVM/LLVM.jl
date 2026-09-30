@@ -165,6 +165,12 @@ end
             @test ccall(lookup(engine, "add_1"), Int32, (Int32,), 41) == 42
         end
     end
+
+    # the module is consumed, even if creating the engine fails
+    let mod = emit_inc(1)
+        mod.triple = "unknown-unknown-unknown"
+        @test_throws LLVMException LLVM.JIT(mod)
+    end
 end
 
 @dispose ctx=Context() begin

@@ -112,7 +112,7 @@ end
     ThreadSafeModule(mod::Module)
 
 Create a thread-safe module from a regular module. This transfers ownership of the module to
-the thread-safe module.
+the thread-safe module, so the module must not be disposed of afterwards.
 
 !!! warning
 

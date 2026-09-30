@@ -530,6 +530,10 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        LLVMValueRef EltVal, const unsigned *Idxs,
                                        unsigned NumIdxs, const char *Name);
 
+// an alloca in the given address space, of `ArraySize` elements (or one if NULL)
+LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned AddrSpace,
+                                  LLVMValueRef ArraySize, const char *Name);
+
 // insertion points: a block, the instruction to insert before (NULL for the end of the
 // block), and whether to insert before the debug records at that position (the head bit
 // of the iterator, which is ignored before LLVM 19)

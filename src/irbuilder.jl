@@ -417,30 +417,51 @@ end
 
 # memory access and addressing operations
 
+# address spaces are 24-bit numbers
+function check_addrspace(addrspace)
+    addrspace isa Integer && 0 <= addrspace < 2^24 ||
+        throw(ArgumentError("Address spaces must be integers between 0 and 2^24-1, got $addrspace"))
+    return Cuint(addrspace)
+end
+
 """
-    alloca!(builder::IRBuilder, T::LLVMType, name::String=""; align=nothing)
+    alloca!(builder::IRBuilder, T::LLVMType, name::String=""; align=nothing,
+            addrspace=nothing)
 
 Allocate stack memory for a value of type `T`. By default, the allocation is aligned to the
-preferred alignment of `T`; use `align` to specify a different alignment in bytes.
+preferred alignment of `T`; use `align` to specify a different alignment in bytes. The
+memory is allocated in the alloca address space of the module's data layout, unless a
+different `addrspace` is given.
 """
-function alloca!(builder::IRBuilder, Ty::LLVMType, Name::String=""; align=nothing)
+function alloca!(builder::IRBuilder, Ty::LLVMType, Name::String=""; align=nothing,
+                 addrspace=nothing)
     check_alignment(align)
-    inst = Instruction(API.LLVMBuildAlloca(builder, Ty, Name))
+    inst = if addrspace === nothing
+        Instruction(API.LLVMBuildAlloca(builder, Ty, Name))
+    else
+        Instruction(API.LLVMExtraBuildAlloca(builder, Ty, check_addrspace(addrspace),
+                                             C_NULL, Name))
+    end
     align === nothing || alignment!(inst, align)
     return inst
 end
 
 """
     array_alloca!(builder::IRBuilder, T::LLVMType, count::Value, name::String="";
-                  align=nothing)
+                  align=nothing, addrspace=nothing)
 
 Allocate stack memory for `count` values of type `T`. See [`alloca!`](@ref) for the meaning
-of `align`.
+of `align` and `addrspace`.
 """
 function array_alloca!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::String="";
-                       align=nothing)
+                       align=nothing, addrspace=nothing)
     check_alignment(align)
-    inst = Instruction(API.LLVMBuildArrayAlloca(builder, Ty, Val, Name))
+    inst = if addrspace === nothing
+        Instruction(API.LLVMBuildArrayAlloca(builder, Ty, Val, Name))
+    else
+        Instruction(API.LLVMExtraBuildAlloca(builder, Ty, check_addrspace(addrspace), Val,
+                                             Name))
+    end
     align === nothing || alignment!(inst, align)
     return inst
 end

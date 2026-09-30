@@ -1190,6 +1190,17 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
 
 
 //
+// memory
+//
+
+LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned AddrSpace,
+                                  LLVMValueRef ArraySize, const char *Name) {
+  return wrap(unwrap(B)->CreateAlloca(unwrap(Ty), AddrSpace,
+                                      ArraySize ? unwrap(ArraySize) : nullptr, Name));
+}
+
+
+//
 // instructions
 //
 

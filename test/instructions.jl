@@ -166,6 +166,17 @@
     aligned_array_allocainst = array_alloca!(builder, LLVM.Int32Type(), int1; align=8)
     @check_ir aligned_array_allocainst "alloca i32, i32 %0, align 8"
 
+    addrspace_allocainst = alloca!(builder, LLVM.Int32Type(); addrspace=5, align=4)
+    @check_ir addrspace_allocainst "alloca i32, align 4, addrspace(5)"
+    @test addrspace_allocainst.value_type.addrspace == 5
+    addrspace_array_allocainst = array_alloca!(builder, LLVM.Int32Type(), int1;
+                                               addrspace=3)
+    @check_ir addrspace_array_allocainst "alloca i32, i32 %0, align 4, addrspace(3)"
+    @test_throws ArgumentError alloca!(builder, LLVM.Int32Type(); addrspace=-1)
+    @test_throws ArgumentError alloca!(builder, LLVM.Int32Type(); addrspace=2^24)
+    @test_throws ArgumentError array_alloca!(builder, LLVM.Int32Type(), int1;
+                                             addrspace=1.0)
+
     mallocinst = malloc!(builder, LLVM.Int32Type())
     if supports_typed_pointers(ctx)
         @check_ir mallocinst r"bitcast i8\* %.+ to i32\*"
@@ -565,6 +576,16 @@
     end
 
     position!(builder)
+end
+
+# by default, stack memory is allocated in the alloca address space of the data layout
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    mod.datalayout = "A5"
+    fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
+    @check_ir alloca!(builder, LLVM.Int32Type()) "addrspace(5)"
+    @check_ir array_alloca!(builder, LLVM.Int32Type(), ConstantInt(Int32(2))) "addrspace(5)"
+    @test !occursin("addrspace", string(alloca!(builder, LLVM.Int32Type(); addrspace=0)))
 end
 
 end

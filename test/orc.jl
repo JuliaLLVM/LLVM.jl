@@ -471,18 +471,23 @@ end
         end
         @test ccall(pointer(lookup(lljit, "scoped")), Int32, ()) == 42
 
-        # the modules that IR transformations receive are borrowed
+        # the modules and responsibilities that IR transformations receive are borrowed
         borrowed = Ref{Any}(nothing)
+        borrowed_mr = Ref{Any}(nothing)
         transform!(lljit.ir_transform_layer) do tsm, mr
             borrowed[] = tsm
+            borrowed_mr[] = mr
             @test tsm(mod -> mod isa LLVM.Module)
             @test_throws ArgumentError dispose(tsm)
             @test_throws ArgumentError add!(lljit, jd, tsm)
+            @test !isempty(collect(mr.requested_symbols))
+            @test_throws ArgumentError emit!(lljit.ir_transform_layer, mr, tsm)
         end
         add!(lljit, jd, constant_module("transformed"))
         @test ccall(pointer(lookup(lljit, "transformed")), Int32, ()) == 42
         # and only during the transformation
         @test_throws ArgumentError borrowed[](mod -> nothing)
+        @test_throws ArgumentError collect(borrowed_mr[].requested_symbols)
     end
 
     # object linking layers are consumed by returning them from a creator
@@ -1002,6 +1007,12 @@ end
 
                 il = lljit.ir_transform_layer
                 emit!(il, mr, ts_mod)
+
+                # the responsibility is consumed
+                @test_throws ArgumentError collect(mr.requested_symbols)
+                ThreadSafeModule("unused") do tsm
+                    @test_throws ArgumentError emit!(il, mr, tsm)
+                end
 
                 return nothing
             end

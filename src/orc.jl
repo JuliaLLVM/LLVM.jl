@@ -845,8 +845,9 @@ function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModul
                         mr::API.LLVMOrcMaterializationResponsibilityRef)
     state = Base.unsafe_pointer_to_objref(ctx)::IRTransform
     tsm = ThreadSafeModule(unsafe_load(tsm_ref); borrowed=true)
+    responsibility = MaterializationResponsibility(mr; borrowed=true)
     try
-        state.callback(tsm, MaterializationResponsibility(mr, false))
+        state.callback(tsm, responsibility)
         return API.LLVMErrorRef(C_NULL)
     catch err
         _capture_callback_exception!(state, err)
@@ -860,8 +861,9 @@ function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModul
         end
         return API.LLVMCreateStringError("exception in ORC IR transform: $msg")
     finally
-        # the module is only borrowed for the duration of the transformation
+        # both are only borrowed for the duration of the transformation
         tsm.borrowed = false
+        responsibility.borrowed = false
     end
 end
 
@@ -931,22 +933,45 @@ so use `collect` to get a vector.
 
 These names are borrowed: retain them before handing them to APIs that take ownership, or
 using them after the responsibility has been fulfilled.
+
+# Ownership
+
+A responsibility is consumed by [`emit!`](@ref), after which it can't be used anymore. The
+responsibility that an IR transformation receives is borrowed: it can be used during the
+transformation, but not be consumed.
 """
-@checked mutable struct MaterializationResponsibility
+mutable struct MaterializationResponsibility
     ref::API.LLVMOrcMaterializationResponsibilityRef
-    # whether we own the responsibility, i.e., it has not been consumed (e.g., by emit)
-    # and was not borrowed from LLVM
-    owned::Bool
+    owned::Bool     # whether we own the responsibility, i.e., it wasn't consumed or borrowed
+    borrowed::Bool  # whether it is borrowed from LLVM (e.g., in an IR transform)
+
+    function MaterializationResponsibility(ref::API.LLVMOrcMaterializationResponsibilityRef;
+                                           borrowed::Bool=false)
+        ref == C_NULL && throw(UndefRefError())
+        new(ref, !borrowed, borrowed)
+    end
 end
 @properties MaterializationResponsibility
-MaterializationResponsibility(ref::API.LLVMOrcMaterializationResponsibilityRef) =
-    MaterializationResponsibility(ref, true)
-Base.unsafe_convert(::Type{API.LLVMOrcMaterializationResponsibilityRef}, mr::MaterializationResponsibility) = mr.ref
+
+function check_usable(mr::MaterializationResponsibility)
+    mr.owned || mr.borrowed ||
+        throw(ArgumentError("This MaterializationResponsibility has been consumed"))
+    return mr
+end
+
+Base.unsafe_convert(::Type{API.LLVMOrcMaterializationResponsibilityRef},
+                    mr::MaterializationResponsibility) = check_usable(mr).ref
+
+function check_consumable(mr::MaterializationResponsibility)
+    mr.borrowed &&
+        throw(ArgumentError("A borrowed MaterializationResponsibility can't be consumed"))
+    return check_usable(mr)
+end
 
 function consume!(mr::MaterializationResponsibility)
-    mr.owned || throw(ArgumentError("cannot consume a materialization responsibility that was already consumed or that is borrowed"))
+    check_consumable(mr)
     mr.owned = false
-    return mr
+    return mr.ref
 end
 
 """
@@ -958,9 +983,9 @@ consumed; a responsibility that is borrowed, e.g., by an IR transformation, cann
 emitted.
 """
 function emit!(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
+    check_consumable(mr)
     check_consumable(tsm)
-    consume!(mr)
-    API.LLVMOrcIRTransformLayerEmit(il, mr, consume!(tsm))
+    API.LLVMOrcIRTransformLayerEmit(il, consume!(mr), consume!(tsm))
 end
 
 
@@ -1070,7 +1095,7 @@ end
 
 function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibilityRef)
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
-    responsibility = MaterializationResponsibility(mr, true)
+    responsibility = MaterializationResponsibility(mr)
     try
         mu.materialize(responsibility)
     catch err
@@ -1462,7 +1487,7 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcIRCompileLayerRef}, il::IRCompileLayer) = il.ref
 
 function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
-    mr.owned || throw(ArgumentError("cannot consume a materialization responsibility that was already consumed or that is borrowed"))
+    check_consumable(mr)
     check_consumable(tsm)
     if il.jit isa JuliaOJIT
         # Julia's debug info expects certain symbols to be present
@@ -1470,8 +1495,7 @@ function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::Threa
             decorate_module(mod)
         end
     end
-    consume!(mr)
-    API.LLVMOrcIRCompileLayerEmit(il, mr, consume!(tsm))
+    API.LLVMOrcIRCompileLayerEmit(il, consume!(mr), consume!(tsm))
 end
 
 ir_compile_layer(jljit::JuliaOJIT) = IRCompileLayer(API.JLJITGetIRCompileLayer(jljit), jljit)

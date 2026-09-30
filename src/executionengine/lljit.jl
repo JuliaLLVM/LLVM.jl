@@ -178,11 +178,31 @@ end
 Get a handle to Julia's own JIT, e.g., to add code to it that can be called from Julia
 code. The JIT is not owned by LLVM.jl, so disposing of the handle is a no-op.
 
+Code is added to JITDylibs, which depend on the Julia version: on Julia 1.14 and later,
+create one with [`JITDylib(jljit, name)`](@ref JITDylib(::JuliaOJIT, ::AbstractString)); on
+older versions, use the single JITDylib that is shared by all users of the JIT
+(`jljit.external_dylib`). Choose once, and keep using that JITDylib to add code and look up
+symbols:
+
+```julia
+jd = if LLVM.supports_jit_dylib_creation(jljit)
+    JITDylib(jljit, "MyPackage")
+else
+    jljit.external_dylib
+end
+```
+
 # Properties
 
     jljit.ir_compile_layer
 
 The [`IRCompileLayer`](@ref) of Julia's JIT, which compiles IR modules.
+
+    jljit.external_dylib
+
+The JITDylib that is shared by all users of Julia's JIT, whose symbols are visible to
+Julia code. Only available before Julia 1.14; use `JITDylib(jljit, name)` on newer
+versions.
 """
 @checked mutable struct JuliaOJIT
     ref::API.JuliaOJITRef

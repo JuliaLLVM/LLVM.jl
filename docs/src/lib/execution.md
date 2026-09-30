@@ -79,6 +79,9 @@ ExecutionSession
 
 ```@docs
 JITDylib
+JITDylib(::ExecutionSession, ::Any)
+JITDylib(::JuliaOJIT, ::AbstractString)
+LLVM.supports_jit_dylib_creation
 lookup_dylib
 add!(::LLJIT, ::JITDylib, ::MemoryBuffer)
 add!(::JuliaOJIT, ::JITDylib, ::MemoryBuffer)

@@ -104,6 +104,15 @@ Base.:(+)(x::Integer, y::LLVMPtr) = y + x
 Base.unsigned(x::LLVMPtr) = UInt(x)
 Base.signed(x::LLVMPtr) = Int(x)
 
+export addrspacecast
+
+"""
+    addrspacecast(::Type{Core.LLVMPtr{T,AS}}, ptr::Core.LLVMPtr) -> Core.LLVMPtr{T,AS}
+
+Convert `ptr` to a pointer to `T` in address space `AS`, using an `addrspacecast`
+instruction if the address spaces differ. Whether that is valid, and what it does, depends
+on the target.
+"""
 @llvmgenerated builder function addrspacecast(::Type{LLVMPtr{TDest,ASDest}},
                                               src::LLVMPtr{TSrc,ASSrc}
                                              )::LLVMPtr{TDest,ASDest} where {TDest,ASDest,TSrc,ASSrc}

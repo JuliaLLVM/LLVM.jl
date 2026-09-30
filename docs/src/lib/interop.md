@@ -26,6 +26,7 @@ LLVM.Interop.@asmcall
 
 ```@docs
 LLVM.Interop.@typed_ccall
+LLVM.Interop.addrspacecast
 ```
 
 ## LLVM intrinsics

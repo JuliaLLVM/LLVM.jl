@@ -55,8 +55,11 @@ end
 @inline Base.unsafe_load(ptr::Core.LLVMPtr, i::Integer=1, align::Val=Val(1)) =
     pointerref(ptr, Int(i), align)
 
-@inline Base.unsafe_store!(ptr::Core.LLVMPtr{T}, x, i::Integer=1, align::Val=Val(1)) where {T} =
+@inline function Base.unsafe_store!(ptr::Core.LLVMPtr{T}, x, i::Integer=1,
+                                    align::Val=Val(1)) where {T}
     pointerset(ptr, convert(T, x), Int(i), align)
+    return ptr
+end
 
 # pointer operations
 

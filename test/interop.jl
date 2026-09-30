@@ -476,7 +476,7 @@ end
     a = Int64[1]
     ptr = reinterpret(Core.LLVMPtr{Int64,0}, pointer(a))
     @test unsafe_load(ptr) == 1
-    unsafe_store!(ptr, 2)
+    @test unsafe_store!(ptr, 2) === ptr  # like Base, returns the pointer
     @test unsafe_load(ptr) == 2
 
     ir = sprint(io->code_llvm(io, unsafe_load, Tuple{typeof(ptr)}))

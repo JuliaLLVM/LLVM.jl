@@ -241,32 +241,38 @@ function NewPMPassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
     obj = mark_alloc(NewPMPassBuilder(opts, [], [], [], nothing, []))
 
-    for (name, value) in pairs(kwargs)
-        if name == :verify_each
-            API.LLVMPassBuilderOptionsSetVerifyEach(obj, value)
-        elseif name == :debug_logging
-            API.LLVMPassBuilderOptionsSetDebugLogging(obj, value)
-        elseif name == :loop_interleaving
-            API.LLVMPassBuilderOptionsSetLoopInterleaving(obj, value)
-        elseif name == :loop_vectorization
-            API.LLVMPassBuilderOptionsSetLoopVectorization(obj, value)
-        elseif name == :slp_vectorization
-            API.LLVMPassBuilderOptionsSetSLPVectorization(obj, value)
-        elseif name == :loop_unrolling
-            API.LLVMPassBuilderOptionsSetLoopUnrolling(obj, value)
-        elseif name == :forget_all_scev_in_loop_unroll
-            API.LLVMPassBuilderOptionsSetForgetAllSCEVInLoopUnroll(obj, value)
-        elseif name == :licm_mssa_opt_cap
-            API.LLVMPassBuilderOptionsSetLicmMSSAOptCap(obj, value)
-        elseif name == :licm_mssa_no_acc_for_promotion_cap
-            API.LLVMPassBuilderOptionsSetLicmMSSANoAccForPromotionCap(obj, value)
-        elseif name == :call_graph_profile
-            API.LLVMPassBuilderOptionsSetCallGraphProfile(obj, value)
-        elseif name == :merge_functions
-            API.LLVMPassBuilderOptionsSetMergeFunctions(obj, value)
-        else
-            throw(ArgumentError("invalid keyword argument $name"))
+    # dispose of the options if a keyword argument is invalid
+    try
+        for (name, value) in pairs(kwargs)
+            if name == :verify_each
+                API.LLVMPassBuilderOptionsSetVerifyEach(obj, value)
+            elseif name == :debug_logging
+                API.LLVMPassBuilderOptionsSetDebugLogging(obj, value)
+            elseif name == :loop_interleaving
+                API.LLVMPassBuilderOptionsSetLoopInterleaving(obj, value)
+            elseif name == :loop_vectorization
+                API.LLVMPassBuilderOptionsSetLoopVectorization(obj, value)
+            elseif name == :slp_vectorization
+                API.LLVMPassBuilderOptionsSetSLPVectorization(obj, value)
+            elseif name == :loop_unrolling
+                API.LLVMPassBuilderOptionsSetLoopUnrolling(obj, value)
+            elseif name == :forget_all_scev_in_loop_unroll
+                API.LLVMPassBuilderOptionsSetForgetAllSCEVInLoopUnroll(obj, value)
+            elseif name == :licm_mssa_opt_cap
+                API.LLVMPassBuilderOptionsSetLicmMSSAOptCap(obj, value)
+            elseif name == :licm_mssa_no_acc_for_promotion_cap
+                API.LLVMPassBuilderOptionsSetLicmMSSANoAccForPromotionCap(obj, value)
+            elseif name == :call_graph_profile
+                API.LLVMPassBuilderOptionsSetCallGraphProfile(obj, value)
+            elseif name == :merge_functions
+                API.LLVMPassBuilderOptionsSetMergeFunctions(obj, value)
+            else
+                throw(ArgumentError("invalid keyword argument $name"))
+            end
         end
+    catch
+        dispose(obj)
+        rethrow()
     end
 
     return obj

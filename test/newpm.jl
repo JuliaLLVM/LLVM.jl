@@ -20,6 +20,9 @@ function test_module()
 end
 
 @testset "pass builder" begin
+    # invalid options are rejected (without leaking the options)
+    @test_throws ArgumentError NewPMPassBuilder(; invalid_option=true)
+
     @dispose ctx=Context() begin
         # single pass
         @dispose mod=test_module() begin

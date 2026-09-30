@@ -2476,10 +2476,26 @@ if LLVM.version() >= v"16"
         @test occursin("memory(none)", string(mod))     # nothing else has these effects
         @test_throws ArgumentError MemoryEffects(call.argument_attributes[1])
 
+        # which are available as a view too
+        @test call.memory_effects isa FunctionMemoryEffects
+        @test call.memory_effects == MemoryEffects(:none)
+        call.memory_effects[:argmem] = :read
+        @test call.memory_effects == MemoryEffects(argmem=:read)
+        @test length(call.function_attributes) == 1
+        call.memory_effects = fn.memory_effects
+        @test call.memory_effects == MemoryEffects(argmem=:read)
+        fn.memory_effects = MemoryEffects(:none)
+        @test call.memory_effects == MemoryEffects(argmem=:read)
+        @test occursin("call void @SomeFunction(i32 %0) #", string(call))
+
         @test verify(mod) === nothing
     end
 else
     @test_throws ArgumentError MemoryEffects(:read)
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+        fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
+        @test !hasproperty(fn, :memory_effects)
+    end
 end
 
 # parameter iteration

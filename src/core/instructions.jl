@@ -779,6 +779,15 @@ call site, which do not include those of the called function.
 
 See also the `return_attributes` and `argument_attributes` properties.
 
+    call.memory_effects
+    call.memory_effects = effects::Union{MemoryEffects,FunctionMemoryEffects}
+
+The memory effects of a `call`, `invoke` or `callbr` instruction, as described by the
+`memory` attribute of the call site, or `MemoryEffects(:readwrite)` if it doesn't have one.
+Like the `function_attributes` of the call, this does not include the effects of the called
+function. The effects are returned as a [`FunctionMemoryEffects`](@ref) view, like the
+`memory_effects` of a function.
+
     call.argument_attributes
 
 The attributes of the arguments of a `call`, `invoke` or `callbr` instruction, as a vector
@@ -958,6 +967,17 @@ function MemoryEffects(iter::CallSiteAttrSet)
     ref = API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, memory_kind())
     ref == C_NULL && return MemoryEffects(:readwrite)
     return MemoryEffects(EnumAttribute(ref))
+end
+
+memory_effects(call::CallBase) = FunctionMemoryEffects(function_attributes(call))
+
+function memory_effects!(call::CallBase, effects::AnyMemoryEffects)
+    push!(function_attributes(call), EnumAttribute(MemoryEffects(effects)))
+    return
+end
+
+@static if version() >= v"16"
+    @property CallBase memory_effects memory_effects!
 end
 
 # operand bundles

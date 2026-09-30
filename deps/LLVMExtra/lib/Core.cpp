@@ -1189,6 +1189,11 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                            ArrayRef<unsigned>(Idxs, NumIdxs), Name));
 }
 
+LLVMValueRef LLVMExtraConstVectorSplat(LLVMTypeRef VecTy, LLVMValueRef Elt) {
+  return wrap(ConstantVector::getSplat(cast<VectorType>(unwrap(VecTy))->getElementCount(),
+                                       unwrap<Constant>(Elt)));
+}
+
 
 //
 // memory

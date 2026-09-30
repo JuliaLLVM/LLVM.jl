@@ -534,6 +534,10 @@ function LLVMExtraBuildInsertValue(B, AggVal, EltVal, Idxs, NumIdxs, Name)
     ccall((:LLVMExtraBuildInsertValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, EltVal, Idxs, NumIdxs, Name)
 end
 
+function LLVMExtraConstVectorSplat(VecTy, Elt)
+    ccall((:LLVMExtraConstVectorSplat, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, LLVMValueRef), VecTy, Elt)
+end
+
 function LLVMExtraBuildAlloca(B, Ty, AddrSpace, ArraySize, Name)
     ccall((:LLVMExtraBuildAlloca, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, Cuint, LLVMValueRef, Cstring), B, Ty, AddrSpace, ArraySize, Name)
 end

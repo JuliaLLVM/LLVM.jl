@@ -530,6 +530,9 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        LLVMValueRef EltVal, const unsigned *Idxs,
                                        unsigned NumIdxs, const char *Name);
 
+// a vector constant with all elements equal to `Elt`, for fixed and scalable vector types
+LLVMValueRef LLVMExtraConstVectorSplat(LLVMTypeRef VecTy, LLVMValueRef Elt);
+
 // an alloca in the given address space, of `ArraySize` elements (or one if NULL)
 LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned AddrSpace,
                                   LLVMValueRef ArraySize, const char *Name);

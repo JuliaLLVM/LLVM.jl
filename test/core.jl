@@ -920,6 +920,35 @@ end
 
     # gep, inbounds_gep, select, extractelement, insertelement, shufflevector, exactvalue, insertvalue
 
+    # splats
+    let
+        T = LLVM.VectorType(LLVM.FloatType(), 4)
+        one = ConstantFP(LLVM.FloatType(), 1)
+        c = const_splat(T, one)::LLVM.Constant
+        @test c.value_type == T
+        @test occursin("float 1.000000e+00", string(c))
+        @test const_splat(T, ConstantFP(LLVM.FloatType(), 0)) isa ConstantAggregateZero
+        @test_throws "Cannot splat a value of type i32" const_splat(T, ConstantInt(Int32(1)))
+
+        # from Julia numbers
+        @test const_splat(T, 1) == c
+        @test const_splat(T, 1.0) == c
+        Ti = LLVM.VectorType(LLVM.Int16Type(), 2)
+        ci = const_splat(Ti, 3)
+        @test ci.value_type == Ti
+        @test occursin("i16 3", string(ci))
+        @test_throws ArgumentError const_splat(Ti, 1.5)
+        # signed values are sign-extended to wider elements
+        Tw = LLVM.VectorType(LLVM.IntType(128), 2)
+        @test const_splat(Tw, Int64(-1)) == const_splat(Tw, Int128(-1))
+        @test occursin("i128 -1", string(const_splat(Tw, Int64(-1))))
+        @test occursin("i128 18446744073709551615", string(const_splat(Tw, typemax(UInt64))))
+        @test_throws MethodError const_splat(Ti, 1im)
+        @dispose other_ctx=Context() begin
+            @test_throws "different contexts" const_splat(T, ConstantFP(LLVM.FloatType(), 1))
+        end
+    end
+
     # getelementptr
     @dispose mod=LLVM.Module("gep") dl=LLVM.DataLayout("e-i64:64-p1:64:64:64:32") begin
         T_struct = LLVM.StructType([LLVM.Int8Type(), LLVM.Int32Type(), LLVM.Int64Type()])

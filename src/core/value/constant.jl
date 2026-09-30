@@ -791,6 +791,48 @@ const_insertelement(vector::Constant, element::Value, index::Constant) =
 const_shufflevector(vector1::Constant, vector2::Constant, mask::Constant) =
     Value(API.LLVMConstShuffleVector(vector1, vector2, mask))
 
+@vocabulary Build const_splat
+
+"""
+    const_splat(typ::LLVM.VectorType, value::Constant)
+    const_splat(typ::LLVM.VectorType, value::Real)
+
+Create a constant vector of type `typ` whose elements are all `value`, which must be a
+constant of the element type of `typ`, or a Julia number that is converted to one: using
+[`ConstantFP`](@ref) for a vector of floating-point values, or [`ConstantInt`](@ref) for a
+vector of integers, which requires an `Integer`. For example, to create a vector of
+floating-point ones:
+
+```julia
+const_splat(LLVM.VectorType(LLVM.FloatType(), 4), 1)
+```
+
+The result is the constant that LLVM uses to represent the splat, e.g., a
+`ConstantDataVector`, or a `ConstantAggregateZero` for zeros, so it is only guaranteed to
+be a `Constant`.
+"""
+function const_splat(typ::VectorType, value::Constant)
+    context(typ) == context(value) ||
+        throw(ArgumentError("The vector type and the value belong to different contexts"))
+    eltyp = element_type(typ)
+    value_type(value) == eltyp ||
+        throw(ArgumentError("Cannot splat a value of type $(string(value_type(value))) into a vector of $(string(eltyp))"))
+    Value(API.LLVMExtraConstVectorSplat(typ, value))::Constant
+end
+
+function const_splat(typ::VectorType, value::Real)
+    eltyp = element_type(typ)
+    element = if eltyp isa FloatingPointType
+        ConstantFP(eltyp, value)
+    elseif eltyp isa IntegerType && value isa Integer
+        # sign-extend signed values to wider element types
+        ConstantInt(eltyp, value, value isa Signed)
+    else
+        throw(ArgumentError("Cannot splat a $(typeof(value)) into a vector of $(string(eltyp))"))
+    end
+    const_splat(typ, element)
+end
+
 if version() < v"17"
 
 @vocabulary Build const_select

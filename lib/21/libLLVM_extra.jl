@@ -529,6 +529,14 @@ function LLVMExtraDeleteBasicBlock(BB)
     ccall((:LLVMExtraDeleteBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef,), BB)
 end
 
+function LLVMExtraPositionBuilder(Builder, BB, Before, Head)
+    ccall((:LLVMExtraPositionBuilder, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, BB, Before, Head)
+end
+
+function LLVMExtraGetInsertPoint(Builder, Before, Head)
+    ccall((:LLVMExtraGetInsertPoint, libLLVMExtra), LLVMBasicBlockRef, (LLVMBuilderRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), Builder, Before, Head)
+end
+
 function LLVMExtraGetFirstInsertionPt(BB, Before, Head)
     ccall((:LLVMExtraGetFirstInsertionPt, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), BB, Before, Head)
 end

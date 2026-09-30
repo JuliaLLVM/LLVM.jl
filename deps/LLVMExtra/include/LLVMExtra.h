@@ -536,6 +536,12 @@ void LLVMExtraMoveInstruction(LLVMValueRef Inst, LLVMBasicBlockRef BB, LLVMValue
 void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlockRef Before);
 // delete a basic block, also if it isn't part of a function
 void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB);
+// set and get the insertion point of an instruction builder; the getter returns NULL if the
+// builder isn't positioned
+void LLVMExtraPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef BB,
+                              LLVMValueRef Before, LLVMBool Head);
+LLVMBasicBlockRef LLVMExtraGetInsertPoint(LLVMBuilderRef Builder, LLVMValueRef *Before,
+                                          LLVMBool *Head);
 // the first insertion point of a block after its PHI nodes and EH pads; returns false if
 // there is none (e.g., in a block that is terminated by a catchswitch)
 LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before,

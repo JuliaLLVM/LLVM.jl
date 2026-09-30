@@ -11,7 +11,7 @@
         # generate IR
         @dispose builder=IRBuilder() begin
             entry = BasicBlock(f, "entry")
-            position!(builder, entry)
+            position!(builder, LLVM.at_end(entry))
             ptr = const_inttoptr(
                 ConstantInt(0xdeadbeef%UInt),
                 LLVM.PointerType(LLVM.Int32Type()))

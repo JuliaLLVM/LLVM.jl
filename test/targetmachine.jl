@@ -33,7 +33,7 @@ end
         fn = LLVM.Function(mod, "SomeFunction", ft)
 
         entry = BasicBlock(fn, "entry")
-        position!(builder, entry)
+        position!(builder, LLVM.at_end(entry))
 
         ret!(builder)
 

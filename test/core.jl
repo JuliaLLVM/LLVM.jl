@@ -254,7 +254,7 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     @test entry.name == "entry"
 
     typ = LLVM.Int32Type()
@@ -303,7 +303,7 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     valueinst1 = add!(builder, fn.parameters[1],
                       ConstantInt(Int32(1)))
@@ -912,7 +912,7 @@ if LLVM.version() >= v"17"
     gv = GlobalVariable(mod, T_arr, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     loadinst = load!(builder, T_i32, ce)
     ret!(builder, loadinst)
@@ -937,7 +937,7 @@ end
     gv = GlobalVariable(mod, T_i32, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ret!(builder, load!(builder, T_i32, gv))
 
     @test !convert_users_to_instructions!(LLVM.Constant[gv])
@@ -956,11 +956,11 @@ end
     left = BasicBlock(fn, "left")
     merge = BasicBlock(fn, "merge")
 
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     br!(builder, fn.parameters[1], left, merge)
-    position!(builder, left)
+    position!(builder, LLVM.at_end(left))
     br!(builder, merge)
-    position!(builder, merge)
+    position!(builder, LLVM.at_end(merge))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     phi = phi!(builder, T_ptr)
     append!(phi.incoming, [(ce, left), (null(T_ptr), entry)])
@@ -985,12 +985,12 @@ if LLVM.version() >= v"19"
     idxs = LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))]
 
     f1 = LLVM.Function(mod, "f1", ft)
-    position!(builder, BasicBlock(f1, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f1, "entry")))
     l1 = load!(builder, T_i32, const_gep(T_arr, gv, idxs))
     ret!(builder, l1)
 
     f2 = LLVM.Function(mod, "f2", ft)
-    position!(builder, BasicBlock(f2, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f2, "entry")))
     l2 = load!(builder, T_i32, const_gep(T_arr, gv, idxs))
     ret!(builder, l2)
 
@@ -1007,7 +1007,7 @@ end
     gv = GlobalVariable(mod, T_arr, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(1))])
     loadinst = load!(builder, T_i32, ce)
     ret!(builder, loadinst)
@@ -1028,7 +1028,7 @@ end
     gv = GlobalVariable(mod, T_arr, "gv")
 
     fn = LLVM.Function(mod, "f", LLVM.FunctionType(T_i32, LLVM.LLVMType[]))
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     ret!(builder, load!(builder, T_i32, ce))
 
@@ -1253,7 +1253,7 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
     @dispose builder=IRBuilder() begin
-        position!(builder, BasicBlock(fn, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
         ret!(builder)
     end
     fa = GlobalAlias(mod, fn, "SomeFunctionAlias")
@@ -1296,7 +1296,7 @@ end
     @dispose builder=IRBuilder() begin
         for (f, ret) in ((impl, ConstantInt(Int32(0))), (other_impl, ConstantInt(Int32(1))),
                          (resolver_fn, impl), (other_resolver_fn, other_impl))
-            position!(builder, BasicBlock(f, "entry"))
+            position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
             ret!(builder, ret)
         end
     end
@@ -1332,11 +1332,11 @@ end
     ft = LLVM.FunctionType(LLVM.Int32Type())
     fn = LLVM.Function(mod, "SomeFunction", ft)
     resolver_fn = LLVM.Function(mod, "resolver", LLVM.FunctionType(fn.value_type))
-    position!(builder, BasicBlock(resolver_fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(resolver_fn, "entry")))
     ret!(builder, fn)
     ifunc = GlobalIFunc(mod, ft, resolver_fn, "SomeIFunc")
 
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     ld = load!(builder, LLVM.Int32Type(), ga)
     call = call!(builder, ft, ifunc)
     ret!(builder, add!(builder, ld, call))
@@ -1417,7 +1417,7 @@ end
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int64Type()])
     f = LLVM.Function(mod, "f", ft)
-    position!(builder, BasicBlock(f, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
     x, y = f.parameters
     inst = ret!(builder)
     inst.metadata["foo"] = MDNode([Metadata(x)])
@@ -1704,7 +1704,7 @@ end
     ft = LLVM.FunctionType(gv.value_type)
     resolver_fn = LLVM.Function(mod, "resolver", ft)
     @dispose builder=IRBuilder() begin
-        position!(builder, BasicBlock(resolver_fn, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(resolver_fn, "entry")))
         ret!(builder, null(gv.value_type))
     end
 
@@ -1916,7 +1916,7 @@ end
     fn = LLVM.Function(source_mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     ret!(builder)
 
@@ -1956,7 +1956,7 @@ end
     fn = LLVM.Function(source_mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     ret!(builder)
 
@@ -2152,7 +2152,7 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
     caller = LLVM.Function(mod, "CallSomeFunction", ft)
     top = LLVM.BasicBlock(caller, "top")
-    position!(builder, top)
+    position!(builder, LLVM.at_end(top))
     instr = call!(builder, ft, fn, LLVM.Value[ fn.parameters... ])
 
     let attrs = fn.function_attributes, instr_attrs = instr.function_attributes
@@ -2273,7 +2273,7 @@ end
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(LLVM.Int8Type())])
     fn = LLVM.Function(mod, "SomeFunction", ft)
     caller = LLVM.Function(mod, "CallSomeFunction", ft)
-    position!(builder, LLVM.BasicBlock(caller, "top"))
+    position!(builder, LLVM.at_end(LLVM.BasicBlock(caller, "top")))
     instr = call!(builder, ft, fn, LLVM.Value[caller.parameters[1]])
 
     @test_throws ArgumentError EnumAttribute(:nonexisting)
@@ -2471,7 +2471,7 @@ if LLVM.version() >= v"16"
         @test_throws ArgumentError MemoryEffects(fn.return_attributes)
 
         caller = LLVM.Function(mod, "SomeCaller", ft)
-        position!(builder, BasicBlock(caller, "entry"))
+        position!(builder, LLVM.at_end(BasicBlock(caller, "entry")))
         call = call!(builder, ft, fn, [caller.parameters[1]])
         ret!(builder)
 
@@ -2578,9 +2578,9 @@ end
 
     bb1 = BasicBlock(LLVM.before(bb2), "SomeBasicBlock")
     @test bb2.parent == fn
-    position!(builder, bb1)
+    position!(builder, LLVM.at_end(bb1))
     brinst = br!(builder, bb2)
-    position!(builder, bb2)
+    position!(builder, LLVM.at_end(bb2))
     retinst = ret!(builder)
     @test !isempty(bb2.instructions)
     @test collect(bb2.predecessors) == [bb1]
@@ -2659,7 +2659,7 @@ end
     bb2 = BasicBlock(fn, "then")
     bb3 = BasicBlock(fn, "else")
 
-    position!(builder, bb1)
+    position!(builder, LLVM.at_end(bb1))
     addinst = add!(builder, fn.parameters[1], fn.parameters[2])
     brinst = br!(builder, fn.parameters[1], bb2, bb3)
     @test brinst.opcode == LLVM.API.LLVMBr
@@ -2679,10 +2679,10 @@ end
         @test @allocated(walk(bb1)) <= 4 * sizeof(Int) * nvals
     end
 
-    position!(builder, bb2)
+    position!(builder, LLVM.at_end(bb2))
     retinst = ret!(builder)
 
-    position!(builder, bb3)
+    position!(builder, LLVM.at_end(bb3))
     retinst = ret!(builder)
 
     # terminators
@@ -2784,7 +2784,7 @@ end
     ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])
     f = LLVM.Function(mod, "f", ft)
     bb = BasicBlock(f, "entry")
-    position!(builder, bb)
+    position!(builder, LLVM.at_end(bb))
     x = f.parameters[1]
     call = call!(builder, ft, f, [x])
     ret!(builder, call)
@@ -2873,13 +2873,13 @@ end
     # the predecessors of a block are a read-only view, derived from its uses
     preds = exit.predecessors
     @test isempty(preds)
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     call = call!(builder, ft, fn, [x, y])
     br = br!(builder, exit)
     @test collect(preds) == [entry]
     @test length(preds) == 1
     @test_throws MethodError push!(preds, entry)
-    position!(builder, exit)
+    position!(builder, LLVM.at_end(exit))
     ret!(builder)
 
     # the arguments of a call are a mutable view of its operands
@@ -2959,7 +2959,7 @@ end
     @test bar.next === nothing
 
     # objects that are not part of a list have no siblings
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     inst = ret!(builder)
     remove!(inst)
     @test inst.next === nothing
@@ -2977,7 +2977,7 @@ end
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())
     fn = LLVM.Function(mod, "SomeFunction", ft)
-    position!(builder, BasicBlock(fn, "entry"))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
     inst = ret!(builder)
 
     md = inst.metadata
@@ -3008,7 +3008,7 @@ end
     f = LLVM.Function(mod, "f", ft)
     x, y, ptr = f.parameters
     entry = BasicBlock(f, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     idxs = @view LLVM.Value[x, y][1:1]
     gep = gep!(builder, i32, ptr, idxs)

@@ -1,19 +1,153 @@
 @testset "insertion points" begin
 
+@testset "builder" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))
+    bb = BasicBlock(f, "entry")
+    x = f.parameters[1]
+
+    @test builder.position === nothing
+    position!(builder, LLVM.at_end(bb))
+    @test builder.position == LLVM.at_end(bb)
+    @test builder.insert_block == bb
+    a = add!(builder, x, x, "a")
+    ret = ret!(builder, a)
+    @test builder.position == LLVM.at_end(bb)
+
+    # after an instruction in the middle of a block
+    position!(builder, LLVM.after(a))
+    @test builder.position == LLVM.after(a)
+    b = mul!(builder, a, a, "b")
+    c = sub!(builder, a, a, "c")
+    @test collect(bb.instructions) == [a, b, c, ret]
+
+    # after the last instruction, i.e., at the end of the block
+    position!(builder, LLVM.after(ret))
+    d = exactudiv!(builder, a, a)
+    @test ret.next == d
+    erase!(d)
+
+    # before an instruction
+    position!(builder, LLVM.before(a))
+    @test builder.position == LLVM.before(a)
+    e = sub!(builder, x, x, "e")
+    @test e.next == a
+
+    # at the beginning of a block, also before PHI nodes
+    position!(builder, LLVM.at_begin(bb))
+    @test builder.position == LLVM.at_begin(bb)
+    g = sub!(builder, x, x, "g")
+    @test first(bb.instructions) == g
+
+    # the beginning of an empty block is its end
+    empty = BasicBlock(f, "empty")
+    position!(builder, LLVM.at_begin(empty))
+    @test builder.position == LLVM.at_begin(empty)
+    @test builder.insert_block == empty
+    unreachable!(builder)
+    @test length(collect(empty.instructions)) == 1
+
+    # insertion points refer to instructions in a block
+    @test LLVM.before(a) isa InsertionPoint{Instruction}
+    @test LLVM.before(a) == LLVM.before(a)
+    @test LLVM.before(a) != LLVM.after(a)
+    remove!(e)
+    @test_throws ArgumentError LLVM.before(e)
+    @test_throws ArgumentError LLVM.after(e)
+    erase!(e)
+
+    # an insertion point whose instruction was moved elsewhere is invalid
+    pos = LLVM.before(g)
+    move!(g, LLVM.before(empty.terminator))
+    @test_throws ArgumentError position!(builder, pos)
+    erase!(g)
+
+    # a builder can't be positioned in another context
+    @dispose ctx2=Context() mod2=LLVM.Module("OtherModule") begin
+        f2 = LLVM.Function(mod2, "f", LLVM.FunctionType(LLVM.VoidType()))
+        @test_throws ArgumentError position!(builder, LLVM.at_end(BasicBlock(f2, "entry")))
+    end
+
+    # the builder was positioned by an insertion point in LLVM.jl 9
+    @test_throws MethodError position!(builder, a)
+    @test occursin("LLVM.before(inst)", sprint(showerror, MethodError(position!, (builder, a))))
+    @test_throws MethodError position!(builder, bb)
+    @test occursin("LLVM.at_end(bb)", sprint(showerror, MethodError(position!, (builder, bb))))
+
+    # insertion points print their position
+    @test occursin("at the end", sprint(show, LLVM.at_end(bb)))
+    @test occursin(r"before .*%b = mul", sprint(show, LLVM.before(b)))
+
+    position!(builder)
+    @test builder.position === nothing
+    @test builder.insert_block === nothing
+    verify(mod)
+end
+end
+
+@testset "scoped positioning" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType()))
+    bb = BasicBlock(f, "entry")
+    position!(builder, LLVM.at_end(bb))
+    ret = ret!(builder)
+
+    DIBuilder(mod) do dib
+        file = LLVM.file!(dib, "test.jl", "/tmp")
+        LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia, file, "LLVM.jl Tests")
+        sp = LLVM.subprogram!(dib, file, "f", file, 1, LLVM.subroutine_type!(dib, file, nothing))
+        f.subprogram = sp
+        loc1 = DILocation(1, 1, sp)
+        loc2 = DILocation(2, 1, sp)
+        ret.debug_location = loc2
+
+        # positioning restores the position and the debug location, which positioning
+        # before an instruction changes
+        builder.debug_location = loc1
+        value = position!(builder, LLVM.before(ret)) do
+            @test builder.debug_location == loc2
+            alloca!(builder, LLVM.Int32Type())
+        end
+        @test value isa Instruction
+        @test value.next == ret
+        @test value.debug_location == loc2
+        @test builder.position == LLVM.at_end(bb)
+        @test builder.debug_location == loc1
+
+        # also when the callback throws
+        @test_throws ErrorException position!(builder, LLVM.before(ret)) do
+            error("oops")
+        end
+        @test builder.position == LLVM.at_end(bb)
+        @test builder.debug_location == loc1
+
+        # and when the builder was not positioned
+        position!(builder)
+        builder.debug_location = nothing
+        position!(builder, LLVM.before(ret)) do
+            @test builder.insert_block == bb
+        end
+        @test builder.position === nothing
+        @test builder.debug_location === nothing
+    end
+    verify(mod)
+end
+end
+
 @testset "after_phis" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))
     x = f.parameters[1]
     entry = BasicBlock(f, "entry")
     body = BasicBlock(f, "body")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     br!(builder, body)
 
     # an empty block
     @test LLVM.after_phis(body) == LLVM.at_end(body)
 
     # only PHI nodes
-    position!(builder, body)
+    position!(builder, LLVM.at_end(body))
     phi1 = phi!(builder, LLVM.Int32Type())
     push!(phi1.incoming, (x, entry))
     phi2 = phi!(builder, LLVM.Int32Type())
@@ -68,11 +202,11 @@ end
     entry = BasicBlock(f, "entry")
     exit = BasicBlock(f, "exit")
     x = f.parameters[1]
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
     a = add!(builder, x, x, "a")
     b = mul!(builder, x, x, "b")
     br = br!(builder, exit)
-    position!(builder, exit)
+    position!(builder, LLVM.at_end(exit))
     c = sub!(builder, a, b, "c")
     ret = ret!(builder, c)
 
@@ -131,6 +265,12 @@ end
     end
     erase!(e)
 
+    # the builder's insertion point can be used to insert at the builder
+    position!(builder, LLVM.before(ret))
+    e = copy(c)
+    move!(e, builder.position)
+    f_ = add!(builder, e, e)
+    @test collect(exit.instructions)[end-2:end] == [e, f_, ret]
     verify(mod)
 end
 end
@@ -193,6 +333,54 @@ end
 end
 end
 
+# builder positions next to instructions with debug records
+if LLVM.version() >= v"19"
+@testset "builder and debug records" begin
+@dispose ctx=Context() builder=IRBuilder() begin
+    mod = parse(LLVM.Module, """
+        define void @f(i32 %x) !dbg !5 {
+          %p = alloca i32, align 4
+            #dbg_value(i32 %x, !9, !DIExpression(), !10)
+          ret void, !dbg !10
+        }
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+
+        !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "test.c", directory: "/tmp")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+        !6 = !DISubroutineType(types: !7)
+        !7 = !{null}
+        !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+        !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
+        !10 = !DILocation(line: 2, column: 1, scope: !5)
+        """)
+    f = mod.functions["f"]
+    x = f.parameters[1]
+    alloca, ret = f.entry.instructions
+    records(inst) = collect(inst.debug_records)
+    (record,) = records(ret)
+
+    # after an instruction: before the debug records of the next one
+    position!(builder, LLVM.after(alloca))
+    a = add!(builder, x, x)
+    @test alloca.next == a
+    @test isempty(records(a)) && records(ret) == [record]
+
+    # before an instruction: after its debug records, which now precede the new one
+    position!(builder, LLVM.before(ret))
+    b = add!(builder, x, x)
+    @test b.next == ret
+    @test records(b) == [record] && isempty(records(ret))
+
+    verify(mod)
+    dispose(mod)
+end
+end
+end
+
 @testset "basic blocks" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())
@@ -201,7 +389,7 @@ end
     names(f) = [bb.name for bb in f.blocks]
     function block!(pos, name)
         bb = BasicBlock(pos, name)
-        position!(builder, bb)
+        position!(builder, LLVM.at_end(bb))
         ret!(builder)
         bb
     end

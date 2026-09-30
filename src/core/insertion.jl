@@ -18,9 +18,11 @@ or the functions or global variables of a module (`InsertionPoint{Function}` and
 
 Insertion points are created with [`LLVM.before`](@ref), [`LLVM.after`](@ref),
 [`LLVM.at_begin`](@ref), [`LLVM.at_end`](@ref) and [`LLVM.after_phis`](@ref), and are
-used to move objects ([`move!`](@ref)) and to create basic blocks ([`BasicBlock`](@ref)):
+used to position an instruction builder ([`position!`](@ref)), to move objects
+([`move!`](@ref)) and to create basic blocks ([`BasicBlock`](@ref)):
 
 ```julia
+position!(builder, LLVM.after(inst))
 move!(inst, LLVM.at_begin(bb))
 BasicBlock(LLVM.after(entry), "cont")
 ```

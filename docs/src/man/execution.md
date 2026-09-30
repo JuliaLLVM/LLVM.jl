@@ -151,7 +151,7 @@ julia> ts_mod() do mod
            ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
            fn = LLVM.Function(mod, "add", ft)
            @dispose builder=IRBuilder() begin
-               position!(builder, BasicBlock(fn, "entry"))
+               position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
                ret!(builder, add!(builder, fn.parameters...))
            end
            return
@@ -270,7 +270,7 @@ julia> ts_mod = ThreadSafeModule("jit");
 julia> ts_mod() do mod
            fn = LLVM.Function(mod, "temporary", LLVM.FunctionType(LLVM.VoidType()))
            @dispose builder=IRBuilder() begin
-               position!(builder, BasicBlock(fn, "entry"))
+               position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
                ret!(builder)
            end
            return

@@ -11,7 +11,7 @@ function test_module()
 
     @dispose builder=IRBuilder() begin
         entry = BasicBlock(fn, "entry")
-        position!(builder, entry)
+        position!(builder, LLVM.at_end(entry))
 
         ret!(builder)
     end
@@ -738,7 +738,7 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
                 for name in ("SomeFunction", "dead_func")
                     fn = LLVM.Function(mod, name, ft)
                     @dispose builder=IRBuilder() begin
-                        position!(builder, BasicBlock(fn, "entry"))
+                        position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
                         ret!(builder)
                     end
                 end

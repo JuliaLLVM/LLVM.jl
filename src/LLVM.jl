@@ -132,6 +132,7 @@ function __init__()
 
     register_eh_frame_stubs()
     _install_handlers()
+    Base.Experimental.register_error_hint(position_hint, MethodError)
     atexit(report_leaks)
 end
 

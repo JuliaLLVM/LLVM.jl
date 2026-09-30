@@ -54,18 +54,50 @@ end
 Instructions are created using an `IRBuilder`. This object is first positioned, and then used
 to create instructions by calling specific functions.
 
-To position an `IRBuilder`, several APIs are available:
+An `IRBuilder` is positioned at an insertion point, which spells out where new
+instructions will go:
 
-- `position`: get the basic block where the builder is currently positioned.
-- `position!(builder, ::Instruction)`: position the builder before an instruction.
-- `position!(builder, ::Instruction; after=true)`: position the builder after an
-  instruction, which is at the end of its basic block if it is the last instruction.
-- `position!(builder, ::BasicBlock)`: position the builder at the end of a basic block.
+- `position!(builder, LLVM.at_end(bb))`: at the end of a basic block, e.g., to build its
+  instructions in order.
+- `position!(builder, LLVM.before(inst))` and `position!(builder, LLVM.after(inst))`: next
+  to an instruction.
+- `position!(builder, LLVM.at_begin(bb))`: at the very beginning of a block, before any PHI
+  nodes.
+- `position!(builder, LLVM.after_phis(bb))`: at the first position of a block where other
+  instructions than PHI nodes can go, i.e., after the PHI nodes and any exception-handling
+  pad like a `landingpad`.
+- `position!(builder, pos) do ... end`: temporarily position the builder, restoring its
+  position and debug location afterwards.
 - `position!(builder)`: clear the position of the builder.
+- `builder.position`: the insertion point of the builder, or `nothing`, and
+  `builder.insert_block`: the block it inserts into.
 
-Given a pre-created `Instruction`, or more commonly an instruction that has been `delete!`d
-from a basic block, it is possible to insert it back into a different basic block by
-calling the `insert!` function.
+The same insertion points are used to move instructions (`move!(inst, pos)`), basic blocks
+(`move!(bb, LLVM.after(other))`), functions and global variables, and to create basic blocks
+(`BasicBlock(LLVM.after(entry), "cont")`). An insertion point is resolved when it is
+created: `LLVM.after(inst)` is the position before the next instruction, or the end of the
+block if `inst` is the last one. Like an iterator, an insertion point becomes invalid when
+the instruction it inserts before is erased.
+
+An instruction that isn't part of a basic block, e.g., a `copy` of another instruction or
+one that was `remove!`d from its block, can be inserted at the builder's position with
+`move!(inst, builder.position)`. Unlike the instructions that the builder creates, it keeps
+its own debug location; use `inst.debug_location = builder.debug_location` to give it the
+builder's.
+
+On LLVM 19 and later, instructions can have debug records attached (the `#dbg_value` lines
+in textual IR, see [`inst.debug_records`](@ref LLVM.Instruction)). New instructions go
+between the debug records of an instruction and the instruction itself when inserted
+`LLVM.before(inst)`, while `LLVM.after(prev)` and `LLVM.at_begin(bb)` insert before those
+records:
+
+```
+%prev = ...
+                  ; <- LLVM.after(%prev)
+  #dbg_value(...)
+                  ; <- LLVM.before(%inst)
+%inst = ...
+```
 
 The essential functionality of the `IRBuilder` is the ability to create instructions. This
 is done by calling specific functions:
@@ -73,7 +105,7 @@ is done by calling specific functions:
 ```jldoctest
 julia> builder = IRBuilder();
 
-julia> position!(builder, bb)
+julia> position!(builder, LLVM.at_end(bb))
 
 julia> ret!(builder);
 
@@ -97,7 +129,7 @@ julia> f = LLVM.Function(mod, "extract", LLVM.FunctionType(LLVM.Int8Type(), [typ
 
 julia> builder = IRBuilder();
 
-julia> position!(builder, BasicBlock(f, "entry"))
+julia> position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
 
 julia> ev = extract_value!(builder, f.parameters[1], [1, 2])
 %1 = extractvalue { i32, [4 x i8] } %0, 1, 2
@@ -124,7 +156,7 @@ DocTestSetup = quote
     caller = LLVM.Function(mod, "CallSomeFunction", fun.function_type)
     top = BasicBlock(caller, "top")
     builder = LLVM.IRBuilder();
-    position!(builder, top)
+    position!(builder, LLVM.at_end(top))
 end
 ```
 
@@ -185,7 +217,7 @@ DocTestSetup = quote
     fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
     bb = BasicBlock(fun, "entry")
     builder = IRBuilder()
-    position!(builder, bb)
+    position!(builder, LLVM.at_end(bb))
 end
 ```
 
@@ -342,7 +374,7 @@ DocTestSetup = quote
     fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), LLVM.Int32Type()]))
     bb = BasicBlock(fun, "entry")
     builder = IRBuilder();
-    position!(builder, bb)
+    position!(builder, LLVM.at_end(bb))
 end
 ```
 
@@ -387,7 +419,7 @@ DocTestSetup = quote
     fun = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType(), [LLVM.FloatType()]))
     bb = BasicBlock(fun, "entry")
     builder = IRBuilder();
-    position!(builder, bb)
+    position!(builder, LLVM.at_end(bb))
 end
 ```
 

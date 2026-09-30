@@ -17,11 +17,9 @@ may_have_side_effects
 IRBuilder
 IRBuilder()
 dispose(::IRBuilder)
-position
-position!(::IRBuilder, ::Instruction)
-position!(::IRBuilder, ::BasicBlock)
+position!(::IRBuilder, ::InsertionPoint{Instruction})
+position!(::Function, ::IRBuilder, ::InsertionPoint{Instruction})
 position!(::IRBuilder)
-insert!(::IRBuilder, ::Instruction, ::String)
 ```
 
 ## Insertion points

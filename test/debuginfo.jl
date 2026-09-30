@@ -293,7 +293,7 @@ end
             fn.subprogram = sp
 
             bb = BasicBlock(fn, "entry")
-            position!(builder, bb)
+            position!(builder, LLVM.at_end(bb))
             x_alloca = alloca!(builder, LLVM.Int64Type(), "x.addr")
 
             var = LLVM.auto_variable!(dib, sp, "x", file, 2, i64)

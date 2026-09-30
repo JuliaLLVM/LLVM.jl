@@ -23,7 +23,7 @@ end
     # generate IR
     @dispose builder=IRBuilder() begin
         entry = BasicBlock(sum, "entry")
-        position!(builder, entry)
+        position!(builder, LLVM.at_end(entry))
 
         tmp = add!(builder, sum.parameters[1], sum.parameters[2], "tmp")
         ret!(builder, tmp)

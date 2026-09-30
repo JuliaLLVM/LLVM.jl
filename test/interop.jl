@@ -121,9 +121,9 @@ end
     then_bb = BasicBlock(f, "then")
     else_bb = BasicBlock(f, "else")
     br!(builder, trunc!(builder, c, LLVM.Int1Type()), then_bb, else_bb)
-    position!(builder, then_bb)
+    position!(builder, LLVM.at_end(then_bb))
     ret!(builder, x)
-    position!(builder, else_bb)
+    position!(builder, LLVM.at_end(else_bb))
     ret!(builder, y)
 end
 @test lg_select(true, 1, 2) === 1
@@ -353,7 +353,7 @@ function test_module()
 
     @dispose builder=IRBuilder() begin
         entry = BasicBlock(fn, "entry")
-        position!(builder, entry)
+        position!(builder, LLVM.at_end(entry))
 
         ret!(builder)
     end

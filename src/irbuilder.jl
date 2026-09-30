@@ -5,7 +5,7 @@
 # concrete type of their operands (which would compile them for every combination).
 @nospecialize
 
-@vocabulary Build IRBuilder,
+@vocabulary Build IRBuilder, InsertionPoint,
                   position!
 
 """
@@ -18,6 +18,16 @@ An instruction builder, which is used to build instructions within a basic block
     builder.context
 
 The context of the instruction builder.
+
+    builder.insert_block
+
+The basic block that the instruction builder inserts instructions into, or `nothing` if the
+builder is not positioned.
+
+    builder.position
+
+The [`InsertionPoint`](@ref) where the instruction builder inserts instructions, or
+`nothing` if the builder is not positioned. See [`position!`](@ref) to change it.
 
     builder.debug_location
     builder.debug_location = loc::Union{Metadata,MetadataAsValue,Nothing}
@@ -67,53 +77,74 @@ end
 
 Base.show(io::IO, builder::IRBuilder) = @printf(io, "IRBuilder(%p)", builder.ref)
 
-"""
-    position(builder::IRBuilder)
+function insert_block(builder::IRBuilder)
+    ref = API.LLVMGetInsertBlock(builder)
+    ref == C_NULL ? nothing : BasicBlock(ref)
+end
 
-Return the current position of the instruction builder.
-"""
-Base.position(builder::IRBuilder) = BasicBlock(API.LLVMGetInsertBlock(builder))
+@property IRBuilder insert_block
+
+function insertion_point(builder::IRBuilder)
+    anchor = Ref{API.LLVMValueRef}()
+    head = Ref{API.LLVMBool}()
+    bb = API.LLVMExtraGetInsertPoint(builder, anchor, head)
+    bb == C_NULL && return nothing
+    InsertionPoint{Instruction}(API.LLVMBasicBlockAsValue(bb), anchor[], Bool(head[]))
+end
+
+@property IRBuilder position => insertion_point
 
 """
-    position!(builder::IRBuilder, inst::Instruction; after::Bool=false)
+    position!(builder::IRBuilder, pos::InsertionPoint{Instruction})
 
-Position the instruction builder before the given instruction, or, when `after` is set,
-directly after it (at the end of the basic block if it is the last instruction). Like C++'s
-`Instruction::insertAfter`, new instructions are then inserted before any debug records
-that precede the next instruction.
+Position the instruction builder at the given insertion point, e.g.,
+`position!(builder, LLVM.after(inst))` or `position!(builder, LLVM.at_end(bb))`. See
+[`LLVM.before`](@ref), [`LLVM.after`](@ref), [`LLVM.at_begin`](@ref),
+[`LLVM.at_end`](@ref) and [`LLVM.after_phis`](@ref) for the available positions.
 
-Positioning is literal: after a `phi` instruction, the builder is positioned before the next
-instruction, even if that is another `phi` instruction where other instructions cannot be
-inserted.
+Like C++'s `IRBuilder::SetInsertPoint`, positioning the builder before an instruction (which
+includes `LLVM.after` an instruction that is not the last one) sets the debug location of
+the builder to the one of that instruction.
 """
-function position!(builder::IRBuilder, inst::Instruction; after::Bool=false)
-    if after
-        bb = API.LLVMGetInstructionParent(inst)
-        bb == C_NULL &&
-            throw(ArgumentError("Cannot position after an instruction that is not part of a basic block"))
-        next = API.LLVMGetNextInstruction(inst)
-        if next == C_NULL
-            API.LLVMPositionBuilderAtEnd(builder, bb)
-        else
-            @static if version() >= v"19"
-                API.LLVMPositionBuilderBeforeInstrAndDbgRecords(builder, next)
-            else
-                API.LLVMPositionBuilderBefore(builder, next)
-            end
-        end
-    else
-        API.LLVMPositionBuilderBefore(builder, inst)
-    end
+function position!(builder::IRBuilder, pos::InsertionPoint{Instruction})
+    bb = check_valid(pos)
+    API.LLVMGetBuilderContext(builder) == API.LLVMGetValueContext(bb) ||
+        throw(ArgumentError("Cannot position an instruction builder in another context"))
+    API.LLVMExtraPositionBuilder(builder, bb, pos.anchor, pos.head)
     return
 end
 
 """
-    position!(builder::IRBuilder, bb::BasicBlock)
+    position!(f, builder::IRBuilder, pos::InsertionPoint{Instruction})
 
-Position the instruction builder at the end of the given basic block.
+Temporarily position the instruction builder at the given insertion point while calling
+`f()`, e.g.:
+
+```julia
+position!(builder, LLVM.after_phis(bb)) do
+    # ...
+end
+```
+
+Afterwards, the position and debug location of the builder are restored, also when `f`
+throws or when the builder wasn't positioned before. Returns the value returned by `f`.
 """
-position!(builder::IRBuilder, bb::BasicBlock) =
-    API.LLVMPositionBuilderAtEnd(builder, bb)
+function position!(@specialize(f::Core.Function), builder::IRBuilder,
+                   pos::InsertionPoint{Instruction})
+    old_pos = insertion_point(builder)
+    old_loc = debug_location(builder)
+    position!(builder, pos)
+    try
+        f()
+    finally
+        if old_pos === nothing
+            position!(builder)
+        else
+            position!(builder, old_pos)
+        end
+        old_loc === nothing ? debug_location!(builder) : debug_location!(builder, old_loc)
+    end
+end
 
 """
     position!(builder::IRBuilder)
@@ -122,14 +153,19 @@ Clear the current position of the instruction builder.
 """
 position!(builder::IRBuilder) = API.LLVMClearInsertionPosition(builder)
 
-"""
-    insert!(builder::IRBuilder, inst::Instruction, [name::String])
-
-Insert an instruction into the current basic block at the current position, optionally
-giving it a name.
-"""
-Base.insert!(builder::IRBuilder, inst::Instruction, name::String="") =
-    API.LLVMInsertIntoBuilderWithName(builder, inst, name)
+# LLVM.jl 9 positioned builders with `position!(builder, inst)` and `position!(builder, bb)`,
+# which didn't make clear where instructions would be inserted
+function position_hint(io, exc, argtypes, kwargs)
+    exc.f === position! && length(argtypes) == 2 && argtypes[1] <: IRBuilder || return
+    if argtypes[2] <: Instruction
+        print(io, "\nTo position the builder next to an instruction, use ",
+              "`position!(builder, LLVM.before(inst))` or `LLVM.after(inst)`.")
+    elseif argtypes[2] <: BasicBlock
+        print(io, "\nTo position the builder in a basic block, use ",
+              "`position!(builder, LLVM.at_end(bb))`, `LLVM.at_begin(bb)` or ",
+              "`LLVM.after_phis(bb)`.")
+    end
+end
 
 function debug_location(builder::IRBuilder)
     ref = API.LLVMGetCurrentDebugLocation2(builder)
@@ -817,7 +853,7 @@ function globalstring!(mod::LLVM.Module, str::String, name::String="";
     return gv
 end
 function globalstring!(builder::IRBuilder, args...; kwargs...)
-    mod = parent(parent(position(builder)))
+    mod = parent(parent(insert_block(builder)))
     globalstring!(mod, args...; kwargs...)
 end
 

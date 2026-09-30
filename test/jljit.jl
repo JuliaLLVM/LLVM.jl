@@ -71,7 +71,7 @@ end
             # generate IR
             @dispose builder=IRBuilder() begin
                 entry = BasicBlock(wrapper, "entry")
-                position!(builder, entry)
+                position!(builder, LLVM.at_end(entry))
 
                 tmp = call!(builder, ft, fn, [wrapper.parameters...])
                 ret!(builder, tmp)
@@ -128,7 +128,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
 
                 @dispose builder=IRBuilder() begin
                     entry = BasicBlock(fn, "entry")
-                    position!(builder, entry)
+                    position!(builder, LLVM.at_end(entry))
                     ret!(builder)
                 end
                 verify(mod)
@@ -158,7 +158,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
 
                 @dispose builder=IRBuilder() begin
                     entry = BasicBlock(fn, "entry")
-                    position!(builder, entry)
+                    position!(builder, LLVM.at_end(entry))
                     val = load!(builder, LLVM.Int32Type(), gv)
                     ret!(builder, val)
                 end
@@ -251,7 +251,7 @@ end
                     # generate IR
                     @dispose builder=IRBuilder() begin
                         entry = BasicBlock(fn, "entry")
-                        position!(builder, entry)
+                        position!(builder, LLVM.at_end(entry))
 
                         tmp = add!(builder, fn.parameters...)
                         ret!(builder, tmp)

@@ -5,7 +5,7 @@
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     ret!(builder)
 
@@ -24,7 +24,7 @@ end
     fn = LLVM.Function(mod, "SomeFunction", ft)
 
     entry = BasicBlock(fn, "entry")
-    position!(builder, entry)
+    position!(builder, LLVM.at_end(entry))
 
     ret!(builder)
 
@@ -47,15 +47,15 @@ end
     bb2 = BasicBlock(fn, "then")
     bb3 = BasicBlock(fn, "else")
 
-    position!(builder, bb1)
+    position!(builder, LLVM.at_end(bb1))
     allocinst1 = alloca!(builder, LLVM.Int8Type())
     brinst = br!(builder, fn.parameters[1], bb2, bb3)
     @test brinst.opcode == LLVM.API.LLVMBr
 
-    position!(builder, bb2)
+    position!(builder, LLVM.at_end(bb2))
     retinst2 = ret!(builder)
 
-    position!(builder, bb3)
+    position!(builder, LLVM.at_end(bb3))
     allocinst3 = alloca!(builder, LLVM.Int8Type())
     retinst3 = ret!(builder)
 

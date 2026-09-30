@@ -53,7 +53,7 @@ function emit_inc(val)
     entry = BasicBlock(sum, "entry")
 
     @dispose builder=IRBuilder() begin
-        position!(builder, entry)
+        position!(builder, LLVM.at_end(entry))
 
         tmp = add!(builder, sum.parameters[1], ConstantInt(LLVM.Int32Type(), val))
         ret!(builder, tmp)
@@ -79,20 +79,20 @@ function emit_phi()
     merge = BasicBlock(fn, "ifcont")
 
     @dispose builder=IRBuilder() begin
-        position!(builder, entry)
+        position!(builder, LLVM.at_end(entry))
 
         cond = LLVM.icmp!(builder, LLVM.API.LLVMIntSGT, fn.parameters[1], fn.parameters[2], "ifcond")
         br!(builder, cond, then, elsee)
 
-        position!(builder, then)
+        position!(builder, LLVM.at_end(then))
         thencg = add!(builder, fn.parameters[1], ConstantInt(LLVM.Int32Type(), 2))
         br!(builder, merge)
 
-        position!(builder, elsee)
+        position!(builder, LLVM.at_end(elsee))
         elsecg = sub!(builder, fn.parameters[2], LLVM.ConstantInt(LLVM.Int32Type(), 5))
         br!(builder, merge)
 
-        position!(builder, merge)
+        position!(builder, LLVM.at_end(merge))
         phi = phi!(builder, LLVM.Int32Type(), "iftmp")
 
         append!(phi.incoming, [(thencg, then), (elsecg, elsee)])

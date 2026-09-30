@@ -1251,6 +1251,23 @@ void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB) {
     delete B;
 }
 
+void LLVMExtraPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef BB,
+                              LLVMValueRef Before, LLVMBool Head) {
+  unwrap(Builder)->SetInsertPoint(unwrap(BB), insertionPoint(BB, Before, Head));
+}
+
+LLVMBasicBlockRef LLVMExtraGetInsertPoint(LLVMBuilderRef Builder, LLVMValueRef *Before,
+                                          LLVMBool *Head) {
+  IRBuilder<> *B = unwrap(Builder);
+  BasicBlock *BB = B->GetInsertBlock();
+  *Before = nullptr;
+  *Head = false;
+  if (!BB)
+    return nullptr;
+  readInsertionPoint(BB, B->GetInsertPoint(), Before, Head);
+  return wrap(BB);
+}
+
 LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before,
                                       LLVMBool *Head) {
   BasicBlock *B = unwrap(BB);

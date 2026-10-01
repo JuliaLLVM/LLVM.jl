@@ -17,6 +17,18 @@ supports_typed_ptrs = let
     end
 end
 
+# how long it takes to compile code when expanding a generator
+function compile_time(@nospecialize(f), @nospecialize(tt))
+    Base.cumulative_compile_timing(true)
+    try
+        t0 = Base.cumulative_compile_time_ns()[1]
+        code_lowered(f, tt; generated=true)
+        return Base.cumulative_compile_time_ns()[1] - t0
+    finally
+        Base.cumulative_compile_timing(false)
+    end
+end
+
 @testset "base" begin
 
 # hand-written generators, using `generate_llvmcall`
@@ -40,6 +52,27 @@ end
     end
 end
 @test baz(1) == 43
+
+# expanding a generator for new argument types shouldn't compile code, unless the callback
+# itself specializes on them
+gen_identity(builder, x, n) = (@nospecialize; x)
+@generated nocompile(x, ::Val{N}) where {N} =
+    generate_llvmcall(gen_identity, x, Tuple{x, Val{N}}, :x, :nothing)
+compile_time(nocompile, Tuple{Int, Val{1}})
+@test compile_time(nocompile, Tuple{Int32, Val{2}}) == 0
+@test compile_time(nocompile, Tuple{UInt8, Val{:x}}) == 0
+@test nocompile(UInt8(42), Val(:x)) === UInt8(42)
+
+# the pattern recommended by the docstring of `generate_llvmcall`
+function emit_scale(builder, T, x)
+    @nospecialize
+    mul!(builder, x, ConstantInt(convert(LLVMType, T), sizeof(T)))
+end
+@generated scale(x::T) where {T<:Integer} =
+    generate_llvmcall(emit_scale, T, Tuple{Type{T}, T}, T, :x)
+@test scale(Int64(3)) === Int64(24)
+@test compile_time(scale, Tuple{Int32}) == 0
+@test scale(Int16(3)) === Int16(6)
 
 @eval struct GhostType end
 @eval struct NonGhostType1
@@ -178,12 +211,45 @@ ir = sprint(io->code_llvm(io, lg_trap, Tuple{}; debuginfo=:none))
 end
 @test lg_boxed("foo") === "foo"
 
+# arguments with a write-only name
+@llvmgenerated builder function lg_underscore(_::Int, x::Int, __)::Int
+    x
+end
+@test lg_underscore(1, 2, 3) === 2
+
 # default arguments
 @llvmgenerated builder function lg_default(x::Int, ::Val{N}=Val(1))::Int where {N}
     add!(builder, x, ConstantInt(N))
 end
 @test lg_default(1) === 2
 @test lg_default(1, Val(2)) === 3
+
+# static parameters are bound to their value, or to what Julia passes to generators for
+# unbound ones (a `TypeVar`, but something else on Julia 1.14)
+@llvmgenerated builder function lg_sparams(x::T, ::Val{N})::T where {T<:Integer,N}
+    @test T === Int
+    @test N === 3
+    f = () -> T
+    @test f() === Int
+    x
+end
+@test lg_sparams(42, Val(3)) === 42
+@generated gen_unbound(x::Union{T,Nothing}) where {T} = typeof(T)
+@llvmgenerated builder function lg_unbound(x::Union{T,Nothing})::Nothing where {T}
+    @test typeof(T) === gen_unbound(nothing)
+    nothing
+end
+@test lg_unbound(nothing) === nothing
+
+# the body is compiled once, and not for every specialization
+@llvmgenerated builder function lg_compile(x::T, ::Val{N}, rest...)::T where {T,N}
+    x
+end
+compile_time(lg_compile, Tuple{Int, Val{1}})
+@test compile_time(lg_compile, Tuple{Int32, Val{2}}) == 0
+@test compile_time(lg_compile, Tuple{UInt8, Val{:x}}) == 0
+@test compile_time(lg_compile, Tuple{UInt8, Val{:x}, Int, Nothing}) == 0
+@test lg_compile(UInt8(42), Val(:x), 1, nothing) === UInt8(42)
 
 # IR is verified as llvmcall sees it, after upgrading outdated constructs
 @llvmgenerated builder function lg_upgraded()::Int32
@@ -322,6 +388,11 @@ e7(x) = @asmcall("mov \$2, \$0; mov \$2, \$1;", "=r,=r,r", true,
 let ir = sprint(io -> code_llvm(io, e7, Tuple{Int32}))
     @test occursin(r"call \{ i32, i32 \} asm", ir)
     @test !occursin(r"call \[2 x i32\] asm", ir)
+# generating the IR doesn't compile code for every assembly string or type
+asm_sig(asm, T) = Tuple{Val{Symbol(asm)}, Val{Symbol("=r,0")}, Val{false}, Val{T}, Val{Tuple{T}}, T}
+compile_time(LLVM.Interop._asmcall, asm_sig("# nop", Int))
+@test compile_time(LLVM.Interop._asmcall, asm_sig("# nop 2", Int32)) == 0
+
 end
 
 # tuples of VecElements lower to a single vector output
@@ -630,6 +701,15 @@ end
                               Tuple{Core.LLVMPtr{Singleton,0},
                               Singleton}))
     @test !occursin("\bstore\b", ir)
+end
+
+# generating the IR doesn't compile code for every intrinsic or type
+tcc_sig(T) = Tuple{Val{Symbol("llvm.bitreverse.i$(8sizeof(T))")}, Type{T}, Type{Tuple{T}}, T}
+# (on Julia 1.14, signatures with `Type{T}` aren't dispatch tuples anymore, and
+#  `code_lowered` doesn't expand generators for them)
+if Base.isdispatchtuple(tcc_sig(Int64))
+    compile_time(LLVM.Interop._typed_llvmcall, tcc_sig(Int64))
+    @test compile_time(LLVM.Interop._typed_llvmcall, tcc_sig(Int32)) == 0
 end
 
 if supports_typed_ptrs

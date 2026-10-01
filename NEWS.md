@@ -554,6 +554,8 @@ Bug fixes:
 - The `memcheck` debugging mode supports objects that are allocated and disposed of
   concurrently, e.g., by ORC compiling code on multiple threads, which could corrupt its
   bookkeeping.
+- `@llvmgenerated` functions can have arguments named `_`, which failed to compile because
+  the argument was passed on to `llvmcall` by name.
 
 Other changes:
 
@@ -595,6 +597,23 @@ Other changes:
 - `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
   calling it, which created an LLVM context when none was active, so it is cheap and can
   be constant-folded (#620).
+- The code that expands generators using `@llvmgenerated` or `generate_llvmcall` doesn't
+  compile code for every specialization of the function anymore, which on Julia 1.12 took
+  about 10 ms each time.
+- The body of an `@llvmgenerated` function is compiled once, and not for every
+  specialization of the function, as it doesn't specialize on the argument types and the
+  static parameters anymore. Together with the above, this makes the first call of a new
+  specialization of, e.g., an atomic operation in UnsafeAtomics.jl about 5 times faster on
+  Julia 1.12 (5 ms instead of 28 ms), and a precompilation workload that calls one
+  specialization of a function also precompiles its body for the others.
+- `@asmcall` and `@typed_ccall` don't compile code for every assembly string, intrinsic or
+  combination of types they're used with, which on Julia 1.12 took 15 to 50 ms each. The
+  documentation of `generate_llvmcall` describes how to write callbacks that are compiled
+  once.
+- Defining and expanding `@llvmgenerated` functions is precompiled, including LLVM.jl's own
+  ones for loading from and storing to `Core.LLVMPtr`s, which makes the first call of
+  `unsafe_load` or `unsafe_store!` on an `LLVMPtr` take a few milliseconds instead of a few
+  hundred.
 
 
 ## LLVM.jl v9.14

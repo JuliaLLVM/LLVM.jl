@@ -68,6 +68,19 @@
             end
         end
 
+        # defining and expanding `@llvmgenerated` functions, like LLVM.jl's own ones for
+        # accessing `LLVMPtr`s, which caches the code shared by all generators as well as the
+        # bodies of the ones in LLVM.jl
+        macroexpand(Interop, :(@llvmgenerated builder function f(x::T, ::Val{N}, rest...)::T where {T,N}
+            x
+        end))
+        let x = Ref(42)
+            GC.@preserve x begin
+                ptr = reinterpret(Core.LLVMPtr{Int,0}, Base.unsafe_convert(Ptr{Int}, x))
+                unsafe_store!(ptr, unsafe_load(ptr) + 1)
+            end
+        end
+
         # ORC JIT
         tm = JITTargetMachine()
         jit = LLJIT(; tm=JITTargetMachine())

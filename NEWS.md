@@ -448,6 +448,10 @@ New functionality:
   `ConstantTokenNone`, `ConstantTargetNone` and `ConstantPtrAuth` constants. Previously,
   encountering any of these, e.g., as an operand of an `indirectbr` or `cleanuppad`
   instruction, or creating `null(LLVM.TokenType())`, threw an "Unknown value kind" error.
+- `LLVM.load_library_permanently`, `LLVM.add_symbol` and `LLVM.find_symbol` are public.
+  They make libraries and symbols available to the legacy execution engines, using LLVM's
+  process-wide symbol search. `load_library_permanently` throws an `LLVMException` if the
+  library can't be loaded, where it returned the C API's status.
 - The `memcheck` debugging mode reports every problem once for objects allocated and
   disposed of at the same locations in user code, counting where it happens, with an update
   when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects

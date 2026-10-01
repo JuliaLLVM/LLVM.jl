@@ -309,10 +309,11 @@ it atomic. `cmpxchg` instructions have separate `success_ordering` and `failure_
 properties instead, which can be combined using [`merged_ordering`](@ref).
 
     inst.syncscope
-    inst.syncscope = scope::SyncScope
+    inst.syncscope = scope::Union{SyncScope,AbstractString,Symbol}
 
 The synchronization scope of an atomic load, store, fence, `atomicrmw` or `cmpxchg`
-instruction.
+instruction, which belongs to the context of the instruction. A scope can be assigned by
+name (e.g., `inst.syncscope = "agent"`), which is looked up in the instruction's context.
 
     rmw.binop
 
@@ -422,7 +423,9 @@ const RMW_BINOP_NAMES = Dict(
     "usub_cond" => API.LLVMAtomicRMWBinOpUSubCond,
     "usub_sat" => API.LLVMAtomicRMWBinOpUSubSat,
     "fmaximum" => API.LLVMAtomicRMWBinOpFMaximum,
-    "fminimum" => API.LLVMAtomicRMWBinOpFMinimum)
+    "fminimum" => API.LLVMAtomicRMWBinOpFMinimum,
+    "fmaximumnum" => API.LLVMAtomicRMWBinOpFMaximumNum,
+    "fminimumnum" => API.LLVMAtomicRMWBinOpFMinimumNum)
 
 """
     parse(LLVM.AtomicRMWBinOp.T, name::AbstractString)
@@ -437,10 +440,35 @@ function Base.parse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString)
     return op
 end
 
+@public irname
+
+const RMW_BINOP_IRNAMES = Dict(op => name for (name, op) in RMW_BINOP_NAMES)
+const ORDERING_IRNAMES = Dict(
+    API.LLVMAtomicOrderingNotAtomic => "not_atomic",
+    API.LLVMAtomicOrderingUnordered => "unordered",
+    API.LLVMAtomicOrderingMonotonic => "monotonic",
+    API.LLVMAtomicOrderingAcquire => "acquire",
+    API.LLVMAtomicOrderingRelease => "release",
+    API.LLVMAtomicOrderingAcquireRelease => "acq_rel",
+    API.LLVMAtomicOrderingSequentiallyConsistent => "seq_cst")
+
+"""
+    LLVM.irname(op::LLVM.AtomicRMWBinOp.T)
+    LLVM.irname(ordering::LLVM.AtomicOrdering.T)
+
+Get the name of an `atomicrmw` operation or an atomic ordering as used in LLVM IR, e.g.,
+`"uinc_wrap"` or `"acq_rel"`. This is the inverse of `parse`, and works for every
+operation, whether or not the version of LLVM in use supports it (see
+[`LLVM.isavailable`](@ref)).
+"""
+irname(op::API.LLVMAtomicRMWBinOp) = RMW_BINOP_IRNAMES[op]
+irname(ordering::API.LLVMAtomicOrdering) = ORDERING_IRNAMES[ordering]
+
 is_fp_rmw(op::API.LLVMAtomicRMWBinOp) =
     op in (API.LLVMAtomicRMWBinOpFAdd, API.LLVMAtomicRMWBinOpFSub,
            API.LLVMAtomicRMWBinOpFMax, API.LLVMAtomicRMWBinOpFMin,
-           API.LLVMAtomicRMWBinOpFMaximum, API.LLVMAtomicRMWBinOpFMinimum)
+           API.LLVMAtomicRMWBinOpFMaximum, API.LLVMAtomicRMWBinOpFMinimum,
+           API.LLVMAtomicRMWBinOpFMaximumNum, API.LLVMAtomicRMWBinOpFMinimumNum)
 
 # the lattice of orderings, from llvm/Support/AtomicOrdering.h
 const ORDERING_LATTICE = let
@@ -520,41 +548,52 @@ end
 """
     SyncScope
 
-A synchronization scope for atomic operations.
+A synchronization scope for atomic operations. Synchronization scopes belong to a context,
+and can only be used with instructions of that context.
 
 # Properties
 
     scope.name
 
-The name of the synchronization scope, as known by the current context.
+The name of the synchronization scope.
+
+    scope.context
+
+The context that the synchronization scope belongs to. The scope doesn't keep it alive,
+so it can only be used for as long as the context is.
 """
 struct SyncScope
     id::Cuint
+    context_ref::API.LLVMContextRef     # borrowed
+
+    # scope IDs are specific to a context (except for the first ones, which are fixed)
+    SyncScope(id::Integer, ctx::Context) = new(id, ctx.ref)
 end
 @properties SyncScope
 
 """
-    SyncScope(name::String)
+    SyncScope(name::AbstractString; context=context())
 
-Create a synchronization scope with the given name. This can be a well-known scope such as
-`"singlethread"` or `"system"`, or a target-specific scope.
+Get the synchronization scope with the given name in `context`, by default the active
+context. This can be a well-known scope such as `"singlethread"` or `"system"`, or a
+target-specific scope, e.g., `"agent"`.
 """
-function SyncScope(name::String)
+function SyncScope(name::AbstractString; context::Context=LLVM.context())
     # the default, system syncscope gets encoded as an empty string
-    if name == "system"
-        name = ""
-    end
-    SyncScope(API.LLVMGetSyncScopeID(context(), name, ncodeunits(name)))
+    str = name == "system" ? "" : String(name)
+    SyncScope(API.LLVMGetSyncScopeID(context, str, ncodeunits(str)), context)
 end
 
-Base.convert(::Type{Cuint}, scope::SyncScope) = scope.id
+context(scope::SyncScope) = Context(scope.context_ref)
 
-# scope IDs are specific to a context, but the first ones are fixed
+@property SyncScope context
+
+# the first scope IDs are fixed
 function _name(scope::SyncScope)
     scope.id == 0 && return "singlethread"
     scope.id == 1 && return "system"
     len = Ref{Csize_t}()
-    ptr = convert(Ptr{UInt8}, API.LLVMExtraGetSyncScopeName(context(), scope, len))
+    ptr = convert(Ptr{UInt8}, API.LLVMExtraGetSyncScopeName(context(scope), scope.id, len))
     ptr == C_NULL && return nothing
     return unsafe_string(ptr, len[])
 end
@@ -568,8 +607,7 @@ end
 @property SyncScope name
 
 function Base.show(io::IO, scope::SyncScope)
-    str = if scope.id <= 1 ||
-             (context(; throw_error=false) !== nothing && isdefined(API, :libLLVMExtra))
+    str = if scope.id <= 1 || isdefined(API, :libLLVMExtra)
         _name(scope)
     end
     if str === nothing
@@ -579,15 +617,24 @@ function Base.show(io::IO, scope::SyncScope)
     end
 end
 
+function check_context(scope::SyncScope, ctx::Context)
+    scope.context_ref == ctx.ref ||
+        throw(ArgumentError("$scope belongs to another context; use `SyncScope(scope.name; context)` to get the scope with the same name in another context"))
+    return scope
+end
+
 function syncscope(inst::AtomicInst)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
-    SyncScope(API.LLVMGetAtomicSyncScopeID(inst))
+    SyncScope(API.LLVMGetAtomicSyncScopeID(inst), context(inst))
 end
 
 function syncscope!(inst::AtomicInst, scope::SyncScope)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
-    API.LLVMSetAtomicSyncScopeID(inst, scope)
+    check_context(scope, context(inst))
+    API.LLVMSetAtomicSyncScopeID(inst, scope.id)
 end
+syncscope!(inst::AtomicInst, name::Union{AbstractString,Symbol}) =
+    syncscope!(inst, SyncScope(String(name); context=context(inst)))
 
 @property AtomicInst syncscope syncscope!
 
@@ -652,6 +699,12 @@ The pointer operand of a memory access, i.e., the address of the memory that it 
 
 The value operand of a `store` or `atomicrmw` instruction, i.e., the value that is stored
 or combined with the value in memory.
+
+    cmpxchg.compare_operand
+    cmpxchg.new_value_operand
+
+The operands of a `cmpxchg` instruction: the value that the memory is compared with, and
+the value that is stored if they are equal.
 
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
@@ -969,7 +1022,7 @@ remove_attribute!(iter::CallSiteAttrSet, kind::AbstractString) =
 
 function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)
-    memory_locations()  # check that the attribute is supported
+    version() >= v"16" || return legacy_memory_effects_of(iter)
     ref = API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, memory_kind())
     ref == C_NULL && return MemoryEffects(:readwrite)
     return MemoryEffects(EnumAttribute(ref))
@@ -977,14 +1030,10 @@ end
 
 memory_effects(call::CallBase) = FunctionMemoryEffects(function_attributes(call))
 
-function memory_effects!(call::CallBase, effects::AnyMemoryEffects)
-    push!(function_attributes(call), EnumAttribute(MemoryEffects(effects)))
-    return
-end
+memory_effects!(call::CallBase, effects::AnyMemoryEffects) =
+    memory_effects!(function_attributes(call), MemoryEffects(effects))
 
-@static if version() >= v"16"
-    @property CallBase memory_effects memory_effects!
-end
+@property CallBase memory_effects memory_effects!
 
 # operand bundles
 
@@ -1622,6 +1671,12 @@ value_operand(inst::AtomicRMWInst) = Value(API.LLVMGetOperand(inst, 1))
 
 @property Union{StoreInst,AtomicRMWInst} value_operand
 
+compare_operand(inst::AtomicCmpXchgInst) = Value(API.LLVMGetOperand(inst, 1))
+new_value_operand(inst::AtomicCmpXchgInst) = Value(API.LLVMGetOperand(inst, 2))
+
+@property AtomicCmpXchgInst compare_operand
+@property AtomicCmpXchgInst new_value_operand
+
 allocated_type(inst::AllocaInst) = LLVMType(API.LLVMGetAllocatedType(inst))
 
 @property AllocaInst allocated_type
@@ -1630,6 +1685,59 @@ source_element_type(inst::GetElementPtrInst) =
     LLVMType(API.LLVMGetGEPSourceElementType(inst))
 
 @property GetElementPtrInst source_element_type
+
+function check_gep(ce::ConstantExpr)
+    opcode(ce) == API.LLVMGetElementPtr ||
+        throw(ArgumentError("Expected a getelementptr constant expression, got a $(opcode(ce)) expression"))
+    return ce
+end
+
+source_element_type(ce::ConstantExpr) =
+    LLVMType(API.LLVMGetGEPSourceElementType(check_gep(ce)))
+
+@property ConstantExpr source_element_type
+
+@public constant_offset
+
+"""
+    LLVM.constant_offset(gep, dl::DataLayout)
+
+Compute the offset in bytes that a `getelementptr` instruction or constant expression adds
+to its pointer operand, according to the data layout `dl`, or `nothing` if the offset isn't
+constant. The offset is a signed integer, computed with the index width of the pointer's
+address space, and returned as a `BigInt`.
+
+Only GEPs that compute a single pointer are supported, not those that compute a vector of
+pointers.
+
+    LLVM.constant_offset(T::Type{<:Integer}, gep, dl::DataLayout)
+
+Compute the offset like `LLVM.constant_offset(gep, dl)`, but return it as an integer of type
+`T` (e.g., `Int`), throwing an `InexactError` if it doesn't fit.
+"""
+function constant_offset(::Type{T}, gep::Union{GetElementPtrInst,ConstantExpr},
+                         dl::DataLayout) where {T<:Integer}
+    offset = constant_offset(gep, dl)
+    return offset === nothing ? nothing : convert(T, offset)
+end
+function constant_offset(gep::Union{GetElementPtrInst,ConstantExpr}, dl::DataLayout)
+    gep isa ConstantExpr && check_gep(gep)
+    T = value_type(gep)
+    T isa PointerType ||
+        throw(ArgumentError("Cannot compute the constant offset of a GEP of vectors of pointers"))
+    bits = Int(API.LLVMExtraGetIndexSizeInBits(dl, addrspace(T)))
+    words = zeros(UInt64, cld(bits, 64))
+    Bool(API.LLVMExtraGEPAccumulateConstantOffset(gep, dl, words)) || return nothing
+    offset = BigInt(0)
+    for (i, word) in enumerate(words)
+        offset |= BigInt(word) << (64 * (i - 1))
+    end
+    # the offset is a signed integer of `bits` bits
+    if bits > 0 && isodd(offset >> (bits - 1))
+        offset -= BigInt(1) << bits
+    end
+    return offset
+end
 
 inbounds(inst::GetElementPtrInst) = API.LLVMIsInBounds(inst) |> Bool
 

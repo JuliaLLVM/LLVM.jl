@@ -26,6 +26,7 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Operator.h>
 #include <llvm/IR/ReplaceConstant.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
@@ -352,6 +353,17 @@ void LLVMOrcIRCompileLayerEmit(LLVMOrcIRCompileLayerRef IRLayer,
 }
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::JITDylib, LLVMOrcJITDylibRef)
+
+LLVMModuleRef LLVMExtraThreadSafeModuleGetModuleUnlocked(LLVMOrcThreadSafeModuleRef TSM) {
+  return wrap(unwrap(TSM)->getModuleUnlocked());
+}
+
+#if LLVM_VERSION_MAJOR >= 16
+LLVMModuleRef LLVMExtraThreadSafeModuleTakeModule(LLVMOrcThreadSafeModuleRef TSM) {
+  return unwrap(TSM)->consumingModuleDo(
+      [](std::unique_ptr<Module> M) { return wrap(M.release()); });
+}
+#endif
 
 char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD) {
   std::string str;
@@ -1182,6 +1194,37 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        unsigned NumIdxs, const char *Name) {
   return wrap(unwrap(B)->CreateInsertValue(unwrap(AggVal), unwrap(EltVal),
                                            ArrayRef<unsigned>(Idxs, NumIdxs), Name));
+}
+
+LLVMValueRef LLVMExtraConstVectorSplat(LLVMTypeRef VecTy, LLVMValueRef Elt) {
+  return wrap(ConstantVector::getSplat(cast<VectorType>(unwrap(VecTy))->getElementCount(),
+                                       unwrap<Constant>(Elt)));
+}
+
+
+//
+// memory
+//
+
+LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned AddrSpace,
+                                  LLVMValueRef ArraySize, const char *Name) {
+  return wrap(unwrap(B)->CreateAlloca(unwrap(Ty), AddrSpace,
+                                      ArraySize ? unwrap(ArraySize) : nullptr, Name));
+}
+
+unsigned LLVMExtraGetIndexSizeInBits(LLVMTargetDataRef TD, unsigned AddrSpace) {
+  return unwrap(TD)->getIndexSizeInBits(AddrSpace);
+}
+
+LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRef TD,
+                                              uint64_t *Words) {
+  auto *Op = cast<GEPOperator>(unwrap(GEP));
+  const DataLayout &DL = *unwrap(TD);
+  APInt Offset(DL.getIndexSizeInBits(Op->getPointerAddressSpace()), 0);
+  if (!Op->accumulateConstantOffset(DL, Offset))
+    return false;
+  std::copy_n(Offset.getRawData(), Offset.getNumWords(), Words);
+  return true;
 }
 
 

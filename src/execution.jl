@@ -77,7 +77,7 @@ Create a generic value from a floating point number of the given type, which nee
 `LLVM.FloatType()` or `LLVM.DoubleType()`: generic values only support single and double
 precision floating point numbers.
 """
-GenericValue(typ::Union{LLVMFloat,LLVMDouble}, N::AbstractFloat) =
+GenericValue(typ::Union{FloatType,DoubleType}, N::AbstractFloat) =
     mark_alloc(GenericValue(API.LLVMCreateGenericValueOfFloat(typ, convert(Cdouble, N))))
 
 """
@@ -88,7 +88,7 @@ don't know the type of the floating point number they store, so it needs to be p
 explicitly: `LLVM.FloatType()` or `LLVM.DoubleType()`. Use
 `convert(T, LLVM.to_float(val, typ))` to get another Julia type.
 """
-to_float(val::GenericValue, typ::Union{LLVMFloat,LLVMDouble}) =
+to_float(val::GenericValue, typ::Union{FloatType,DoubleType}) =
     API.LLVMGenericValueToFloat(typ, val)
 
 """

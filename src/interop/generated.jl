@@ -227,6 +227,12 @@ also be used for different compilation targets, so it should not make assumption
 the target. As with `@generated` functions, the body can only call functions defined before
 the `@llvmgenerated` function.
 
+If the body throws an error, Julia's compiler gives up on inferring calls to the function,
+which then remain dynamic invocations (e.g., reported as an unsupported dynamic function
+invocation when compiling for a GPU), and the error is only thrown when the function is
+called. To see the error without calling the function, expand the generator directly, e.g.,
+`code_lowered(f, Tuple{Val{1}}; generated=true)` for a call `f(Val(1))`.
+
 !!! warning
 
     LLVM objects created in the body are only valid until the body returns, and should

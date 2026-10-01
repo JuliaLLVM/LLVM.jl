@@ -204,11 +204,17 @@ julia> saved
 MemoryEffects(argmem=:read)
 ```
 
-The `memory` attribute itself can be created with `EnumAttribute(effects)`, and decoded
-with `MemoryEffects(attr)`. That also works with a set of attributes, which is how the
-effects of a call site can be accessed: `MemoryEffects(call.function_attributes)` returns
-its effects (without taking into account those of the called function), and
-`push!(call.function_attributes, EnumAttribute(effects))` changes them.
+The effects of a call site are available as its `memory_effects` property too, which only
+describes the attributes of the call site, without taking into account those of the called
+function. The `memory` attribute itself can be created with `EnumAttribute(effects)`, and
+decoded with `MemoryEffects(attr)`, or `MemoryEffects(attrs)` for a set of attributes.
+
+On LLVM 15, which doesn't have the `memory` attribute, the `memory_effects` properties use
+the attributes that it replaced: they combine the effects of those attributes, and
+assigning effects replaces them with the ones that represent the new effects. These can't
+represent every combination of effects, only the same kind of access to all memory, to
+argument memory, to inaccessible memory, or to both of those, so assigning other effects
+throws an `ArgumentError`.
 
 
 ## Parameters

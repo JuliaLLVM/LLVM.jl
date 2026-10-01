@@ -394,12 +394,55 @@ function check_owned(obj)
 end
 
 # hand the object over to LLVM, returning its reference
-function consume!(obj)
+function consume_owned!(obj)
     check_owned(obj)
     obj.owned = false
     mark_dispose(obj)
     return obj.ref
 end
+
+@public consume!
+
+"""
+    LLVM.consume!(obj)
+
+Hand `obj` over to foreign code that takes ownership of it, returning its raw handle. This
+is for calling a C API that takes ownership of an object, e.g., using `ccall`, which
+LLVM.jl's own consuming operations (like adding a buffer or module to a JIT) do
+automatically. Afterwards, the wrapper can't be used anymore, and disposing of it does
+nothing, like after those operations:
+
+```julia
+@dispose tsm=ThreadSafeModule("jit") begin
+    ...
+    ccall(:jl_consume_module, Cvoid, (LLVM.API.LLVMOrcThreadSafeModuleRef,),
+          LLVM.consume!(tsm))
+end
+```
+
+This is an irreversible handoff, not a conversion: the object isn't disposed of if the
+foreign call fails, so validate the other arguments first, and call `consume!` right
+before the call. For a C API that only takes ownership when it succeeds, pass the object
+itself to the call (which converts it to its handle without consuming it), and call
+`consume!` after it succeeded.
+
+Only this wrapper changes state, not other wrappers of the same object, and the raw handle
+doesn't keep Julia objects alive that the wrapper references (e.g., the callbacks of an
+[`LLJITBuilder`](@ref LLVM.LLJITBuilder)), so use `GC.@preserve obj` around the foreign
+call.
+
+This is supported by the objects that track their ownership: [`MemoryBuffer`](@ref),
+[`TargetMachine`](@ref), [`ThreadSafeModule`](@ref LLVM.ThreadSafeModule),
+[`MaterializationUnit`](@ref LLVM.MaterializationUnit),
+[`MaterializationResponsibility`](@ref LLVM.MaterializationResponsibility),
+[`DefinitionGenerator`](@ref LLVM.DefinitionGenerator),
+[`ObjectLinkingLayer`](@ref LLVM.ObjectLinkingLayer),
+[`TargetMachineBuilder`](@ref LLVM.TargetMachineBuilder) and
+[`LLJITBuilder`](@ref LLVM.LLJITBuilder). Objects that are borrowed from LLVM (e.g., the
+thread-safe module and materialization responsibility of an IR transformation) can't be
+consumed, and neither can consumed or disposed objects.
+"""
+function consume! end
 
 # dispose of the object using `f(ref)`, unless it was consumed already
 function dispose_owned(f, obj)

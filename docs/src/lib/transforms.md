@@ -29,6 +29,7 @@ DefaultPipeline
 ```@docs
 LLVM.CustomPass
 register!
+run!(::LLVM.CustomPass, ::Union{LLVM.Function, LLVM.Module}, ::Union{Nothing, LLVM.TargetMachine})
 register_callbacks!
 ```
 

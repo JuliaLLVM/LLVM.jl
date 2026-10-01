@@ -166,6 +166,17 @@
     aligned_array_allocainst = array_alloca!(builder, LLVM.Int32Type(), int1; align=8)
     @check_ir aligned_array_allocainst "alloca i32, i32 %0, align 8"
 
+    addrspace_allocainst = alloca!(builder, LLVM.Int32Type(); addrspace=5, align=4)
+    @check_ir addrspace_allocainst "alloca i32, align 4, addrspace(5)"
+    @test addrspace_allocainst.value_type.addrspace == 5
+    addrspace_array_allocainst = array_alloca!(builder, LLVM.Int32Type(), int1;
+                                               addrspace=3)
+    @check_ir addrspace_array_allocainst "alloca i32, i32 %0, align 4, addrspace(3)"
+    @test_throws ArgumentError alloca!(builder, LLVM.Int32Type(); addrspace=-1)
+    @test_throws ArgumentError alloca!(builder, LLVM.Int32Type(); addrspace=2^24)
+    @test_throws ArgumentError array_alloca!(builder, LLVM.Int32Type(), int1;
+                                             addrspace=1.0)
+
     mallocinst = malloc!(builder, LLVM.Int32Type())
     if supports_typed_pointers(ctx)
         @check_ir mallocinst r"bitcast i8\* %.+ to i32\*"
@@ -290,9 +301,11 @@
     @test sprint(show, atomic_rmw_inst.syncscope) == "SyncScope(\"agent\")"
     for str in ("singlethread", "system", "agent")
         @test SyncScope(str).name == str
+        @test SyncScope(SubString(str)) == SyncScope(str)
     end
-    @test_throws ArgumentError SyncScope(1000).name
-    @test sprint(show, SyncScope(1000)) == "SyncScope(target-specific scope 1000)"
+    @test SyncScope("agent").context == ctx
+    @test_throws ArgumentError LLVM.SyncScope(1000, ctx).name
+    @test sprint(show, LLVM.SyncScope(1000, ctx)) == "SyncScope(target-specific scope 1000)"
 
     atomic_cmpxchg_inst = atomic_cmpxchg!(builder, ptr1, int1, int2,
         LLVM.API.LLVMAtomicOrderingSequentiallyConsistent, LLVM.API.LLVMAtomicOrderingAcquire, single_thread)
@@ -307,6 +320,10 @@
     @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingAcquire
     atomic_cmpxchg_inst.failure_ordering = LLVM.API.LLVMAtomicOrderingMonotonic
     @test atomic_cmpxchg_inst.failure_ordering == LLVM.API.LLVMAtomicOrderingMonotonic
+    @test atomic_cmpxchg_inst.pointer_operand == ptr1
+    @test atomic_cmpxchg_inst.compare_operand == int1
+    @test atomic_cmpxchg_inst.new_value_operand == int2
+    @test_throws "read-only" atomic_cmpxchg_inst.compare_operand = int2
     @test !atomic_cmpxchg_inst.weak
     atomic_cmpxchg_inst.weak = true
     @test atomic_cmpxchg_inst.weak
@@ -369,6 +386,26 @@
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
     @test !LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOp(1000))
+
+    # operations can be named on every version of LLVM
+    @test parse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
+    @test parse(LLVM.AtomicRMWBinOp.T, "fminimumnum") == LLVM.API.LLVMAtomicRMWBinOpFMinimumNum
+    @test_throws ArgumentError parse(LLVM.AtomicRMWBinOp.T, "fmaximumnumber")
+    for name in ("xchg", "add", "sub", "and", "nand", "or", "xor", "max", "min", "umax",
+                 "umin", "fadd", "fsub", "fmax", "fmin", "uinc_wrap", "udec_wrap",
+                 "usub_cond", "usub_sat", "fmaximum", "fminimum", "fmaximumnum",
+                 "fminimumnum")
+        @test LLVM.irname(parse(LLVM.AtomicRMWBinOp.T, name)) == name
+    end
+    @test LLVM.irname(LLVM.AtomicRMWBinOp.UIncWrap) == "uinc_wrap"
+    for name in ("not_atomic", "unordered", "monotonic", "acquire", "release", "acq_rel",
+                 "seq_cst")
+        @test LLVM.irname(parse(LLVM.AtomicOrdering.T, name)) == name
+    end
+    @test LLVM.irname(parse(LLVM.AtomicOrdering.T, "acquire_release")) == "acq_rel"
+    # the IR name is what LLVM prints
+    @test occursin(" $(LLVM.irname(atomic_rmw_inst.binop)) ", string(atomic_rmw_inst))
+    @test occursin(" $(LLVM.irname(atomic_rmw_inst.ordering))", string(atomic_rmw_inst))
 
     truncinst = trunc!(builder, int1, LLVM.Int16Type())
     @check_ir truncinst "trunc i32 %0 to i16"
@@ -541,6 +578,109 @@
     position!(builder)
 end
 
+# by default, stack memory is allocated in the alloca address space of the data layout
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    mod.datalayout = "A5"
+    fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
+    position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
+    @check_ir alloca!(builder, LLVM.Int32Type()) "addrspace(5)"
+    @check_ir array_alloca!(builder, LLVM.Int32Type(), ConstantInt(Int32(2))) "addrspace(5)"
+    @test !occursin("addrspace", string(alloca!(builder, LLVM.Int32Type(); addrspace=0)))
+end
+
+end
+
+
+@testset "synchronization scopes" begin
+    ir = """
+        define void @f(ptr %p) {
+          %x = cmpxchg ptr %p, i32 0, i32 1 syncscope("agent") monotonic monotonic
+          ret void
+        }"""
+    @dispose ctx=Context() begin
+        typed_ir = supports_typed_pointers(ctx) ? replace(ir, "ptr" => "i32*") : ir
+        mod = parse(LLVM.Module, typed_ir)
+        inst = first(first(mod.functions["f"].blocks).instructions)
+        scope = inst.syncscope
+        @test scope.name == "agent"
+        @test scope.context == ctx
+        @test scope == SyncScope("agent")
+
+        @dispose ctx2=Context() begin
+            # the scope is resolved in the instruction's context, not the active one
+            SyncScope("workgroup")
+            @test inst.syncscope.name == "agent"
+            @test sprint(show, inst.syncscope) == "SyncScope(\"agent\")"
+            @test inst.syncscope == scope
+
+            # scopes with the same name in different contexts are different
+            other = SyncScope("agent")
+            @test other.context == ctx2
+            @test other != scope
+            @test SyncScope("agent"; context=ctx) == scope
+
+            # and can't be used with instructions of another context, not even the
+            # well-known ones
+            for name in ("agent", "system", "singlethread")
+                @test_throws "another context" inst.syncscope = SyncScope(name)
+            end
+            @test inst.syncscope == scope
+            inst.syncscope = SyncScope("workgroup"; context=ctx)
+            @test inst.syncscope.name == "workgroup"
+            # names are looked up in the instruction's context
+            inst.syncscope = "agent"
+            @test inst.syncscope == scope
+            inst.syncscope = :workgroup
+            @test inst.syncscope == SyncScope("workgroup"; context=ctx)
+            inst.syncscope = "agent"
+
+            # or with a builder of another context
+            foreign_scopes = (other, SyncScope("system"))
+            context!(ctx) do
+            @dispose builder=IRBuilder() begin
+                fn = mod.functions["f"]
+                bb = first(fn.blocks)
+                ptr = fn.parameters[1]
+                position!(builder, LLVM.before(inst))
+                n = count(Returns(true), bb.instructions)
+                MO = LLVM.API.LLVMAtomicOrderingMonotonic
+                i32 = LLVM.Int32Type()
+                val = ConstantInt(i32, 0)
+                for scope in foreign_scopes
+                    @test_throws "another context" load!(builder, i32, ptr;
+                                                         ordering=MO, scope)
+                    @test_throws "another context" store!(builder, val, ptr;
+                                                          ordering=MO, scope)
+                    @test_throws "another context" fence!(builder,
+                        LLVM.API.LLVMAtomicOrderingAcquire, scope)
+                    @test_throws "another context" fence!(builder,
+                        LLVM.API.LLVMAtomicOrderingAcquire; scope)
+                    @test_throws "another context" atomic_rmw!(builder,
+                        LLVM.API.LLVMAtomicRMWBinOpAdd, ptr, val, MO, scope)
+                    @test_throws "another context" atomic_rmw!(builder,
+                        LLVM.API.LLVMAtomicRMWBinOpAdd, ptr, val, MO; scope)
+                    @test_throws "another context" atomic_cmpxchg!(builder, ptr, val, val,
+                                                                   MO, MO, scope)
+                    @test_throws "another context" atomic_cmpxchg!(builder, ptr, val, val,
+                                                                   MO; scope)
+                    # also for non-atomic accesses
+                    @test_throws "another context" load!(builder, i32, ptr; scope)
+                end
+                # nothing was emitted
+                @test count(Returns(true), bb.instructions) == n
+
+                # names are resolved in the builder's context
+                ld = load!(builder, i32, ptr; ordering=MO, scope="agent")
+                @test ld.syncscope == scope
+                ld = load!(builder, i32, ptr; ordering=MO, scope=:agent)
+                @test ld.syncscope == scope
+                ld = load!(builder, i32, ptr; scope="system")
+                @test !isatomic(ld)
+            end
+            end
+        end
+        dispose(mod)
+    end
 end
 
 

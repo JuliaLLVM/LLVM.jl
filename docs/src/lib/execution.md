@@ -17,7 +17,7 @@ convert(::Type{T}, val::LLVM.GenericValue) where {T <: Integer}
 ## Floating Point
 
 ```@docs
-LLVM.GenericValue(::Union{LLVM.LLVMFloat,LLVM.LLVMDouble}, ::AbstractFloat)
+LLVM.GenericValue(::Union{LLVM.FloatType,LLVM.DoubleType}, ::AbstractFloat)
 LLVM.to_float
 ```
 
@@ -55,6 +55,8 @@ ThreadSafeModule
 ThreadSafeModule(::String)
 ThreadSafeModule(::LLVM.Module)
 dispose(::ThreadSafeModule)
+LLVM.unsafe_module
+LLVM.unsafe_take_module!
 ```
 
 ### JITs
@@ -79,6 +81,9 @@ ExecutionSession
 
 ```@docs
 JITDylib
+JITDylib(::ExecutionSession, ::Any)
+JITDylib(::JuliaOJIT, ::AbstractString)
+LLVM.supports_jit_dylib_creation
 lookup_dylib
 add!(::LLJIT, ::JITDylib, ::MemoryBuffer)
 add!(::JuliaOJIT, ::JITDylib, ::MemoryBuffer)

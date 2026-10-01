@@ -39,6 +39,8 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcJITTargetMachineBuilderRef},
                     tmb::TargetMachineBuilder) = check_owned(tmb).ref
 
+consume!(tmb::TargetMachineBuilder) = consume_owned!(tmb)
+
 
 function TargetMachineBuilder()
     ref = Ref{API.LLVMOrcJITTargetMachineBuilderRef}()
@@ -94,6 +96,8 @@ mutable struct ObjectLinkingLayer
 end
 Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) =
     check_owned(oll).ref
+
+consume!(oll::ObjectLinkingLayer) = consume_owned!(oll)
 
 """
     ObjectLinkingLayer(es::ExecutionSession, triple::String=LLVM.default_triple();
@@ -417,6 +421,8 @@ mutable struct DefinitionGenerator
 end
 Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) =
     check_owned(dg).ref
+
+consume!(dg::DefinitionGenerator) = consume_owned!(dg)
 
 """
     dispose(dg::DefinitionGenerator)
@@ -1064,6 +1070,8 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::MaterializationUnit) =
     check_owned(mu).ref
 
+consume!(mu::MaterializationUnit) = consume_owned!(mu)
+
 dispose(mu::MaterializationUnit) = dispose_owned(API.LLVMOrcDisposeMaterializationUnit, mu)
 
 """
@@ -1360,25 +1368,51 @@ function mangle(jljit::JuliaOJIT, name)
     return LLVMSymbol(entry)
 end
 
-"""
-    JITDylib(jljit::JuliaOJIT[, name])
+# Julia 1.14 (JuliaLang/julia#60988) replaced the JITDylib that was shared by all users of
+# the JIT with JITDylibs that are created on demand
+const JLJIT_CREATES_DYLIBS = VERSION >= v"1.14.0-DEV.2171"
 
-Get or create a JITDylib from the Julia JIT.
-On Julia >= 1.14.0-DEV.2171 (JuliaLang/julia#60988), creates a new JITDylib with
-the given name prefix, linked to GlobalJD and SessionJD. On older Julia, returns
-the shared external JITDylib (name parameter is ignored).
 """
-@static if VERSION >= v"1.14.0-DEV.2171"
-    function JITDylib(jljit::JuliaOJIT, name::String="")
-        ref = API.JLJITCreateJITDylib(jljit, name)
-        JITDylib(ref)
-    end
-else
-    function JITDylib(jljit::JuliaOJIT, name::String="")
-        ref = API.JLJITGetExternalJITDylib(jljit)
-        JITDylib(ref)
+    JITDylib(jljit::JuliaOJIT, name::AbstractString)
+
+Create a new JITDylib in Julia's JIT. Its name starts with `name` (which can be empty),
+followed by a unique suffix, so every call creates a new JITDylib, even for the same
+`name`; the names of the symbols in it are not changed. Code in it can use Julia's
+symbols, but its own symbols are not visible to other code.
+
+This requires Julia 1.14 or later; on older versions, Julia's JIT only supports a single
+JITDylib, which is shared by all users of the JIT: see the `external_dylib` property of
+[`JuliaOJIT`](@ref).
+"""
+function JITDylib(jljit::JuliaOJIT, name::AbstractString)
+    @static if JLJIT_CREATES_DYLIBS
+        JITDylib(API.JLJITCreateJITDylib(jljit, String(name)))
+    else
+        error("Julia's JIT can only create JITDylibs on Julia 1.14 and later; on Julia $VERSION, use the shared `jljit.external_dylib` instead")
     end
 end
+
+@public supports_jit_dylib_creation
+
+"""
+    LLVM.supports_jit_dylib_creation(jljit::JuliaOJIT)
+
+Check whether Julia's JIT supports creating JITDylibs with
+[`JITDylib(jljit, name)`](@ref JITDylib(::JuliaOJIT, ::AbstractString)), which is the case
+since Julia 1.14. Otherwise, use the JITDylib that is shared by all users of the JIT,
+`jljit.external_dylib`.
+"""
+supports_jit_dylib_creation(::JuliaOJIT) = JLJIT_CREATES_DYLIBS
+
+function external_dylib(jljit::JuliaOJIT)
+    @static if JLJIT_CREATES_DYLIBS
+        error("Julia's JIT doesn't have a shared external JITDylib on Julia $VERSION; create one using `JITDylib(jljit, name)` instead")
+    else
+        JITDylib(API.JLJITGetExternalJITDylib(jljit))
+    end
+end
+
+@property JuliaOJIT external_dylib
 
 """
     add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
@@ -1475,7 +1509,7 @@ end
 
 function lookup(jljit::JuliaOJIT, jd::JITDylib, name, external_jd_only=false)
     result = Ref{API.LLVMOrcJITTargetAddress}()
-    @static if VERSION >= v"1.14.0-DEV.2171"
+    @static if JLJIT_CREATES_DYLIBS
         @check API.JLJITJDLookup(jljit, jd, result, name, external_jd_only)
     else
         @check API.JLJITLookup(jljit, result, name, external_jd_only)
@@ -1490,7 +1524,7 @@ Look up the symbol with (unmangled) name `name` in `jd`, and the JITDylibs it li
 against, materializing it if necessary.
 
 On Julia versions before 1.14, `jd` is ignored, and the lookup searches all of Julia's
-JITDylibs (or only the one returned by `JITDylib(jljit)` if `external_jd_only` is set).
+JITDylibs (or only `jljit.external_dylib` if `external_jd_only` is set).
 """ lookup(::JuliaOJIT, ::JITDylib, ::Any)
 
 """

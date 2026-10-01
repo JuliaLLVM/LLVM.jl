@@ -8,6 +8,7 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
+#include <llvm/Transforms/IPO/Internalize.h>
 #include <llvm/Support/CBindingWrapping.h>
 #include <llvm/Support/FormatVariadic.h>
 
@@ -594,6 +595,30 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
         if (Name != "expand-reductions" || !InnerPipeline.empty())
           return false;
         PM.addPass(ExpandReductionsPass());
+        return true;
+      });
+#endif
+#if LLVM_VERSION_MAJOR < 19
+  // `internalize` only takes `preserve-gv` parameters since LLVM 19 (llvm/llvm-project#92383,
+  // which Julia's LLVM 18 has backported), but the pass itself supports preserving global
+  // values, so parse them like LLVM 19 does. This is only reached if LLVM didn't parse it.
+  PB.registerPipelineParsingCallback(
+      [](StringRef Name, ModulePassManager &PM,
+         ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
+        if (!InnerPipeline.empty() || !Name.consume_front("internalize<") ||
+            !Name.consume_back(">"))
+          return false;
+        std::vector<std::string> PreservedGVs;
+        while (!Name.empty()) {
+          StringRef Param;
+          std::tie(Param, Name) = Name.split(';');
+          if (!Param.consume_front("preserve-gv="))
+            return false;
+          PreservedGVs.push_back(Param.str());
+        }
+        PM.addPass(InternalizePass([PreservedGVs](const GlobalValue &GV) {
+          return llvm::is_contained(PreservedGVs, GV.getName());
+        }));
         return true;
       });
 #endif

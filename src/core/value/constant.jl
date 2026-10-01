@@ -288,13 +288,13 @@ Base.convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat} =
 
 # bit patterns
 
-fp_width(::LLVMHalf) = 16
-fp_width(::LLVMBFloat) = 16
-fp_width(::LLVMFloat) = 32
-fp_width(::LLVMDouble) = 64
-fp_width(::LLVMX86FP80) = 80
-fp_width(::LLVMFP128) = 128
-fp_width(::LLVMPPCFP128) = 128
+fp_width(::HalfType) = 16
+fp_width(::BFloatType) = 16
+fp_width(::FloatType) = 32
+fp_width(::DoubleType) = 64
+fp_width(::X86FP80Type) = 80
+fp_width(::FP128Type) = 128
+fp_width(::PPCFP128Type) = 128
 
 # the smallest unsigned integer that can hold a floating-point value of the given width
 fp_container(width::Int) =
@@ -385,11 +385,11 @@ function ConstantDataArray(typ::LLVMType, data::AbstractVector{T}) where {T <: U
     # the element types supported by ConstantDataSequential
     bits = if typ isa IntegerType && width(typ) in (8, 16, 32, 64)
         width(typ)
-    elseif typ isa Union{LLVMHalf, LLVMBFloat}
+    elseif typ isa Union{HalfType, BFloatType}
         16
-    elseif typ isa LLVMFloat
+    elseif typ isa FloatType
         32
-    elseif typ isa LLVMDouble
+    elseif typ isa DoubleType
         64
     else
         throw(ArgumentError("ConstantDataArray does not support elements of type $typ; use ConstantArray instead"))
@@ -706,6 +706,11 @@ the LLVM IR instructions: `const_neg`, `const_not`, etc.
 
 The opcode of the constant expression, e.g., `LLVM.Opcode.Add`.
 
+    ce.source_element_type
+
+The type that a `getelementptr` constant expression indexes into. Throws an
+`ArgumentError` for other constant expressions.
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantExpr <: Constant
@@ -785,6 +790,48 @@ const_insertelement(vector::Constant, element::Value, index::Constant) =
 
 const_shufflevector(vector1::Constant, vector2::Constant, mask::Constant) =
     Value(API.LLVMConstShuffleVector(vector1, vector2, mask))
+
+@vocabulary Build const_splat
+
+"""
+    const_splat(typ::LLVM.VectorType, value::Constant)
+    const_splat(typ::LLVM.VectorType, value::Real)
+
+Create a constant vector of type `typ` whose elements are all `value`, which must be a
+constant of the element type of `typ`, or a Julia number that is converted to one: using
+[`ConstantFP`](@ref) for a vector of floating-point values, or [`ConstantInt`](@ref) for a
+vector of integers, which requires an `Integer`. For example, to create a vector of
+floating-point ones:
+
+```julia
+const_splat(LLVM.VectorType(LLVM.FloatType(), 4), 1)
+```
+
+The result is the constant that LLVM uses to represent the splat, e.g., a
+`ConstantDataVector`, or a `ConstantAggregateZero` for zeros, so it is only guaranteed to
+be a `Constant`.
+"""
+function const_splat(typ::VectorType, value::Constant)
+    context(typ) == context(value) ||
+        throw(ArgumentError("The vector type and the value belong to different contexts"))
+    eltyp = element_type(typ)
+    value_type(value) == eltyp ||
+        throw(ArgumentError("Cannot splat a value of type $(string(value_type(value))) into a vector of $(string(eltyp))"))
+    Value(API.LLVMExtraConstVectorSplat(typ, value))::Constant
+end
+
+function const_splat(typ::VectorType, value::Real)
+    eltyp = element_type(typ)
+    element = if eltyp isa FloatingPointType
+        ConstantFP(eltyp, value)
+    elseif eltyp isa IntegerType && value isa Integer
+        # sign-extend signed values to wider element types
+        ConstantInt(eltyp, value, value isa Signed)
+    else
+        throw(ArgumentError("Cannot splat a $(typeof(value)) into a vector of $(string(eltyp))"))
+    end
+    const_splat(typ, element)
+end
 
 if version() < v"17"
 

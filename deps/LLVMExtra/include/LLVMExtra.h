@@ -98,6 +98,12 @@ void LLVMOrcIRCompileLayerEmit(LLVMOrcIRCompileLayerRef IRLayer,
                                LLVMOrcMaterializationResponsibilityRef MR,
                                LLVMOrcThreadSafeModuleRef TSM);
 char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD);
+// the module of a thread-safe module, without locking its context
+LLVMModuleRef LLVMExtraThreadSafeModuleGetModuleUnlocked(LLVMOrcThreadSafeModuleRef TSM);
+#if LLVM_VERSION_MAJOR >= 16
+// move the module out of a thread-safe module (locking its context), leaving it empty
+LLVMModuleRef LLVMExtraThreadSafeModuleTakeModule(LLVMOrcThreadSafeModuleRef TSM);
+#endif
 
 // Configuration of layers created by LLVMOrcCreateRTDyldObjectLinkingLayer*.
 // The object layer must be an RTDyldObjectLinkingLayer.
@@ -527,6 +533,20 @@ LLVMValueRef LLVMExtraBuildExtractValue(LLVMBuilderRef B, LLVMValueRef AggVal,
 LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        LLVMValueRef EltVal, const unsigned *Idxs,
                                        unsigned NumIdxs, const char *Name);
+
+// a vector constant with all elements equal to `Elt`, for fixed and scalable vector types
+LLVMValueRef LLVMExtraConstVectorSplat(LLVMTypeRef VecTy, LLVMValueRef Elt);
+
+// an alloca in the given address space, of `ArraySize` elements (or one if NULL)
+LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned AddrSpace,
+                                  LLVMValueRef ArraySize, const char *Name);
+
+// the constant byte offset of a GEP instruction or constant expression, as a signed integer
+// of the index size of its address space, written to `Words` (which must have room for
+// that many bits). returns false if the offset isn't constant.
+unsigned LLVMExtraGetIndexSizeInBits(LLVMTargetDataRef TD, unsigned AddrSpace);
+LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRef TD,
+                                              uint64_t *Words);
 
 // insertion points: a block, the instruction to insert before (NULL for the end of the
 // block), and whether to insert before the debug records at that position (the head bit

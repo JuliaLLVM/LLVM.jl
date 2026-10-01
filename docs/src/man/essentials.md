@@ -276,6 +276,25 @@ julia> exit()
 WARNING: An instance of Context was not properly disposed of.
 ```
 
+Each warning includes the backtraces of where the object was allocated, disposed of, and
+used. To keep the output manageable, a problem is only reported in full the first time it
+occurs for objects that were allocated and disposed of at the same locations in user code
+(the first location outside of LLVM.jl and Julia's Base library in each backtrace). Later
+occurrences are counted by where they happen, an update is printed when a problem occurred
+10, 100, 1000, ... times, and all repeated problems are summarized when the
+process exits, and objects that leaked from the same location are reported together:
+
+```julia-repl
+julia> for i in 1:10
+           LLVM.MemoryBuffer(UInt8[])
+       end
+
+julia> exit()
+WARNING: 10 instances of MemoryBuffer were not properly disposed of.
+They were allocated at the same location, e.g.:
+...
+```
+
 
 ## Properties
 

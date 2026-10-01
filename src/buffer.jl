@@ -23,6 +23,8 @@ end
 Base.unsafe_convert(::Type{API.LLVMMemoryBufferRef}, membuf::MemoryBuffer) =
     check_owned(membuf).ref
 
+consume!(membuf::MemoryBuffer) = consume_owned!(membuf)
+
 """
     MemoryBuffer(data::Vector{T}, name::String="", copy::Bool=true)
 

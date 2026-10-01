@@ -165,71 +165,40 @@ abstract type FloatingPointType <: LLVMType end
 @vocabulary IR FloatingPointType, HalfType, FloatType, DoubleType, BFloatType, FP128Type,
                X86FP80Type, PPCFP128Type
 
-for T in [:Half, :Float, :Double, :BFloat, :FP128, :X86_FP80, :PPC_FP128]
+# each floating-point type has its own type kind, so unlike integer types, which share
+# `IntegerType`, they are represented by distinct Julia types
+for (T, description) in [
+        (:Half, "16-bit floating-point type"),
+        (:BFloat, "16-bit “brain” floating-point type"),
+        (:Float, "32-bit floating-point type"),
+        (:Double, "64-bit floating-point type"),
+        (:FP128, "128-bit floating-point type, with a 113-bit significand"),
+        (:X86_FP80, "80-bit, X87 floating-point type"),
+        (:PPC_FP128, "128-bit floating-point type, consisting of two 64-bit values")]
     CleanT = Symbol(replace(String(T), "_"=>""))    # only the type kind retains the underscore
-    jl_fname = Symbol(CleanT, :Type)
-    api_typename = Symbol(:LLVM, CleanT)
-    api_fname = Symbol(:LLVM, jl_fname)
+    typename = Symbol(CleanT, :Type)
+    api_fname = Symbol(:LLVM, typename, :InContext)
     enumkind = Symbol(:LLVM, T, :TypeKind)
+    doc = """
+        LLVM.$typename <: LLVM.FloatingPointType
+
+    The $description.
+
+        LLVM.$typename()
+
+    Create the $description in the active context.
+    """
     @eval begin
-        @checked struct $api_typename <: FloatingPointType
+        @checked struct $typename <: FloatingPointType
             ref::API.LLVMTypeRef
         end
-        register($api_typename, API.$enumkind)
+        register($typename, API.$enumkind)
 
-        $jl_fname() =
-            $api_typename(API.$(Symbol(api_fname, :InContext))(context()))
+        $typename() = $typename(API.$api_fname(context()))
+
+        @doc $doc $typename
     end
 end
-
-"""
-    LLVM.HalfType()
-
-Create a 16-bit floating-point type.
-"""
-HalfType
-
-"""
-    LLVM.BFloatType()
-
-Create a 16-bit “brain” floating-point type.
-"""
-BFloatType
-
-"""
-    LLVM.FloatType()
-
-Create a 32-bit floating-point type.
-"""
-FloatType
-
-"""
-    LLVM.DoubleType()
-
-Create a 64-bit floating-point type.
-"""
-DoubleType
-
-"""
-    LLVM.FP128Type()
-
-Create a 128-bit floating-point type, with a 113-bit significand.
-"""
-FP128Type
-
-"""
-    LLVM.X86FP80Type()
-
-Create a 80-bit, X87 floating-point type.
-"""
-X86FP80Type
-
-"""
-    LLVM.PPCFP128Type()
-
-Create a 128-bit floating-point type, consisting of two 64-bits.
-"""
-PPCFP128Type
 
 
 ## function types

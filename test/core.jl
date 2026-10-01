@@ -103,6 +103,28 @@ end
 end
 
 # floating-point
+@dispose ctx=Context() begin
+    for (T, str) in [(LLVM.HalfType, "half"), (LLVM.BFloatType, "bfloat"),
+                     (LLVM.FloatType, "float"), (LLVM.DoubleType, "double"),
+                     (LLVM.FP128Type, "fp128"), (LLVM.X86FP80Type, "x86_fp80"),
+                     (LLVM.PPCFP128Type, "ppc_fp128")]
+        typ = T()
+        @test typ isa T
+        @test typ isa LLVM.FloatingPointType
+        @test isconcretetype(T)
+        @test context(typ) == ctx
+        @test string(typ) == str
+        # type references are wrapped in the concrete type of their kind
+        @test LLVMType(Base.unsafe_convert(LLVM.API.LLVMTypeRef, typ)) isa T
+        @test endswith(sprint(show, typ), "$(nameof(T))($str)")
+    end
+    # dispatch on the kind of floating-point type, without comparing with a type that
+    # belongs to a specific context
+    kind(::LLVM.DoubleType) = :double
+    kind(::LLVM.FloatingPointType) = :other
+    @test kind(LLVM.DoubleType()) == :double
+    @test kind(LLVM.FloatType()) == :other
+end
 
 # function
 @dispose ctx=Context() begin
@@ -898,6 +920,88 @@ end
 
     # gep, inbounds_gep, select, extractelement, insertelement, shufflevector, exactvalue, insertvalue
 
+    # splats
+    let
+        T = LLVM.VectorType(LLVM.FloatType(), 4)
+        one = ConstantFP(LLVM.FloatType(), 1)
+        c = const_splat(T, one)::LLVM.Constant
+        @test c.value_type == T
+        @test occursin("float 1.000000e+00", string(c))
+        @test const_splat(T, ConstantFP(LLVM.FloatType(), 0)) isa ConstantAggregateZero
+        @test_throws "Cannot splat a value of type i32" const_splat(T, ConstantInt(Int32(1)))
+
+        # from Julia numbers
+        @test const_splat(T, 1) == c
+        @test const_splat(T, 1.0) == c
+        Ti = LLVM.VectorType(LLVM.Int16Type(), 2)
+        ci = const_splat(Ti, 3)
+        @test ci.value_type == Ti
+        @test occursin("i16 3", string(ci))
+        @test_throws ArgumentError const_splat(Ti, 1.5)
+        # signed values are sign-extended to wider elements
+        Tw = LLVM.VectorType(LLVM.IntType(128), 2)
+        @test const_splat(Tw, Int64(-1)) == const_splat(Tw, Int128(-1))
+        @test occursin("i128 -1", string(const_splat(Tw, Int64(-1))))
+        @test occursin("i128 18446744073709551615", string(const_splat(Tw, typemax(UInt64))))
+        @test_throws MethodError const_splat(Ti, 1im)
+        @dispose other_ctx=Context() begin
+            @test_throws "different contexts" const_splat(T, ConstantFP(LLVM.FloatType(), 1))
+        end
+    end
+
+    # getelementptr
+    @dispose mod=LLVM.Module("gep") dl=LLVM.DataLayout("e-i64:64-p1:64:64:64:32") begin
+        T_struct = LLVM.StructType([LLVM.Int8Type(), LLVM.Int32Type(), LLVM.Int64Type()])
+        gv = GlobalVariable(mod, T_struct, "gv")
+        ce = const_gep(T_struct, gv, [ConstantInt(Int32(0)), ConstantInt(Int32(2))])
+        @test ce isa ConstantExpr
+        @test ce.source_element_type == T_struct
+        @test LLVM.constant_offset(ce, dl) == 8
+        @test LLVM.constant_offset(ce, dl) isa BigInt
+        @test LLVM.constant_offset(Int, ce, dl) === 8
+        @test LLVM.constant_offset(Int8, ce, dl) === Int8(8)
+
+        gv8 = GlobalVariable(mod, LLVM.Int8Type(), "gv8")
+        ce = const_inbounds_gep(LLVM.Int8Type(), gv8, [ConstantInt(Int64(-4))])
+        @test ce.source_element_type == LLVM.Int8Type()
+        @test LLVM.constant_offset(ce, dl) == -4
+        @test_throws InexactError LLVM.constant_offset(UInt, ce, dl)
+
+        # the index width of the address space determines the width of the offset
+        gv1 = GlobalVariable(mod, LLVM.Int8Type(), "gv1", 1)
+        ce = const_gep(LLVM.Int8Type(), gv1, [ConstantInt(Int64(2)^32 - 1)])
+        @test LLVM.constant_offset(ce, dl) == -1
+
+        ce = const_ptrtoint(gv, LLVM.Int64Type())
+        @test ce isa ConstantExpr
+        @test_throws ArgumentError ce.source_element_type
+        @test_throws ArgumentError LLVM.constant_offset(ce, dl)
+
+        # instructions
+        ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(T_struct),
+                                                 LLVM.PointerType(LLVM.Int8Type()),
+                                                 LLVM.Int64Type()])
+        fn = LLVM.Function(mod, "f", ft)
+        p_struct, p_i8, idx = fn.parameters
+        @dispose builder=IRBuilder() begin
+            position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
+            inst = gep!(builder, T_struct, p_struct,
+                        [ConstantInt(Int64(1)), ConstantInt(Int32(1))])
+            @test inst isa LLVM.GetElementPtrInst
+            @test LLVM.constant_offset(inst, dl) == 16 + 4
+            inst = gep!(builder, LLVM.Int8Type(), p_i8, [idx])
+            @test LLVM.constant_offset(inst, dl) === nothing
+            @test LLVM.constant_offset(Int, inst, dl) === nothing
+
+            # vectors of pointers
+            T_vec = LLVM.VectorType(LLVM.Int64Type(), 2)
+            inst = gep!(builder, LLVM.Int8Type(), p_i8, [null(T_vec)])
+            @test inst.value_type isa LLVM.VectorType
+            @test_throws ArgumentError LLVM.constant_offset(inst, dl)
+            ret!(builder)
+        end
+    end
+
     end
 end
 
@@ -1354,6 +1458,35 @@ end
 
 
 @testset "metadata" begin
+
+# metadata kinds
+@dispose ctx=Context() begin
+    # the fixed kinds are public, and have the IDs of LLVM's kinds with those names
+    for (sym, name) in LLVM.fixed_md_kind_names
+        @test isdefined(LLVM.IR, sym)
+        @test MDKind(name) == getfield(LLVM, sym)
+    end
+    @test MDKind(SubString("tbaa")) == MD_tbaa
+
+    # other kinds are specific to a context
+    kind = MDKind("some.kind")
+    @dispose other_ctx=Context() mod=LLVM.Module("SomeModule") begin
+        MDKind("another.kind")
+        @test MDKind("some.kind"; context=ctx) == kind
+
+        # names are looked up in the context of the object whose metadata is accessed
+        gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+        md = MDNode([MDString("x")])
+        context!(ctx) do
+            gv.metadata["another.kind"] = md
+            @test haskey(gv.metadata, "another.kind")
+            @test gv.metadata["another.kind"] == md
+            @test gv.metadata[MDKind("another.kind"; context=other_ctx)] == md
+            delete!(gv.metadata, "another.kind")
+            @test !haskey(gv.metadata, "another.kind")
+        end
+    end
+end
 
 @dispose ctx=Context() begin
     str = MDString("foo")
@@ -2144,6 +2277,14 @@ end
     trap = Intrinsic("llvm.trap")
     @test_throws ArgumentError Intrinsic("llvm.nonexisting")
 
+    # non-throwing lookup, e.g., for intrinsics that only some LLVM versions know
+    @test tryparse(Intrinsic, "llvm.trap") == trap
+    @test tryparse(Intrinsic, SubString("llvm.trap")) == trap
+    @test tryparse(Intrinsic, "llvm.nonexisting") === nothing
+    @test tryparse(Intrinsic, "llvm.sin.f64") == Intrinsic("llvm.sin")
+    @test parse(Intrinsic, "llvm.trap") == trap
+    @test_throws ArgumentError parse(Intrinsic, "llvm.nonexisting")
+
     f = LLVM.Function(mod, trap)
     @test f.intrinsic == trap
     @test isintrinsic(f, trap)
@@ -2355,7 +2496,7 @@ end
 end
 
 # memory effects
-if LLVM.version() >= v"16"
+let
     locations = LLVM.memory_locations()
     @test :argmem in locations && :inaccessiblemem in locations && :other in locations
     @test (:errnomem in locations) == (LLVM.version() >= v"21")
@@ -2395,6 +2536,9 @@ if LLVM.version() >= v"16"
     for effects in (MemoryEffects(:read; argmem=:none), MemoryEffects(inaccessiblemem=:write))
         @test eval(Meta.parse(repr(effects))) == effects
     end
+end
+if LLVM.version() >= v"16"
+    locations = LLVM.memory_locations()
 
     # compare against LLVM's textual representation, which catches encoding changes
     ir_kinds = Dict(:none => "none", :read => "read", :write => "write",
@@ -2512,11 +2656,90 @@ if LLVM.version() >= v"16"
 
         @test verify(mod) === nothing
     end
+
+    # attributes for any version of LLVM
+    @dispose ctx=Context() begin
+        attrs = LLVM.memory_attributes(MemoryEffects(argmem=:read))
+        @test length(attrs) == 1
+        @test MemoryEffects(only(attrs)) == MemoryEffects(argmem=:read)
+    end
 else
-    @test_throws ArgumentError MemoryEffects(:read)
-    @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
-        fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
-        @test !hasproperty(fn, :memory_effects)
+    # LLVM 15 has no memory attribute, so the attributes that it replaced are used
+    @test_throws ArgumentError EnumAttribute(MemoryEffects(:read))
+    @dispose ctx=Context() begin
+        kinds(effects) = sort!([attr.kind for attr in LLVM.memory_attributes(effects)])
+        @test kinds(MemoryEffects(argmem=:read)) == [:argmemonly, :readonly]
+        @test kinds(MemoryEffects(:none)) == [:readnone]
+        @test isempty(LLVM.memory_attributes(MemoryEffects(:readwrite)))
+        @test_throws ArgumentError LLVM.memory_attributes(MemoryEffects(argmem=:read,
+                                                                        other=:write))
+    end
+    ir = """
+        declare void @none() readnone
+        declare void @read() readonly
+        declare void @argread() argmemonly readonly
+        declare void @inacc() inaccessiblememonly
+        declare void @both() inaccessiblemem_or_argmemonly writeonly
+        declare void @rw()"""
+    @dispose ctx=Context() begin
+        mod = parse(LLVM.Module, ir)
+        effects_of(name) = mod.functions[name].memory_effects
+        @test effects_of("none") == MemoryEffects(:none)
+        @test effects_of("read") == MemoryEffects(:read)
+        @test effects_of("argread") == MemoryEffects(argmem=:read)
+        @test effects_of("inacc") == MemoryEffects(inaccessiblemem=:readwrite)
+        @test effects_of("both") == MemoryEffects(argmem=:write, inaccessiblemem=:write)
+        @test effects_of("rw") == MemoryEffects(:readwrite)
+        dispose(mod)
+    end
+
+    @dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+        ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(LLVM.Int8Type())])
+        fn = LLVM.Function(mod, "SomeFunction", ft)
+        push!(fn.parameter_attributes[1], EnumAttribute(:readonly))
+        push!(fn.function_attributes, EnumAttribute(:nounwind))
+        kinds() = sort!([attr.kind for attr in fn.function_attributes])
+        for (effects, attrs) in [
+                MemoryEffects(:none) => [:readnone],
+                MemoryEffects(:read) => [:readonly],
+                MemoryEffects(:write) => [:writeonly],
+                MemoryEffects(:readwrite) => Symbol[],
+                MemoryEffects(argmem=:read) => [:argmemonly, :readonly],
+                MemoryEffects(inaccessiblemem=:readwrite) => [:inaccessiblememonly],
+                MemoryEffects(argmem=:write, inaccessiblemem=:write) =>
+                    [:inaccessiblemem_or_argmemonly, :writeonly]]
+            fn.memory_effects = effects
+            @test fn.memory_effects == effects
+            # the attributes of other effects are removed, and others are untouched
+            @test kinds() == sort!([attrs; :nounwind])
+        end
+
+        # effects that can't be represented are rejected, without changing anything
+        fn.memory_effects = MemoryEffects(argmem=:read)
+        for effects in (MemoryEffects(argmem=:read, inaccessiblemem=:write),
+                        MemoryEffects(:read; argmem=:none), MemoryEffects(other=:read))
+            @test_throws ArgumentError fn.memory_effects = effects
+            @test fn.memory_effects == MemoryEffects(argmem=:read)
+        end
+
+        # updating a single location works the same
+        fn.memory_effects[:inaccessiblemem] = :read
+        @test fn.memory_effects == MemoryEffects(argmem=:read, inaccessiblemem=:read)
+        @test_throws ArgumentError fn.memory_effects[:argmem] = :write
+        @test fn.memory_effects == MemoryEffects(argmem=:read, inaccessiblemem=:read)
+        @test haskey(fn.parameter_attributes[1], :readonly)
+
+        # call sites
+        caller = LLVM.Function(mod, "SomeCaller", ft)
+        position!(builder, LLVM.at_end(BasicBlock(caller, "entry")))
+        call = call!(builder, ft, fn, [caller.parameters[1]])
+        ret!(builder)
+        @test call.memory_effects == MemoryEffects(:readwrite)
+        call.memory_effects = MemoryEffects(:none)
+        @test call.memory_effects == MemoryEffects(:none)
+        @test haskey(call.function_attributes, :readnone)
+        @test fn.memory_effects == MemoryEffects(argmem=:read, inaccessiblemem=:read)
+        @test verify(mod) === nothing
     end
 end
 

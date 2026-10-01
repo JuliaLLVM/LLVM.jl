@@ -366,5 +366,15 @@ JITDylib: `lookup(jljit, jd, name)`.
 
 How JITDylibs work depends on the Julia version: on Julia 1.14 and later,
 `JITDylib(jljit, name)` creates a new JITDylib, which can see Julia's symbols but is not
-visible to other code. On older versions, it returns a single JITDylib that is shared by
-all users of Julia's JIT, and whose symbols are visible to Julia code.
+visible to other code. Older versions only support a single JITDylib, `jljit.external_dylib`,
+which is shared by all users of Julia's JIT, and whose symbols are visible to Julia code.
+Each is only available on the Julia versions that support it, so choose a JITDylib once,
+and keep using it:
+
+```julia
+jd = if LLVM.supports_jit_dylib_creation(jljit)
+    JITDylib(jljit, "MyPackage")
+else
+    jljit.external_dylib
+end
+```

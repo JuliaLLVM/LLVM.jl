@@ -1,5 +1,10 @@
 @testset "jljit" begin
 
+# the JITDylib to add code to: a new one on Julia 1.14+, the shared one before
+JLJIT_CREATES_DYLIBS = VERSION >= v"1.14.0-DEV.2171"
+test_dylib(jljit, name) =
+    JLJIT_CREATES_DYLIBS ? JITDylib(jljit, name) : jljit.external_dylib
+
 let jljit=JuliaOJIT()
     dispose(jljit)
 end
@@ -41,7 +46,7 @@ end
 
         @test lookup_dylib(es, "my.so") === jd
 
-        jd_main = JITDylib(jljit, "main")
+        jd_main = test_dylib(jljit, "main")
 
         dg = DynamicLibrarySearchGenerator(jljit)
         add!(jd_main, dg)
@@ -49,16 +54,33 @@ end
         addr = lookup(jljit, jd_main, "jl_apply_generic")
         @test pointer(addr) != C_NULL
     end
+
+    JuliaOJIT() do jljit
+        @test LLVM.supports_jit_dylib_creation(jljit) == JLJIT_CREATES_DYLIBS
+        if JLJIT_CREATES_DYLIBS
+            # every call creates a new JITDylib, even for the same name
+            jd1 = JITDylib(jljit, "same")
+            jd2 = JITDylib(jljit, "same")
+            @test jd1 != jd2
+            @test JITDylib(jljit, "") isa JITDylib
+            @test_throws "JITDylib(jljit, name)" jljit.external_dylib
+        else
+            @test jljit.external_dylib isa JITDylib
+            @test jljit.external_dylib == jljit.external_dylib
+            @test_throws "external_dylib" JITDylib(jljit, "test")
+        end
+        @test :external_dylib in propertynames(jljit)
+    end
 end
 
 @testset "Undefined Symbol" begin
     @dispose jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit, "test")
+        jd = test_dylib(jljit, "test")
         @test_throws LLVMException lookup(jljit, jd, string(gensym()))
     end
 
     @dispose ts_ctx=ThreadSafeContext() jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit, "test")
+        jd = test_dylib(jljit, "test")
 
         ts_mod = ThreadSafeModule("jit")
 
@@ -99,7 +121,7 @@ end
     @dispose jljit=JuliaOJIT() begin
         # on older Julia versions, this is a JITDylib that is shared by all users of the
         # Julia JIT, so only generate the symbol we are looking for.
-        jd = JITDylib(jljit, "generated")
+        jd = test_dylib(jljit, "generated")
         name = string(gensym("generated"))
         mangled = mangle(jljit, name)
         data = Ref{Int32}(42)
@@ -122,7 +144,7 @@ end
 if !Sys.iswindows() || VERSION >= v"1.12"
     @testset "Loading ObjectFile" begin
         @dispose jljit=JuliaOJIT() begin
-            jd = JITDylib(jljit, "objfile1")
+            jd = test_dylib(jljit, "objfile1")
 
             sym = "SomeFunction"
             obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
@@ -149,7 +171,7 @@ if !Sys.iswindows() || VERSION >= v"1.12"
         end
 
         @dispose jljit=JuliaOJIT() begin
-            jd = JITDylib(jljit, "objfile2")
+            jd = test_dylib(jljit, "objfile2")
 
             sym = "SomeFunction"
             obj = @dispose ctx=Context() mod=LLVM.Module("jit") begin
@@ -194,7 +216,7 @@ end
 
 @testset "Lazy" begin
     @dispose ts_ctx=ThreadSafeContext() jljit=JuliaOJIT() begin
-        jd = JITDylib(jljit, "lazy")
+        jd = test_dylib(jljit, "lazy")
         es = jljit.execution_session
 
         lctm = LocalLazyCallThroughManager(jljit.triple, es)

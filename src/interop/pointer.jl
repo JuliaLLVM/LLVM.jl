@@ -6,44 +6,45 @@ export @typed_ccall
 
 using Core: LLVMPtr
 
-@inline function pointerref(ptr::LLVMPtr{T}, i::Int, ::Val{align}) where {T,align}
+@inline function pointerref(ptr::LLVMPtr{T}, i::Int, ::Val{align},
+                            ::Val{volatile}=Val(false)) where {T,align,volatile}
     sizeof(T) == 0 && return T.instance
     ispow2(align) || error("pointerref: alignment must be a power of 2, got ", align)
-    return _pointerref(ptr, i - 1, Val(align))
+    return _pointerref(ptr, i - 1, Val(align), Val(volatile))
 end
 
-@llvmgenerated builder function _pointerref(ptr::LLVMPtr{T,A}, i::Int,
-                                            ::Val{align})::T where {T,A,align}
+@llvmgenerated builder function _pointerref(ptr::LLVMPtr{T,A}, i::Int, ::Val{align},
+                                            ::Val{volatile})::T where {T,A,align,volatile}
     eltyp = convert(LLVMType, T)
     if supports_typed_pointers(LLVM.context())
         ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
     end
-    ld = load!(builder, eltyp, inbounds_gep!(builder, eltyp, ptr, [i]))
+    ld = load!(builder, eltyp, inbounds_gep!(builder, eltyp, ptr, [i]); align, volatile)
     if A != 0
         ld.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
-    ld.alignment = align
     ld
 end
 
-@inline function pointerset(ptr::LLVMPtr{T}, x::T, i::Int, ::Val{align}) where {T,align}
+@inline function pointerset(ptr::LLVMPtr{T}, x::T, i::Int, ::Val{align},
+                            ::Val{volatile}=Val(false)) where {T,align,volatile}
     sizeof(T) == 0 && return
     ispow2(align) || error("pointerset: alignment must be a power of 2, got ", align)
-    _pointerset(ptr, x, i - 1, Val(align))
+    _pointerset(ptr, x, i - 1, Val(align), Val(volatile))
     return
 end
 
-@llvmgenerated builder function _pointerset(ptr::LLVMPtr{T,A}, x::T, i::Int,
-                                            ::Val{align})::Nothing where {T,A,align}
+@llvmgenerated builder function _pointerset(ptr::LLVMPtr{T,A}, x::T, i::Int, ::Val{align},
+                                            ::Val{volatile}
+                                           )::Nothing where {T,A,align,volatile}
     eltyp = convert(LLVMType, T)
     if supports_typed_pointers(LLVM.context())
         ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
     end
-    st = store!(builder, x, inbounds_gep!(builder, eltyp, ptr, [i]))
+    st = store!(builder, x, inbounds_gep!(builder, eltyp, ptr, [i]); align, volatile)
     if A != 0
         st.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
-    st.alignment = align
     nothing
 end
 
@@ -60,6 +61,33 @@ end
     pointerset(ptr, convert(T, x), Int(i), align)
     return ptr
 end
+
+export volatile_load, volatile_store!
+
+"""
+    volatile_load(ptr::Core.LLVMPtr, i::Integer=1, align::Val=Val(1))
+    volatile_store!(ptr::Core.LLVMPtr{T}, x, i::Integer=1, align::Val=Val(1))
+
+Like `unsafe_load` and `unsafe_store!`, but using a volatile memory access, which the
+compiler may not remove, duplicate, or reorder with other volatile accesses, e.g., to poll
+memory that is changed by another device. Volatile accesses are not atomic, and don't
+synchronize with other threads; use atomic operations for that.
+
+Like `unsafe_load`, the access is only assumed to be aligned to a byte (`Val(1)`), which
+some targets implement using several narrower accesses. Pass a stronger alignment if the
+pointer is known to have it, e.g., `volatile_load(ptr, 1, Val(4))` for an aligned 32-bit
+value.
+"""
+@inline volatile_load(ptr::Core.LLVMPtr, i::Integer=1, align::Val=Val(1)) =
+    pointerref(ptr, Int(i), align, Val(true))
+
+@inline function volatile_store!(ptr::Core.LLVMPtr{T}, x, i::Integer=1,
+                                 align::Val=Val(1)) where {T}
+    pointerset(ptr, convert(T, x), Int(i), align, Val(true))
+    return ptr
+end
+
+@doc (@doc volatile_load) volatile_store!
 
 # pointer operations
 

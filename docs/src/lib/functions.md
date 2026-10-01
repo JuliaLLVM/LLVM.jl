@@ -33,12 +33,15 @@ ConstantRangeListAttribute
 MemoryEffects
 FunctionMemoryEffects
 EnumAttribute(::MemoryEffects)
+LLVM.memory_attributes
 ```
 
 ## Intrinsics
 
 ```@docs
 Intrinsic
+tryparse(::Type{Intrinsic}, ::AbstractString)
+parse(::Type{Intrinsic}, ::AbstractString)
 isintrinsic
 isoverloaded
 LLVM.overloaded_name

@@ -159,6 +159,14 @@ function LLVMDumpJitDylibToString(JD)
     ccall((:LLVMDumpJitDylibToString, libLLVMExtra), Cstring, (LLVMOrcJITDylibRef,), JD)
 end
 
+function LLVMExtraThreadSafeModuleGetModuleUnlocked(TSM)
+    ccall((:LLVMExtraThreadSafeModuleGetModuleUnlocked, libLLVMExtra), LLVMModuleRef, (LLVMOrcThreadSafeModuleRef,), TSM)
+end
+
+function LLVMExtraThreadSafeModuleTakeModule(TSM)
+    ccall((:LLVMExtraThreadSafeModuleTakeModule, libLLVMExtra), LLVMModuleRef, (LLVMOrcThreadSafeModuleRef,), TSM)
+end
+
 function LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(RTDyldObjLinkingLayer, OverrideObjectFlags)
     ccall((:LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, LLVMBool), RTDyldObjLinkingLayer, OverrideObjectFlags)
 end
@@ -519,6 +527,22 @@ end
 
 function LLVMExtraBuildInsertValue(B, AggVal, EltVal, Idxs, NumIdxs, Name)
     ccall((:LLVMExtraBuildInsertValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, EltVal, Idxs, NumIdxs, Name)
+end
+
+function LLVMExtraConstVectorSplat(VecTy, Elt)
+    ccall((:LLVMExtraConstVectorSplat, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, LLVMValueRef), VecTy, Elt)
+end
+
+function LLVMExtraBuildAlloca(B, Ty, AddrSpace, ArraySize, Name)
+    ccall((:LLVMExtraBuildAlloca, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, Cuint, LLVMValueRef, Cstring), B, Ty, AddrSpace, ArraySize, Name)
+end
+
+function LLVMExtraGetIndexSizeInBits(TD, AddrSpace)
+    ccall((:LLVMExtraGetIndexSizeInBits, libLLVMExtra), Cuint, (LLVMTargetDataRef, Cuint), TD, AddrSpace)
+end
+
+function LLVMExtraGEPAccumulateConstantOffset(GEP, TD, Words)
+    ccall((:LLVMExtraGEPAccumulateConstantOffset, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMTargetDataRef, Ptr{UInt64}), GEP, TD, Words)
 end
 
 function LLVMExtraMoveInstruction(Inst, BB, Before, Head)

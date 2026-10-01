@@ -70,7 +70,9 @@ The memory effects of the function, as described by its `memory` attribute, or
 `MemoryEffects(:readwrite)` if it doesn't have one. The effects are returned as a
 [`FunctionMemoryEffects`](@ref) view, which can be used to change the access kind of a
 single location, e.g., `f.memory_effects[:argmem] = :read`. Assigning adds a `memory`
-attribute, replacing any existing one.
+attribute, replacing any existing one. On LLVM 15, this uses the attributes that the
+`memory` attribute replaced, which can't represent all effects (see
+[`MemoryEffects`](@ref)).
 
 See also: [`MemoryEffects`](@ref)
 
@@ -288,13 +290,16 @@ the attributes of a function, `f.function_attributes`, or of a call,
 `call.function_attributes`. In the latter case, only the attributes of the call site are
 considered, and not, e.g., those of the called function. To set the memory effects, push
 the corresponding attribute: `push!(attrs, EnumAttribute(effects))`, which replaces any
-existing one.
+existing one, or assign the `memory_effects` property of the function or call.
+
+On LLVM 15, which doesn't have the `memory` attribute, this combines the effects of the
+attributes that it replaced (`readnone`, `readonly`, `argmemonly`, ...).
 
 See also the `memory_effects` property of functions and calls.
 """
 function MemoryEffects(iter::FunctionAttrSet)
     check_memory_effects_index(iter.idx)
-    memory_locations()  # check that the attribute is supported
+    version() >= v"16" || return legacy_memory_effects_of(iter)
     ref = API.LLVMGetEnumAttributeAtIndex(iter.f, iter.idx, memory_kind())
     ref == C_NULL && return MemoryEffects(:readwrite)
     return MemoryEffects(EnumAttribute(ref))
@@ -331,7 +336,7 @@ function Base.setindex!(effects::FunctionMemoryEffects, kind::Symbol, loc::Symbo
     pos = memory_location_pos(loc)
     data = MemoryEffects(effects).data & ~(UInt32(0x3) << pos)
     data |= memory_access_value(kind) << pos
-    push!(getfield(effects, :attrs), EnumAttribute(MemoryEffects(data)))
+    memory_effects!(getfield(effects, :attrs), MemoryEffects(data))
     return effects
 end
 
@@ -348,17 +353,36 @@ Base.:(==)(a::AnyMemoryEffects, b::AnyMemoryEffects) = MemoryEffects(a) === Memo
 Base.hash(effects::FunctionMemoryEffects, h::UInt) = hash(MemoryEffects(effects), h)
 Base.show(io::IO, effects::FunctionMemoryEffects) = show(io, MemoryEffects(effects))
 
+@public memory_attributes
+
+"""
+    LLVM.memory_attributes(effects::Union{MemoryEffects,FunctionMemoryEffects})
+
+Create the attributes that describe the memory `effects` of a function or call, on any
+version of LLVM: the `memory` attribute on LLVM 16 and later, or the attributes that it
+replaced on LLVM 15 (none for unrestricted effects). This is for building lists of
+attributes, e.g., for a function declaration; on LLVM 15, it throws an `ArgumentError` for
+effects that can't be represented (see [`MemoryEffects`](@ref)).
+
+Adding these attributes to a function or call doesn't remove the ones that describe other
+effects on LLVM 15. To replace the memory effects of a function or call, assign its
+`memory_effects` property instead.
+"""
+function memory_attributes(effects::AnyMemoryEffects)
+    effects = MemoryEffects(effects)
+    if version() >= v"16"
+        return Attribute[EnumAttribute(effects)]
+    else
+        return Attribute[legacy_memory_attributes(effects)...]
+    end
+end
+
 memory_effects(f::Function) = FunctionMemoryEffects(function_attributes(f))
 
-function memory_effects!(f::Function, effects::AnyMemoryEffects)
-    push!(function_attributes(f), EnumAttribute(MemoryEffects(effects)))
-    return
-end
+memory_effects!(f::Function, effects::AnyMemoryEffects) =
+    memory_effects!(function_attributes(f), MemoryEffects(effects))
 
-# the `memory` attribute exists since LLVM 16
-@static if version() >= v"16"
-    @property Function memory_effects memory_effects!
-end
+@property Function memory_effects memory_effects!
 
 check_memory_effects_index(idx::API.LLVMAttributeIndex) =
     idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex) ||
@@ -539,12 +563,14 @@ end
 
 """
     LLVM.Intrinsic
-    Intrinsic(name::String)
+    Intrinsic(name::AbstractString)
     Intrinsic(f::LLVM.Function)
 
 An LLVM intrinsic function, identified by its (base) name, e.g., `Intrinsic("llvm.memcpy")`,
 or the intrinsic that a function declares. Throws an `ArgumentError` if there is no such
-intrinsic; see the `intrinsic` property of functions for a non-throwing alternative.
+intrinsic; use [`tryparse`](@ref tryparse(::Type{LLVM.Intrinsic}, ::AbstractString)) to
+look up a name that the version of LLVM in use may not know, and the `intrinsic` property
+of functions to check whether a function is an intrinsic.
 
 # Properties
 
@@ -562,13 +588,40 @@ struct Intrinsic
         new(id)
     end
 
-    function Intrinsic(name::String)
-        id = API.LLVMLookupIntrinsicID(name, ncodeunits(name))
+    function Intrinsic(name::AbstractString)
+        id = lookup_intrinsic_id(name)
         id == 0 && throw(ArgumentError("Unknown intrinsic: $name"))
         new(id)
     end
+
+    # for IDs that are known to be valid
+    Intrinsic(id::UInt32, ::Val{:unchecked}) = new(id)
 end
 @properties Intrinsic
+
+lookup_intrinsic_id(name::AbstractString) =
+    API.LLVMLookupIntrinsicID(name, ncodeunits(name))
+
+"""
+    tryparse(LLVM.Intrinsic, name::AbstractString)
+
+Look up the intrinsic with the given name, like [`Intrinsic(name)`](@ref LLVM.Intrinsic),
+but return `nothing` if the version of LLVM in use doesn't know it. The name can be the
+base name of an overloaded intrinsic (e.g., `"llvm.sin"`) or the name of an overload
+(e.g., `"llvm.sin.f64"`), as LLVM recognizes them.
+"""
+function Base.tryparse(::Type{Intrinsic}, name::AbstractString)
+    id = lookup_intrinsic_id(name)
+    return id == 0 ? nothing : Intrinsic(id, Val(:unchecked))
+end
+
+"""
+    parse(LLVM.Intrinsic, name::AbstractString)
+
+Look up the intrinsic with the given name, throwing an `ArgumentError` if the version of
+LLVM in use doesn't know it. This is the same as [`Intrinsic(name)`](@ref LLVM.Intrinsic).
+"""
+Base.parse(::Type{Intrinsic}, name::AbstractString) = Intrinsic(name)
 
 intrinsic(f::Function) = isintrinsic(f) ? Intrinsic(f) : nothing
 

@@ -371,6 +371,11 @@ Memcheck then reports using a thing after it or its session was disposed of, dis
 it twice (without destroying it again) or after its session, and not disposing of a
 session or a thing at all (except for things that were destroyed with their session).
 
+The `dispose` methods also make these wrappers work with [`@dispose`](@ref). Similarly,
+packages can add methods to [`activate`](@ref) and [`deactivate`](@ref) for a task-local
+stack of their own objects, like the contexts of the foreign library, which is separate
+from LLVM.jl's stack of contexts.
+
 Objects are identified by `===`, so register the wrapper, not the handle that the C API
 returns, and use and dispose of that wrapper, or one that is `===` to it (for an immutable
 wrapper, one with the same fields, typically just the handle). Wrappers of handles that the

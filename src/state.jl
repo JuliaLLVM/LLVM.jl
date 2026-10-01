@@ -26,6 +26,29 @@ function context(; throw_error::Bool=true)
 end
 
 """
+    activate(obj)
+
+Make `obj` the active object of its kind for the current task, by pushing it onto a
+task-local stack, e.g., the stack of contexts whose top [`context()`](@ref) returns. Undo
+this using [`deactivate`](@ref), in reverse order.
+
+Packages can add methods for their own types, e.g., to maintain a task-local stack of the
+contexts of a related C API. Such a stack is separate from LLVM.jl's: activating one of
+these objects doesn't activate an LLVM context.
+"""
+function activate end
+
+"""
+    deactivate(obj)
+
+Undo [`activate`](@ref)`(obj)`, popping `obj` from the task-local stack that it was pushed
+onto, which throws an error if `obj` isn't the active object.
+
+Packages can add methods for their own types, along with methods for `activate`.
+"""
+function deactivate end
+
+"""
     activate(ctx::LLVM.Context)
 
 Pushes a new context onto the context stack.

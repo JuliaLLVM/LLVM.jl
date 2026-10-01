@@ -494,6 +494,9 @@ New functionality:
   `allow_overwrite` and `adopting` keyword arguments of `mark_alloc` have been removed
   (use `mark_dispose(f, obj)` with the destructor, or `mark_untracked` to hand over an
   object), and `@checked` and `refcheck` remain internal.
+- `dispose`, `activate` and `deactivate` are documented as generic functions that other
+  packages can add methods to for their own types, e.g., so that they work with
+  `@dispose`, or to maintain a task-local stack of their own contexts.
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.

@@ -39,6 +39,8 @@ supports_typed_pointers
 LLVM.jl also tracks the context in task-local scope:
 
 ```@docs
+activate
+deactivate
 context()
 activate(::Context)
 deactivate(::Context)
@@ -55,6 +57,7 @@ ts_context!
 ## Resources
 
 ```@docs
+dispose
 @dispose
 LLVM.consume!
 LLVM.adopt

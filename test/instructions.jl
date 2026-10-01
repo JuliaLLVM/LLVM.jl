@@ -305,6 +305,13 @@
     end
     @test gepinst.pointer_operand == ptr1
     @test gepinst.source_element_type == LLVM.Int32Type()
+    @test gepinst.indices == [int1]
+    @test gepinst.indices[1] isa LLVM.Argument
+    indices = gepinst.indices
+    indices[1] = int2
+    @test gepinst.operands[2] == int2
+    gepinst.operands[2] = int1
+    @test indices == [int1]
     @test !gepinst.inbounds
     gepinst.inbounds = true
     @test gepinst.inbounds
@@ -319,6 +326,12 @@
         @check_ir gepinst1 "getelementptr inbounds i32, ptr %4, i32 %0"
     end
     @test gepinst1.inbounds
+
+    T_pair = LLVM.ArrayType(LLVM.Int32Type(), 2)
+    pairptr = alloca!(builder, T_pair)
+    gepinst2 = gep!(builder, T_pair, pairptr, [ConstantInt(Int32(0)), int1])
+    @test gepinst2.indices == [ConstantInt(Int32(0)), int1]
+    @test length(gepinst2.indices) == length(gepinst2.operands) - 1
 
     single_thread = false
     atomic_rmw_inst = atomic_rmw!(builder,

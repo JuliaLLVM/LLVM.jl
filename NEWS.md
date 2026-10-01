@@ -486,6 +486,8 @@ New functionality:
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.
+- `gep.indices` is a view of the indices of a `getelementptr` instruction or constant
+  expression (the operands after the pointer), like C++'s `GEPOperator::indices()`.
 
 Bug fixes:
 

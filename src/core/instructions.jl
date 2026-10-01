@@ -70,6 +70,11 @@ The pointer that a `getelementptr` instruction indexes into.
 
 The type that a `getelementptr` instruction indexes into, as passed to the builder.
 
+    gep.indices
+
+The indices of a `getelementptr` instruction, i.e., its operands after the pointer, as a
+view of those operands: assigning an element replaces the operand.
+
     gep.inbounds
     gep.inbounds = flag::Bool
 
@@ -78,7 +83,8 @@ known to be within the bounds of the object that the pointer operand is based on
 
     inst.indices
 
-The indices of an `extractvalue` or `insertvalue` instruction, as a read-only view. These
+The indices of an `extractvalue` or `insertvalue` instruction, as a read-only view of
+integers. These
 are the zero-based indices that select the element of the aggregate, like in textual IR,
 e.g., `[1, 0]` for `extractvalue {i32, {i8, i8}} %agg, 1, 0`.
 
@@ -1803,6 +1809,12 @@ function constant_offset(gep::Union{GetElementPtrInst,ConstantExpr}, dl::DataLay
     end
     return offset
 end
+
+indices(inst::GetElementPtrInst) = @view operands(inst)[2:end]
+indices(ce::ConstantExpr) = @view operands(check_gep(ce))[2:end]
+
+@property GetElementPtrInst indices
+@property ConstantExpr indices
 
 inbounds(inst::GetElementPtrInst) = API.LLVMIsInBounds(inst) |> Bool
 

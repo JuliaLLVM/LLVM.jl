@@ -956,6 +956,8 @@ end
         ce = const_gep(T_struct, gv, [ConstantInt(Int32(0)), ConstantInt(Int32(2))])
         @test ce isa ConstantExpr
         @test ce.source_element_type == T_struct
+        @test ce.indices == [ConstantInt(Int32(0)), ConstantInt(Int32(2))]
+        @test_throws ArgumentError ce.indices[1] = ConstantInt(Int32(1))
         @test LLVM.constant_offset(ce, dl) == 8
         @test LLVM.constant_offset(ce, dl) isa BigInt
         @test LLVM.constant_offset(Int, ce, dl) === 8
@@ -975,6 +977,7 @@ end
         ce = const_ptrtoint(gv, LLVM.Int64Type())
         @test ce isa ConstantExpr
         @test_throws ArgumentError ce.source_element_type
+        @test_throws ArgumentError ce.indices
         @test_throws ArgumentError LLVM.constant_offset(ce, dl)
 
         # instructions

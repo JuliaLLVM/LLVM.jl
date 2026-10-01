@@ -739,6 +739,11 @@ The opcode of the constant expression, e.g., `LLVM.Opcode.Add`.
 The type that a `getelementptr` constant expression indexes into. Throws an
 `ArgumentError` for other constant expressions.
 
+    ce.indices
+
+The indices of a `getelementptr` constant expression, i.e., its operands after the pointer,
+as a read-only view. Throws an `ArgumentError` for other constant expressions.
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantExpr <: Constant

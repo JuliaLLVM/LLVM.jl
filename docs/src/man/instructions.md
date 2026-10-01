@@ -252,6 +252,8 @@ inspects or rewrites them doesn't need to know their position in `inst.operands`
 - `inst.value_operand`: the value that a store or `atomicrmw` instruction writes.
 - `alloca.allocated_type`: the type that an `alloca` instruction allocates.
 - `gep.source_element_type`: the type that a `getelementptr` instruction indexes into.
+- `gep.indices`: the indices of a `getelementptr` instruction (its operands after the
+  pointer), as a view that can be assigned to.
 - `gep.inbounds`: whether a `getelementptr` instruction is `inbounds`, which can also be
   assigned to.
 

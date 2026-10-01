@@ -175,6 +175,12 @@ julia> mod
 [94707] signal (11.2): Segmentation fault: 11
 ```
 
+Objects that are handed over to LLVM or to foreign code, like a memory buffer that is added
+to a JIT, are consumed: they can't be used anymore either, but disposing of them does
+nothing (see [`LLVM.consume!`](@ref)). A memory buffer can also be handed over to foreign
+code that keeps it alive, using `LLVM.consume!(buf; borrow=true)`, after which it remains
+usable until its new owner frees it.
+
 Most LLVM.jl objects, like modules, values, types and metadata, are lightweight wrappers
 around a pointer to the LLVM object. Wrappers of the same object are equal (both `==` and
 `===`) and have the same hash, so they can be compared, and used as keys of a `Dict` or as

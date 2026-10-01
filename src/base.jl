@@ -416,6 +416,7 @@ end
 
 """
     LLVM.consume!(obj)
+    LLVM.consume!(buf::MemoryBuffer; borrow=false)
 
 Hand `obj` over to foreign code that takes ownership of it, returning its raw handle. This
 is for calling a C API that takes ownership of an object, e.g., using `ccall`, which
@@ -436,6 +437,21 @@ foreign call fails, so validate the other arguments first, and call `consume!` r
 before the call. For a C API that only takes ownership when it succeeds, pass the object
 itself to the call (which converts it to its handle without consuming it), and call
 `consume!` after it succeeded.
+
+Some foreign code takes ownership of an object, but keeps it alive and lets the caller keep
+using it, e.g., clang's `SourceManager` with a memory buffer that is then lexed. For a
+[`MemoryBuffer`](@ref), `LLVM.consume!(buf; borrow=true)` expresses such a handover: the
+wrapper can still be used, but not consumed again, and disposing of it does nothing. This
+doesn't extend the lifetime of the buffer, so it can only be used for as long as its new
+owner keeps it alive:
+
+```julia
+@dispose buf=MemoryBuffer(data) begin
+    fid = ccall(:create_file_id, Cint, (Ptr{Cvoid}, LLVM.API.LLVMMemoryBufferRef),
+                source_manager, LLVM.consume!(buf; borrow=true))
+    lex(source_manager, fid, buf)   # `buf` is still usable
+end                                 # and isn't freed here
+```
 
 Only this wrapper changes state, not other wrappers of the same object, and the raw handle
 doesn't keep Julia objects alive that the wrapper references (e.g., the callbacks of an

@@ -268,6 +268,9 @@ ORC:
   context, for when calling the thread-safe module isn't possible, and
   `LLVM.unsafe_take_module!(tsm)` (LLVM 16+) moves the module out of a thread-safe module
   that foreign code owns, e.g., the one of Julia's code generator.
+- `LLVM.consume!(buf; borrow=true)` hands a memory buffer over to foreign code that keeps
+  it alive and lets the caller keep using it, like clang's `SourceManager` does: the
+  wrapper remains usable, but can't be consumed again, and disposing of it does nothing.
 - Materialization responsibilities can't be used after being consumed by `emit!`, and the
   responsibility that an IR transformation receives is borrowed, like its module. Resource
   trackers can't be used after being disposed of, and disposing of them again does

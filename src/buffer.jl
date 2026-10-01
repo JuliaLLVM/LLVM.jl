@@ -9,21 +9,42 @@ Some operations take ownership of a memory buffer, like adding an object file to
 lazily parsing bitcode. These consume the buffer: it can't be used anymore afterwards, and
 disposing of it does nothing, so that it can be disposed of unconditionally, e.g., using
 the do-block form of its constructor.
+
+Foreign code that takes ownership of a buffer can also keep it alive and let callers keep
+reading it, e.g., clang's `SourceManager` when creating a file from a buffer. To hand a
+buffer over to such code while keeping it usable, use
+[`LLVM.consume!(buf; borrow=true)`](@ref LLVM.consume!).
 """
 mutable struct MemoryBuffer
     ref::API.LLVMMemoryBufferRef
-    owned::Bool
+    owned::Bool     # whether we own the buffer, i.e., it wasn't consumed or disposed of
+    borrowed::Bool  # whether the buffer was handed over, but can still be used
 
     function MemoryBuffer(ref::API.LLVMMemoryBufferRef)
         ref == C_NULL && throw(UndefRefError())
-        new(ref, true)
+        new(ref, true, false)
     end
 end
 
-Base.unsafe_convert(::Type{API.LLVMMemoryBufferRef}, membuf::MemoryBuffer) =
-    check_owned(membuf).ref
+function check_usable(membuf::MemoryBuffer)
+    membuf.borrowed && return membuf
+    return check_owned(membuf)
+end
 
-consume!(membuf::MemoryBuffer) = consume_owned!(membuf)
+Base.unsafe_convert(::Type{API.LLVMMemoryBufferRef}, membuf::MemoryBuffer) =
+    check_usable(membuf).ref
+
+function consume!(membuf::MemoryBuffer; borrow::Bool=false)
+    membuf.borrowed && throw(ArgumentError("A borrowed MemoryBuffer can't be consumed"))
+    borrow || return consume_owned!(membuf)
+    check_owned(membuf)
+    membuf.owned = false
+    membuf.borrowed = true
+    # the buffer is owned elsewhere now, so stop tracking it, without considering it
+    # disposed of (which would make using it look like a use after free)
+    mark_untracked(membuf)
+    return membuf.ref
+end
 
 """
     MemoryBuffer(data::Vector{T}, name::String="", copy::Bool=true)
@@ -75,7 +96,8 @@ MemoryBufferFile(f::Core.Function, args...; kwargs...) =
 """
     dispose(membuf::MemoryBuffer)
 
-Dispose of the given memory buffer, unless it has been consumed.
+Dispose of the given memory buffer, unless it has been consumed. Disposing of a buffer that
+was consumed with `borrow=true` does nothing, and leaves it usable.
 """
 dispose(membuf::MemoryBuffer) = dispose_owned(API.LLVMDisposeMemoryBuffer, membuf)
 

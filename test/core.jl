@@ -1005,6 +1005,91 @@ end
     end
 end
 
+# other constants
+@dispose ctx=Context() begin
+    @testset "other constants" begin
+
+    ptr = supports_typed_pointers(ctx) ? "i8*" : "ptr"
+
+    # block addresses
+    @dispose mod=parse(LLVM.Module, """
+        define void @f(i1 %c) {
+        entry:
+          br i1 %c, label %a, label %b
+        a:
+          indirectbr $ptr blockaddress(@f, %b), [label %b]
+        b:
+          ret void
+        }""") begin
+        f = mod.functions["f"]
+        entry, a, b = f.blocks
+        ba = a.terminator.operands[1]
+        @test ba isa BlockAddress
+        @test ba.function == f
+        @test ba.block == b
+        @test BlockAddress(b) == ba
+        @check_ir BlockAddress(a) "blockaddress(@f, %a)"
+        @test all(op -> op isa Value, ba.operands)
+        let detached = BasicBlock("detached")
+            @test_throws ArgumentError BlockAddress(detached)
+            erase!(detached)
+        end
+    end
+
+    # the `none` token
+    let none = null(LLVM.TokenType())
+        @test none isa ConstantTokenNone
+        @check_ir none "none"
+    end
+    pers = supports_typed_pointers(ctx) ? "i32 (...)*" : "ptr"
+    @dispose mod=parse(LLVM.Module, """
+        declare void @g()
+        declare i32 @__CxxFrameHandler3(...)
+        define void @f() personality $pers @__CxxFrameHandler3 {
+        entry:
+          invoke void @g() to label %exit unwind label %cleanup
+        cleanup:
+          %cp = cleanuppad within none []
+          cleanupret from %cp unwind to caller
+        exit:
+          ret void
+        }""") begin
+        cp = first(mod.functions["f"].blocks[2].instructions)
+        @test only(cp.operands) isa ConstantTokenNone
+    end
+
+    # the zero value of target extension types
+    if LLVM.version() >= v"16"
+        @dispose mod=parse(LLVM.Module,
+                           "@g = global target(\"spirv.Event\") zeroinitializer") begin
+            @test mod.globals["g"].initializer isa ConstantTargetNone
+        end
+    end
+
+    # signed pointers
+    if LLVM.version() >= v"19"
+        @dispose mod=parse(LLVM.Module, """
+            define void @f() {
+              ret void
+            }
+            @g = global ptr ptrauth (ptr @f, i32 0)""") begin
+            init = mod.globals["g"].initializer
+            @test init isa ConstantPtrAuth
+            @test first(init.operands) == mod.functions["f"]
+        end
+    end
+
+    # every kind of value that can be reached through the C API has a wrapper type, so
+    # that LLVM.jl doesn't throw when it encounters one (the MemorySSA kinds can't)
+    memoryssa = (LLVM.API.LLVMMemoryUseValueKind, LLVM.API.LLVMMemoryDefValueKind,
+                 LLVM.API.LLVMMemoryPhiValueKind)
+    unregistered = [kind for kind in instances(LLVM.API.LLVMValueKind)
+                    if !(kind in memoryssa) && LLVM.value_kinds[Int(kind)+1] === Nothing]
+    @test isempty(unregistered)
+
+    end
+end
+
 # convert_users_to_instructions!
 if LLVM.version() >= v"17"
 @testset "convert users to instructions" begin

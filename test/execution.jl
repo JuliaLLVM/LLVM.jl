@@ -218,4 +218,40 @@ end
 
 end
 
+@testset "process-wide symbols" begin
+    # symbols persist for the remainder of the process, so use names that are unique
+    name = "llvmjl_test_symbol_$(getpid())_$(time_ns())"
+    @test LLVM.find_symbol(name) == C_NULL
+    @test LLVM.find_symbol("malloc") != C_NULL
+
+    # the legacy execution engines resolve external symbols using them
+    fptr = @cfunction(abs, Int32, (Int32,))
+    @test LLVM.add_symbol(name, fptr) === nothing
+    @test LLVM.find_symbol(name) == fptr
+
+    # adding a symbol again replaces its address
+    other = "llvmjl_test_symbol_other_$(getpid())_$(time_ns())"
+    LLVM.add_symbol(other, Ptr{Cvoid}(1))
+    LLVM.add_symbol(other, Ptr{Cvoid}(2))
+    @test LLVM.find_symbol(other) == Ptr{Cvoid}(2)
+    @dispose ctx=Context() begin
+        mod = parse(LLVM.Module, """
+            declare i32 @$name(i32)
+            define i32 @call(i32 %x) {
+              %y = call i32 @$name(i32 %x)
+              ret i32 %y
+            }""")
+        @dispose engine=LLVM.JIT(mod) begin
+            @test ccall(lookup(engine, "call"), Int32, (Int32,), -42) == 42
+        end
+    end
+
+    # loading libraries
+    # (which can be done multiple times)
+    for _ in 1:2
+        @test LLVM.load_library_permanently(String(Base.libllvm_path())) === nothing
+    end
+    @test_throws LLVMException LLVM.load_library_permanently("/nonexistent/libfoo.so")
+end
+
 end

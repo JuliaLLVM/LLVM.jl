@@ -196,3 +196,65 @@ function successors(bb::BasicBlock)
 end
 
 @property BasicBlock successors
+
+
+## block addresses
+
+@vocabulary IR BlockAddress
+
+"""
+    BlockAddress <: LLVM.Constant
+
+The address of a basic block, `blockaddress(@f, %bb)` in LLVM IR, e.g., as the destination
+of an `indirectbr` instruction.
+
+# Properties
+
+    ba.function
+
+The function that contains the basic block.
+
+    ba.block
+
+The basic block whose address this is.
+
+The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
+"""
+@checked struct BlockAddress <: Constant
+    ref::API.LLVMValueRef
+end
+register(BlockAddress, API.LLVMBlockAddressValueKind)
+
+"""
+    BlockAddress(bb::BasicBlock)
+
+Get the address of the basic block `bb`, which must be part of a function. Taking the
+address of the entry block of a function is not valid IR.
+"""
+function BlockAddress(bb::BasicBlock)
+    f = parent(bb)
+    f === nothing &&
+        throw(ArgumentError("Cannot take the address of a basic block that is not part of a function"))
+    BlockAddress(API.LLVMBlockAddress(f, bb))
+end
+
+# before LLVM 19, the C API has no getters, but the function and the block are operands
+function blockaddress_function(ba::BlockAddress)
+    ref = @static if version() >= v"19"
+        API.LLVMGetBlockAddressFunction(ba)
+    else
+        API.LLVMGetOperand(ba, 0)
+    end
+    Function(ref)
+end
+
+function blockaddress_block(ba::BlockAddress)
+    @static if version() >= v"19"
+        BasicBlock(API.LLVMGetBlockAddressBasicBlock(ba))
+    else
+        BasicBlock(API.LLVMGetOperand(ba, 1))
+    end
+end
+
+@property BlockAddress var"function" => blockaddress_function
+@property BlockAddress block => blockaddress_block

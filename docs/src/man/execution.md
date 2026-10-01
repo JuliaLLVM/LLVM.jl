@@ -73,6 +73,22 @@ julia> res = ccall(addr, Int64, (Int64, Int64), 1, 2)
 3
 ```
 
+MCJIT resolves calls to external functions by searching the current process. To make
+other symbols available to it, load a library with `LLVM.load_library_permanently`,
+or define a symbol with `LLVM.add_symbol`. These make the symbols available process-wide
+and permanently, and `LLVM.find_symbol` looks up a symbol the same way:
+
+```julia
+LLVM.load_library_permanently("/path/to/libfoo.so")
+
+callback = @cfunction(abs, Cint, (Cint,))
+LLVM.add_symbol("my_abs", callback)
+LLVM.find_symbol("my_abs") == callback
+```
+
+With ORC, symbols are defined per JITDylib instead, and symbols added with
+`LLVM.add_symbol` are not visible to it (see [Making host symbols available](@ref)).
+
 
 ## ORC
 

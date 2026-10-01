@@ -95,7 +95,8 @@ isnull(val::Value) = API.LLVMIsNull(val) |> Bool
 
 ## data
 
-@vocabulary IR PointerNull, UndefValue, PoisonValue, ConstantInt, ConstantFP
+@vocabulary IR PointerNull, UndefValue, PoisonValue, ConstantTokenNone, ConstantTargetNone,
+              ConstantInt, ConstantFP
 
 # Abstract supertype for all constant value without operands.
 abstract type ConstantData <: Constant end
@@ -153,6 +154,33 @@ register(PoisonValue, API.LLVMPoisonValueValueKind)
 Create a poison constant value of the given type.
 """
 PoisonValue(typ::LLVMType) = PoisonValue(API.LLVMGetPoison(typ))
+
+
+"""
+    ConstantTokenNone <: LLVM.ConstantData
+
+The `none` token, e.g., the parent pad of a `cleanuppad` or `catchswitch` instruction that
+is not nested in another pad. It is the null value of the token type, so it is created
+using `null(LLVM.TokenType())`.
+"""
+@checked struct ConstantTokenNone <: ConstantData
+    ref::API.LLVMValueRef
+end
+register(ConstantTokenNone, API.LLVMConstantTokenNoneValueKind)
+
+
+"""
+    ConstantTargetNone <: LLVM.ConstantData
+
+The `zeroinitializer` of a target extension type (e.g., `target("spirv.Event")`), which
+only exists on LLVM 16 and later.
+"""
+@checked struct ConstantTargetNone <: ConstantData
+    ref::API.LLVMValueRef
+end
+if version() >= v"16"
+    register(ConstantTargetNone, API.LLVMConstantTargetNoneValueKind)
+end
 
 
 """
@@ -1033,7 +1061,25 @@ let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
     end
 end
 
-# TODO: alignof, sizeof, block_address
+# TODO: alignof, sizeof
+
+
+## pointer authentication
+
+@vocabulary IR ConstantPtrAuth
+
+"""
+    ConstantPtrAuth <: LLVM.Constant
+
+A signed pointer, `ptrauth (ptr @f, i32 0)` in LLVM IR, as used for pointer authentication
+(e.g., on arm64e). This constant only exists on LLVM 19 and later.
+"""
+@checked struct ConstantPtrAuth <: Constant
+    ref::API.LLVMValueRef
+end
+if version() >= v"19"
+    register(ConstantPtrAuth, API.LLVMConstantPtrAuthValueKind)
+end
 
 
 ## inline assembly

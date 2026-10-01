@@ -47,6 +47,11 @@ ConstantVector
 ConstantAggregateZero
 LLVM.ConstantAggregate
 InlineAsm
+BlockAddress
+BlockAddress(::BasicBlock)
+ConstantTokenNone
+ConstantTargetNone
+ConstantPtrAuth
 convert_users_to_instructions!
 remove_dead_constant_users!
 ```

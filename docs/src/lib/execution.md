@@ -42,6 +42,14 @@ LLVM.execute
 lookup(::LLVM.ExecutionEngine, ::String)
 ```
 
+### Process-wide symbols
+
+```@docs
+LLVM.load_library_permanently
+LLVM.add_symbol
+LLVM.find_symbol
+```
+
 ## ORC
 
 ### Thread-safe contexts and modules

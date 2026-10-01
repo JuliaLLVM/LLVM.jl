@@ -444,6 +444,16 @@ New functionality:
   and `MDKind(name; context)` looks up a kind in another context than the active one.
 - `LLVM.Interop.volatile_load` and `volatile_store!` are like `unsafe_load` and
   `unsafe_store!` on `Core.LLVMPtr`, using volatile memory accesses.
+- Block addresses (`blockaddress(@f, %bb)`) are `BlockAddress` constants, with the
+  `ba.function` and `ba.block` properties, and `BlockAddress(bb)` creates one. The `none`
+  token, the zero value of target extension types and signed pointers are
+  `ConstantTokenNone`, `ConstantTargetNone` and `ConstantPtrAuth` constants. Previously,
+  encountering any of these, e.g., as an operand of an `indirectbr` or `cleanuppad`
+  instruction, or creating `null(LLVM.TokenType())`, threw an "Unknown value kind" error.
+- `LLVM.load_library_permanently`, `LLVM.add_symbol` and `LLVM.find_symbol` are public.
+  They make libraries and symbols available to the legacy execution engines, using LLVM's
+  process-wide symbol search. `load_library_permanently` throws an `LLVMException` if the
+  library can't be loaded, where it returned the C API's status.
 - The `memcheck` debugging mode reports every problem once for objects allocated and
   disposed of at the same locations in user code, counting where it happens, with an update
   when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects

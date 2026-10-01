@@ -610,6 +610,10 @@ Other changes:
   combination of types they're used with, which on Julia 1.12 took 15 to 50 ms each. The
   documentation of `generate_llvmcall` describes how to write callbacks that are compiled
   once.
+- Defining and expanding `@llvmgenerated` functions is precompiled, including LLVM.jl's own
+  ones for loading from and storing to `Core.LLVMPtr`s, which makes the first call of
+  `unsafe_load` or `unsafe_store!` on an `LLVMPtr` take a few milliseconds instead of a few
+  hundred.
 
 
 ## LLVM.jl v9.14

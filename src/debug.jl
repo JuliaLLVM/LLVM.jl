@@ -436,12 +436,15 @@ function mark_dispose(f, obj)
 
         # the object is only recorded as disposed of afterwards, as `f` uses it. by then,
         # another thread may have allocated a new object at the same address, so only
-        # record the disposal if the object is still the one we disposed of.
+        # record the disposal if the object is still the one we disposed of (its entry may
+        # have changed, e.g., when its owner was untracked).
         if entry !== nothing
             @lock memcheck_lock begin
                 done_disposing!(entry, owned)
-                if get(tracked_objects, obj, nothing) === entry
-                    detach_owned!(obj, entry)
+                current = get(tracked_objects, obj, nothing)
+                if current !== nothing && current.alloc_bt === entry.alloc_bt &&
+                   current.dispose_bt === nothing
+                    detach_owned!(obj, current)
                     tracked_objects[obj] = TrackedObject(entry.alloc_bt, new_dispose_bt, nothing)
                     end_owned_lifetimes!(obj, new_dispose_bt)
                 else

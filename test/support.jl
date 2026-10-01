@@ -326,6 +326,23 @@ if LLVM.memcheck_enabled
         @test !occursin("WARNING", out)
     end
 
+    # the disposal is recorded when the entry of the object changes while disposing of it,
+    # e.g., because its owner is untracked
+    let (; out, err, success) =
+        execute_code("""struct Thing
+                            ref::Ptr{Cvoid}
+                        end
+                        s = LLVM.mark_alloc(Thing(Ptr{Cvoid}(1)))
+                        t = LLVM.mark_alloc(Thing(Ptr{Cvoid}(2)); owner=s)
+                        LLVM.mark_dispose(t) do t
+                            LLVM.mark_untracked(s)
+                        end
+                        LLVM.mark_use(t)""")
+        @test success
+        @test occursin("An instance of Thing is being used after it was disposed of.", out)
+        @test count("WARNING", out) == 1
+    end
+
     # adopting an object that's tracked already is reported, and keeps what memcheck knows
     # about it, while an adopted context owns its (adopted) modules
     let (; out, err, success) =

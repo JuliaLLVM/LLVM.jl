@@ -421,7 +421,9 @@ New functionality:
   `Intrinsic(name)`.
 - `cmpxchg.compare_operand` and `cmpxchg.new_value_operand` are the operands of a
   `cmpxchg` instruction, and `LLVM.irname` returns the name of an `atomicrmw` operation or
-  an atomic ordering in LLVM IR, the inverse of `parse`.
+  an atomic ordering in LLVM IR, the inverse of `parse`. `tryparse` looks up the operation
+  or ordering of a name, like `parse`, but returns `nothing` for unknown names instead of
+  throwing.
 - `alloca!` and `array_alloca!` take an `addrspace` keyword argument, for allocations in
   another address space than the one of the data layout.
 - `ce.source_element_type` works on `getelementptr` constant expressions, and
@@ -466,6 +468,11 @@ Bug fixes:
   than the active one. A scope can also be assigned to an instruction by name
   (`inst.syncscope = "agent"`). The constructor from an integer ID has been removed.
 - `parse(LLVM.AtomicRMWBinOp.T, name)` supports `fmaximumnum` and `fminimumnum`.
+- `instances(LLVM.AtomicRMWBinOp.T)` lists every `atomicrmw` operation, including the ones
+  that LLVM.jl defines because the C API of the LLVM version in use lacks them (e.g.,
+  `uinc_wrap` before LLVM 19), so that they can be enumerated without hard-coding their
+  names. `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))` lists the ones that
+  LLVM supports.
 - The names of metadata kinds used to index the metadata of instructions and global
   objects (`inst.metadata["tbaa"]`) are looked up in their context instead of the active
   one.
@@ -516,8 +523,25 @@ Other changes:
 - Attribute sets support `append!` as documented, and they, the metadata of an instruction
   and the flags of a module can be iterated.
 - Property access on values whose concrete type is only known at run time doesn't dispatch.
+- The errors about atomic operations name operations and orderings as LLVM IR does, e.g.,
+  "atomicrmw operation fmaximum is not supported by LLVM 18.1.7" instead of "atomicrmw
+  operation 19 ...", and "atomicrmw add requires an integer value, got float" instead of
+  "atomicrmw operation LLVM.AtomicRMWBinOp.Add ...".
 - The documentation of `expand_to_cmpxchg!`, `expand_partword!`, `lower_atomic!` and
   `atomic_rmw_value!` says that they can change the control flow and call intrinsics.
+- It is documented that `"system"` names the default synchronization scope, so that
+  `fence!(builder, ordering; scope="system")` emits a plain `fence`, and that the body of an
+  `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.
+  Its docstring no longer claims that only Julia 1.10 passes pointers to the body as
+  typed pointers (or as integers, for `Ptr`), which 1.11 does too.
+- Generating atomic operations is precompiled, which makes the first generator that uses
+  them, e.g., in UnsafeAtomics.jl, a few hundred milliseconds faster.
+- `deps/build_local.jl` installs the library it builds in a directory that is specific to
+  the version of LLVM and of the sources, through a temporary one, so that building for
+  another version of Julia, or concurrently, no longer deletes the library that another
+  environment uses. A second argument sets the directory to install into. It also checks
+  that the library was built for the version of LLVM in use, rather than for another LLVM
+  that CMake found.
 - `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
   calling it, which created an LLVM context when none was active, so it is cheap and can
   be constant-folded (#620).

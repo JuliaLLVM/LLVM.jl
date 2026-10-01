@@ -391,12 +391,26 @@
     @test parse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
     @test parse(LLVM.AtomicRMWBinOp.T, "fminimumnum") == LLVM.API.LLVMAtomicRMWBinOpFMinimumNum
     @test_throws ArgumentError parse(LLVM.AtomicRMWBinOp.T, "fmaximumnumber")
-    for name in ("xchg", "add", "sub", "and", "nand", "or", "xor", "max", "min", "umax",
+    @test tryparse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
+    @test tryparse(LLVM.AtomicRMWBinOp.T, "fmaximumnumber") === nothing
+    @test tryparse(LLVM.AtomicOrdering.T, "acq_rel") == LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test tryparse(LLVM.AtomicOrdering.T, "acquire_release") == LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test tryparse(LLVM.AtomicOrdering.T, "relaxed") === nothing
+    @test_throws ArgumentError parse(LLVM.AtomicOrdering.T, "relaxed")
+    rmw_names = ["xchg", "add", "sub", "and", "nand", "or", "xor", "max", "min", "umax",
                  "umin", "fadd", "fsub", "fmax", "fmin", "uinc_wrap", "udec_wrap",
                  "usub_cond", "usub_sat", "fmaximum", "fminimum", "fmaximumnum",
-                 "fminimumnum")
+                 "fminimumnum"]
+    for name in rmw_names
         @test LLVM.irname(parse(LLVM.AtomicRMWBinOp.T, name)) == name
     end
+    # ... and enumerated, including the ones that the C API in use doesn't define
+    @test collect(LLVM.irname.(instances(LLVM.AtomicRMWBinOp.T))) == rmw_names
+    @test typemax(LLVM.AtomicRMWBinOp.T) == LLVM.AtomicRMWBinOp.FMinimumNum
+    @test Symbol(LLVM.AtomicRMWBinOp.UIncWrap) == :LLVMAtomicRMWBinOpUIncWrap
+    available_ops = filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))
+    @test LLVM.AtomicRMWBinOp.FMin in available_ops
+    @test (LLVM.AtomicRMWBinOp.FMaximumNum in available_ops) == (LLVM.version() >= v"23")
     @test LLVM.irname(LLVM.AtomicRMWBinOp.UIncWrap) == "uinc_wrap"
     for name in ("not_atomic", "unordered", "monotonic", "acquire", "release", "acq_rel",
                  "seq_cst")

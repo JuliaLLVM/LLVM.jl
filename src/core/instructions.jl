@@ -366,7 +366,7 @@ function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
     # setting an invalid ordering on other instructions
     if inst isa AtomicRMWInst
         is_stronger(ord, API.LLVMAtomicOrderingUnordered) ||
-            throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $ord"))
+            throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $(msgname(ord))"))
     elseif inst isa FenceInst
         check_fence_ordering(ord)
     end
@@ -384,7 +384,7 @@ ordering!(::AtomicCmpXchgInst, ::API.LLVMAtomicOrdering) =
 
 check_fence_ordering(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingAcquire || is_release_or_stronger(o) ||
-        throw(ArgumentError("Fences must have acquire, release, acq_rel or seq_cst ordering, got $o"))
+        throw(ArgumentError("Fences must have acquire, release, acq_rel or seq_cst ordering, got $(msgname(o))"))
 
 # the names LLVM uses in IR, and Julia's names for the orderings that differ
 const ORDERING_NAMES = Dict(
@@ -402,13 +402,26 @@ const ORDERING_NAMES = Dict(
     parse(LLVM.AtomicOrdering.T, name::AbstractString)
 
 Get the atomic ordering with the given name, as used in LLVM IR (e.g. `"acq_rel"`), or as
-used by Julia's atomics (e.g. `"acquire_release"`).
+used by Julia's atomics (e.g. `"acquire_release"`). Throws an `ArgumentError` for unknown
+names; see
+[`tryparse`](@ref tryparse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)) for a
+version that returns `nothing` instead.
 """
 function Base.parse(::Type{API.LLVMAtomicOrdering}, name::AbstractString)
-    ord = get(ORDERING_NAMES, name, nothing)
+    ord = tryparse(API.LLVMAtomicOrdering, name)
     ord === nothing && throw(ArgumentError("Unknown atomic ordering \"$name\""))
     return ord
 end
+
+"""
+    tryparse(LLVM.AtomicOrdering.T, name::AbstractString)
+
+Get the atomic ordering with the given name, like
+[`parse`](@ref parse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)), but return
+`nothing` if the name is unknown.
+"""
+Base.tryparse(::Type{API.LLVMAtomicOrdering}, name::AbstractString) =
+    get(ORDERING_NAMES, name, nothing)
 
 const RMW_BINOP_NAMES = Dict(
     "xchg" => API.LLVMAtomicRMWBinOpXchg, "add" => API.LLVMAtomicRMWBinOpAdd,
@@ -432,13 +445,27 @@ const RMW_BINOP_NAMES = Dict(
 
 Get the `atomicrmw` operation with the given name, as used in LLVM IR (e.g. `"uinc_wrap"`).
 This works for every operation, whether or not the version of LLVM in use supports it (see
-[`LLVM.isavailable`](@ref)).
+[`LLVM.isavailable`](@ref)). Throws an `ArgumentError` for unknown names; see
+[`tryparse`](@ref tryparse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)) for a
+version that returns `nothing` instead.
 """
 function Base.parse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString)
-    op = get(RMW_BINOP_NAMES, name, nothing)
+    op = tryparse(API.LLVMAtomicRMWBinOp, name)
     op === nothing && throw(ArgumentError("Unknown atomicrmw operation \"$name\""))
     return op
 end
+
+"""
+    tryparse(LLVM.AtomicRMWBinOp.T, name::AbstractString)
+
+Get the `atomicrmw` operation with the given name, like
+[`parse`](@ref parse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)), but return
+`nothing` if the name is unknown. As with `parse`, this recognizes every operation, whether
+or not the version of LLVM in use supports it; use [`LLVM.isavailable`](@ref) to check
+that.
+"""
+Base.tryparse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString) =
+    get(RMW_BINOP_NAMES, name, nothing)
 
 @public irname
 
@@ -463,6 +490,10 @@ operation, whether or not the version of LLVM in use supports it (see
 """
 irname(op::API.LLVMAtomicRMWBinOp) = RMW_BINOP_IRNAMES[op]
 irname(ordering::API.LLVMAtomicOrdering) = ORDERING_IRNAMES[ordering]
+
+# for error messages: the IR name, or the integer of an invalid value, which has no name
+msgname(op::API.LLVMAtomicRMWBinOp) = get(RMW_BINOP_IRNAMES, op, Integer(op))
+msgname(ordering::API.LLVMAtomicOrdering) = get(ORDERING_IRNAMES, ordering, Integer(ordering))
 
 is_fp_rmw(op::API.LLVMAtomicRMWBinOp) =
     op in (API.LLVMAtomicRMWBinOpFAdd, API.LLVMAtomicRMWBinOpFSub,
@@ -541,7 +572,7 @@ function strongest_failure_ordering(success::API.LLVMAtomicOrdering)
     elseif success == API.LLVMAtomicOrderingSequentiallyConsistent
         API.LLVMAtomicOrderingSequentiallyConsistent
     else
-        throw(ArgumentError("cmpxchg requires an ordering of at least monotonic, got $success"))
+        throw(ArgumentError("cmpxchg requires an ordering of at least monotonic, got $(msgname(success))"))
     end
 end
 
@@ -576,7 +607,8 @@ end
 
 Get the synchronization scope with the given name in `context`, by default the active
 context. This can be a well-known scope such as `"singlethread"` or `"system"`, or a
-target-specific scope, e.g., `"agent"`.
+target-specific scope, e.g., `"agent"`. `"system"` is the default scope, which LLVM IR
+doesn't spell out: an instruction in it has no `syncscope`.
 """
 function SyncScope(name::AbstractString; context::Context=LLVM.context())
     # the default, system syncscope gets encoded as an empty string
@@ -661,8 +693,9 @@ const ATOMIC_RMW_BINOP_SINCE = (
     isavailable(op::LLVM.AtomicRMWBinOp.T)
 
 Check whether the atomic read-modify-write operation `op` is supported by the version of
-LLVM in use. All operations can be named on every LLVM version, but instructions can only
-be created with the ones that are available.
+LLVM in use. All operations can be named on every LLVM version, and are listed by
+`instances(LLVM.AtomicRMWBinOp.T)`, but instructions can only be created with the ones
+that are available, e.g., `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))`.
 """
 function isavailable(op::API.LLVMAtomicRMWBinOp)
     since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)

@@ -216,6 +216,58 @@ end
     end
 end
 
+# static constructors and destructors
+@dispose ctx=Context() begin
+    # a counter that the constructor increments by 1, and the destructor by 10
+    function emit_ctors(; dtors=true)
+        fnptr, ptr, iptr = supports_typed_pointers(ctx) ? ("void ()*", "i8*", "i32*") :
+                                                          ("ptr", "ptr", "ptr")
+        dtors_array = dtors ? "@llvm.global_dtors = appending global [1 x { i32, $fnptr, $ptr }] [{ i32, $fnptr, $ptr } { i32 65535, $fnptr @dtor, $ptr null }]" : ""
+        parse(LLVM.Module, """
+            @counter = internal global i32 0
+            @llvm.global_ctors = appending global [1 x { i32, $fnptr, $ptr }] [{ i32, $fnptr, $ptr } { i32 65535, $fnptr @ctor, $ptr null }]
+            $dtors_array
+            define internal void @ctor() {
+              %v = load i32, $iptr @counter
+              %w = add i32 %v, 1
+              store i32 %w, $iptr @counter
+              ret void
+            }
+            define internal void @dtor() {
+              %v = load i32, $iptr @counter
+              %w = add i32 %v, 10
+              store i32 %w, $iptr @counter
+              ret void
+            }
+            define i32 @get() {
+              %v = load i32, $iptr @counter
+              ret i32 %v
+            }""")
+    end
+
+    for Engine in (LLVM.Interpreter, LLVM.JIT)
+        # on macOS, code generation lowers destructors to __cxa_atexit registrations by a
+        # private constructor, which MCJIT can't look up (see the docstring)
+        dtors = !(Engine === LLVM.JIT && Sys.isapple() && LLVM.version() >= v"17")
+        mod = emit_ctors(; dtors)
+        getter = mod.functions["get"]
+        @dispose engine=Engine(mod) begin
+            counter() = let res = LLVM.execute(engine, getter)
+                val = convert(Int, res)
+                dispose(res)
+                val
+            end
+            @test counter() == 0
+            @test LLVM.run_static_constructors!(engine) === nothing
+            @test counter() == 1
+            if dtors
+                @test LLVM.run_static_destructors!(engine) === nothing
+                @test counter() == 11
+            end
+        end
+    end
+end
+
 end
 
 @testset "process-wide symbols" begin

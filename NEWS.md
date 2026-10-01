@@ -461,6 +461,9 @@ New functionality:
   They make libraries and symbols available to the legacy execution engines, using LLVM's
   process-wide symbol search. `load_library_permanently` throws an `LLVMException` if the
   library can't be loaded, where it returned the C API's status.
+- `LLVM.run_static_constructors!(engine)` and `LLVM.run_static_destructors!(engine)` run
+  the static constructors and destructors (`llvm.global_ctors` and `llvm.global_dtors`) of
+  the modules in a legacy execution engine, e.g., for C++ code with global objects.
 - The `memcheck` debugging mode reports every problem once for objects allocated and
   disposed of at the same locations in user code, counting where it happens, with an update
   when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects

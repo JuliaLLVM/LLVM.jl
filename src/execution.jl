@@ -136,7 +136,7 @@ they fail. Use `delete!(engine, mod)` to take back ownership of a module.
     ref::API.LLVMExecutionEngineRef
     mods::Set{Module}
 end
-@public ExecutionEngine, execute
+@public ExecutionEngine, execute, run_static_constructors!, run_static_destructors!
 @properties ExecutionEngine
 
 Base.unsafe_convert(::Type{API.LLVMExecutionEngineRef}, engine::ExecutionEngine) =
@@ -291,6 +291,41 @@ function lookup(engine::ExecutionEngine, fn::String)
     end
     return addr
 end
+
+"""
+    LLVM.run_static_constructors!(engine::ExecutionEngine)
+    LLVM.run_static_destructors!(engine::ExecutionEngine)
+
+Run the static constructors or destructors of the modules in the execution engine, i.e.,
+the functions listed in their `llvm.global_ctors` or `llvm.global_dtors` arrays. Code that
+relies on global initialization, like C++ code that has global objects, needs its
+constructors to run before it is executed, and its destructors after it was last used.
+
+The execution engine doesn't run these functions by itself, also not when it is disposed
+of, and doesn't keep track of whether they have run already: calling these functions again,
+e.g., after adding a module, runs the constructors or destructors of all its modules again.
+The priorities of the constructors and destructors are not taken into account.
+
+!!! warning
+
+    On macOS with LLVM 17 or later, generating machine code for a module rewrites its
+    destructors into registrations with `__cxa_atexit` that are performed by an additional
+    constructor. With a [`JIT`](@ref LLVM.JIT) engine, that constructor cannot be found,
+    and running the static constructors of a module that has `llvm.global_dtors` crashes.
+    Its destructors also cannot be run explicitly anymore. The
+    [`Interpreter`](@ref LLVM.Interpreter) is not affected.
+"""
+function run_static_constructors!(engine::ExecutionEngine)
+    API.LLVMRunStaticConstructors(engine)
+    return
+end
+
+function run_static_destructors!(engine::ExecutionEngine)
+    API.LLVMRunStaticDestructors(engine)
+    return
+end
+
+@doc (@doc run_static_constructors!) run_static_destructors!
 
 # function lookup
 

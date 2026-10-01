@@ -40,6 +40,8 @@ Base.push!(::LLVM.ExecutionEngine, ::LLVM.Module)
 Base.delete!(::LLVM.ExecutionEngine, ::LLVM.Module)
 LLVM.execute
 lookup(::LLVM.ExecutionEngine, ::String)
+LLVM.run_static_constructors!
+LLVM.run_static_destructors!
 ```
 
 ### Process-wide symbols

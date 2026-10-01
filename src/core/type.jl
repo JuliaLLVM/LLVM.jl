@@ -45,7 +45,8 @@ function identify(::Type{LLVMType}, ref::API.LLVMTypeRef)
     typ === Nothing && error("Unknown type kind $kind")
     return typ
 end
-function register(T::Type{<:LLVMType}, kind::API.LLVMTypeKind)
+Base.@nospecializeinfer function register(@nospecialize(T::Type{<:LLVMType}),
+                                          kind::API.LLVMTypeKind)
     check_layout(T, API.LLVMTypeRef)
     type_kinds[kind+1] = T
 end

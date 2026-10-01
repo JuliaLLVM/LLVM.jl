@@ -70,7 +70,8 @@ function identify(::Type{Value}, ref::API.LLVMValueRef)
     typ === Nothing && error("Unknown value kind $kind")
     return typ
 end
-function register(T::Type{<:Value}, kind::API.LLVMValueKind)
+Base.@nospecializeinfer function register(@nospecialize(T::Type{<:Value}),
+                                          kind::API.LLVMValueKind)
     # instructions are identified further by their opcode
     T === Instruction || check_layout(T, API.LLVMValueRef)
     value_kinds[kind+1] = T

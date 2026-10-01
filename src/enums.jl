@@ -73,10 +73,16 @@ const enum_scopes = [
      "LLVMOrcSymbolLookupFlags", "", ()),
 ]
 
-# the members of an enum: (short name, value, name in the C API), in the order of the
-# values, derived from the constants in `API` of that type
-function enum_members(T::Type, prefix::String, suffix::String, renames)
-    members = Tuple{Symbol,T,Symbol}[]
+# the members of an enum: (short name, integer value, name in the C API), in the order of
+# the values, derived from the constants in `API` of that type.
+#
+# this code runs when the package is defined, and anything it compiles is stored in the
+# package image. so don't specialize on the type of the enum, which would compile (and
+# store) the sorting, broadcasting and printing machinery once for every enum.
+Base.@nospecializeinfer function enum_members(@nospecialize(T::Type), prefix::String,
+                                               suffix::String, renames)
+    renames = Dict{Symbol,Symbol}(renames)
+    members = Tuple{Symbol,Int64,Symbol}[]
     for raw in names(API; all=true)
         isdefined(API, raw) && isconst(API, raw) || continue
         val = getfield(API, raw)
@@ -86,15 +92,18 @@ function enum_members(T::Type, prefix::String, suffix::String, renames)
             error("Unexpected member $raw of $T, which should start with $prefix")
         str = chopprefix(str, prefix)
         str = chopsuffix(str, suffix)
-        name = get(Dict(renames), Symbol(str), Symbol(str))
+        name = get(renames, Symbol(str), Symbol(str))
         Base.isidentifier(name) || error("Invalid name $name for member $raw of $T")
         any(m -> m[1] == name, members) && error("Duplicate name $name for member $raw of $T")
-        push!(members, (name, val, raw))
+        push!(members, (name, Int64(Integer(val)::Integer), raw))
     end
-    sort!(members; by=m->(Integer(m[2]), m[3]))
+    # a simple sort, as the default algorithm compiles a lot of code (for small tables)
+    sort!(members; by=m->(m[2], m[3]), alg=InsertionSort)
 end
 
-function enum_doc(scope::Symbol, T::Type, description::String, members)
+Base.@nospecializeinfer function enum_doc(scope::Symbol, @nospecialize(T::Type),
+                                          description::String,
+                                          members::Vector{Tuple{Symbol,Int64,Symbol}})
     io = IOBuffer()
     println(io, "    LLVM.", scope)
     println(io)
@@ -105,10 +114,13 @@ function enum_doc(scope::Symbol, T::Type, description::String, members)
     println(io, "| Name | Value | C API |")
     println(io, "|:---- |:----- |:----- |")
     for (name, val, raw) in members
-        println(io, "| `", name, "` | ", Integer(val), " | `", raw, "` |")
+        println(io, "| `", name, "` | ", val, " | `", raw, "` |")
     end
     return String(take!(io))
 end
+
+# the scope of every enum type, and the names to display its values with
+const enum_display_names = IdDict{Type,Tuple{Symbol,Dict{Int64,Symbol}}}()
 
 for (scope, typename, description, prefix, suffix, renames) in enum_scopes
     # some enums are only available on some versions of LLVM
@@ -118,8 +130,8 @@ for (scope, typename, description, prefix, suffix, renames) in enum_scopes
 
     # a bare module, so that names like `TypeKind.Function` don't clash with Base
     body = Expr(:block, :(const T = $T))
-    for (name, val, _) in members
-        push!(body.args, :(const $name = $val))
+    for (name, _, raw) in members
+        push!(body.args, :(const $name = $(getfield(API, raw))))
     end
     if VERSION >= v"1.11"
         push!(body.args, Expr(:public, :T, first.(members)...))
@@ -128,21 +140,29 @@ for (scope, typename, description, prefix, suffix, renames) in enum_scopes
     Core.eval(@__MODULE__, :(@public $scope))
     Core.eval(@__MODULE__, :(@doc $(enum_doc(scope, T, description, members)) $scope))
 
-    # display values using their scoped name, and a constructor for unnamed values
-    display_names = Dict{Integer,Symbol}()
+    display_names = Dict{Int64,Symbol}()
     for (name, val, _) in members
-        get!(display_names, Integer(val), name)
+        get!(display_names, val, name)
     end
-    @eval begin
-        function Base.show(io::IO, x::$T)
-            name = get($display_names, Integer(x), nothing)
-            if name === nothing
-                print(io, "LLVM.", $(QuoteNode(scope)), ".T(", Integer(x), ")")
-            else
-                print(io, "LLVM.", $(QuoteNode(scope)), ".", name)
-            end
-        end
-        Base.show(io::IO, ::MIME"text/plain", x::$T) = show(io, x)
-        Base.print(io::IO, x::$T) = show(io, x)
+    enum_display_names[T] = (scope, display_names)
+end
+
+# display values using their scoped name, and a constructor for unnamed values. these are
+# defined once for all enums, as every method that's added to `show` makes loading LLVM.jl
+# slower (Julia has to check it against the many other methods of `show`).
+const ScopedEnum = Union{keys(enum_display_names)...}
+function Base.show(io::IO, x::ScopedEnum)
+    scope, display_names = enum_display_names[typeof(x)]
+    show_enum(io, scope, display_names, Int64(Integer(x)))
+end
+@noinline function show_enum(@nospecialize(io::IO), scope::Symbol,
+                             display_names::Dict{Int64,Symbol}, val::Int64)
+    name = get(display_names, val, nothing)
+    if name === nothing
+        print(io, "LLVM.", scope, ".T(", val, ")")
+    else
+        print(io, "LLVM.", scope, ".", name)
     end
 end
+Base.show(io::IO, ::MIME"text/plain", x::ScopedEnum) = show(io, x)
+Base.print(io::IO, x::ScopedEnum) = show(io, x)

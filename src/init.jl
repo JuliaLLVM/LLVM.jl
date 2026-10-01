@@ -70,10 +70,16 @@ const libllvm_components = [:Target, :TargetInfo, :TargetMC, :AsmPrinter, :AsmPa
 
 # discover supported back-ends and their components by looking at available symbols.
 # this reimplements LLVM macros and `static inline` functions that are hard to call.
-Libdl.dlopen(libllvm) do library
-    supported_backends = filter(libllvm_backends) do backend
+#
+# this runs when the package is defined, so it avoids closures (like a `do` block), which
+# would compile the Base functions they're passed to and store that code in the image.
+let library = Libdl.dlopen(libllvm)
+    supported_backends = Symbol[]
+    for backend in libllvm_backends
         initializer = "LLVMInitialize$(backend)Target"
-        Libdl.dlsym(library, initializer; throw_error=false) !== nothing
+        if Libdl.dlsym(library, initializer; throw_error=false) !== nothing
+            push!(supported_backends, backend)
+        end
     end
     @eval begin
         """
@@ -85,7 +91,10 @@ Libdl.dlopen(libllvm) do library
     end
 
     # generate subsystem initialization routines for every back-end
-    supported_components = Dict(component => [] for component in libllvm_components)
+    supported_components = Dict{Symbol,Vector{Symbol}}()
+    for component in libllvm_components
+        supported_components[component] = Symbol[]
+    end
     for backend in libllvm_backends
         backend_supported = backend in supported_backends
 
@@ -129,6 +138,8 @@ Libdl.dlopen(libllvm) do library
             end
         end
     end
+
+    Libdl.dlclose(library)
 end
 
 # same, for the native back-end

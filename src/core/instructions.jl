@@ -108,7 +108,8 @@ function identify(::Type{Instruction}, ref::API.LLVMValueRef)
     typ === Nothing && error("Unknown type opcode $opcode")
     return typ
 end
-function register(T::Type{<:Instruction}, opcode::API.LLVMOpcode)
+Base.@nospecializeinfer function register(@nospecialize(T::Type{<:Instruction}),
+                                          opcode::API.LLVMOpcode)
     check_layout(T, API.LLVMValueRef)
     instruction_opcodes[opcode+1] = T
 end
@@ -386,8 +387,14 @@ check_fence_ordering(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingAcquire || is_release_or_stronger(o) ||
         throw(ArgumentError("Fences must have acquire, release, acq_rel or seq_cst ordering, got $(msgname(o))"))
 
-# the names LLVM uses in IR, and Julia's names for the orderings that differ
-const ORDERING_NAMES = Dict(
+# the names LLVM uses in IR, and Julia's names for the orderings that differ.
+#
+# these tables are built when the package is defined, so their keys and values are untyped
+# (with type assertions where they are looked up): a dictionary that's typed on the enums
+# would get its methods compiled for these types, which ends up in the package image and
+# makes loading the package slower, while untyped ones use the methods in Julia's system
+# image.
+const ORDERING_NAMES = Dict{String,Any}(
     "not_atomic" => API.LLVMAtomicOrderingNotAtomic,
     "unordered" => API.LLVMAtomicOrderingUnordered,
     "monotonic" => API.LLVMAtomicOrderingMonotonic,
@@ -421,9 +428,9 @@ Get the atomic ordering with the given name, like
 `nothing` if the name is unknown.
 """
 Base.tryparse(::Type{API.LLVMAtomicOrdering}, name::AbstractString) =
-    get(ORDERING_NAMES, name, nothing)
+    get(ORDERING_NAMES, name, nothing)::Union{Nothing,API.LLVMAtomicOrdering}
 
-const RMW_BINOP_NAMES = Dict(
+const RMW_BINOP_NAMES = Dict{String,Any}(
     "xchg" => API.LLVMAtomicRMWBinOpXchg, "add" => API.LLVMAtomicRMWBinOpAdd,
     "sub" => API.LLVMAtomicRMWBinOpSub, "and" => API.LLVMAtomicRMWBinOpAnd,
     "nand" => API.LLVMAtomicRMWBinOpNand, "or" => API.LLVMAtomicRMWBinOpOr,
@@ -465,12 +472,17 @@ or not the version of LLVM in use supports it; use [`LLVM.isavailable`](@ref) to
 that.
 """
 Base.tryparse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString) =
-    get(RMW_BINOP_NAMES, name, nothing)
+    get(RMW_BINOP_NAMES, name, nothing)::Union{Nothing,API.LLVMAtomicRMWBinOp}
 
 @public irname
 
-const RMW_BINOP_IRNAMES = Dict(op => name for (name, op) in RMW_BINOP_NAMES)
-const ORDERING_IRNAMES = Dict(
+const RMW_BINOP_IRNAMES = let irnames = Dict{Any,String}()
+    for (name, op) in RMW_BINOP_NAMES
+        irnames[op] = name
+    end
+    irnames
+end
+const ORDERING_IRNAMES = Dict{Any,String}(
     API.LLVMAtomicOrderingNotAtomic => "not_atomic",
     API.LLVMAtomicOrderingUnordered => "unordered",
     API.LLVMAtomicOrderingMonotonic => "monotonic",
@@ -509,8 +521,9 @@ const ORDERING_LATTICE = let
                  API.LLVMAtomicOrderingAcquireRelease
     SC = API.LLVMAtomicOrderingSequentiallyConsistent
     # each ordering, and the ones it is strictly stronger than
-    Dict(NA => (), UN => (NA,), MO => (NA, UN), AC => (NA, UN, MO), RE => (NA, UN, MO),
-         AR => (NA, UN, MO, AC, RE), SC => (NA, UN, MO, AC, RE, AR))
+    Dict{Any,Any}(NA => (), UN => (NA,), MO => (NA, UN), AC => (NA, UN, MO),
+                  RE => (NA, UN, MO), AR => (NA, UN, MO, AC, RE),
+                  SC => (NA, UN, MO, AC, RE, AR))
 end
 
 """
@@ -519,7 +532,8 @@ end
 Check whether ordering `a` is strictly stronger than `b`. Orderings are only partially
 ordered: `acquire` and `release` are incomparable, and both are weaker than `acq_rel`.
 """
-is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering) = b in ORDERING_LATTICE[a]
+is_stronger(a::API.LLVMAtomicOrdering, b::API.LLVMAtomicOrdering) =
+    b in ORDERING_LATTICE[a]::Tuple
 
 """
     is_acquire_or_stronger(ordering::LLVM.AtomicOrdering.T)

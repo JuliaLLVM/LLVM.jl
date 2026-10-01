@@ -38,7 +38,7 @@ function identify(::Type{Metadata}, ref::API.LLVMMetadataRef)
     typ === Nothing && error("Unknown metadata kind $kind")
     return typ
 end
-function register(T::Type{<:Metadata}, kind)
+Base.@nospecializeinfer function register(@nospecialize(T::Type{<:Metadata}), kind)
     check_layout(T, API.LLVMMetadataRef)
     metadata_kinds[kind+1] = T
 end

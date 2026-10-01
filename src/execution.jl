@@ -219,7 +219,9 @@ end
 Dispose of the given execution engine.
 """
 function dispose(engine::ExecutionEngine)
-    mark_dispose.(engine.mods)
+    for mod in engine.mods
+        mark_dispose(mod)
+    end
     mark_dispose(API.LLVMDisposeExecutionEngine, engine)
 end
 

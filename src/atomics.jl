@@ -141,7 +141,11 @@ atomics on values smaller than the target supports: use [`extract_masked_value!`
 and [`insert_masked_value!`](@ref) to access the value in the word. The result depends on
 the data layout of the module (its endianness and index width).
 
-This is a copy of the partword support of AtomicExpandPass.
+This is a copy of the partword support of AtomicExpandPass, except that the address of the
+word is computed by subtracting the offset of the value from `ptr`, as
+`getelementptr i8, ptr, -(ptrtoint(ptr) & (word_size - 1))`, which keeps the provenance of
+`ptr` and needs no intrinsic (AtomicExpandPass uses `llvm.ptrmask`, which not every target
+supports).
 """
 function partword_mask!(builder::IRBuilder, T::LLVMType, ptr::Value; align::Integer,
                         word_size::Integer)
@@ -185,8 +189,8 @@ this doesn't affect the other values in the word).
 
 Operations that become a `cmpxchg` loop change the control flow like
 [`expand_to_cmpxchg!`](@ref): the block containing the instruction is split, and the
-instructions that follow it move to a new block. The expansion can also call intrinsics,
-e.g., `llvm.ptrmask` on LLVM 17 and later, and those of [`atomic_rmw_value!`](@ref).
+instructions that follow it move to a new block. The computation can call intrinsics (see
+[`atomic_rmw_value!`](@ref)).
 
 This is a copy of the partword expansion of AtomicExpandPass.
 """

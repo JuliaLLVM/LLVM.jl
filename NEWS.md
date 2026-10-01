@@ -543,6 +543,11 @@ Other changes:
   as integers, like it compares them, so that it only needs integer atomics: the loop of an
   `atomicrmw fadd float` starts with a `load atomic i32` instead of a `load atomic float`,
   which not every target supports.
+- `partword_mask!`, and with it `expand_partword!`, computes the address of the word that
+  contains a value as `getelementptr i8, ptr, -(ptrtoint(ptr) & (word_size - 1))` on every
+  version of LLVM, instead of with `llvm.ptrmask` (LLVM 17 and later), which not every
+  target supports, or `inttoptr(and(ptrtoint(ptr), mask))`, which loses the provenance of
+  the pointer.
 - It is documented that `"system"` names the default synchronization scope, so that
   `fence!(builder, ordering; scope="system")` emits a plain `fence`, and that the body of an
   `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.

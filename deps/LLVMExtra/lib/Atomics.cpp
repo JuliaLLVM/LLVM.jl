@@ -206,9 +206,11 @@ struct PartwordMaskValues {
   Value *Inv_Mask = nullptr;
 };
 
-// copied from AtomicExpandPass.cpp, taking the module instead of an instruction. Before
-// LLVM 17, the address is computed using integer arithmetic (like LLVM 15), as pointers may
-// be typed. When no partword access is needed, the shift amount and mask use the integer
+// copied from AtomicExpandPass.cpp, taking the module instead of an instruction, and
+// computing the address of the word by subtracting the offset of the value from its
+// address, instead of with `llvm.ptrmask` (LLVM 16+) or `inttoptr(and(ptrtoint))` (LLVM 15),
+// which respectively aren't supported by every back-end and lose the provenance of the
+// pointer. When no partword access is needed, the shift amount and mask use the integer
 // type of the value, so that this works for floating-point values too.
 PartwordMaskValues createMaskInstrs(IRBuilderBase &Builder, Module *M, Type *ValueType,
                                     Value *Addr, Align AddrAlign, unsigned MinWordSize) {
@@ -237,29 +239,28 @@ PartwordMaskValues createMaskInstrs(IRBuilderBase &Builder, Module *M, Type *Val
   assert(ValueSize < MinWordSize);
 
   PointerType *PtrTy = cast<PointerType>(Addr->getType());
+  IntegerType *IntTy = cast<IntegerType>(DL.getIndexType(PtrTy));
   Value *PtrLSB;
 
-#if LLVM_VERSION_MAJOR >= 17
-  IntegerType *IntTy = DL.getIndexType(Ctx, PtrTy->getAddressSpace());
   if (AddrAlign < MinWordSize) {
-    PMV.AlignedAddr = Builder.CreateIntrinsic(
-        Intrinsic::ptrmask, {PtrTy, IntTy},
-        {Addr, ConstantInt::getSigned(IntTy, ~(uint64_t)(MinWordSize - 1))}, nullptr,
-        "AlignedAddr");
-
     Value *AddrInt = Builder.CreatePtrToInt(Addr, IntTy);
     PtrLSB = Builder.CreateAnd(AddrInt, MinWordSize - 1, "PtrLSB");
+    Value *BytePtr = Addr;
+#if LLVM_VERSION_MAJOR < 17
+    if (!PtrTy->isOpaque())
+      BytePtr = Builder.CreateBitCast(Addr, Builder.getInt8PtrTy(PtrTy->getAddressSpace()));
+#endif
+    PMV.AlignedAddr = Builder.CreateGEP(Builder.getInt8Ty(), BytePtr,
+                                        Builder.CreateNeg(PtrLSB), "AlignedAddr");
   } else {
     // If the alignment is high enough, the LSB are known 0.
     PMV.AlignedAddr = Addr;
     PtrLSB = ConstantInt::getNullValue(IntTy);
   }
-#else
-  Type *WordPtrType = PMV.WordType->getPointerTo(PtrTy->getAddressSpace());
-  Value *AddrInt = Builder.CreatePtrToInt(Addr, DL.getIntPtrType(Ctx, PtrTy->getAddressSpace()));
-  PMV.AlignedAddr = Builder.CreateIntToPtr(
-      Builder.CreateAnd(AddrInt, ~(uint64_t)(MinWordSize - 1)), WordPtrType, "AlignedAddr");
-  PtrLSB = Builder.CreateAnd(AddrInt, MinWordSize - 1, "PtrLSB");
+#if LLVM_VERSION_MAJOR < 17
+  if (!PtrTy->isOpaque())
+    PMV.AlignedAddr = Builder.CreateBitCast(
+        PMV.AlignedAddr, PMV.WordType->getPointerTo(PtrTy->getAddressSpace()));
 #endif
 
   if (DL.isLittleEndian()) {

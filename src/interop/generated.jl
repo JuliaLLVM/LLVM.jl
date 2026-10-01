@@ -233,6 +233,11 @@ invocation when compiling for a GPU), and the error is only thrown when the func
 called. To see the error without calling the function, expand the generator directly, e.g.,
 `code_lowered(f, Tuple{Val{1}}; generated=true)` for a call `f(Val(1))`.
 
+To print from the body while debugging, use `Core.println` rather than `println`, which can
+fail with "task switch not allowed from inside staged nor pure functions" (e.g., on Julia
+1.11). Note that the body runs when the function is compiled, possibly more than once, and
+not every time it is called.
+
 !!! warning
 
     LLVM objects created in the body are only valid until the body returns, and should

@@ -534,9 +534,11 @@ end
           volatile=false)
 
 Load a value of type `T` from `ptr`. The load is atomic if an `ordering` other than
-`not_atomic` is given, in the synchronization `scope` (a [`SyncScope`](@ref) of the
-builder's context, the name of one, or `nothing` for the default system scope). By
-default, the load is aligned to the ABI alignment of `T`.
+`not_atomic` is given, in the synchronization `scope`: a [`SyncScope`](@ref) of the
+builder's context, the name of one (e.g., `"agent"` or `:agent`), or `nothing` for the
+default system scope, which is the same as `"system"` (e.g., `fence!(builder, ordering;
+scope="system")` emits a plain `fence` without a `syncscope`). By default, the load is
+aligned to the ABI alignment of `T`.
 """
 function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::String="";
                ordering::API.LLVMAtomicOrdering=NotAtomic, scope=nothing, align=nothing,

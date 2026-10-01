@@ -524,6 +524,9 @@ Other changes:
   "atomicrmw operation LLVM.AtomicRMWBinOp.Add ...".
 - The documentation of `expand_to_cmpxchg!`, `expand_partword!`, `lower_atomic!` and
   `atomic_rmw_value!` says that they can change the control flow and call intrinsics.
+- It is documented that `"system"` names the default synchronization scope, so that
+  `fence!(builder, ordering; scope="system")` emits a plain `fence`, and that the body of an
+  `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.
 - `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
   calling it, which created an LLVM context when none was active, so it is cheap and can
   be constant-folded (#620).

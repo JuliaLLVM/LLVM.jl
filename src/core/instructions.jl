@@ -607,7 +607,8 @@ end
 
 Get the synchronization scope with the given name in `context`, by default the active
 context. This can be a well-known scope such as `"singlethread"` or `"system"`, or a
-target-specific scope, e.g., `"agent"`.
+target-specific scope, e.g., `"agent"`. `"system"` is the default scope, which LLVM IR
+doesn't spell out: an instruction in it has no `syncscope`.
 """
 function SyncScope(name::AbstractString; context::Context=LLVM.context())
     # the default, system syncscope gets encoded as an empty string

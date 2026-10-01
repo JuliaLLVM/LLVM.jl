@@ -65,7 +65,10 @@ function backfill_rmw_binops(ex)
         def.args[3] == :(LLVMAtomicRMWBinOp::UInt32) || return ex
     rmw_binops_definitions[] += 1
     members = def.args[4].args
-    defined = Dict(m.args[1] => m.args[2] for m in members if Meta.isexpr(m, :(=)))
+    defined = Dict{Any,Any}()
+    for m in members
+        Meta.isexpr(m, :(=)) && (defined[m.args[1]] = m.args[2])
+    end
     for (name, val) in backfilled_rmw_binops
         if haskey(defined, name)
             defined[name] == val || error("LLVM defines $name as $(defined[name]), not $val")

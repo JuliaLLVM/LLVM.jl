@@ -271,7 +271,8 @@ PartwordMaskValues createMaskInstrs(IRBuilderBase &Builder, Module *M, Type *Val
     PMV.ShiftAmt = Builder.CreateShl(Builder.CreateXor(PtrLSB, MinWordSize - ValueSize), 3);
   }
 
-  PMV.ShiftAmt = Builder.CreateTrunc(PMV.ShiftAmt, PMV.WordType, "ShiftAmt");
+  // (AtomicExpandPass truncates, which fails for words that are wider than the index type)
+  PMV.ShiftAmt = Builder.CreateZExtOrTrunc(PMV.ShiftAmt, PMV.WordType, "ShiftAmt");
   // (AtomicExpandPass uses `(1 << (ValueSize * 8)) - 1`, which overflows for 4-byte values)
   PMV.Mask = Builder.CreateShl(
       ConstantInt::get(PMV.WordType, APInt::getLowBitsSet(MinWordSize * 8, ValueSize * 8)),

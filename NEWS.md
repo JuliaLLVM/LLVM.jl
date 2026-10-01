@@ -483,6 +483,9 @@ Bug fixes:
   `uinc_wrap` before LLVM 19), so that they can be enumerated without hard-coding their
   names. `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))` lists the ones that
   LLVM supports.
+- `partword_mask!` and `expand_partword!` work for words that are wider than the index type
+  of the pointer, e.g., 8-byte words with 32-bit pointers, for which they generated invalid
+  IR.
 - The names of metadata kinds used to index the metadata of instructions and global
   objects (`inst.metadata["tbaa"]`) are looked up in their context instead of the active
   one.

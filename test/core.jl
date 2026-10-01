@@ -956,6 +956,8 @@ end
         ce = const_gep(T_struct, gv, [ConstantInt(Int32(0)), ConstantInt(Int32(2))])
         @test ce isa ConstantExpr
         @test ce.source_element_type == T_struct
+        @test ce.indices == [ConstantInt(Int32(0)), ConstantInt(Int32(2))]
+        @test_throws ArgumentError ce.indices[1] = ConstantInt(Int32(1))
         @test LLVM.constant_offset(ce, dl) == 8
         @test LLVM.constant_offset(ce, dl) isa BigInt
         @test LLVM.constant_offset(Int, ce, dl) === 8
@@ -975,6 +977,7 @@ end
         ce = const_ptrtoint(gv, LLVM.Int64Type())
         @test ce isa ConstantExpr
         @test_throws ArgumentError ce.source_element_type
+        @test_throws ArgumentError ce.indices
         @test_throws ArgumentError LLVM.constant_offset(ce, dl)
 
         # instructions
@@ -2326,6 +2329,12 @@ end
     end
     @test isintrinsic(fn)
 
+    # LLVM would name the declaration after the types
+    @test_throws ArgumentError LLVM.Function(mod, intr, [LLVM.Int32Type()])
+    @test_throws ArgumentError LLVM.FunctionType(intr, [LLVM.Int32Type()])
+    @test_throws ArgumentError LLVM.overloaded_name(intr, [LLVM.Int32Type()])
+    @test !haskey(mod.functions, "llvm.trap.i32")
+
     @test intr == Intrinsic("llvm.trap")
 end
 
@@ -2354,7 +2363,30 @@ end
     end
     @test isintrinsic(fn)
 
+    # LLVM would crash without the types
+    @test_throws ArgumentError LLVM.Function(mod, intr)
+    @test_throws ArgumentError LLVM.FunctionType(intr)
+
     @test intr == Intrinsic("llvm.sin")
+end
+
+# intrinsics with several overloaded types, or that are overloaded on some versions of LLVM
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    T_ptr = LLVM.PointerType(LLVM.Int8Type())
+    memcpy = Intrinsic("llvm.memcpy")
+    fn = LLVM.Function(mod, memcpy, [T_ptr, T_ptr, LLVM.Int64Type()])
+    @test fn.name == LLVM.overloaded_name(memcpy, [T_ptr, T_ptr, LLVM.Int64Type()])
+    @test startswith(fn.name, "llvm.memcpy.p0")
+    @test endswith(fn.name, ".i64")
+
+    # `llvm.va_start` is overloaded on the pointer type since LLVM 19
+    va_start = Intrinsic("llvm.va_start")
+    @test isoverloaded(va_start) == (LLVM.version() >= v"19")
+    types = isoverloaded(va_start) ? [T_ptr] : LLVMType[]
+    fn = LLVM.Function(mod, va_start, types)
+    @test fn.function_type == LLVM.FunctionType(va_start, types)
+    @test isintrinsic(fn, va_start)
+    @test LLVM.verify(mod) === nothing
 end
 
 # identifying intrinsics

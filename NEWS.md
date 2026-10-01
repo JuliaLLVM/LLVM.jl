@@ -486,6 +486,12 @@ New functionality:
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.
+- `gep.indices` is a view of the indices of a `getelementptr` instruction or constant
+  expression (the operands after the pointer), like C++'s `GEPOperator::indices()`.
+- `extract_value!` and `insert_value!` accept an empty vector of indices, which selects the
+  value itself: `extract_value!` returns it and `insert_value!` the inserted value (of the
+  same type), without creating an instruction, so that paths into nested aggregates can be
+  handled the same way whatever their length.
 
 Bug fixes:
 
@@ -560,6 +566,11 @@ Bug fixes:
   string attributes, `Intrinsic(name)` and the functions of the `DIBuilder`, measure the
   string after converting it to the UTF-8 `String` that LLVM receives, instead of counting
   the code units of the original string, which truncated strings that aren't UTF-8.
+- `LLVM.Function(mod, intr, types)` and `LLVM.FunctionType(intr, types)` throw an
+  `ArgumentError` when types are given for an intrinsic that isn't overloaded, which
+  declared a function named after the types (e.g., `llvm.trap.i32`), or none for one that
+  is, which crashed LLVM. `LLVM.overloaded_name` throws for intrinsics that aren't
+  overloaded.
 
 Other changes:
 

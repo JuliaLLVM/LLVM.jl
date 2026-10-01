@@ -305,6 +305,13 @@
     end
     @test gepinst.pointer_operand == ptr1
     @test gepinst.source_element_type == LLVM.Int32Type()
+    @test gepinst.indices == [int1]
+    @test gepinst.indices[1] isa LLVM.Argument
+    indices = gepinst.indices
+    indices[1] = int2
+    @test gepinst.operands[2] == int2
+    gepinst.operands[2] = int1
+    @test indices == [int1]
     @test !gepinst.inbounds
     gepinst.inbounds = true
     @test gepinst.inbounds
@@ -319,6 +326,12 @@
         @check_ir gepinst1 "getelementptr inbounds i32, ptr %4, i32 %0"
     end
     @test gepinst1.inbounds
+
+    T_pair = LLVM.ArrayType(LLVM.Int32Type(), 2)
+    pairptr = alloca!(builder, T_pair)
+    gepinst2 = gep!(builder, T_pair, pairptr, [ConstantInt(Int32(0)), int1])
+    @test gepinst2.indices == [ConstantInt(Int32(0)), int1]
+    @test length(gepinst2.indices) == length(gepinst2.operands) - 1
 
     single_thread = false
     atomic_rmw_inst = atomic_rmw!(builder,
@@ -807,11 +820,25 @@ end
     @check_ir iv2 r"insertvalue \{ i32, \{ i8, i16 \} \} %0, i8 %\d+, 1, 0"
     @test iv2.indices == [1, 0]
 
+    # an empty path selects the aggregate itself, without an instruction
+    lastinst = last(f.entry.instructions)
+    @test extract_value!(builder, agg, Int[]) == agg
+    @test insert_value!(builder, agg, iv2, Int[]) == iv2
+    @test last(f.entry.instructions) == lastinst
+    @test_throws ArgumentError insert_value!(builder, agg, ev, Int[])
+    # also for values that aren't aggregates, which recursive code reaches at the leaves,
+    # and without renaming the value
+    @test extract_value!(builder, ev3, Int[], "renamed") == ev3
+    @test ev3.name != "renamed"
+    other = extract_value!(builder, agg, [1, 1])
+    other = trunc!(builder, other, LLVM.Int8Type())
+    @test insert_value!(builder, ev3, other, Int[], "renamed") == other
+    @test other.name != "renamed"
+
     # indices are checked
     @test_throws ArgumentError extract_value!(builder, agg, 2)
     @test_throws ArgumentError extract_value!(builder, agg, [1, 2])
     @test_throws ArgumentError extract_value!(builder, agg, [0, 0])
-    @test_throws ArgumentError extract_value!(builder, agg, Int[])
     @test_throws ArgumentError insert_value!(builder, agg, ev3, [1, 1])
     @test_throws ArgumentError insert_value!(builder, agg, ev3, 0)
 

@@ -350,9 +350,9 @@ shuffle_vector!(builder::IRBuilder, V1::Value, V2::Value, Mask::Value,
 
 # aggregate operations
 
-# check that indices select an element of an aggregate type, as LLVM asserts this
+# check that indices select an element of an aggregate type, as LLVM asserts this, and
+# return the type of that element (the aggregate type itself without indices)
 function check_aggregate_indices(typ::LLVMType, indices)
-    isempty(indices) && throw(ArgumentError("At least one index is required"))
     for idx in indices
         n = if typ isa StructType
             length(typ.elements)
@@ -382,6 +382,10 @@ end
 Extract an element from an aggregate value. The zero-based indices select the element,
 like in textual IR: e.g., `extract_value!(builder, agg, [1, 0])` extracts the first element
 of the second element of `agg`.
+
+An empty vector of indices selects the value itself, which is returned without creating an
+instruction (which requires at least one index) or changing its name, so that paths of any
+length can be handled the same way. This also works for values that aren't aggregates.
 """
 function extract_value!(builder::IRBuilder, AggVal::Value, Index::Integer,
                         Name::AbstractString="")
@@ -392,6 +396,7 @@ end
 function extract_value!(builder::IRBuilder, AggVal::Value,
                         Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     check_aggregate_indices(value_type(AggVal), Indices)
+    isempty(Indices) && return AggVal
     idxs = Vector{Cuint}(Indices)
     Value(API.LLVMExtraBuildExtractValue(builder, AggVal, idxs, length(idxs), Name))
 end
@@ -403,7 +408,9 @@ end
                   indices::AbstractVector{<:Integer}, [name::AbstractString])
 
 Insert a value into an aggregate value, returning the updated aggregate. The zero-based
-indices select the element to replace, like for [`extract_value!`](@ref).
+indices select the element to replace, like for [`extract_value!`](@ref). An empty vector
+of indices replaces the whole aggregate (or other value): the inserted value, which must
+have the same type, is returned without creating an instruction or changing its name.
 """
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value, Index::Integer,
                        Name::AbstractString="")
@@ -414,6 +421,7 @@ end
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value,
                        Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     check_inserted_value(AggVal, EltVal, Indices)
+    isempty(Indices) && return EltVal
     idxs = Vector{Cuint}(Indices)
     Value(API.LLVMExtraBuildInsertValue(builder, AggVal, EltVal, idxs, length(idxs), Name))
 end

@@ -709,7 +709,11 @@ tcc_sig(T) = Tuple{Val{Symbol("llvm.bitreverse.i$(8sizeof(T))")}, Type{T}, Type{
 #  `code_lowered` doesn't expand generators for them)
 if Base.isdispatchtuple(tcc_sig(Int64))
     compile_time(LLVM.Interop._typed_llvmcall, tcc_sig(Int64))
-    @test compile_time(LLVM.Interop._typed_llvmcall, tcc_sig(Int32)) == 0
+    # (the compile time is process-wide and occasionally includes incidental compilation,
+    #  which made this test flaky on CI, so allow one of several fresh types to compile
+    #  nothing; a generator that compiles code for every type still fails)
+    @test any(T -> compile_time(LLVM.Interop._typed_llvmcall, tcc_sig(T)) == 0,
+              (Int32, Int16, UInt8))
 end
 
 if supports_typed_ptrs

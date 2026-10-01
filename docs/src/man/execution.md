@@ -140,7 +140,9 @@ julia> @dispose ts_ctx=ThreadSafeContext() begin
 ```
 
 Only access modules and contexts in this way: using the underlying context directly, e.g.,
-through `context(ts_ctx)`, bypasses the lock.
+through `context(ts_ctx)`, bypasses the lock. Regular modules in that context, like copies
+of the module of a thread-safe module, can only be used while the thread-safe context is
+alive, as disposing of it may free them.
 
 ```@meta
 DocTestSetup = quote

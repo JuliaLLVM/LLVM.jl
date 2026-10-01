@@ -36,6 +36,8 @@ Dispose of the given generic value.
 """
 dispose(val::GenericValue) = mark_dispose(API.LLVMDisposeGenericValue, val)
 
+adopt(val::GenericValue) = mark_adopt(val)
+
 """
     GenericValue(typ::LLVM.IntegerType, N::Integer)
 

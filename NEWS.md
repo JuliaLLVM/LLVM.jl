@@ -468,6 +468,18 @@ New functionality:
   disposed of at the same locations in user code, counting where it happens, with an update
   when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects
   by where they were allocated, instead of printing a full report every time.
+- The `memcheck` debugging mode knows that disposing of a context ends the lifetime of the
+  modules in it. Using or disposing of such a module afterwards is reported, along with
+  where the module was allocated and the context was disposed of, before the access to
+  freed memory possibly crashes the process (disposing of it is skipped), and these
+  modules are not reported as leaks anymore. For
+  a `ThreadSafeContext`, this applies to the regular modules in its context (not to the
+  modules borrowed from thread-safe modules), which are documented to only be usable while
+  the thread-safe context is alive.
+- `LLVM.adopt(obj)` registers an object that foreign code handed over to the caller (e.g.,
+  a module, memory buffer, generic value or context that a C API returned with ownership),
+  so that the `memcheck` debugging mode tracks it like objects that LLVM.jl created,
+  instead of reporting its disposal as that of an unknown instance.
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.
@@ -536,6 +548,9 @@ Bug fixes:
 - The `memcheck` debugging mode no longer disposes of an object that it reports as being
   disposed of twice. Freeing its memory again crashed the process, or made it hang when the
   C library aborted while holding a lock that Julia's crash handler needed.
+- The `memcheck` debugging mode supports objects that are allocated and disposed of
+  concurrently, e.g., by ORC compiling code on multiple threads, which could corrupt its
+  bookkeeping.
 
 Other changes:
 

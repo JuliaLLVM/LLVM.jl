@@ -128,6 +128,10 @@ Base.unsafe_convert(::Type{API.LLVMModuleRef}, mod::Module) = mark_use(mod).ref
 
 Base.:(==)(x::Module, y::Module) = (x.ref === y.ref)
 
+# memcheck: a module is owned by its context (using the handle, as converting the module
+# would check whether it's an object that was disposed of earlier at the same address)
+memcheck_owner(mod::Module) = memcheck_context_owner(API.LLVMGetModuleContext(mod.ref))
+
 # forward declarations
 @checked struct DataLayout
     ref::API.LLVMTargetDataRef
@@ -163,6 +167,8 @@ Dispose of the given module, releasing all resources associated with it. The mod
 not be used after this operation.
 """
 dispose(mod::Module) = mark_dispose(API.LLVMDisposeModule, mod)
+
+adopt(mod::Module) = mark_adopt(mod)
 
 Module(f::Core.Function, args...; kwargs...) =
     with_disposal(f, Module(args...; kwargs...))

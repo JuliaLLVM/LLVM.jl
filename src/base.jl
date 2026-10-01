@@ -313,7 +313,9 @@ end
     hasfield(typeof(x), S) || property_error(x, S, v)
     setfield!(x, S, v)
 end
-@noinline function property_error(x, s::Symbol, v...)
+# the error paths don't need to be fast, so don't compile them for every type
+@noinline Base.@nospecializeinfer function property_error(@nospecialize(x), s::Symbol,
+                                                         @nospecialize(v...))
     names = property_names(x, false)
     if s in names
         # the property exists, but its setter does not support this value
@@ -324,7 +326,7 @@ end
           join(names, ", "))
 end
 
-function property_names(x, private::Bool)
+Base.@nospecializeinfer function property_names(@nospecialize(x), private::Bool)
     names = Symbol[name for (T, name) in property_registry if x isa T]
     private && append!(names, fieldnames(typeof(x)))
     return Tuple(unique!(names))

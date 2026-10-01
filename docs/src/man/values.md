@@ -270,6 +270,11 @@ julia> ba.function == f, ba.block == bb
 (true, true)
 ```
 
+A few other constants are mostly encountered when inspecting IR: the `none` token
+(`ConstantTokenNone`, the null value of the token type), the zero value of a target
+extension type (`ConstantTargetNone`), and signed pointers (`ConstantPtrAuth`, on LLVM 19
+and later).
+
 ### Global values
 
 Global values are values that are encoded at the top level of a module. They support a

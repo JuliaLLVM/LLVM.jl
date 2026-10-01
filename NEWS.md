@@ -443,9 +443,11 @@ New functionality:
 - `LLVM.Interop.volatile_load` and `volatile_store!` are like `unsafe_load` and
   `unsafe_store!` on `Core.LLVMPtr`, using volatile memory accesses.
 - Block addresses (`blockaddress(@f, %bb)`) are `BlockAddress` constants, with the
-  `ba.function` and `ba.block` properties, and `BlockAddress(bb)` creates one. Previously,
-  encountering one, e.g., as an operand of an `indirectbr` instruction, threw an "Unknown
-  value kind" error.
+  `ba.function` and `ba.block` properties, and `BlockAddress(bb)` creates one. The `none`
+  token, the zero value of target extension types and signed pointers are
+  `ConstantTokenNone`, `ConstantTargetNone` and `ConstantPtrAuth` constants. Previously,
+  encountering any of these, e.g., as an operand of an `indirectbr` or `cleanuppad`
+  instruction, or creating `null(LLVM.TokenType())`, threw an "Unknown value kind" error.
 - The `memcheck` debugging mode reports every problem once for objects allocated and
   disposed of at the same locations in user code, counting where it happens, with an update
   when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects

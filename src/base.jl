@@ -455,6 +455,36 @@ consumed, and neither can consumed or disposed objects.
 """
 function consume! end
 
+@public adopt
+
+"""
+    LLVM.adopt(obj) -> obj
+
+Register `obj` as an object that foreign code handed over to the caller, e.g., one that a
+C API returned with ownership, which the caller is then responsible for disposing of (or
+for handing over again, e.g., to an operation that consumes it), like an object that
+LLVM.jl created. This is the opposite of [`LLVM.consume!`](@ref):
+
+```julia
+ref = ccall(:create_module, LLVM.API.LLVMModuleRef, ())
+mod = LLVM.adopt(LLVM.Module(ref))
+...
+dispose(mod)
+```
+
+This is bookkeeping for the `memcheck` debugging mode, which otherwise reports disposing
+of the object as disposing of an unknown instance, and afterwards checks the object like
+one that LLVM.jl created. It does nothing else: it doesn't take ownership from foreign code
+that still owns the object, or make a borrowed, consumed or disposed object usable.
+
+This is supported for [`LLVM.Module`](@ref), [`Context`](@ref), [`MemoryBuffer`](@ref)
+and [`LLVM.GenericValue`](@ref). An adopted context owns the modules in it, like one that
+LLVM.jl created (see [`dispose(::Context)`](@ref)), so adopt it before adopting its
+modules. Unlike creating a context, adopting one doesn't activate it, while disposing of
+it pops it from the context stack, so activate it before disposing of it.
+"""
+function adopt end
+
 # dispose of the object using `f(ref)`, unless it was consumed already
 function dispose_owned(f, obj)
     obj.owned || return

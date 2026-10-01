@@ -466,6 +466,10 @@ New functionality:
   a `ThreadSafeContext`, this applies to the regular modules in its context (not to the
   modules borrowed from thread-safe modules), which are documented to only be usable while
   the thread-safe context is alive.
+- `LLVM.adopt(obj)` registers an object that foreign code handed over to the caller (e.g.,
+  a module, memory buffer, generic value or context that a C API returned with ownership),
+  so that the `memcheck` debugging mode tracks it like objects that LLVM.jl created,
+  instead of reporting its disposal as that of an unknown instance.
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.

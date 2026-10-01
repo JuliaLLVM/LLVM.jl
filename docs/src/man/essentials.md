@@ -288,9 +288,23 @@ underlying context alive. The modules that are borrowed from a thread-safe modul
 do mod ... end`) are not affected, and modules that are created in the context after the
 thread-safe context was disposed of (e.g., by copying the module of a thread-safe module
 that outlives it) are not checked, although they can't be used either. Only the modules
-of contexts that LLVM.jl created are checked this way, and other objects that belong to a
-context, like values, types and metadata, are not tracked at all. Like the other warnings, these only detect the problem:
+of contexts that LLVM.jl created (or that were adopted, see below) are checked this way,
+and other objects that belong to a context, like values, types and metadata, are not
+tracked at all. Like the other warnings, these only detect the problem:
 using a module whose memory has been freed can still crash the process afterwards.
+
+Objects that foreign code created are unknown to memcheck: wrapping a handle (e.g.,
+`LLVM.Module(ref)`) doesn't make LLVM.jl responsible for it, as it may be borrowed. When
+foreign code hands over an object to the caller, who then has to dispose of it, use
+[`LLVM.adopt`](@ref) so that memcheck tracks it, instead of reporting its disposal:
+
+```julia-repl
+julia> ref = LLVM.API.LLVMCreateMemoryBufferWithMemoryRangeCopy(pointer(data), length(data), "buf");
+
+julia> buf = LLVM.adopt(LLVM.MemoryBuffer(ref));
+
+julia> dispose(buf)
+```
 
 Finally, when not properly disposing of an object, LLVM.jl will warn about the leaked
 object when the process exits:

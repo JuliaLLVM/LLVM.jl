@@ -25,6 +25,11 @@ Base.unsafe_convert(::Type{API.LLVMMemoryBufferRef}, membuf::MemoryBuffer) =
 
 consume!(membuf::MemoryBuffer) = consume_owned!(membuf)
 
+function adopt(membuf::MemoryBuffer)
+    membuf.owned || throw(ArgumentError("This MemoryBuffer has been consumed or disposed of"))
+    return mark_adopt(membuf)
+end
+
 """
     MemoryBuffer(data::Vector{T}, name::String="", copy::Bool=true)
 

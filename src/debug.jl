@@ -126,7 +126,8 @@ const problem_descriptions = Dict(
     :owner_use => ("used after its owner was disposed of",
                    ("allocated", "owner disposed of"), "used"),
     :owner_dispose => ("disposed of after its owner was disposed of",
-                       ("allocated", "owner disposed of"), "disposed of"))
+                       ("allocated", "owner disposed of"), "disposed of"),
+    :double_adopt => ("adopted while it was owned already", ("allocated",), "adopted"))
 
 function describe_problem(key)
     kind, T = key
@@ -206,8 +207,11 @@ end
 # lifetime of `obj` (like a context does with its modules), which defaults to
 # `memcheck_owner(obj)`. only owners that are alive are recorded. `allow_overwrite` is for
 # objects whose earlier allocation at the same address wasn't disposed of (as far as
-# memcheck knows), e.g., the borrowed modules of thread-safe modules.
-function mark_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner())
+# memcheck knows), e.g., the borrowed modules of thread-safe modules. when `adopting` an
+# object that foreign code handed over, an object that is tracked as being alive at the
+# same address is not overwritten, but reported (keeping what memcheck knows about it).
+function mark_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner(),
+                    adopting::Bool=false)
     @static if memcheck_enabled
         io = Core.stdout
         new_alloc_bt = backtrace()[2:end]
@@ -215,37 +219,57 @@ function mark_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner())
             owner = memcheck_owner(obj)
         end
 
-        old = @lock memcheck_lock begin
+        tracked, old = @lock memcheck_lock begin
             old = get(tracked_objects, obj, nothing)
-            if old !== nothing
-                detach_owned!(obj, old)
-                # the objects owned by an earlier object at this address (which memcheck
-                # didn't see being disposed of) don't belong to the new one
-                release_owned!(obj)
-            end
+            # another thread may be disposing of the object at this address
+            alive = old !== nothing && old.dispose_bt === nothing &&
+                    !(old.alloc_bt in disposing_allocations)
+            if adopting && alive
+                return_value = (false, old)
+            else
+                if old !== nothing
+                    detach_owned!(obj, old)
+                    # the objects owned by an earlier object at this address (which
+                    # memcheck didn't see being disposed of) don't belong to the new one
+                    release_owned!(obj)
+                end
 
-            # only record live owners (whose owners are alive too), without cycles
-            if owner !== nothing
-                owner_entry = get(tracked_objects, owner, nothing)
-                if owner_entry === nothing || owner_entry.dispose_bt !== nothing
-                    owner = nothing
-                else
-                    ancestor = owner
-                    while ancestor !== nothing
-                        if ancestor === obj
-                            owner = nothing
-                            break
+                # only record live owners (whose owners are alive too), without cycles
+                if owner !== nothing
+                    owner_entry = get(tracked_objects, owner, nothing)
+                    if owner_entry === nothing || owner_entry.dispose_bt !== nothing
+                        owner = nothing
+                    else
+                        ancestor = owner
+                        while ancestor !== nothing
+                            if ancestor === obj
+                                owner = nothing
+                                break
+                            end
+                            ancestor = tracked_objects[ancestor].owner
                         end
-                        ancestor = tracked_objects[ancestor].owner
                     end
                 end
+                tracked_objects[obj] = TrackedObject(new_alloc_bt, nothing, owner)
+                owner === nothing || push!(get!(Set{Any}, owned_objects, owner), obj)
+                return_value = (true, alive ? old : nothing)
             end
-            tracked_objects[obj] = TrackedObject(new_alloc_bt, nothing, owner)
-            owner === nothing || push!(get!(Set{Any}, owned_objects, owner), obj)
-            old !== nothing && old.alloc_bt in disposing_allocations ? nothing : old
+            return_value
         end
 
-        if old !== nothing && !allow_overwrite && old.dispose_bt === nothing
+        if !tracked
+            id = record_problem!(io, (:double_adopt, typeof(obj),
+                                      (user_site(old.alloc_bt),)),
+                                 user_site(new_alloc_bt))
+            if id !== nothing
+                print(io, "\nWARNING: An instance of $(typeof(obj)) is being adopted, but it is owned already: it was allocated or adopted before, and hasn't been disposed of.")
+                print(io, "\nThe object was allocated at:")
+                Base.show_backtrace(io, old.alloc_bt)
+                print(io, "\nThe object is being adopted at:")
+                Base.show_backtrace(io, new_alloc_bt)
+                print_problem_footer(io, id)
+            end
+        elseif old !== nothing && !allow_overwrite
             id = record_problem!(io, (:overwrite, typeof(obj),
                                       (user_site(old.alloc_bt), user_site(new_alloc_bt))))
             if id !== nothing
@@ -318,6 +342,9 @@ function mark_untracked(obj::Any)
     end
     return obj
 end
+
+# start tracking an object that foreign code handed over (see `adopt`)
+mark_adopt(obj::Any) = mark_alloc(obj; adopting=true)
 
 mark_dispose(obj) = mark_dispose(Returns(nothing), obj)
 

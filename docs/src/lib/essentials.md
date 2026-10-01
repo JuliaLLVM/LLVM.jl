@@ -57,6 +57,7 @@ ts_context!
 ```@docs
 @dispose
 LLVM.consume!
+LLVM.adopt
 ```
 
 ## Exceptions

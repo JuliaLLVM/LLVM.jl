@@ -12,6 +12,24 @@ code = """
 
 end
 
+@testset "adopt" begin
+    # without memcheck, adopting only checks that the object can be adopted
+    @dispose ctx=Context() begin
+        ref = LLVM.API.LLVMModuleCreateWithNameInContext("foreign", ctx)
+        mod = LLVM.adopt(LLVM.Module(ref))
+        @test mod isa LLVM.Module
+        dispose(mod)
+    end
+
+    data = Vector{UInt8}("hello")
+    ref = LLVM.API.LLVMCreateMemoryBufferWithMemoryRangeCopy(pointer(data), length(data), "")
+    buf = LLVM.MemoryBuffer(ref)
+    @test LLVM.adopt(buf) === buf
+    LLVM.consume!(buf)
+    LLVM.API.LLVMDisposeMemoryBuffer(buf.ref)
+    @test_throws ArgumentError LLVM.adopt(buf)
+end
+
 if LLVM.memcheck_enabled
 @testset "memcheck" begin
     # use after dispose (of an object that doesn't track its ownership, unlike, e.g., a
@@ -274,6 +292,53 @@ if LLVM.memcheck_enabled
                         dispose(tsm)""")
         @test success
         @test !occursin("WARNING", out)
+    end
+
+    # objects that foreign code hands over can be adopted
+    let (; out, err, success) =
+        execute_code("""ref = LLVM.API.LLVMCreateGenericValueOfInt(LLVM.API.LLVMInt32Type(), 5, 0)
+                        dispose(LLVM.GenericValue(ref))
+                        ref = LLVM.API.LLVMCreateGenericValueOfInt(LLVM.API.LLVMInt32Type(), 5, 0)
+                        val = LLVM.adopt(LLVM.GenericValue(ref))
+                        dispose(val)
+                        LLVM.mark_use(val)
+                        data = Vector{UInt8}("hello")
+                        ref = LLVM.API.LLVMCreateMemoryBufferWithMemoryRangeCopy(pointer(data), length(data), "buf")
+                        LLVM.adopt(LLVM.MemoryBuffer(ref))""")
+        @test count("An unknown instance of", out) == 1
+        @test occursin("An instance of LLVM.GenericValue is being used after it was disposed of.", out)
+        @test occursin("An instance of MemoryBuffer was not properly disposed of.", out)
+        @test success
+    end
+
+    # also when foreign code hands over an object at the address of one that is being
+    # disposed of, before its disposal has been recorded
+    let (; out, err, success) =
+        execute_code("""ref = LLVM.API.LLVMCreateGenericValueOfInt(LLVM.API.LLVMInt32Type(), 5, 0)
+                        val = LLVM.adopt(LLVM.GenericValue(ref))
+                        LLVM.mark_dispose(val) do val
+                            LLVM.API.LLVMDisposeGenericValue(val)
+                            LLVM.adopt(val)
+                        end
+                        LLVM.mark_use(val)
+                        LLVM.mark_dispose(val)""")
+        @test success
+        @test !occursin("WARNING", out)
+    end
+
+    # adopting an object that's tracked already is reported, and keeps what memcheck knows
+    # about it, while an adopted context owns its (adopted) modules
+    let (; out, err, success) =
+        execute_code("""ctx = LLVM.adopt(Context(LLVM.API.LLVMContextCreate()))
+                        mod = LLVM.adopt(LLVM.Module(LLVM.API.LLVMModuleCreateWithNameInContext("foreign", ctx)))
+                        LLVM.adopt(ctx)
+                        activate(ctx)
+                        dispose(ctx)
+                        LLVM.mark_use(mod)""")
+        @test occursin("An instance of Context is being adopted, but it is owned already", out)
+        @test occursin("An instance of LLVM.Module is being used after the Context that owns it was disposed of.", out)
+        @test !occursin("not properly disposed of", out)
+        @test success
     end
 
     # modules accessed with `unsafe_module` remain valid after a callback of their

@@ -107,6 +107,12 @@ end
 Context(f::Core.Function; kwargs...) =
     with_disposal(f, Context(; kwargs...))
 
+function adopt(ctx::Context)
+    mark_adopt(ctx)
+    memcheck_register_context(ctx, ctx)
+    return ctx
+end
+
 function Base.show(io::IO, ctx::Context)
     @printf(io, "LLVM.Context(%p", ctx.ref)
     if version() < v"17"

@@ -168,6 +168,8 @@ not be used after this operation.
 """
 dispose(mod::Module) = mark_dispose(API.LLVMDisposeModule, mod)
 
+adopt(mod::Module) = mark_adopt(mod)
+
 Module(f::Core.Function, args...; kwargs...) =
     with_disposal(f, Module(args...; kwargs...))
 

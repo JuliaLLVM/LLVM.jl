@@ -54,6 +54,11 @@ julia> convert(Int, res)
 After having constructed an engine, more modules can be added to it using `push!`, and
 removed from it using `delete!`.
 
+The engines don't run the static constructors and destructors of their modules (the
+functions in the `llvm.global_ctors` and `llvm.global_dtors` arrays, e.g., for the global
+objects of C++ code) by themselves: call `LLVM.run_static_constructors!(engine)` before
+executing code that relies on them, and `LLVM.run_static_destructors!(engine)` when done.
+
 
 ## MCJIT
 

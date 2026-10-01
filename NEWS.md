@@ -423,7 +423,9 @@ New functionality:
   `cmpxchg` instruction, and `LLVM.irname` returns the name of an `atomicrmw` operation or
   an atomic ordering in LLVM IR, the inverse of `parse`. `tryparse` looks up the operation
   or ordering of a name, like `parse`, but returns `nothing` for unknown names instead of
-  throwing.
+  throwing. `LLVM.isfloatingpoint(op)` checks whether an `atomicrmw` operation is a
+  floating-point one (`fadd`, `fmax`, ...), which requires floating-point values, so that
+  generators can check that an operation applies to a value before generating it.
 - `alloca!` and `array_alloca!` take an `addrspace` keyword argument, for allocations in
   another address space than the one of the data layout.
 - `ce.source_element_type` works on `getelementptr` constant expressions, and

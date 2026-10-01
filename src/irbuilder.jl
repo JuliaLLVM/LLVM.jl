@@ -656,7 +656,7 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     if op == API.LLVMAtomicRMWBinOpXchg
         scalar_T isa Union{IntegerType,FloatingPointType,PointerType} ||
             throw(ArgumentError("atomicrmw xchg requires an integer, floating-point or pointer value, got $(string(T))"))
-    elseif is_fp_rmw(op)
+    elseif isfloatingpoint(op)
         scalar_T isa FloatingPointType ||
             throw(ArgumentError("atomicrmw $(msgname(op)) requires a floating-point value, got $(string(T))"))
     else

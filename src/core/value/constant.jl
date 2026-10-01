@@ -1033,7 +1033,7 @@ let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
     end
 end
 
-# TODO: alignof, sizeof, block_address
+# TODO: alignof, sizeof
 
 
 ## inline assembly

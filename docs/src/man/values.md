@@ -246,6 +246,30 @@ ptr asm "nop", ""
 For more details on inline assembly, particularly the format of the constraints string,
 refer to the LLVM documentation.
 
+### Block addresses
+
+The address of a basic block, as used by `indirectbr` instructions, is a `BlockAddress`
+constant. It is created from a block that is part of a function, other than its entry
+block, and refers back to the function and the block:
+
+```jldoctest
+julia> mod = parse(LLVM.Module, """
+           define void @f() {
+           entry:
+             br label %target
+           target:
+             ret void
+           }""");
+
+julia> f = mod.functions["f"]; bb = f.blocks[2];
+
+julia> ba = BlockAddress(bb)
+ptr blockaddress(@f, %target)
+
+julia> ba.function == f, ba.block == bb
+(true, true)
+```
+
 ### Global values
 
 Global values are values that are encoded at the top level of a module. They support a

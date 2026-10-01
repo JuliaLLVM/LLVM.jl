@@ -9,7 +9,7 @@ dispose(::LLVM.Module)
 ## Textual representation
 
 ```@docs
-parse(::Type{LLVM.Module}, ir::String)
+parse(::Type{LLVM.Module}, ir::AbstractString)
 string(mod::LLVM.Module)
 ```
 
@@ -28,9 +28,9 @@ write(io::IO, mod::LLVM.Module)
 ```@docs
 sort!(::LLVM.ModuleGlobalSet)
 sort!(::LLVM.ModuleFunctionSet)
-get!(::LLVM.ModuleMetadataIterator, ::String)
-get!(::Base.Callable, ::LLVM.ModuleGlobalSet, ::String)
-get!(::Base.Callable, ::LLVM.ModuleFunctionSet, ::String)
+get!(::LLVM.ModuleMetadataIterator, ::AbstractString)
+get!(::Base.Callable, ::LLVM.ModuleGlobalSet, ::AbstractString)
+get!(::Base.Callable, ::LLVM.ModuleFunctionSet, ::AbstractString)
 ```
 
 ## Linking

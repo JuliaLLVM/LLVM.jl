@@ -2,9 +2,9 @@
 
 ```@docs
 BasicBlock
-BasicBlock(name::String)
-BasicBlock(f::LLVM.Function, name::String)
-BasicBlock(pos::InsertionPoint{BasicBlock}, name::String)
+BasicBlock(name::AbstractString)
+BasicBlock(f::LLVM.Function, name::AbstractString)
+BasicBlock(pos::InsertionPoint{BasicBlock}, name::AbstractString)
 ```
 
 ## Operations

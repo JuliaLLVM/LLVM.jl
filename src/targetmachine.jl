@@ -54,8 +54,8 @@ Base.unsafe_convert(::Type{API.LLVMTargetMachineRef}, tm::TargetMachine) =
 consume!(tm::TargetMachine) = consume_owned!(tm)
 
 """
-    TargetMachine(t::Target, triple::String; cpu::String="", features::String="",
-                  opt_level=LLVM.CodeGenOptLevel.Default, reloc=LLVM.RelocMode.Default,
+    TargetMachine(t::Target, triple::AbstractString; cpu::AbstractString="",
+                  features::AbstractString="", opt_level=LLVM.CodeGenOptLevel.Default, reloc=LLVM.RelocMode.Default,
                   code=LLVM.CodeModel.Default)
     TargetMachine(f, t, triple; kwargs...)
 
@@ -65,7 +65,8 @@ optimization level, relocation model and code model.
 
 This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
-function TargetMachine(t::Target, triple::String; cpu::String="", features::String="",
+function TargetMachine(t::Target, triple::AbstractString; cpu::AbstractString="",
+                       features::AbstractString="",
                        opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault,
                        reloc::API.LLVMRelocMode=API.LLVMRelocDefault,
                        code::API.LLVMCodeModel=API.LLVMCodeModelDefault)
@@ -113,11 +114,11 @@ enabled (`+feature`) or disabled (`-feature`), for use with a `TargetMachine`.
 host_cpu_features() = unsafe_message(API.LLVMGetHostCPUFeatures())
 
 """
-    normalize(triple::String)
+    normalize(triple::AbstractString)
 
 Normalize the given target triple.
 """
-normalize(triple::String) = unsafe_message(API.LLVMNormalizeTargetTriple(triple))
+normalize(triple::AbstractString) = unsafe_message(API.LLVMNormalizeTargetTriple(triple))
 
 cpu(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineCPU(tm))
 
@@ -162,11 +163,13 @@ function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType)
 end
 
 """
-    emit(tm::TargetMachine, mod::Module, filetype::LLVMCodeGenFileType, path::String)
+    emit(tm::TargetMachine, mod::Module, filetype::LLVMCodeGenFileType,
+         path::AbstractString)
 
 Generate code for the given module using the target machine, writing it to the given file.
 """
-function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType, path::String)
+function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType,
+              path::AbstractString)
     out_error = Ref{Cstring}()
     status = API.LLVMTargetMachineEmitToFile(tm, mod, path, filetype, out_error) |> Bool
 
@@ -189,8 +192,9 @@ model, and an ELF triple on Windows.
 
 This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
-function JITTargetMachine(; triple::String=LLVM.default_triple(), cpu::String="",
-                          features::String="",
+function JITTargetMachine(; triple::AbstractString=LLVM.default_triple(),
+                          cpu::AbstractString="",
+                          features::AbstractString="",
                           opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault)
 
     # Force ELF on windows,

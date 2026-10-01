@@ -234,7 +234,7 @@ indirectbr!(builder::IRBuilder, Addr::Value, NumDests::Integer=10) =
     Instruction(API.LLVMBuildIndirectBr(builder, Addr, NumDests))
 
 function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
-                 Then::BasicBlock, Catch::BasicBlock, Name::String="")
+                 Then::BasicBlock, Catch::BasicBlock, Name::AbstractString="")
     Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, as_vector(Args), length(Args), Then,
                                      Catch, Name))
 end
@@ -248,100 +248,103 @@ unreachable!(builder::IRBuilder) =
 
 # binary operations
 
-binop!(builder::IRBuilder, Op::API.LLVMOpcode, LHS::Value, RHS::Value, Name::String="") =
+binop!(builder::IRBuilder, Op::API.LLVMOpcode, LHS::Value, RHS::Value,
+       Name::AbstractString="") =
     Value(API.LLVMBuildBinOp(builder, Op, LHS, RHS, Name))
 
-add!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+add!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildAdd(builder, LHS, RHS, Name))
 
-nswadd!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+nswadd!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNSWAdd(builder, LHS, RHS, Name))
 
-nuwadd!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+nuwadd!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNUWAdd(builder, LHS, RHS, Name))
 
-fadd!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+fadd!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildFAdd(builder, LHS, RHS, Name))
 
-sub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+sub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildSub(builder, LHS, RHS, Name))
 
-nswsub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+nswsub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNSWSub(builder, LHS, RHS, Name))
 
-nuwsub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+nuwsub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNUWSub(builder, LHS, RHS, Name))
 
-fsub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+fsub!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildFSub(builder, LHS, RHS, Name))
 
-mul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+mul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildMul(builder, LHS, RHS, Name))
 
-nswmul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+nswmul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNSWMul(builder, LHS, RHS, Name))
 
-nuwmul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+nuwmul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNUWMul(builder, LHS, RHS, Name))
 
-fmul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+fmul!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildFMul(builder, LHS, RHS, Name))
 
-udiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+udiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildUDiv(builder, LHS, RHS, Name))
 
-sdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+sdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildSDiv(builder, LHS, RHS, Name))
 
-exactudiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+exactudiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildExactUDiv(builder, LHS, RHS, Name))
 
-exactsdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+exactsdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildExactSDiv(builder, LHS, RHS, Name))
 
-fdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+fdiv!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildFDiv(builder, LHS, RHS, Name))
 
-urem!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+urem!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildURem(builder, LHS, RHS, Name))
 
-srem!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+srem!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildSRem(builder, LHS, RHS, Name))
 
-frem!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+frem!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildFRem(builder, LHS, RHS, Name))
 
 
 # bitwise binary operations
 
-shl!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+shl!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildShl(builder, LHS, RHS, Name))
 
-lshr!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+lshr!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildLShr(builder, LHS, RHS, Name))
 
-ashr!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+ashr!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildAShr(builder, LHS, RHS, Name))
 
-and!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+and!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildAnd(builder, LHS, RHS, Name))
 
-or!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+or!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildOr(builder, LHS, RHS, Name))
 
-xor!(builder::IRBuilder, LHS::Value, RHS::Value, Name::String="") =
+xor!(builder::IRBuilder, LHS::Value, RHS::Value, Name::AbstractString="") =
     Value(API.LLVMBuildXor(builder, LHS, RHS, Name))
 
 
 # vector operations
 
-extract_element!(builder::IRBuilder, VecVal::Value, Index::Value, Name::String="") =
+extract_element!(builder::IRBuilder, VecVal::Value, Index::Value, Name::AbstractString="") =
     Value(API.LLVMBuildExtractElement(builder, VecVal, Index, Name))
 
-insert_element!(builder::IRBuilder, VecVal::Value, EltVal::Value, Index::Value, Name::String="") =
+insert_element!(builder::IRBuilder, VecVal::Value, EltVal::Value, Index::Value,
+                Name::AbstractString="") =
     Value(API.LLVMBuildInsertElement(builder, VecVal, EltVal, Index, Name))
 
-shuffle_vector!(builder::IRBuilder, V1::Value, V2::Value, Mask::Value, Name::String="") =
+shuffle_vector!(builder::IRBuilder, V1::Value, V2::Value, Mask::Value,
+                Name::AbstractString="") =
     Value(API.LLVMBuildShuffleVector(builder, V1, V2, Mask, Name))
 
 
@@ -372,21 +375,22 @@ function check_inserted_value(agg::Value, val::Value, indices)
 end
 
 """
-    extract_value!(builder::IRBuilder, agg::Value, index::Integer, [name::String])
+    extract_value!(builder::IRBuilder, agg::Value, index::Integer, [name::AbstractString])
     extract_value!(builder::IRBuilder, agg::Value, indices::AbstractVector{<:Integer},
-                   [name::String])
+                   [name::AbstractString])
 
 Extract an element from an aggregate value. The zero-based indices select the element,
 like in textual IR: e.g., `extract_value!(builder, agg, [1, 0])` extracts the first element
 of the second element of `agg`.
 """
-function extract_value!(builder::IRBuilder, AggVal::Value, Index::Integer, Name::String="")
+function extract_value!(builder::IRBuilder, AggVal::Value, Index::Integer,
+                        Name::AbstractString="")
     check_aggregate_indices(value_type(AggVal), (Index,))
     Value(API.LLVMBuildExtractValue(builder, AggVal, Index, Name))
 end
 
 function extract_value!(builder::IRBuilder, AggVal::Value,
-                        Indices::AbstractVector{<:Integer}, Name::String="")
+                        Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     check_aggregate_indices(value_type(AggVal), Indices)
     idxs = Vector{Cuint}(Indices)
     Value(API.LLVMExtraBuildExtractValue(builder, AggVal, idxs, length(idxs), Name))
@@ -394,21 +398,21 @@ end
 
 """
     insert_value!(builder::IRBuilder, agg::Value, val::Value, index::Integer,
-                  [name::String])
+                  [name::AbstractString])
     insert_value!(builder::IRBuilder, agg::Value, val::Value,
-                  indices::AbstractVector{<:Integer}, [name::String])
+                  indices::AbstractVector{<:Integer}, [name::AbstractString])
 
 Insert a value into an aggregate value, returning the updated aggregate. The zero-based
 indices select the element to replace, like for [`extract_value!`](@ref).
 """
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value, Index::Integer,
-                       Name::String="")
+                       Name::AbstractString="")
     check_inserted_value(AggVal, EltVal, (Index,))
     Value(API.LLVMBuildInsertValue(builder, AggVal, EltVal, Index, Name))
 end
 
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value,
-                       Indices::AbstractVector{<:Integer}, Name::String="")
+                       Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     check_inserted_value(AggVal, EltVal, Indices)
     idxs = Vector{Cuint}(Indices)
     Value(API.LLVMExtraBuildInsertValue(builder, AggVal, EltVal, idxs, length(idxs), Name))
@@ -425,7 +429,7 @@ function check_addrspace(addrspace)
 end
 
 """
-    alloca!(builder::IRBuilder, T::LLVMType, name::String=""; align=nothing,
+    alloca!(builder::IRBuilder, T::LLVMType, name::AbstractString=""; align=nothing,
             addrspace=nothing)
 
 Allocate stack memory for a value of type `T`. By default, the allocation is aligned to the
@@ -433,7 +437,7 @@ preferred alignment of `T`; use `align` to specify a different alignment in byte
 memory is allocated in the alloca address space of the module's data layout, unless a
 different `addrspace` is given.
 """
-function alloca!(builder::IRBuilder, Ty::LLVMType, Name::String=""; align=nothing,
+function alloca!(builder::IRBuilder, Ty::LLVMType, Name::AbstractString=""; align=nothing,
                  addrspace=nothing)
     check_alignment(align)
     inst = if addrspace === nothing
@@ -447,13 +451,14 @@ function alloca!(builder::IRBuilder, Ty::LLVMType, Name::String=""; align=nothin
 end
 
 """
-    array_alloca!(builder::IRBuilder, T::LLVMType, count::Value, name::String="";
+    array_alloca!(builder::IRBuilder, T::LLVMType, count::Value, name::AbstractString="";
                   align=nothing, addrspace=nothing)
 
 Allocate stack memory for `count` values of type `T`. See [`alloca!`](@ref) for the meaning
 of `align` and `addrspace`.
 """
-function array_alloca!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::String="";
+function array_alloca!(builder::IRBuilder, Ty::LLVMType, Val::Value,
+                       Name::AbstractString="";
                        align=nothing, addrspace=nothing)
     check_alignment(align)
     inst = if addrspace === nothing
@@ -466,10 +471,10 @@ function array_alloca!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::Strin
     return inst
 end
 
-malloc!(builder::IRBuilder, Ty::LLVMType, Name::String="") =
+malloc!(builder::IRBuilder, Ty::LLVMType, Name::AbstractString="") =
     Instruction(API.LLVMBuildMalloc(builder, Ty, Name))
 
-array_malloc!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::String="") =
+array_malloc!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::AbstractString="") =
     Instruction(API.LLVMBuildArrayMalloc(builder, Ty, Val, Name))
 
 # the alignments of the memory intrinsics are optional: `nothing` (or 0 when passed
@@ -556,7 +561,7 @@ function set_access_flags!(inst::Instruction, ordering, scope, align, volatile)
 end
 
 """
-    load!(builder::IRBuilder, T::LLVMType, ptr::Value, name::String="";
+    load!(builder::IRBuilder, T::LLVMType, ptr::Value, name::AbstractString="";
           ordering=LLVM.AtomicOrdering.NotAtomic, scope=nothing, align=nothing,
           volatile=false)
 
@@ -567,7 +572,7 @@ default system scope, which is the same as `"system"` (e.g., `fence!(builder, or
 scope="system")` emits a plain `fence` without a `syncscope`). By default, the load is
 aligned to the ABI alignment of `T`.
 """
-function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::String="";
+function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::AbstractString="";
                ordering::API.LLVMAtomicOrdering=NotAtomic, scope=nothing, align=nothing,
                volatile::Bool=false)
     scope = scope === nothing ? nothing : atomic_scope(builder, scope)
@@ -613,7 +618,7 @@ Create a fence with the given ordering, which must be `acquire`, `release`, `acq
 `seq_cst`, in the given synchronization `scope` (see [`load!`](@ref)).
 """
 function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering,
-                singleThread::Bool=false, Name::String=""; scope=nothing)
+                singleThread::Bool=false, Name::AbstractString=""; scope=nothing)
     check_fence_ordering(ordering)
     if scope === nothing
         Instruction(API.LLVMBuildFence(builder, ordering, singleThread, Name))
@@ -624,7 +629,7 @@ function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering,
 end
 
 function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope::SyncScope,
-                Name::String="")
+                Name::AbstractString="")
     check_fence_ordering(ordering)
     check_context(syncscope, context(builder))
     Instruction(API.LLVMBuildFenceSyncScope(builder, ordering, syncscope.id, Name))
@@ -758,107 +763,110 @@ function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
 end
 
 function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
-              Indices::AbstractVector{<:Value}, Name::String="")
+              Indices::AbstractVector{<:Value}, Name::AbstractString="")
     Value(API.LLVMBuildGEP2(builder, Ty, Pointer, as_vector(Indices), length(Indices), Name))
 end
 
 function inbounds_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
-                       Indices::AbstractVector{<:Value}, Name::String="")
+                       Indices::AbstractVector{<:Value}, Name::AbstractString="")
     Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, as_vector(Indices),
                                     length(Indices), Name))
 end
 
 function struct_gep!(builder::IRBuilder, Ty::StructType, Pointer::Value, Idx::Integer,
-                     Name::String="")
+                     Name::AbstractString="")
     check_aggregate_indices(Ty, (Idx,))
     Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, Idx, Name))
 end
 
 # conversion operations
 
-trunc!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+trunc!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildTrunc(builder, Val, DestTy, Name))
 
-zext!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+zext!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildZExt(builder, Val, DestTy, Name))
 
-sext!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+sext!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildSExt(builder, Val, DestTy, Name))
 
-fptoui!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+fptoui!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildFPToUI(builder, Val, DestTy, Name))
 
-fptosi!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+fptosi!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildFPToSI(builder, Val, DestTy, Name))
 
-uitofp!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+uitofp!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildUIToFP(builder, Val, DestTy, Name))
 
-sitofp!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+sitofp!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildSIToFP(builder, Val, DestTy, Name))
 
-fptrunc!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+fptrunc!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildFPTrunc(builder, Val, DestTy, Name))
 
-fpext!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+fpext!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildFPExt(builder, Val, DestTy, Name))
 
-ptrtoint!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+ptrtoint!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildPtrToInt(builder, Val, DestTy, Name))
 
-inttoptr!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+inttoptr!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildIntToPtr(builder, Val, DestTy, Name))
 
-bitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+bitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildBitCast(builder, Val, DestTy, Name))
 
-addrspacecast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+addrspacecast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildAddrSpaceCast(builder, Val, DestTy, Name))
 
-zextorbitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+zextorbitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildZExtOrBitCast(builder, Val, DestTy, Name))
 
-sextorbitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+sextorbitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildSExtOrBitCast(builder, Val, DestTy, Name))
 
-truncorbitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+truncorbitcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildTruncOrBitCast(builder, Val, DestTy, Name))
 
-cast!(builder::IRBuilder, Op::API.LLVMOpcode, Val::Value, DestTy::LLVMType, Name::String="") =
+cast!(builder::IRBuilder, Op::API.LLVMOpcode, Val::Value, DestTy::LLVMType,
+      Name::AbstractString="") =
     Value(API.LLVMBuildCast(builder, Op, Val, DestTy, Name))
 
 # XXX: make this error with opaque pointers?
-pointercast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+pointercast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildPointerCast(builder, Val, DestTy, Name))
 
-intcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+intcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildIntCast(builder, Val, DestTy, Name))
 
-fpcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::String="") =
+fpcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildFPCast(builder, Val, DestTy, Name))
 
 
 # other operations
 
-icmp!(builder::IRBuilder, Op::API.LLVMIntPredicate, LHS::Value, RHS::Value, Name::String="") =
+icmp!(builder::IRBuilder, Op::API.LLVMIntPredicate, LHS::Value, RHS::Value,
+      Name::AbstractString="") =
     Value(API.LLVMBuildICmp(builder, Op, LHS, RHS, Name))
 
-fcmp!(builder::IRBuilder, Op::API.LLVMRealPredicate, LHS::Value, RHS::Value, Name::String="") =
+fcmp!(builder::IRBuilder, Op::API.LLVMRealPredicate, LHS::Value, RHS::Value,
+      Name::AbstractString="") =
     Value(API.LLVMBuildFCmp(builder, Op, LHS, RHS, Name))
 
-phi!(builder::IRBuilder, Ty::LLVMType, Name::String="") =
+phi!(builder::IRBuilder, Ty::LLVMType, Name::AbstractString="") =
     Instruction(API.LLVMBuildPhi(builder, Ty, Name))
 
-select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::String="") =
+select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::AbstractString="") =
     Value(API.LLVMBuildSelect(builder, If, Then, Else, Name))
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
-               Args::AbstractVector{<:Value}=Value[], Name::String="")
+               Args::AbstractVector{<:Value}=Value[], Name::AbstractString="")
     Instruction(API.LLVMBuildCall2(builder, Ty, Fn, as_vector(Args), length(Args), Name))
 end
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
-               Bundles::AbstractVector{OperandBundle}, Name::String="")
+               Bundles::AbstractVector{OperandBundle}, Name::AbstractString="")
     Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, as_vector(Args),
                                                     length(Args), as_vector(Bundles),
                                                     length(Bundles), Name))
@@ -866,26 +874,26 @@ end
 
 # convenience function to be able to call `call!` with a `call.operand_bundles` argument
 call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
-      Bundles::OperandBundleIterator, Name::String="") =
+      Bundles::OperandBundleIterator, Name::AbstractString="") =
     call!(builder, Ty, Fn, Args, collect(Bundles), Name)
 
-va_arg!(builder::IRBuilder, List::Value, Ty::LLVMType, Name::String="") =
+va_arg!(builder::IRBuilder, List::Value, Ty::LLVMType, Name::AbstractString="") =
     Instruction(API.LLVMBuildVAArg(builder, List, Ty, Name))
 
 landingpad!(builder::IRBuilder, Ty::LLVMType, PersFn::Value, NumClauses::Integer,
-            Name::String="") =
+            Name::AbstractString="") =
     Instruction(API.LLVMBuildLandingPad(builder, Ty, PersFn, NumClauses, Name))
 
-neg!(builder::IRBuilder, V::Value, Name::String="") =
+neg!(builder::IRBuilder, V::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNeg(builder, V, Name))
 
-nswneg!(builder::IRBuilder, V::Value, Name::String="") =
+nswneg!(builder::IRBuilder, V::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNSWNeg(builder, V, Name))
 
-fneg!(builder::IRBuilder, V::Value, Name::String="") =
+fneg!(builder::IRBuilder, V::Value, Name::AbstractString="") =
     Value(API.LLVMBuildFNeg(builder, V, Name))
 
-not!(builder::IRBuilder, V::Value, Name::String="") =
+not!(builder::IRBuilder, V::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNot(builder, V, Name))
 
 
@@ -895,9 +903,9 @@ not!(builder::IRBuilder, V::Value, Name::String="") =
 #    Value(API.LLVMBuildGlobalString(builder, Str, Name))
 
 # re-implementation for flexibility (exposing addrspace, add_null)
-function globalstring!(mod::LLVM.Module, str::String, name::String="";
+function globalstring!(mod::LLVM.Module, str::AbstractString, name::AbstractString="";
                        addrspace::Union{Integer,Nothing}=nothing, add_null::Bool=true)
-    bytes = Vector{UInt8}(str)
+    bytes = Vector{UInt8}(String(str))
     if add_null
         push!(bytes, 0x00)
     end
@@ -928,13 +936,14 @@ function globalstring_ptr!(args...; kwargs...)
     const_inbounds_gep(global_value_type(gv), gv, indices)
 end
 
-isnull!(builder::IRBuilder, Val::Value, Name::String="") =
+isnull!(builder::IRBuilder, Val::Value, Name::AbstractString="") =
     Value(API.LLVMBuildIsNull(builder, Val, Name))
 
-isnotnull!(builder::IRBuilder, Val::Value, Name::String="") =
+isnotnull!(builder::IRBuilder, Val::Value, Name::AbstractString="") =
     Value(API.LLVMBuildIsNotNull(builder, Val, Name))
 
-function ptrdiff!(builder::IRBuilder, Ty::LLVMType, LHS::Value, RHS::Value, Name::String="")
+function ptrdiff!(builder::IRBuilder, Ty::LLVMType, LHS::Value, RHS::Value,
+                  Name::AbstractString="")
     Value(API.LLVMBuildPtrDiff2(builder, Ty, LHS, RHS, Name))
 end
 
@@ -959,7 +968,7 @@ for (f, inst) in [(:add!, "an `add`"), (:nswadd!, "an `add nsw`"), (:nuwadd!, "a
                   (:shl!, "a `shl`"), (:lshr!, "an `lshr`"), (:ashr!, "an `ashr`"),
                   (:and!, "an `and`"), (:or!, "an `or`"), (:xor!, "a `xor`")]
     doc = """
-        $f(builder::IRBuilder, lhs::Value, rhs::Value, [name::String]) -> Value
+        $f(builder::IRBuilder, lhs::Value, rhs::Value, [name::AbstractString]) -> Value
 
     Build $inst instruction with operands `lhs` and `rhs`. $_build_note
     """
@@ -970,7 +979,7 @@ end
 for (f, inst) in [(:neg!, "`sub 0, val`"), (:nswneg!, "`sub nsw 0, val`"),
                   (:fneg!, "`fneg val`"), (:not!, "`xor val, -1`")]
     doc = """
-        $f(builder::IRBuilder, val::Value, [name::String]) -> Value
+        $f(builder::IRBuilder, val::Value, [name::AbstractString]) -> Value
 
     Build $inst. $_build_note
     """
@@ -990,7 +999,8 @@ for (f, inst) in [(:trunc!, "a `trunc`"), (:zext!, "a `zext`"), (:sext!, "a `sex
                   (:intcast!, "the cast of an integer to another, sign-extended, integer type (`trunc` or `sext`)"),
                   (:fpcast!, "the cast of a floating-point value to another floating-point type (`fptrunc` or `fpext`)")]
     doc = """
-        $f(builder::IRBuilder, val::Value, dest_type::LLVMType, [name::String]) -> Value
+        $f(builder::IRBuilder, val::Value, dest_type::LLVMType,
+           [name::AbstractString]) -> Value
 
     Build $inst instruction that converts `val` to `dest_type`. $_build_note
     """
@@ -999,7 +1009,7 @@ end
 
 """
     binop!(builder::IRBuilder, opcode::LLVM.Opcode.T, lhs::Value, rhs::Value,
-           [name::String]) -> Value
+           [name::AbstractString]) -> Value
 
 Build the binary instruction `opcode` (e.g., `LLVM.Opcode.Add`) with operands `lhs` and
 `rhs`. $_build_note
@@ -1008,7 +1018,7 @@ binop!
 
 """
     cast!(builder::IRBuilder, opcode::LLVM.Opcode.T, val::Value, dest_type::LLVMType,
-          [name::String]) -> Value
+          [name::AbstractString]) -> Value
 
 Build the cast instruction `opcode` (e.g., `LLVM.Opcode.ZExt`) that converts `val` to
 `dest_type`. $_build_note
@@ -1055,7 +1065,7 @@ indirectbr!
 
 """
     invoke!(builder::IRBuilder, fn_type::LLVMType, fn::Value, args::AbstractVector{<:Value},
-            normal::BasicBlock, unwind::BasicBlock, [name::String]) -> Instruction
+            normal::BasicBlock, unwind::BasicBlock, [name::AbstractString]) -> Instruction
 
 Build an `invoke` instruction that calls `fn`, of function type `fn_type`, with `args`, and
 continues at `normal` when the call returns, or at `unwind` when it unwinds.
@@ -1077,7 +1087,8 @@ Build an `unreachable` instruction.
 unreachable!
 
 """
-    extract_element!(builder::IRBuilder, vec::Value, index::Value, [name::String]) -> Value
+    extract_element!(builder::IRBuilder, vec::Value, index::Value,
+                     [name::AbstractString]) -> Value
 
 Build an `extractelement` instruction that gets the element at the 0-based `index` of the
 vector `vec`. $_build_note
@@ -1086,7 +1097,7 @@ extract_element!
 
 """
     insert_element!(builder::IRBuilder, vec::Value, elt::Value, index::Value,
-                    [name::String]) -> Value
+                    [name::AbstractString]) -> Value
 
 Build an `insertelement` instruction that returns `vec` with the element at the 0-based
 `index` replaced by `elt`. $_build_note
@@ -1095,7 +1106,7 @@ insert_element!
 
 """
     shuffle_vector!(builder::IRBuilder, v1::Value, v2::Value, mask::Value,
-                    [name::String]) -> Value
+                    [name::AbstractString]) -> Value
 
 Build a `shufflevector` instruction that selects elements of `v1` and `v2` using the
 constant vector `mask`. $_build_note
@@ -1103,8 +1114,9 @@ constant vector `mask`. $_build_note
 shuffle_vector!
 
 """
-    malloc!(builder::IRBuilder, type::LLVMType, [name::String]) -> Value
-    array_malloc!(builder::IRBuilder, type::LLVMType, count::Value, [name::String]) -> Value
+    malloc!(builder::IRBuilder, type::LLVMType, [name::AbstractString]) -> Value
+    array_malloc!(builder::IRBuilder, type::LLVMType, count::Value,
+                  [name::AbstractString]) -> Value
 
 Build a call to `malloc` that allocates memory for a value, or `count` values, of `type`.
 """
@@ -1161,9 +1173,9 @@ memcpy!
 
 """
     gep!(builder::IRBuilder, type::LLVMType, ptr::Value, indices::AbstractVector{<:Value},
-         [name::String]) -> Value
+         [name::AbstractString]) -> Value
     inbounds_gep!(builder::IRBuilder, type::LLVMType, ptr::Value,
-                  indices::AbstractVector{<:Value}, [name::String]) -> Value
+                  indices::AbstractVector{<:Value}, [name::AbstractString]) -> Value
 
 Build a `getelementptr` (or `getelementptr inbounds`) instruction that computes the address
 of an element of the value of `type` at `ptr`, using the 0-based `indices`. $_build_note
@@ -1174,7 +1186,7 @@ gep!
 
 """
     struct_gep!(builder::IRBuilder, type::StructType, ptr::Value, index::Integer,
-                [name::String]) -> Value
+                [name::AbstractString]) -> Value
 
 Build a `getelementptr inbounds` instruction that computes the address of the field with
 the 0-based `index` of the structure of `type` at `ptr`. Like other indices that are part
@@ -1185,9 +1197,9 @@ struct_gep!
 
 """
     icmp!(builder::IRBuilder, predicate::LLVM.IntPredicate.T, lhs::Value, rhs::Value,
-          [name::String]) -> Value
+          [name::AbstractString]) -> Value
     fcmp!(builder::IRBuilder, predicate::LLVM.RealPredicate.T, lhs::Value, rhs::Value,
-          [name::String]) -> Value
+          [name::AbstractString]) -> Value
 
 Build an `icmp` or `fcmp` instruction that compares `lhs` and `rhs` using `predicate`
 (e.g., `LLVM.IntPredicate.EQ` or `LLVM.RealPredicate.OLT`). $_build_note
@@ -1197,7 +1209,7 @@ icmp!
 @doc (@doc icmp!) fcmp!
 
 """
-    phi!(builder::IRBuilder, type::LLVMType, [name::String]) -> Instruction
+    phi!(builder::IRBuilder, type::LLVMType, [name::AbstractString]) -> Instruction
 
 Build a `phi` instruction of `type`. Add its incoming values using its `incoming` view,
 e.g., `push!(phi.incoming, (val, block))`.
@@ -1205,7 +1217,8 @@ e.g., `push!(phi.incoming, (val, block))`.
 phi!
 
 """
-    select!(builder::IRBuilder, cond::Value, then::Value, else::Value, [name::String])
+    select!(builder::IRBuilder, cond::Value, then::Value, else::Value,
+            [name::AbstractString])
         -> Value
 
 Build a `select` instruction that returns `then` if the `i1` value `cond` is true, and
@@ -1215,7 +1228,7 @@ select!
 
 """
     call!(builder::IRBuilder, fn_type::LLVMType, fn::Value,
-          [args::AbstractVector{<:Value}], [bundles], [name::String]) -> Instruction
+          [args::AbstractVector{<:Value}], [bundles], [name::AbstractString]) -> Instruction
 
 Build a `call` instruction that calls `fn`, of function type `fn_type`, with `args`, and
 the operand bundles `bundles` (a vector of `OperandBundle`s, or the operand bundles of
@@ -1224,7 +1237,8 @@ another call).
 call!
 
 """
-    va_arg!(builder::IRBuilder, list::Value, type::LLVMType, [name::String]) -> Instruction
+    va_arg!(builder::IRBuilder, list::Value, type::LLVMType,
+            [name::AbstractString]) -> Instruction
 
 Build a `va_arg` instruction that gets the next argument of `type` from the variable
 argument list `list`.
@@ -1233,7 +1247,7 @@ va_arg!
 
 """
     landingpad!(builder::IRBuilder, type::LLVMType, personality::Value,
-                num_clauses::Integer, [name::String]) -> Instruction
+                num_clauses::Integer, [name::AbstractString]) -> Instruction
 
 Build a `landingpad` instruction that returns a value of `type`, and make `personality` the
 personality function of the function that the builder inserts into (its `personality`
@@ -1243,9 +1257,11 @@ is only a hint of how many there will be.
 landingpad!
 
 """
-    globalstring!(mod::LLVM.Module, str::String, [name::String]; addrspace=nothing,
+    globalstring!(mod::LLVM.Module, str::AbstractString,
+                  [name::AbstractString]; addrspace=nothing,
                   add_null=true) -> GlobalVariable
-    globalstring!(builder::IRBuilder, str::String, [name::String]; kwargs...)
+    globalstring!(builder::IRBuilder, str::AbstractString,
+                  [name::AbstractString]; kwargs...)
         -> GlobalVariable
 
 Create a private, constant global variable in `mod` (or the module that `builder` inserts
@@ -1264,8 +1280,8 @@ global variable itself.
 globalstring_ptr!
 
 """
-    isnull!(builder::IRBuilder, val::Value, [name::String]) -> Value
-    isnotnull!(builder::IRBuilder, val::Value, [name::String]) -> Value
+    isnull!(builder::IRBuilder, val::Value, [name::AbstractString]) -> Value
+    isnotnull!(builder::IRBuilder, val::Value, [name::AbstractString]) -> Value
 
 Build a comparison that checks whether `val` is, or isn't, null (or zero). $_build_note
 """
@@ -1274,7 +1290,8 @@ isnull!
 @doc (@doc isnull!) isnotnull!
 
 """
-    ptrdiff!(builder::IRBuilder, type::LLVMType, lhs::Value, rhs::Value, [name::String])
+    ptrdiff!(builder::IRBuilder, type::LLVMType, lhs::Value, rhs::Value,
+             [name::AbstractString])
         -> Value
 
 Build the computation of the number of elements of `type` between the pointers `lhs` and

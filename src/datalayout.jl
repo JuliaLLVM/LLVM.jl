@@ -27,13 +27,13 @@ DataLayout
 Base.unsafe_convert(::Type{API.LLVMTargetDataRef}, dl::DataLayout) = mark_use(dl).ref
 
 """
-    DataLayout(rep::String)
+    DataLayout(rep::AbstractString)
 
 Create a target data layout from the given string representation.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-DataLayout(rep::String) = mark_alloc(DataLayout(API.LLVMCreateTargetData(rep)))
+DataLayout(rep::AbstractString) = mark_alloc(DataLayout(API.LLVMCreateTargetData(rep)))
 
 """
     DataLayout(tm::TargetMachine)

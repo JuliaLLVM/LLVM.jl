@@ -3,7 +3,7 @@
 ```@docs
 LLVM.Metadata
 MDString
-MDString(::String)
+MDString(::AbstractString)
 convert(::Type{String}, ::MDString)
 MDNode
 MDTuple

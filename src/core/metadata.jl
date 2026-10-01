@@ -150,12 +150,14 @@ end
 register(MDString, API.LLVMMDStringMetadataKind)
 
 """
-    MDString(val::String)
+    MDString(val::AbstractString)
 
 Create a new string metadata node from the given Julia string.
 """
-MDString(val::String) =
+function MDString(val::AbstractString)
+    val = String(val)
     MDString(API.LLVMMDStringInContext2(context(), val, ncodeunits(val)))
+end
 
 """
     convert(String, md::MDString)
@@ -735,28 +737,32 @@ Base.isempty(iter::ModuleMetadataIterator) =
 
 Base.length(iter::ModuleMetadataIterator) = count(Returns(true), iter)
 
-function Base.haskey(iter::ModuleMetadataIterator, name::String)
+function Base.haskey(iter::ModuleMetadataIterator, name::AbstractString)
+    name = String(name)
     return API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
-function Base.getindex(iter::ModuleMetadataIterator, name::String)
+function Base.getindex(iter::ModuleMetadataIterator, name::AbstractString)
+    name = String(name)
     ref = API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name))
     ref == C_NULL && throw(KeyError(name))
     return NamedMDNode(iter.mod, ref)
 end
 
-function Base.get(iter::ModuleMetadataIterator, name::String, default)
+function Base.get(iter::ModuleMetadataIterator, name::AbstractString, default)
+    name = String(name)
     ref = API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name))
     ref == C_NULL ? default : NamedMDNode(iter.mod, ref)
 end
 
 """
-    get!(mod.metadata, name::String)
+    get!(mod.metadata, name::AbstractString)
 
 Look up the named metadata node called `name`, or create an empty one if the module doesn't
 contain it, e.g., to add metadata to it: `push!(get!(mod.metadata, name).operands, node)`.
 """
-function Base.get!(iter::ModuleMetadataIterator, name::String)
+function Base.get!(iter::ModuleMetadataIterator, name::AbstractString)
+    name = String(name)
     ref = API.LLVMGetOrInsertNamedMetadata(iter.mod, name, ncodeunits(name))
     return NamedMDNode(iter.mod, ref)
 end

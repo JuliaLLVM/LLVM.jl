@@ -1,13 +1,13 @@
 export tbaa_make_child, tbaa_addrspace
 
 """
-    tbaa_make_child(name::String; constant::Bool=false) -> MDNode
+    tbaa_make_child(name::AbstractString; constant::Bool=false) -> MDNode
 
 Create a TBAA access tag (for `!tbaa` metadata) for accesses of the type `name`, a child of
 a custom TBAA root, which doesn't alias with the other types that this function creates.
 With `constant=true`, the tag marks the memory as constant.
 """
-function tbaa_make_child(name::String; constant::Bool=false)
+function tbaa_make_child(name::AbstractString; constant::Bool=false)
     tbaa_root = MDNode([MDString("custom_tbaa")])
     tbaa_struct_type =
         MDNode([MDString("custom_tbaa_$name"),

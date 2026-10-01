@@ -488,14 +488,14 @@ end
 register(StructType, API.LLVMStructTypeKind)
 
 """
-    LLVM.StructType(name::String)
+    LLVM.StructType(name::AbstractString)
 
 Create an opaque structure type with the given `name`. The structure can be later defined
 with [`elements!`](@ref).
 
 See also the [`name`](@ref LLVM.StructType) property.
 """
-function StructType(name::String)
+function StructType(name::AbstractString)
     return StructType(API.LLVMStructCreateNamed(context(), name))
 end
 
@@ -657,17 +657,17 @@ types(ctx::Context) = ContextTypeDict(ctx)
 Base.show(io::IO, iter::ContextTypeDict) = print(io, "ContextTypeDict(", iter.ctx, ")")
 Base.show(io::IO, ::MIME"text/plain", iter::ContextTypeDict) = show(io, iter)
 
-function Base.haskey(iter::ContextTypeDict, name::String)
+function Base.haskey(iter::ContextTypeDict, name::AbstractString)
     API.LLVMGetTypeByName2(iter.ctx, name) != C_NULL
 end
 
-function Base.getindex(iter::ContextTypeDict, name::String)
+function Base.getindex(iter::ContextTypeDict, name::AbstractString)
     objref = API.LLVMGetTypeByName2(iter.ctx, name)
     objref == C_NULL && throw(KeyError(name))
     return LLVMType(objref)
 end
 
-function Base.get(iter::ContextTypeDict, name::String, default)
+function Base.get(iter::ContextTypeDict, name::AbstractString, default)
     objref = API.LLVMGetTypeByName2(iter.ctx, name)
     objref == C_NULL ? default : LLVMType(objref)
 end

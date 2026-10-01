@@ -261,12 +261,12 @@ function move!(bb::BasicBlock, pos::InsertionPoint{BasicBlock})
 end
 
 """
-    BasicBlock(pos::InsertionPoint{BasicBlock}, name::String)
+    BasicBlock(pos::InsertionPoint{BasicBlock}, name::AbstractString)
 
 Create a new, empty basic block with the given name, and insert it at the given position,
 e.g., `BasicBlock(LLVM.after(entry), "cont")`.
 """
-function BasicBlock(pos::InsertionPoint{BasicBlock}, name::String)
+function BasicBlock(pos::InsertionPoint{BasicBlock}, name::AbstractString)
     f = check_valid(pos)
     if pos.anchor == C_NULL
         BasicBlock(API.LLVMAppendBasicBlockInContext(context(f), f, name))

@@ -2,7 +2,7 @@
 
 ```@docs
 LLVM.Function
-LLVM.Function(::LLVM.Module, ::String, ::LLVM.FunctionType)
+LLVM.Function(::LLVM.Module, ::AbstractString, ::LLVM.FunctionType)
 Argument
 copy_attributes!
 ```
@@ -20,8 +20,8 @@ Functions are reordered using [`move!`](@ref).
 
 ```@docs
 Attribute
-EnumAttribute(::Union{Symbol,String}, ::Integer)
-TypeAttribute(::Union{Symbol,String}, ::LLVMType)
+EnumAttribute(::Union{Symbol,AbstractString}, ::Integer)
+TypeAttribute(::Union{Symbol,AbstractString}, ::LLVMType)
 StringAttribute(::AbstractString, ::AbstractString)
 ConstantRangeAttribute
 ConstantRangeListAttribute

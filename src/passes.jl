@@ -54,7 +54,7 @@ struct PassManager <: AbstractPassManager
     type::String
     passes::Vector{String}
 
-    PassManager(type::String) = new(type, [])
+    PassManager(type::AbstractString) = new(type, [])
 end
 @vocabulary Passes PassManager
 
@@ -374,7 +374,7 @@ end
 
 """
     run!(pb::PassBuilder, mod::Module, [tm::TargetMachine])
-    run!(pipeline::String, mod::Module, [tm::TargetMachine])
+    run!(pipeline::AbstractString, mod::Module, [tm::TargetMachine])
 
 Run passes on a module. The passes are specified by a pass builder or a string that
 represents a pass pipeline. The target machine is used to optimize the passes.
@@ -472,7 +472,7 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
     end
 end
 
-function run!(pass::String, args...; kwargs...)
+function run!(pass::AbstractString, args...; kwargs...)
     @dispose pb=PassBuilder(; kwargs...) begin
         add!(pb, pass)
         run!(pb, args...)

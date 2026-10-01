@@ -93,6 +93,7 @@ function auto_variable!(builder::DIBuilder, scope::DILocalScope, name::AbstractS
                        file::DIFile, line::Integer, type::DIType;
                        always_preserve::Bool=false, flags=API.LLVMDIFlagZero,
                        align_in_bits::Integer=0)
+    name = String(name)
     DILocalVariable(API.LLVMDIBuilderCreateAutoVariable(
         builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line), type,
@@ -112,6 +113,7 @@ function parameter_variable!(builder::DIBuilder, scope::DILocalScope, name::Abst
                             arg_no::Integer, file::DIFile, line::Integer, type::DIType;
                             always_preserve::Bool=false,
                             flags=API.LLVMDIFlagZero)
+    name = String(name)
     DILocalVariable(API.LLVMDIBuilderCreateParameterVariable(
         builder, scope, name, Csize_t(ncodeunits(name)), Cuint(arg_no),
         file, Cuint(line), type,
@@ -213,6 +215,8 @@ function global_variable_expression!(builder::DIBuilder, scope::Union{DIScope,No
                                    expression::DIExpression; local_to_unit::Bool=false,
                                    declaration=nothing,
                                    align_in_bits::Integer=0)
+    name = String(name)
+    linkage = String(linkage)
     DIGlobalVariableExpression(API.LLVMDIBuilderCreateGlobalVariableExpression(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         linkage, Csize_t(ncodeunits(linkage)),
@@ -237,6 +241,8 @@ function temp_global_variable_fwd_decl!(builder::DIBuilder, scope::Union{DIScope
                                     file::DIFile, line::Integer, type::DIType;
                                     local_to_unit::Bool=false, declaration=nothing,
                                     align_in_bits::Integer=0)
+    name = String(name)
+    linkage = String(linkage)
     TemporaryMDNode{DIGlobalVariable}(API.LLVMDIBuilderCreateTempGlobalVariableFwdDecl(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         linkage, Csize_t(ncodeunits(linkage)),

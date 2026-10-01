@@ -70,7 +70,7 @@ LLVMException
 
 ```@docs
 MemoryBuffer
-MemoryBuffer(::Vector{T}, ::String, ::Bool) where {T<:Union{UInt8,Int8}}
+MemoryBuffer(::Vector{T}, ::AbstractString, ::Bool) where {T<:Union{UInt8,Int8}}
 MemoryBufferFile
 dispose(::MemoryBuffer)
 ```

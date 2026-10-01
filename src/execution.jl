@@ -280,11 +280,11 @@ function execute(engine::ExecutionEngine, f::Function,
 end
 
 """
-    lookup(engine::ExecutionEngine, fn::String)
+    lookup(engine::ExecutionEngine, fn::AbstractString)
 
 Look up the address of the given function in the execution engine.
 """
-function lookup(engine::ExecutionEngine, fn::String)
+function lookup(engine::ExecutionEngine, fn::AbstractString)
     # LLVMGetFunctionAddress returns UInt64 (even on 32-bit platforms)
     # so we need to convert it to UInt first.
     addr = Ptr{Nothing}(API.LLVMGetFunctionAddress(engine, fn) % UInt)
@@ -340,19 +340,19 @@ functions(engine::ExecutionEngine) = ExecutionEngineFunctionSet(engine)
 
 @property ExecutionEngine functions
 
-function Base.get(functionset::ExecutionEngineFunctionSet, name::String, default)
+function Base.get(functionset::ExecutionEngineFunctionSet, name::AbstractString, default)
     out_ref = Ref{API.LLVMValueRef}()
     # returns 0 on success
     failed = API.LLVMFindFunction(functionset.engine.ref, name, out_ref) |> Bool
     return failed ? default : Function(out_ref[])
 end
 
-function Base.haskey(functionset::ExecutionEngineFunctionSet, name::String)
+function Base.haskey(functionset::ExecutionEngineFunctionSet, name::AbstractString)
     f = get(functionset, name, nothing)
     return f != nothing
 end
 
-function Base.getindex(functionset::ExecutionEngineFunctionSet, name::String)
+function Base.getindex(functionset::ExecutionEngineFunctionSet, name::AbstractString)
     f = get(functionset, name, nothing)
     return f == nothing ? throw(KeyError(name)) : f
 end

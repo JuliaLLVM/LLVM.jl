@@ -17,8 +17,9 @@ end
 Base.unsafe_convert(::Type{API.LLVMDisasmContextRef}, dis::Disassembler) = mark_use(dis).ref
 
 """
-    Disassembler(triple::String; [cpu::String], [features::String],
-                 [hex_immediates::Bool], [alternate_syntax::Bool], [comments::Bool])
+    Disassembler(triple::AbstractString; [cpu::AbstractString],
+                 [features::AbstractString], [hex_immediates::Bool],
+                 [alternate_syntax::Bool], [comments::Bool])
 
 Create a disassembler for the given target triple, CPU, and features. This requires the
 target's info, machine code layer and disassembler to be initialized, e.g., using
@@ -33,7 +34,8 @@ The following keyword arguments customize the textual output:
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-function Disassembler(triple::String; cpu::String="", features::String="",
+function Disassembler(triple::AbstractString; cpu::AbstractString="",
+                      features::AbstractString="",
                       hex_immediates::Bool=false, alternate_syntax::Bool=false,
                       comments::Bool=false)
     # the WebAssembly back-end asserts when asked for an alternate syntax

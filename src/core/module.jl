@@ -16,22 +16,22 @@ characteristics.
 
 The named metadata of the module, as a dictionary-like view that maps names to
 [`NamedMDNode`](@ref)s, which supports `haskey`, `get` and iteration. Use
-[`get!`](@ref get!(::LLVM.ModuleMetadataIterator, ::String)) to look up a named metadata
-node, or create it if it doesn't exist yet, e.g., to add metadata to it:
+[`get!`](@ref get!(::LLVM.ModuleMetadataIterator, ::AbstractString)) to look up a named
+metadata node, or create it if it doesn't exist yet, e.g., to add metadata to it:
 `push!(get!(mod.metadata, name).operands, node)`.
 
     mod.name
-    mod.name = name::String
+    mod.name = name::AbstractString
 
 The name (module identifier) of the module.
 
     mod.triple
-    mod.triple = triple::String
+    mod.triple = triple::AbstractString
 
 The target triple of the module, or an empty string if it has none.
 
     mod.datalayout
-    mod.datalayout = layout::Union{String,DataLayout}
+    mod.datalayout = layout::Union{AbstractString,DataLayout}
 
 The data layout of the module. Either a string or a `DataLayout` object can be assigned.
 
@@ -72,15 +72,15 @@ values, which supports:
 The global variables of the module, as a view that can be iterated, and indexed by name
 (`mod.globals["name"]`, `haskey`, `get`). The global variables can be reordered using
 [`sort!`](@ref sort!(::LLVM.ModuleGlobalSet)). Create a `GlobalVariable` to add one, or use
-[`get!`](@ref get!(::Base.Callable, ::LLVM.ModuleGlobalSet, ::String)) to only create it if
-it doesn't exist yet.
+[`get!`](@ref get!(::Base.Callable, ::LLVM.ModuleGlobalSet, ::AbstractString)) to only
+create it if it doesn't exist yet.
 
     mod.functions
 
 The functions of the module, as a view that can be iterated, and indexed by name
 (`mod.functions["name"]`, `haskey`, `get`). The functions can be reordered using
 [`sort!`](@ref sort!(::LLVM.ModuleFunctionSet)). Create an `LLVM.Function` to add one, or
-use [`get!`](@ref get!(::Base.Callable, ::LLVM.ModuleFunctionSet, ::String)) to only
+use [`get!`](@ref get!(::Base.Callable, ::LLVM.ModuleFunctionSet, ::AbstractString)) to only
 declare it if it doesn't exist yet, e.g., to call a runtime function.
 
     mod.aliases
@@ -142,13 +142,13 @@ end
 end
 
 """
-    LLVM.Module(name::String)
+    LLVM.Module(name::AbstractString)
 
 Create a new module with the given name.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-Module(name::String) =
+Module(name::AbstractString) =
     mark_alloc(Module(API.LLVMModuleCreateWithNameInContext(name, context())))
 
 """
@@ -188,8 +188,10 @@ function name(mod::Module)
     return unsafe_string(ptr, out_len[])
 end
 
-name!(mod::Module, str::String) =
+function name!(mod::Module, str::AbstractString)
+    str = String(str)
     API.LLVMSetModuleIdentifier(mod, str, Csize_t(ncodeunits(str)))
+end
 
 @property Module name name!
 
@@ -201,7 +203,7 @@ triple!(mod::Module, triple) = API.LLVMSetTarget(mod, triple)
 
 datalayout(mod::Module) = DataLayout(API.LLVMGetModuleDataLayout(mod))
 
-datalayout!(mod::Module, layout::String) = API.LLVMSetDataLayout(mod, layout)
+datalayout!(mod::Module, layout::AbstractString) = API.LLVMSetDataLayout(mod, layout)
 datalayout!(mod::Module, layout::DataLayout) =
     API.LLVMSetModuleDataLayout(mod, layout)
 
@@ -307,19 +309,20 @@ Base.empty!(set::ModuleUsedSet) = setdiff!(set, collect(set))
 ## textual IR handling
 
 """
-    parse(::Type{Module}, ir::String)
+    parse(::Type{Module}, ir::AbstractString)
 
 Parse the given LLVM IR string into a module.
 """
-function Base.parse(::Type{Module}, ir::String)
+function Base.parse(::Type{Module}, ir::AbstractString)
+    ir = String(ir)
     data = unsafe_wrap(Vector{UInt8}, ir)
     membuf = MemoryBuffer(data, "", false)
 
     out_ref = Ref{API.LLVMModuleRef}()
     out_error = Ref{Cstring}()
-    # the parser takes ownership of the buffer
-    status = API.LLVMParseIRInContext(context(), consume!(membuf), out_ref,
-                                      out_error) |> Bool
+    # the parser takes ownership of the buffer, which refers to the memory of `ir`
+    status = GC.@preserve ir API.LLVMParseIRInContext(context(), consume!(membuf), out_ref,
+                                                      out_error) |> Bool
 
     if status
         error = unsafe_message(out_error[])
@@ -474,23 +477,23 @@ end
 
 # partial associative interface
 
-function Base.haskey(iter::ModuleGlobalSet, name::String)
+function Base.haskey(iter::ModuleGlobalSet, name::AbstractString)
     return API.LLVMGetNamedGlobal(iter.mod, name) != C_NULL
 end
 
-function Base.getindex(iter::ModuleGlobalSet, name::String)
+function Base.getindex(iter::ModuleGlobalSet, name::AbstractString)
     objref = API.LLVMGetNamedGlobal(iter.mod, name)
     objref == C_NULL && throw(KeyError(name))
     return GlobalVariable(objref)
 end
 
-function Base.get(iter::ModuleGlobalSet, name::String, default)
+function Base.get(iter::ModuleGlobalSet, name::AbstractString, default)
     objref = API.LLVMGetNamedGlobal(iter.mod, name)
     objref == C_NULL ? default : GlobalVariable(objref)
 end
 
 """
-    get!(f, mod.globals, name::String)
+    get!(f, mod.globals, name::AbstractString)
 
 Look up the global variable called `name`, or call `f()` to create it if the module
 doesn't contain one, e.g.:
@@ -508,7 +511,8 @@ if another kind of global value, like a function, already uses the name. Like C+
 `Module::getOrInsertGlobal`, an existing global variable is returned as is, even if it has
 a different type.
 """
-function Base.get!(f::Base.Callable, iter::ModuleGlobalSet, name::String)
+function Base.get!(f::Base.Callable, iter::ModuleGlobalSet, name::AbstractString)
+    name = String(name)
     objref = API.LLVMGetNamedGlobal(iter.mod, name)
     objref == C_NULL || return GlobalVariable(objref)
     check_unused_name(iter.mod, name)
@@ -592,23 +596,23 @@ end
 
 # partial associative interface
 
-function Base.haskey(iter::ModuleFunctionSet, name::String)
+function Base.haskey(iter::ModuleFunctionSet, name::AbstractString)
     return API.LLVMGetNamedFunction(iter.mod, name) != C_NULL
 end
 
-function Base.getindex(iter::ModuleFunctionSet, name::String)
+function Base.getindex(iter::ModuleFunctionSet, name::AbstractString)
     objref = API.LLVMGetNamedFunction(iter.mod, name)
     objref == C_NULL && throw(KeyError(name))
     return Function(objref)
 end
 
-function Base.get(iter::ModuleFunctionSet, name::String, default)
+function Base.get(iter::ModuleFunctionSet, name::AbstractString, default)
     objref = API.LLVMGetNamedFunction(iter.mod, name)
     objref == C_NULL ? default : Function(objref)
 end
 
 """
-    get!(f, mod.functions, name::String)
+    get!(f, mod.functions, name::AbstractString)
 
 Look up the function called `name`, or call `f()` to declare it if the module doesn't
 contain one, e.g., to call a runtime function that may or may not have been declared yet:
@@ -627,7 +631,8 @@ another kind of global value, like a global variable, already uses the name. Lik
 different function type, so call it using the function type you expect, e.g.,
 `call!(builder, ft, abort)`.
 """
-function Base.get!(f::Base.Callable, iter::ModuleFunctionSet, name::String)
+function Base.get!(f::Base.Callable, iter::ModuleFunctionSet, name::AbstractString)
+    name = String(name)
     objref = API.LLVMGetNamedFunction(iter.mod, name)
     objref == C_NULL || return Function(objref)
     check_unused_name(iter.mod, name)
@@ -700,17 +705,20 @@ end
 
 # partial associative interface
 
-function Base.haskey(iter::ModuleAliasSet, name::String)
+function Base.haskey(iter::ModuleAliasSet, name::AbstractString)
+    name = String(name)
     return API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
-function Base.getindex(iter::ModuleAliasSet, name::String)
+function Base.getindex(iter::ModuleAliasSet, name::AbstractString)
+    name = String(name)
     objref = API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return GlobalAlias(objref)
 end
 
-function Base.get(iter::ModuleAliasSet, name::String, default)
+function Base.get(iter::ModuleAliasSet, name::AbstractString, default)
+    name = String(name)
     objref = API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name))
     objref == C_NULL ? default : GlobalAlias(objref)
 end
@@ -762,17 +770,20 @@ end
 
 # partial associative interface
 
-function Base.haskey(iter::ModuleIFuncSet, name::String)
+function Base.haskey(iter::ModuleIFuncSet, name::AbstractString)
+    name = String(name)
     return API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
-function Base.getindex(iter::ModuleIFuncSet, name::String)
+function Base.getindex(iter::ModuleIFuncSet, name::AbstractString)
+    name = String(name)
     objref = API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return GlobalIFunc(objref)
 end
 
-function Base.get(iter::ModuleIFuncSet, name::String, default)
+function Base.get(iter::ModuleIFuncSet, name::AbstractString, default)
+    name = String(name)
     objref = API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name))
     objref == C_NULL ? default : GlobalIFunc(objref)
 end
@@ -807,17 +818,21 @@ end
 
 Base.length(iter::ModuleFlagDict) = count(Returns(true), iter)
 
-Base.haskey(iter::ModuleFlagDict, name::String) =
+function Base.haskey(iter::ModuleFlagDict, name::AbstractString)
+    name = String(name)
     API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name)) != C_NULL
+end
 
-function Base.getindex(iter::ModuleFlagDict, name::String)
+function Base.getindex(iter::ModuleFlagDict, name::AbstractString)
+    name = String(name)
     objref = API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return Metadata(objref)
 end
 
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
-                        (name, behavior)::Tuple{String, API.LLVMModuleFlagBehavior})
+                        (name, behavior)::Tuple{AbstractString, API.LLVMModuleFlagBehavior})
+    name = String(name)
     API.LLVMAddModuleFlag(iter.mod, behavior, name, ncodeunits(name), val)
     return iter
 end

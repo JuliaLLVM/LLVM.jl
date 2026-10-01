@@ -1072,13 +1072,17 @@ end
 
 attribute_ref(iter::CallSiteAttrSet, id::Integer) =
     API.LLVMGetCallSiteEnumAttribute(iter.instr, iter.idx, id)
-attribute_ref(iter::CallSiteAttrSet, kind::AbstractString) =
+function attribute_ref(iter::CallSiteAttrSet, kind::AbstractString)
+    kind = String(kind)
     API.LLVMGetCallSiteStringAttribute(iter.instr, iter.idx, kind, ncodeunits(kind))
+end
 
 remove_attribute!(iter::CallSiteAttrSet, id::Integer) =
     API.LLVMRemoveCallSiteEnumAttribute(iter.instr, iter.idx, id)
-remove_attribute!(iter::CallSiteAttrSet, kind::AbstractString) =
+function remove_attribute!(iter::CallSiteAttrSet, kind::AbstractString)
+    kind = String(kind)
     API.LLVMRemoveCallSiteStringAttribute(iter.instr, iter.idx, kind, ncodeunits(kind))
+end
 
 function MemoryEffects(iter::CallSiteAttrSet)
     check_memory_effects_index(iter.idx)
@@ -1126,11 +1130,12 @@ Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
 """
-    OperandBundle(tag::String, args::Vector{Value}=Value[])
+    OperandBundle(tag::AbstractString, args::Vector{Value}=Value[])
 
 Create a new operand bundle with the given tag and arguments.
 """
-function OperandBundle(tag::String, args::AbstractVector{<:Value}=Value[])
+function OperandBundle(tag::AbstractString, args::AbstractVector{<:Value}=Value[])
+    tag = String(tag)
     bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, ncodeunits(tag),
                                                        as_vector(args), length(args)))
     finalizer(bundle) do obj

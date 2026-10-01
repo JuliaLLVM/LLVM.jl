@@ -42,6 +42,8 @@ function subprogram!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::Ab
                      linkage_name::AbstractString="", scope_line::Integer=line,
                      local_to_unit::Bool=false, definition::Bool=true,
                      flags=API.LLVMDIFlagZero, optimized::Bool=false)
+    name = String(name)
+    linkage_name = String(linkage_name)
     DISubprogram(API.LLVMDIBuilderCreateFunction(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         linkage_name, Csize_t(ncodeunits(linkage_name)),
@@ -121,6 +123,11 @@ function compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::Abstrac
                       debug_info_for_profiling::Bool=false,
                       sysroot::AbstractString="",
                       sdk::AbstractString="")
+    producer = String(producer)
+    cmdline = String(cmdline)
+    split_name = split_name === nothing ? nothing : String(split_name)
+    sysroot = String(sysroot)
+    sdk = String(sdk)
     split_name_ptr = split_name === nothing ? C_NULL : split_name
     split_name_len = split_name === nothing ? Csize_t(0) : Csize_t(ncodeunits(split_name))
     cu = DICompileUnit(API.LLVMDIBuilderCreateCompileUnit(
@@ -167,6 +174,10 @@ function dimodule!(builder::DIBuilder, parent_scope::Union{DIScope,Nothing}, nam
                    config_macros::AbstractString="",
                    include_path::AbstractString="",
                    api_notes_file::AbstractString="")
+    name = String(name)
+    config_macros = String(config_macros)
+    include_path = String(include_path)
+    api_notes_file = String(api_notes_file)
     DIModule(API.LLVMDIBuilderCreateModule(
         builder, something(parent_scope, C_NULL),
         name, Csize_t(ncodeunits(name)),
@@ -250,6 +261,7 @@ Create a new [`DINamespace`](@ref) describing a namespace in the source code.
 """
 function namespace!(builder::DIBuilder, parent_scope::Union{DIScope,Nothing}, name::AbstractString;
                     export_symbols::Bool=false)
+    name = String(name)
     DINamespace(API.LLVMDIBuilderCreateNameSpace(
         builder, something(parent_scope, C_NULL),
         name, Csize_t(ncodeunits(name)),
@@ -320,6 +332,7 @@ function imported_declaration!(builder::DIBuilder, scope::Union{DIScope,Nothing}
                                decl::DINode, file::DIFile, line::Integer,
                                name::AbstractString;
                                elements::AbstractVector{<:Metadata}=Metadata[])
+    name = String(name)
     elts = convert(Vector{Metadata}, elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedDeclaration(
         builder, something(scope, C_NULL), decl, file, Cuint(line),

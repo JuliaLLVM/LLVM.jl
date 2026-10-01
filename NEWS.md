@@ -532,6 +532,8 @@ Other changes:
 - It is documented that `"system"` names the default synchronization scope, so that
   `fence!(builder, ordering; scope="system")` emits a plain `fence`, and that the body of an
   `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.
+  Its docstring no longer claims that only Julia 1.10 passes pointers to the body as
+  typed pointers (or as integers, for `Ptr`), which 1.11 does too.
 - Generating atomic operations is precompiled, which makes the first generator that uses
   them, e.g., in UnsafeAtomics.jl, a few hundred milliseconds faster.
 - `deps/build_local.jl` installs the library it builds in a directory that is specific to

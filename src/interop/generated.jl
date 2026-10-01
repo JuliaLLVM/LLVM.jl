@@ -184,10 +184,13 @@ parameters are available as in a regular `@generated` function, but function arg
 are bound to LLVM values instead of their types:
 
 - arguments that are passed to `llvmcall` are bound to their LLVM parameter, whose type is
-  what Julia lowers the argument type to (e.g., `Bool` becomes `i8`; on Julia 1.10, `Ptr`
-  becomes an integer and `Core.LLVMPtr` an `i8` pointer, so the body should check
-  `supports_typed_pointers(LLVM.context())` before assuming opaque pointers). Arguments that lower to a boxed
-  pointer are passed as such, and must be handled with care to respect GC invariants;
+  what Julia lowers the argument type to (e.g., `Bool` becomes `i8`). On Julia 1.10 and
+  1.11, `Ptr` becomes an integer and `Core.LLVMPtr` an `i8` pointer, as the body generates
+  IR in a fresh context that uses typed pointers (on 1.11, Julia's code generator uses
+  opaque pointers, but its context is not the one of the body). The body should check
+  `supports_typed_pointers(LLVM.context())` before assuming opaque pointers, or cast
+  unconditionally (`bitcast!` does nothing on opaque pointers). Arguments that lower to a
+  boxed pointer are passed as such, and must be handled with care to respect GC invariants;
 - arguments whose value is known statically are not passed, but bound to that value
   instead: singletons like `Val{x}()` are bound to the instance, and `Type{T}` to `T`;
 - varargs are bound to a tuple of the above.

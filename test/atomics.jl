@@ -188,7 +188,8 @@ end
     ret!(builder, rmw)
     @test expand_to_cmpxchg!(rmw)
     ir = string(f)
-    @test occursin(r"load atomic float, .* syncscope\(\"agent\"\) monotonic", ir)
+    @test occursin(r"load atomic i32, .* syncscope\(\"agent\"\) monotonic", ir)
+    @test !occursin("load atomic float", ir)
     @test occursin(r"cmpxchg .* i32 .* syncscope\(\"agent\"\) acq_rel acquire", ir)
     @test !occursin("= atomicrmw", ir)
     LLVM.version() >= v"19" && @test occursin(r"cmpxchg .*!mmra", ir)
@@ -198,7 +199,7 @@ end
         rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpFAdd, ptr, val, MO)
         ret!(builder, rmw)
         @test expand_to_cmpxchg!(rmw)
-        @test occursin(r"load atomic (i64|<2 x float>)", string(f))
+        @test occursin(r"load atomic i64", string(f))
     end
 
     # expanding partword atomics

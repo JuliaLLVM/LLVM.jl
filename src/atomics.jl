@@ -63,9 +63,9 @@ lower_atomic!(inst::AtomicCmpXchgInst) = API.LLVMExtraLowerAtomicCmpXchgInst(ins
 
 Replace an `atomicrmw` with a loop around a `cmpxchg` of the same size, ordering,
 synchronization scope and volatility, e.g., for operations that the target does not
-support natively. Floating-point and vector values are compared as integers, and metadata
-that remains valid for the `cmpxchg` is copied (see [`copy_atomic_metadata!`](@ref)). The
-instruction is erased.
+support natively. Floating-point and vector values are loaded and compared as integers, so
+the expansion only needs integer atomics, and metadata that remains valid for the `cmpxchg`
+is copied (see [`copy_atomic_metadata!`](@ref)). The instruction is erased.
 
 This changes the control flow: the block containing the instruction is split, with the
 instructions that follow it moving to a new block after the loop. Positions after the
@@ -74,8 +74,8 @@ new block afterwards, and the computation can call intrinsics (see
 [`atomic_rmw_value!`](@ref)).
 
 This is a copy of LLVM's `expandAtomicRMWToCmpXchg`, which is meant for use during code
-generation: here, the loop starts with an atomic load, so that the result is also valid
-IR to optimize.
+generation: here, the loop starts with an atomic load (like it does from LLVM 23), so that
+the result is also valid IR to optimize.
 """
 expand_to_cmpxchg!(inst::AtomicRMWInst) = API.LLVMExtraExpandAtomicRMWToCmpXchg(inst) |> Bool
 

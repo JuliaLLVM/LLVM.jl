@@ -539,6 +539,10 @@ Other changes:
   "atomicrmw operation LLVM.AtomicRMWBinOp.Add ...".
 - The documentation of `expand_to_cmpxchg!`, `expand_partword!`, `lower_atomic!` and
   `atomic_rmw_value!` says that they can change the control flow and call intrinsics.
+- The compare-exchange loop of `expand_to_cmpxchg!` loads floating-point and vector values
+  as integers, like it compares them, so that it only needs integer atomics: the loop of an
+  `atomicrmw fadd float` starts with a `load atomic i32` instead of a `load atomic float`,
+  which not every target supports.
 - It is documented that `"system"` names the default synchronization scope, so that
   `fence!(builder, ordering; scope="system")` emits a plain `fence`, and that the body of an
   `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.

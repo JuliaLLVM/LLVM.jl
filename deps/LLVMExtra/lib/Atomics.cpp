@@ -8,8 +8,9 @@
 //
 // AtomicExpandPass runs during code generation, so its expansions don't need to be valid
 // for the IR optimizer. These copies are also used from IR passes, so they differ in that
-// the loops start with an atomic (monotonic) load instead of a plain one, and that they
-// preserve the volatility, alignment and metadata of the original instruction.
+// the loops start with an atomic (monotonic) load instead of a plain one (like LLVM 23
+// does), of an integer for floating-point and vector values, and that they preserve the
+// volatility, alignment and metadata of the original instruction.
 
 #include "LLVMExtra.h"
 
@@ -126,13 +127,14 @@ void createCmpXchgInstFun(IRBuilderBase &Builder, Value *Addr, Value *Loaded,
 }
 
 // the initial load of a cmpxchg loop, which races with other accesses so it has to be
-// atomic. before LLVM 22, atomic loads of vectors aren't supported, so those are loaded as
-// an integer of the same size.
+// atomic. floating-point and vector values are loaded as an integer of the same size, like
+// they are compared: not every target supports atomic loads of those types (before LLVM 22,
+// atomic loads of vectors aren't even valid IR), and AtomicExpandPass of LLVM 23 also casts
+// floating-point ones to integers (by default, with shouldCastAtomicLoadInIR).
 Value *createInitialLoad(IRBuilderBase &Builder, Type *Ty, Value *Addr, Align AddrAlign,
                          SyncScope::ID SSID, bool IsVolatile) {
   Type *LoadTy = Ty;
-#if LLVM_VERSION_MAJOR < 22
-  if (Ty->isVectorTy()) {
+  if (Ty->isFloatingPointTy() || Ty->isVectorTy()) {
     LoadTy = Builder.getIntNTy(Ty->getPrimitiveSizeInBits());
 #if LLVM_VERSION_MAJOR < 17
     if (!cast<PointerType>(Addr->getType())->isOpaque())
@@ -140,7 +142,6 @@ Value *createInitialLoad(IRBuilderBase &Builder, Type *Ty, Value *Addr, Align Ad
           Addr, LoadTy->getPointerTo(Addr->getType()->getPointerAddressSpace()));
 #endif
   }
-#endif
   LoadInst *Load = Builder.CreateAlignedLoad(LoadTy, Addr, AddrAlign);
   Load->setAtomic(AtomicOrdering::Monotonic, SSID);
   Load->setVolatile(IsVolatile);

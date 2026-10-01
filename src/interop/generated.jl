@@ -337,6 +337,11 @@ macro llvmgenerated(builder, def)
         else
             throw(ArgumentError("$what: unsupported argument `$arg`"))
         end
+        if iswriteonly(name)
+            # write-only names can't be passed on to `llvmcall`
+            name = gensym("arg")
+            param = param isa Symbol ? name : Expr(:(::), name, param.args[2])
+        end
         name === builder &&
             throw(ArgumentError("$what: argument `$name` conflicts with the name of the builder"))
 

@@ -200,6 +200,12 @@ ir = sprint(io->code_llvm(io, lg_trap, Tuple{}; debuginfo=:none))
 end
 @test lg_boxed("foo") === "foo"
 
+# arguments with a write-only name
+@llvmgenerated builder function lg_underscore(_::Int, x::Int, __)::Int
+    x
+end
+@test lg_underscore(1, 2, 3) === 2
+
 # default arguments
 @llvmgenerated builder function lg_default(x::Int, ::Val{N}=Val(1))::Int where {N}
     add!(builder, x, ConstantInt(N))

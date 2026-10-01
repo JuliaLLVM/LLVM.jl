@@ -554,6 +554,8 @@ Bug fixes:
 - The `memcheck` debugging mode supports objects that are allocated and disposed of
   concurrently, e.g., by ORC compiling code on multiple threads, which could corrupt its
   bookkeeping.
+- `@llvmgenerated` functions can have arguments named `_`, which failed to compile because
+  the argument was passed on to `llvmcall` by name.
 
 Other changes:
 

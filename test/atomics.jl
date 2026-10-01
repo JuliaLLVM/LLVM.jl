@@ -79,19 +79,24 @@ end
 
     # invalid IR is rejected before building it
     position!(builder, LLVM.at_end(BasicBlock(f, "invalid")))
-    @test_throws "release semantics" load!(builder, T_int, ptr; ordering=RE)
+    @test_throws "release semantics, got release" load!(builder, T_int, ptr; ordering=RE)
     @test_throws "synchronization scope" load!(builder, T_int, ptr; scope="agent")
-    @test_throws "acquire semantics" store!(builder, int, ptr; ordering=AC)
+    @test_throws "acquire semantics, got acquire" store!(builder, int, ptr; ordering=AC)
     @test_throws "power-of-two number of bytes" load!(builder, LLVM.IntType(7), ptr; ordering=MO)
     @test_throws "power of 2" load!(builder, T_int, ptr; align=3)
-    @test_throws "Fences must have" fence!(builder, MO)
+    @test_throws "ordering, got monotonic" fence!(builder, MO)
     @test_throws "Fences must have" fence!(builder, MO, SyncScope("agent"))
-    @test_throws "at least monotonic" atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, int, UN)
-    @test_throws "floating-point value" atomic_rmw!(builder, O.LLVMAtomicRMWBinOpFAdd, ptr, int, MO)
-    @test_throws "integer value" atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, float, MO)
+    @test_throws "at least monotonic, got unordered" atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, int, UN)
+    @test_throws "atomicrmw fadd requires a floating-point value" atomic_rmw!(builder, O.LLVMAtomicRMWBinOpFAdd, ptr, int, MO)
+    @test_throws "atomicrmw add requires an integer value" atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, float, MO)
     @test_throws "integer or pointer values" atomic_cmpxchg!(builder, ptr, float, float, SC)
     @test_throws "same type" atomic_cmpxchg!(builder, ptr, int, float, SC)
-    @test_throws "release or acq_rel" atomic_cmpxchg!(builder, ptr, int, int, SC, RE)
+    @test_throws "release or acq_rel, got release" atomic_cmpxchg!(builder, ptr, int, int, SC, RE)
+    @test_throws "got success=unordered and failure=unordered" atomic_cmpxchg!(builder, ptr, int, int, UN, UN)
+    LLVM.isavailable(O.LLVMAtomicRMWBinOpFMaximumNum) ||
+        @test_throws "atomicrmw operation fmaximumnum is not supported" atomic_rmw!(builder, O.LLVMAtomicRMWBinOpFMaximumNum, ptr, float, MO)
+    @test_throws "at least monotonic, got 3" strongest_failure_ordering(O.LLVMAtomicOrdering(3))
+    @test_throws "atomicrmw operation 1000 is not supported" atomic_rmw!(builder, O.LLVMAtomicRMWBinOp(1000), ptr, int, MO)
     @test isempty(builder.insert_block.instructions)
 end
 end

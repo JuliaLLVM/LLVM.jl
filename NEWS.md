@@ -518,6 +518,10 @@ Other changes:
 - Attribute sets support `append!` as documented, and they, the metadata of an instruction
   and the flags of a module can be iterated.
 - Property access on values whose concrete type is only known at run time doesn't dispatch.
+- The errors about atomic operations name operations and orderings as LLVM IR does, e.g.,
+  "atomicrmw operation fmaximum is not supported by LLVM 18.1.7" instead of "atomicrmw
+  operation 19 ...", and "atomicrmw add requires an integer value, got float" instead of
+  "atomicrmw operation LLVM.AtomicRMWBinOp.Add ...".
 - The documentation of `expand_to_cmpxchg!`, `expand_partword!`, `lower_atomic!` and
   `atomic_rmw_value!` says that they can change the control flow and call intrinsics.
 - `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of

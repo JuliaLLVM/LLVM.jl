@@ -366,7 +366,7 @@ function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
     # setting an invalid ordering on other instructions
     if inst isa AtomicRMWInst
         is_stronger(ord, API.LLVMAtomicOrderingUnordered) ||
-            throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $ord"))
+            throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $(msgname(ord))"))
     elseif inst isa FenceInst
         check_fence_ordering(ord)
     end
@@ -384,7 +384,7 @@ ordering!(::AtomicCmpXchgInst, ::API.LLVMAtomicOrdering) =
 
 check_fence_ordering(o::API.LLVMAtomicOrdering) =
     o == API.LLVMAtomicOrderingAcquire || is_release_or_stronger(o) ||
-        throw(ArgumentError("Fences must have acquire, release, acq_rel or seq_cst ordering, got $o"))
+        throw(ArgumentError("Fences must have acquire, release, acq_rel or seq_cst ordering, got $(msgname(o))"))
 
 # the names LLVM uses in IR, and Julia's names for the orderings that differ
 const ORDERING_NAMES = Dict(
@@ -491,6 +491,10 @@ operation, whether or not the version of LLVM in use supports it (see
 irname(op::API.LLVMAtomicRMWBinOp) = RMW_BINOP_IRNAMES[op]
 irname(ordering::API.LLVMAtomicOrdering) = ORDERING_IRNAMES[ordering]
 
+# for error messages: the IR name, or the integer of an invalid value, which has no name
+msgname(op::API.LLVMAtomicRMWBinOp) = get(RMW_BINOP_IRNAMES, op, Integer(op))
+msgname(ordering::API.LLVMAtomicOrdering) = get(ORDERING_IRNAMES, ordering, Integer(ordering))
+
 is_fp_rmw(op::API.LLVMAtomicRMWBinOp) =
     op in (API.LLVMAtomicRMWBinOpFAdd, API.LLVMAtomicRMWBinOpFSub,
            API.LLVMAtomicRMWBinOpFMax, API.LLVMAtomicRMWBinOpFMin,
@@ -568,7 +572,7 @@ function strongest_failure_ordering(success::API.LLVMAtomicOrdering)
     elseif success == API.LLVMAtomicOrderingSequentiallyConsistent
         API.LLVMAtomicOrderingSequentiallyConsistent
     else
-        throw(ArgumentError("cmpxchg requires an ordering of at least monotonic, got $success"))
+        throw(ArgumentError("cmpxchg requires an ordering of at least monotonic, got $(msgname(success))"))
     end
 end
 

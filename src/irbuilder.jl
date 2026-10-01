@@ -544,7 +544,7 @@ function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::String
     scope = scope === nothing ? nothing : atomic_scope(builder, scope)
     if ordering != NotAtomic
         (ordering == Release || ordering == AcquireRelease) &&
-            throw(ArgumentError("Atomic loads cannot have release semantics, got $ordering"))
+            throw(ArgumentError("Atomic loads cannot have release semantics, got $(msgname(ordering))"))
         check_atomic_type(Ty, "An atomic load")
     elseif scope !== nothing && scope.id != 1
         throw(ArgumentError("Non-atomic loads cannot have a synchronization scope"))
@@ -567,7 +567,7 @@ function store!(builder::IRBuilder, Val::Value, Ptr::Value;
     scope = scope === nothing ? nothing : atomic_scope(builder, scope)
     if ordering != NotAtomic
         (ordering == Acquire || ordering == AcquireRelease) &&
-            throw(ArgumentError("Atomic stores cannot have acquire semantics, got $ordering"))
+            throw(ArgumentError("Atomic stores cannot have acquire semantics, got $(msgname(ordering))"))
         check_atomic_type(value_type(Val), "An atomic store")
     elseif scope !== nothing && scope.id != 1
         throw(ArgumentError("Non-atomic stores cannot have a synchronization scope"))
@@ -603,7 +603,7 @@ end
 
 check_available(op::API.LLVMAtomicRMWBinOp) =
     isavailable(op) ||
-        throw(ArgumentError("atomicrmw operation $(Integer(op)) is not supported by LLVM $(version())"))
+        throw(ArgumentError("atomicrmw operation $(msgname(op)) is not supported by LLVM $(version())"))
 
 function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                      ordering::API.LLVMAtomicOrdering, singleThread::Bool)
@@ -648,7 +648,7 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
                      volatile::Bool=false)
     check_available(op)
     is_stronger(ordering, Unordered) ||
-        throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $ordering"))
+        throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $(msgname(ordering))"))
     T = value_type(Val)
     scalar_T = T isa VectorType ? element_type(T) : T
     if op == API.LLVMAtomicRMWBinOpXchg
@@ -656,10 +656,10 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
             throw(ArgumentError("atomicrmw xchg requires an integer, floating-point or pointer value, got $(string(T))"))
     elseif is_fp_rmw(op)
         scalar_T isa FloatingPointType ||
-            throw(ArgumentError("atomicrmw operation $op requires a floating-point value, got $(string(T))"))
+            throw(ArgumentError("atomicrmw $(msgname(op)) requires a floating-point value, got $(string(T))"))
     else
         scalar_T isa IntegerType ||
-            throw(ArgumentError("atomicrmw operation $op requires an integer value, got $(string(T))"))
+            throw(ArgumentError("atomicrmw $(msgname(op)) requires an integer value, got $(string(T))"))
     end
     check_atomic_type(T, "atomicrmw")
     check_alignment(align)
@@ -691,9 +691,10 @@ function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
                          failure::API.LLVMAtomicOrdering=strongest_failure_ordering(success);
                          scope=nothing, align=nothing, volatile::Bool=false, weak::Bool=false)
     (is_stronger(success, Unordered) && is_stronger(failure, Unordered)) ||
-        throw(ArgumentError("cmpxchg requires orderings of at least monotonic, got $success and $failure"))
+        throw(ArgumentError("cmpxchg requires orderings of at least monotonic, got " *
+                            "success=$(msgname(success)) and failure=$(msgname(failure))"))
     (failure == Release || failure == AcquireRelease) &&
-        throw(ArgumentError("The failure ordering of a cmpxchg cannot be release or acq_rel, got $failure"))
+        throw(ArgumentError("The failure ordering of a cmpxchg cannot be release or acq_rel, got $(msgname(failure))"))
     T = value_type(Cmp)
     T == value_type(New) ||
         throw(ArgumentError("cmpxchg requires values of the same type, got $(string(T)) and $(string(value_type(New)))"))

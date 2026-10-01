@@ -38,7 +38,7 @@ function materializer_callback(val, state::CloneCallbackState)
 end
 
 """
-    clone_into!(new::LLVM.Function, old::LLVM.Function; [suffix::String],
+    clone_into!(new::LLVM.Function, old::LLVM.Function; [suffix::AbstractString],
                 [value_map::AbstractDict{<:Value,<:Value}],
                 [changes::LLVM.LLVMCloneFunctionChangeType],
                 [type_mapper::Function],
@@ -60,7 +60,7 @@ of `CloneFunctionInto` for more details.
 function clone_into!(new::Function, old::Function;
                      value_map::AbstractDict{<:Value,<:Value}=Dict{Value,Value}(),
                      changes=API.LLVMCloneFunctionChangeTypeLocalChangesOnly,
-                     suffix::String="", type_mapper=nothing, materializer=nothing)
+                     suffix::AbstractString="", type_mapper=nothing, materializer=nothing)
     value_map_array = Value[]
     for (src, dest) in value_map
         push!(value_map_array, src)
@@ -137,7 +137,8 @@ function clone(f::Function; value_map::AbstractDict{<:Value,<:Value}=Dict{Value,
 end
 
 """
-    clone(bb::BasicBlock]; dest=parent(bb), [suffix::String], [value_map::AbstractDict{Value,Value}])
+    clone(bb::BasicBlock]; dest=parent(bb), [suffix::AbstractString],
+          [value_map::AbstractDict{Value,Value}])
 
 Clone a basic block `bb` by copying all instructions. The new block is inserted at the end
 of the parent function; this can be altered by setting `dest` to a different function, or to
@@ -152,7 +153,8 @@ basic block.
     function that it was cloned from, unless you manually remap other values.
     This can be done passing a `value_map` dictionary.
 """
-function clone(bb::BasicBlock; dest::Union{Nothing,Function}=parent(bb), suffix::String="",
+function clone(bb::BasicBlock; dest::Union{Nothing,Function}=parent(bb),
+               suffix::AbstractString="",
                value_map::AbstractDict{<:Value,<:Value}=Dict{Value,Value}())
     value_map_array = Value[]
     for (src, dest) in value_map

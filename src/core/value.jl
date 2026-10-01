@@ -11,7 +11,7 @@ Abstract type representing an LLVM value.
 # Properties
 
     bb.name
-    bb.name = name::String
+    bb.name = name::AbstractString
 
 The name of the basic block, like that of other values.
 
@@ -20,7 +20,7 @@ The name of the basic block, like that of other values.
 The type of the value.
 
     val.name
-    val.name = name::String
+    val.name = name::AbstractString
 
 The name of the value, or an empty string if it is unnamed. When assigning a name that is
 already in use in the same function or module, LLVM makes it unique by adding a suffix.
@@ -107,7 +107,7 @@ Base.sizeof(val::Value) = sizeof(value_type(val))
 
 name(val::Value) = unsafe_string(API.LLVMGetValueName(val))
 
-name!(val::Value, name::String) = API.LLVMSetValueName(val, name)
+name!(val::Value, name::AbstractString) = API.LLVMSetValueName(val, name)
 
 @property Value value_type
 @property Value name name!

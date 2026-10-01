@@ -112,8 +112,10 @@ end
 attribute_kind_id(attr::Attribute) = API.LLVMGetEnumAttributeKind(attr)
 attribute_kind_id(name::Symbol) =
     API.LLVMGetEnumAttributeKindForName(name, ccall(:strlen, Csize_t, (Cstring,), name))
-attribute_kind_id(name::String) =
+function attribute_kind_id(name::AbstractString)
+    name = String(name)
     API.LLVMGetEnumAttributeKindForName(name, ncodeunits(name))
+end
 
 # the category of an attribute kind, which determines the kind of attribute it is used for
 function attribute_kind_category(id::Integer)
@@ -128,7 +130,8 @@ end
 
 # look up the ID of an attribute kind, checking that it can be used for a certain kind of
 # attribute, as LLVM does not check this (except for an assertion)
-function checked_attribute_kind_id(name::Union{Symbol,String}, categories::Symbol...)
+function checked_attribute_kind_id(name::Union{Symbol,AbstractString},
+                                   categories::Symbol...)
     id = attribute_kind_id(name)
     id == 0 && throw(ArgumentError("Unknown attribute kind: $name"))
     category = attribute_kind_category(id)
@@ -161,7 +164,7 @@ Create an attribute of one of LLVM's attribute kinds, e.g., `EnumAttribute(:noun
 value. Attributes that carry a type, like `sret`, are created using [`TypeAttribute`](@ref)
 instead. The kind can also be passed as a `String`.
 """
-function EnumAttribute(kind::Union{Symbol,String}, value::Integer)
+function EnumAttribute(kind::Union{Symbol,AbstractString}, value::Integer)
     enum_kind = checked_attribute_kind_id(kind, :enum, :int)
     if attribute_kind_category(enum_kind) == :int
         # before LLVM 16, a zero value selects the representation of a valueless attribute
@@ -173,7 +176,7 @@ function EnumAttribute(kind::Union{Symbol,String}, value::Integer)
     return EnumAttribute(API.LLVMCreateEnumAttribute(context(), enum_kind, UInt64(value)))
 end
 
-EnumAttribute(kind::Union{Symbol,String}) = EnumAttribute(kind, 0)
+EnumAttribute(kind::Union{Symbol,AbstractString}) = EnumAttribute(kind, 0)
 
 kind(attr::EnumAttribute) = attribute_kind_name(attribute_kind_id(attr))
 
@@ -183,7 +186,7 @@ value(attr::EnumAttribute) = API.LLVMGetEnumAttributeValue(attr)
 ## string attribute
 
 """
-    StringAttribute(kind::String, value::String="")
+    StringAttribute(kind::AbstractString, value::AbstractString="")
 
 Create a string attribute, identified by an arbitrary name, and optionally carrying a
 string value. These are used for target-specific attributes like `"target-cpu"`, or for
@@ -217,7 +220,7 @@ Create an attribute of one of LLVM's attribute kinds that carries a type, e.g.,
 `TypeAttribute(:sret, T)` or `TypeAttribute(:byval, T)`. The kind can also be passed as a
 `String`.
 """
-function TypeAttribute(kind::Union{Symbol,String}, value::LLVMType)
+function TypeAttribute(kind::Union{Symbol,AbstractString}, value::LLVMType)
     enum_kind = checked_attribute_kind_id(kind, :type)
     return TypeAttribute(API.LLVMCreateTypeAttribute(context(), enum_kind, value))
 end
@@ -231,7 +234,7 @@ end
 ## constant range attribute
 
 if version() >= v"19"
-    function ConstantRangeAttribute(kind::Union{Symbol,String}, nbits::Integer,
+    function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, nbits::Integer,
                                     lower::AbstractVector{UInt64},
                                     upper::AbstractVector{UInt64})
         enum_kind = checked_attribute_kind_id(kind, :range)

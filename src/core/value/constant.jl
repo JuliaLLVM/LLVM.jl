@@ -1097,15 +1097,15 @@ end
 register(InlineAsm, API.LLVMInlineAsmValueKind)
 
 """
-    InlineAsm(typ::LLVM.FunctionType, asm::String, constraints::String, side_effects::Bool,
-              [align_stack::Bool=false])
+    InlineAsm(typ::LLVM.FunctionType, asm::AbstractString, constraints::AbstractString,
+              side_effects::Bool, [align_stack::Bool=false])
 
 Create a constant inline assembly block with the given type, assembly code, constraints,
 and a boolean indicating whether the assembly has side effects. The optional boolean
 `align_stack` specifies whether the stack should be aligned, forcing the compiler to
 generate its usual stack alignment code in the prologue.
 """
-InlineAsm(typ::FunctionType, asm::String, constraints::String,
+InlineAsm(typ::FunctionType, asm::AbstractString, constraints::AbstractString,
           side_effects::Bool, align_stack::Bool=false) =
     InlineAsm(API.LLVMConstInlineAsm(typ, asm, constraints, side_effects, align_stack))
 
@@ -1136,7 +1136,7 @@ not the type of the global value itself, which is always a pointer type.
 The linkage of the global value.
 
     gv.section
-    gv.section = section::String
+    gv.section = section::AbstractString
 
 The section of the global value, or an empty string if it isn't placed in a specific
 section. Only global objects (functions, global variables and ifuncs) can be assigned a
@@ -1229,7 +1229,7 @@ function section(val::GlobalValue)
   return section_ptr != C_NULL ? unsafe_string(section_ptr) : ""
 end
 
-section!(val::GlobalObject, sec::String) = API.LLVMSetSection(val, sec)
+section!(val::GlobalObject, sec::AbstractString) = API.LLVMSetSection(val, sec)
 
 @property GlobalObject section section!
 
@@ -1324,12 +1324,12 @@ end
 register(GlobalVariable, API.LLVMGlobalVariableValueKind)
 
 """
-    GlobalVariable(mod::LLVM.Module, typ::LLVM.Type, name::String, [addrspace=0])
+    GlobalVariable(mod::LLVM.Module, typ::LLVM.Type, name::AbstractString, [addrspace=0])
 
 Create a global variable in the given module with the given type, name, and optional
 address space.
 """
-GlobalVariable(mod::Module, typ::LLVMType, name::String, addrspace::Integer=0) =
+GlobalVariable(mod::Module, typ::LLVMType, name::AbstractString, addrspace::Integer=0) =
     GlobalVariable(API.LLVMAddGlobalInAddressSpace(mod, typ,
                                                    name, addrspace))
 
@@ -1438,14 +1438,15 @@ end
 register(GlobalAlias, API.LLVMGlobalAliasValueKind)
 
 """
-    GlobalAlias(mod::LLVM.Module, typ::LLVM.Type, aliasee::LLVM.Constant, name::String)
+    GlobalAlias(mod::LLVM.Module, typ::LLVM.Type, aliasee::LLVM.Constant,
+                name::AbstractString)
 
 Create a global alias in the given module, with the given value type and name, referring to
 the pointer constant `aliasee`. The address space of the alias is that of `aliasee`.
 
 See also the `aliasee` property.
 """
-function GlobalAlias(mod::Module, typ::LLVMType, aliasee::Constant, name::String)
+function GlobalAlias(mod::Module, typ::LLVMType, aliasee::Constant, name::AbstractString)
     ptrtyp = value_type(aliasee)
     if !(ptrtyp isa PointerType)
         throw(ArgumentError("Aliasee must be a pointer, got a value of type $ptrtyp"))
@@ -1458,12 +1459,12 @@ function GlobalAlias(mod::Module, typ::LLVMType, aliasee::Constant, name::String
 end
 
 """
-    GlobalAlias(mod::LLVM.Module, aliasee::LLVM.GlobalValue, name::String)
+    GlobalAlias(mod::LLVM.Module, aliasee::LLVM.GlobalValue, name::AbstractString)
 
 Create a global alias in the given module, with the given name, referring to the global
 value `aliasee`. The value type and address space of the alias are taken from `aliasee`.
 """
-GlobalAlias(mod::Module, aliasee::GlobalValue, name::String) =
+GlobalAlias(mod::Module, aliasee::GlobalValue, name::AbstractString) =
     GlobalAlias(mod, global_value_type(aliasee), aliasee, name)
 
 aliasee(alias::GlobalAlias) = Value(API.LLVMAliasGetAliasee(alias))
@@ -1515,7 +1516,7 @@ register(GlobalIFunc, API.LLVMGlobalIFuncValueKind)
 
 """
     GlobalIFunc(mod::LLVM.Module, typ::LLVM.FunctionType, resolver::LLVM.Constant,
-                name::String)
+                name::AbstractString)
 
 Create an indirect function in the given module, with the given name and function type,
 whose address is computed by calling `resolver`. Note that `typ` is the type of the
@@ -1527,7 +1528,9 @@ not checked here, but by the IR verifier.
 
 See also the `resolver` property.
 """
-function GlobalIFunc(mod::Module, typ::FunctionType, resolver::Constant, name::String)
+function GlobalIFunc(mod::Module, typ::FunctionType, resolver::Constant,
+                     name::AbstractString)
+    name = String(name)
     ptrtyp = value_type(resolver)
     if !(ptrtyp isa PointerType)
         throw(ArgumentError("Resolver must be a pointer, got a value of type $ptrtyp"))

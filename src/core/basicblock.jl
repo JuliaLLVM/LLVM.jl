@@ -56,20 +56,20 @@ BasicBlock(ref::API.LLVMBasicBlockRef) = BasicBlock(API.LLVMBasicBlockAsValue(re
 Base.unsafe_convert(::Type{API.LLVMBasicBlockRef}, bb::BasicBlock) = API.LLVMValueAsBasicBlock(bb)
 
 """
-    BasicBlock(name::String)
+    BasicBlock(name::AbstractString)
 
 Create a new, empty basic block with the given name.
 """
-BasicBlock(name::String) =
+BasicBlock(name::AbstractString) =
     BasicBlock(API.LLVMCreateBasicBlockInContext(context(), name))
 
 """
-    BasicBlock(f::LLVM.Function, name::String)
+    BasicBlock(f::LLVM.Function, name::AbstractString)
 
 Create a new, empty basic block with the given name, and insert it at the end of the given
 function.
 """
-BasicBlock(f::Function, name::String;) =
+BasicBlock(f::Function, name::AbstractString;) =
     BasicBlock(API.LLVMAppendBasicBlockInContext(context(f), f, name))
 
 """

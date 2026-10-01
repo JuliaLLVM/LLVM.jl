@@ -1130,11 +1130,12 @@ Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
 """
-    OperandBundle(tag::String, args::Vector{Value}=Value[])
+    OperandBundle(tag::AbstractString, args::Vector{Value}=Value[])
 
 Create a new operand bundle with the given tag and arguments.
 """
-function OperandBundle(tag::String, args::AbstractVector{<:Value}=Value[])
+function OperandBundle(tag::AbstractString, args::AbstractVector{<:Value}=Value[])
+    tag = String(tag)
     bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, ncodeunits(tag),
                                                        as_vector(args), length(args)))
     finalizer(bundle) do obj

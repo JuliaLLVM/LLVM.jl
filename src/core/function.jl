@@ -27,7 +27,7 @@ a `GlobalAlias` or a constant expression (e.g., a bitcast when using typed point
 The calling convention of the function, e.g., `LLVM.CallConv.Fast`.
 
     f.gc
-    f.gc = name::String
+    f.gc = name::AbstractString
 
 The name of the garbage collector of the function, or an empty string if it has none.
 
@@ -117,11 +117,11 @@ register(Function, API.LLVMFunctionValueKind)
 @public Function
 
 """
-    LLVM.Function(mod::Module, name::String, ft::FunctionType)
+    LLVM.Function(mod::Module, name::AbstractString, ft::FunctionType)
 
 Create a new function in the given module with the given name and function type.
 """
-Function(mod::Module, name::String, ft::FunctionType) =
+Function(mod::Module, name::AbstractString, ft::FunctionType) =
     Function(API.LLVMAddFunction(mod, name, ft))
 
 @vocabulary IR copy_attributes!
@@ -198,7 +198,7 @@ function gc(f::Function)
   return ptr==C_NULL ? "" : unsafe_string(ptr)
 end
 
-gc!(f::Function, name::String) = API.LLVMSetGC(f, name)
+gc!(f::Function, name::AbstractString) = API.LLVMSetGC(f, name)
 
 @property Function gc gc!
 

@@ -52,7 +52,7 @@ function adopt(membuf::MemoryBuffer)
 end
 
 """
-    MemoryBuffer(data::Vector{T}, name::String="", copy::Bool=true)
+    MemoryBuffer(data::Vector{T}, name::AbstractString="", copy::Bool=true)
 
 Create a memory buffer from the given data. If `copy` is `true`, the data is copied into the
 buffer. Otherwise, the user is responsible for keeping the data alive across the lifetime of
@@ -60,7 +60,8 @@ the buffer.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-function MemoryBuffer(data::Vector{T}, name::String="", copy::Bool=true) where {T<:Union{UInt8,Int8}}
+function MemoryBuffer(data::Vector{T}, name::AbstractString="",
+                      copy::Bool=true) where {T<:Union{UInt8,Int8}}
     ptr = pointer(data)
     len = Csize_t(length(data))
     membuf = if copy
@@ -75,13 +76,13 @@ MemoryBuffer(f::Core.Function, args...; kwargs...) =
     with_disposal(f, MemoryBuffer(args...; kwargs...))
 
 """
-    MemoryBufferFile(path::String)
+    MemoryBufferFile(path::AbstractString)
 
 Create a memory buffer from the contents of a file.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-function MemoryBufferFile(path::String)
+function MemoryBufferFile(path::AbstractString)
     out_ref = Ref{API.LLVMMemoryBufferRef}()
 
     out_error = Ref{Cstring}()

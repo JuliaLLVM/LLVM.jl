@@ -39,7 +39,7 @@ dispose(::LLVM.ExecutionEngine)
 Base.push!(::LLVM.ExecutionEngine, ::LLVM.Module)
 Base.delete!(::LLVM.ExecutionEngine, ::LLVM.Module)
 LLVM.execute
-lookup(::LLVM.ExecutionEngine, ::String)
+lookup(::LLVM.ExecutionEngine, ::AbstractString)
 LLVM.run_static_constructors!
 LLVM.run_static_destructors!
 ```
@@ -62,7 +62,7 @@ ThreadSafeContext()
 context(::ThreadSafeContext)
 dispose(::ThreadSafeContext)
 ThreadSafeModule
-ThreadSafeModule(::String)
+ThreadSafeModule(::AbstractString)
 ThreadSafeModule(::LLVM.Module)
 dispose(::ThreadSafeModule)
 LLVM.unsafe_module
@@ -78,7 +78,7 @@ target_machine_builder!
 linking_layer_creator!
 TargetMachineBuilder
 ObjectLinkingLayer
-ObjectLinkingLayer(::ExecutionSession, ::String)
+ObjectLinkingLayer(::ExecutionSession, ::AbstractString)
 GDBRegistrationListener
 IntelJITEventListener
 OProfileJITEventListener

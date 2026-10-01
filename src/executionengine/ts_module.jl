@@ -179,13 +179,13 @@ function ThreadSafeModule(mod::Module)
 end
 
 """
-    ThreadSafeModule(name::String)
+    ThreadSafeModule(name::AbstractString)
 
 Create a thread-safe module with the given name.
 
 This object needs to be disposed of using [`dispose(::ThreadSafeModule)`](@ref).
 """
-function ThreadSafeModule(name::String)
+function ThreadSafeModule(name::AbstractString)
     ts_ctx = ts_context()
     # XXX: we should lock the context here
     ctx = context(ts_ctx)

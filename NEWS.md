@@ -563,6 +563,13 @@ Bug fixes:
 
 Other changes:
 
+- Every function that takes a string accepts any `AbstractString`, like the `SubString`
+  of a regex match, instead of only a `String`: looking up and creating values by name
+  (`mod.functions[name]`, `get!(f, mod.globals, name)`, `LLVM.Function(mod, name, ft)`,
+  `ctx.types[name]`, `engine.functions[name]`, ...), setting names and other properties
+  (`val.name = name`, `gv.section = section`), naming the instructions created by an
+  `IRBuilder`, and IR, pipelines, metadata strings, attribute kinds, triples, CPUs,
+  features and paths. The C API, which these functions replace, accepted any string too.
 - Mutating methods on views, like `push!` on attribute sets or `setindex!` on metadata,
   return the view, like Base's collections do, instead of `nothing`.
 - `f.blocks` no longer caches the blocks of the function, which made it return stale blocks

@@ -126,6 +126,7 @@ include("utils.jl")
 include("orc.jl")
 include("targetinfo.jl")
 include("passes.jl")
+define_properties()
 
 # high-level functionality
 include("state.jl")

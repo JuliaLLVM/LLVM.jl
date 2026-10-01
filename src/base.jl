@@ -330,15 +330,24 @@ function property_names(x, private::Bool)
     return Tuple(unique!(names))
 end
 
+# the roots of the type hierarchies that have properties
+const property_roots = Type[]
 macro properties(T)
-    quote
+    :(push!(property_roots, $T)) |> esc
+end
+
+# implement the properties of all hierarchies at once (called after they have been
+# declared), as every method that's added to a Base function makes loading slower
+function define_properties()
+    R = Union{property_roots...}
+    @eval begin
         # `ref` is accessed all over the place, so give it a direct path
-        @inline Base.getproperty(@nospecialize(x::$T), s::Symbol) =
+        @inline Base.getproperty(@nospecialize(x::$R), s::Symbol) =
             s === :ref ? propref(x) : getprop(x, Val(s))
-        @inline Base.setproperty!(@nospecialize(x::$T), s::Symbol, v) =
+        @inline Base.setproperty!(@nospecialize(x::$R), s::Symbol, v) =
             setprop!(x, Val(s), v)
-        Base.propertynames(x::$T, private::Bool=false) = property_names(x, private)
-    end |> esc
+        Base.propertynames(x::$R, private::Bool=false) = property_names(x, private)
+    end
 end
 
 # `@property T name` declares a read-only property backed by `name(x)`, while

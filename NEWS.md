@@ -483,6 +483,20 @@ New functionality:
   a module, memory buffer, generic value or context that a C API returned with ownership),
   so that the `memcheck` debugging mode tracks it like objects that LLVM.jl created,
   instead of reporting its disposal as that of an unknown instance.
+- `LLVM.mark_alloc`, `LLVM.mark_use`, `LLVM.mark_dispose(f, obj)` and `LLVM.mark_untracked`
+  are public, so that packages that wrap a related C API (like MLIR's) can have the
+  `memcheck` debugging mode check their own wrapper types (see "Checking other wrapper
+  types" in the manual). Memcheck identifies objects by `===` instead of `isequal` and
+  `hash`, which it no longer calls. `mark_alloc` registers an object without an owner
+  unless one is passed, and reports owners that are not tracked, have been (or are being)
+  disposed of, or are owned by the object. Code that used these
+  functions while they were internal: `mark_dispose(obj)` without a callback and the
+  `allow_overwrite` and `adopting` keyword arguments of `mark_alloc` have been removed
+  (use `mark_dispose(f, obj)` with the destructor, or `mark_untracked` to hand over an
+  object), and `@checked` and `refcheck` remain internal.
+- `dispose`, `activate` and `deactivate` are documented as generic functions that other
+  packages can add methods to for their own types, e.g., so that they work with
+  `@dispose`, or to maintain a task-local stack of their own contexts.
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.

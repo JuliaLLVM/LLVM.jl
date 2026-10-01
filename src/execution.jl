@@ -159,7 +159,7 @@ function ExecutionEngine(mod::Module)
 
     if status
         # the module is consumed, even on failure
-        mark_dispose(mod)
+        mark_disposed(mod)
         error = unsafe_message(out_error[])
         throw(LLVMException(error))
     end
@@ -183,7 +183,7 @@ function Interpreter(mod::Module)
 
     if status
         # the module is consumed, even on failure
-        mark_dispose(mod)
+        mark_disposed(mod)
         error = unsafe_message(out_error[])
         throw(LLVMException(error))
     end
@@ -207,7 +207,7 @@ function JIT(mod::Module; opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLeve
 
     if status
         # the module is consumed, even on failure
-        mark_dispose(mod)
+        mark_disposed(mod)
         error = unsafe_message(out_error[])
         throw(LLVMException(error))
     end
@@ -222,7 +222,7 @@ Dispose of the given execution engine.
 """
 function dispose(engine::ExecutionEngine)
     for mod in engine.mods
-        mark_dispose(mod)
+        mark_disposed(mod)
     end
     mark_dispose(API.LLVMDisposeExecutionEngine, engine)
 end

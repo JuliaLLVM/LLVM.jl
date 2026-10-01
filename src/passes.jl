@@ -296,7 +296,7 @@ PassBuilder(f::Core.Function; kwargs...) = with_disposal(f, PassBuilder(; kwargs
 
 function dispose(pb::PassBuilder)
     API.LLVMDisposePassBuilderOptions(pb.opts)
-    mark_dispose(pb)
+    mark_disposed(pb)
 end
 
 """

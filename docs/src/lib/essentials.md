@@ -39,6 +39,8 @@ supports_typed_pointers
 LLVM.jl also tracks the context in task-local scope:
 
 ```@docs
+activate
+deactivate
 context()
 activate(::Context)
 deactivate(::Context)
@@ -55,9 +57,22 @@ ts_context!
 ## Resources
 
 ```@docs
+dispose
 @dispose
 LLVM.consume!
 LLVM.adopt
+```
+
+## Memory checking
+
+These functions make the `memcheck` debugging mode check the wrapper types of other
+packages (see [Checking other wrapper types](@ref)).
+
+```@docs
+LLVM.mark_alloc
+LLVM.mark_use
+LLVM.mark_dispose
+LLVM.mark_untracked
 ```
 
 ## Exceptions

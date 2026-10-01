@@ -28,7 +28,7 @@ function link!(dst::Module, src::Module;
     ctx = context(dst)
     prepare_diagnostic(ctx)
     status = API.LLVMLinkModules3(dst, src, flags) |> Bool
-    mark_dispose(src)
+    mark_disposed(src)
     check_diagnostic(ctx, status, "failed to link modules")
 
     return nothing

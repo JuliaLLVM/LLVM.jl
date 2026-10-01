@@ -408,7 +408,7 @@ end
 function consume_owned!(obj)
     check_owned(obj)
     obj.owned = false
-    mark_dispose(obj)
+    mark_disposed(obj)
     return obj.ref
 end
 
@@ -508,6 +508,24 @@ function dispose_owned(f, obj)
     mark_dispose(obj -> f(obj.ref), obj)
     return
 end
+
+
+"""
+    dispose(obj)
+
+Release the resources of `obj`, e.g., the LLVM object that it wraps, after which it can't be
+used anymore. This is what [`@dispose`](@ref) and the do-block forms of constructors call.
+See the methods for LLVM.jl's types for what disposing of them entails, e.g.,
+[`dispose(::Context)`](@ref) and [`dispose(::LLVM.Module)`](@ref). Whether an object can be
+disposed of more than once depends on its type.
+
+Packages can add methods for their own types, e.g., wrappers of a related C API, so that
+they can be used with `@dispose`. Such a method releases the resource as its type's
+ownership semantics require. Adding it doesn't register a finalizer, or make the `memcheck`
+debugging mode check the type: use [`LLVM.mark_dispose`](@ref) for that (see
+[Checking other wrapper types](@ref)).
+"""
+function dispose end
 
 
 export @dispose

@@ -556,6 +556,10 @@ Bug fixes:
   bookkeeping.
 - `@llvmgenerated` functions can have arguments named `_`, which failed to compile because
   the argument was passed on to `llvmcall` by name.
+- Functions that pass a string and its length to LLVM, like `StringAttribute`, looking up
+  string attributes, `Intrinsic(name)` and the functions of the `DIBuilder`, measure the
+  string after converting it to the UTF-8 `String` that LLVM receives, instead of counting
+  the code units of the original string, which truncated strings that aren't UTF-8.
 
 Other changes:
 

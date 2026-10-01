@@ -34,6 +34,8 @@ Create a new [`DIMacro`](@ref). `record_type` is a
 function macro!(builder::DIBuilder, parent_macrofile::Union{DIMacroFile,Nothing},
                 line::Integer, record_type, name::AbstractString,
                 value::AbstractString)
+    name = String(name)
+    value = String(value)
     DIMacro(API.LLVMDIBuilderCreateMacro(
         builder, something(parent_macrofile, C_NULL), Cuint(line), record_type,
         name, Csize_t(ncodeunits(name)),

@@ -189,9 +189,12 @@ Create a string attribute, identified by an arbitrary name, and optionally carry
 string value. These are used for target-specific attributes like `"target-cpu"`, or for
 information that a compiler wants to attach to IR.
 """
-StringAttribute(kind::AbstractString, value::AbstractString="") =
+function StringAttribute(kind::AbstractString, value::AbstractString="")
+    kind = String(kind)
+    value = String(value)
     StringAttribute(API.LLVMCreateStringAttribute(context(), kind, ncodeunits(kind),
                                                   value, ncodeunits(value)))
+end
 
 function kind(attr::StringAttribute)
     len = Ref{Cuint}()

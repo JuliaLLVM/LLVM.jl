@@ -285,6 +285,7 @@ Create a new [`DILabel`](@ref). Requires LLVM 20+.
 function label!(builder::DIBuilder, scope::DILocalScope, name::AbstractString,
                 file::DIFile, line::Integer;
                 always_preserve::Bool=false)
+    name = String(name)
     DILabel(API.LLVMDIBuilderCreateLabel(
         builder, scope, name, Csize_t(ncodeunits(name)),
         file, Cuint(line), always_preserve))

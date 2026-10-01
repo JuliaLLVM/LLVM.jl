@@ -273,13 +273,17 @@ end
 
 attribute_ref(iter::FunctionAttrSet, id::Integer) =
     API.LLVMGetEnumAttributeAtIndex(iter.f, iter.idx, id)
-attribute_ref(iter::FunctionAttrSet, kind::AbstractString) =
+function attribute_ref(iter::FunctionAttrSet, kind::AbstractString)
+    kind = String(kind)
     API.LLVMGetStringAttributeAtIndex(iter.f, iter.idx, kind, ncodeunits(kind))
+end
 
 remove_attribute!(iter::FunctionAttrSet, id::Integer) =
     API.LLVMRemoveEnumAttributeAtIndex(iter.f, iter.idx, id)
-remove_attribute!(iter::FunctionAttrSet, kind::AbstractString) =
+function remove_attribute!(iter::FunctionAttrSet, kind::AbstractString)
+    kind = String(kind)
     API.LLVMRemoveStringAttributeAtIndex(iter.f, iter.idx, kind, ncodeunits(kind))
+end
 
 """
     MemoryEffects(attrs)
@@ -599,8 +603,10 @@ struct Intrinsic
 end
 @properties Intrinsic
 
-lookup_intrinsic_id(name::AbstractString) =
+function lookup_intrinsic_id(name::AbstractString)
+    name = String(name)
     API.LLVMLookupIntrinsicID(name, ncodeunits(name))
+end
 
 """
     tryparse(LLVM.Intrinsic, name::AbstractString)

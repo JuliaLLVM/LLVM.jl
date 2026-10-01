@@ -185,6 +185,8 @@ register(DIFile, API.LLVMDIFileMetadataKind)
 Create a new [`DIFile`](@ref) describing the given source file.
 """
 function file!(builder::DIBuilder, filename::AbstractString, directory::AbstractString)
+    filename = String(filename)
+    directory = String(directory)
     DIFile(API.LLVMDIBuilderCreateFile(builder,
                                        filename, Csize_t(ncodeunits(filename)),
                                        directory, Csize_t(ncodeunits(directory))))

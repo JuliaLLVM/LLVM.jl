@@ -391,6 +391,12 @@
     @test parse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
     @test parse(LLVM.AtomicRMWBinOp.T, "fminimumnum") == LLVM.API.LLVMAtomicRMWBinOpFMinimumNum
     @test_throws ArgumentError parse(LLVM.AtomicRMWBinOp.T, "fmaximumnumber")
+    @test tryparse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
+    @test tryparse(LLVM.AtomicRMWBinOp.T, "fmaximumnumber") === nothing
+    @test tryparse(LLVM.AtomicOrdering.T, "acq_rel") == LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test tryparse(LLVM.AtomicOrdering.T, "acquire_release") == LLVM.API.LLVMAtomicOrderingAcquireRelease
+    @test tryparse(LLVM.AtomicOrdering.T, "relaxed") === nothing
+    @test_throws ArgumentError parse(LLVM.AtomicOrdering.T, "relaxed")
     for name in ("xchg", "add", "sub", "and", "nand", "or", "xor", "max", "min", "umax",
                  "umin", "fadd", "fsub", "fmax", "fmin", "uinc_wrap", "udec_wrap",
                  "usub_cond", "usub_sat", "fmaximum", "fminimum", "fmaximumnum",

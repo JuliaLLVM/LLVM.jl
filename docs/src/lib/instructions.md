@@ -165,7 +165,9 @@ is_stronger
 is_acquire_or_stronger
 is_release_or_stronger
 parse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)
+tryparse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)
 parse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)
+tryparse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)
 LLVM.irname
 mmra!
 copy_atomic_metadata!

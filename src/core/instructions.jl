@@ -402,13 +402,26 @@ const ORDERING_NAMES = Dict(
     parse(LLVM.AtomicOrdering.T, name::AbstractString)
 
 Get the atomic ordering with the given name, as used in LLVM IR (e.g. `"acq_rel"`), or as
-used by Julia's atomics (e.g. `"acquire_release"`).
+used by Julia's atomics (e.g. `"acquire_release"`). Throws an `ArgumentError` for unknown
+names; see
+[`tryparse`](@ref tryparse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)) for a
+version that returns `nothing` instead.
 """
 function Base.parse(::Type{API.LLVMAtomicOrdering}, name::AbstractString)
-    ord = get(ORDERING_NAMES, name, nothing)
+    ord = tryparse(API.LLVMAtomicOrdering, name)
     ord === nothing && throw(ArgumentError("Unknown atomic ordering \"$name\""))
     return ord
 end
+
+"""
+    tryparse(LLVM.AtomicOrdering.T, name::AbstractString)
+
+Get the atomic ordering with the given name, like
+[`parse`](@ref parse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)), but return
+`nothing` if the name is unknown.
+"""
+Base.tryparse(::Type{API.LLVMAtomicOrdering}, name::AbstractString) =
+    get(ORDERING_NAMES, name, nothing)
 
 const RMW_BINOP_NAMES = Dict(
     "xchg" => API.LLVMAtomicRMWBinOpXchg, "add" => API.LLVMAtomicRMWBinOpAdd,
@@ -432,13 +445,27 @@ const RMW_BINOP_NAMES = Dict(
 
 Get the `atomicrmw` operation with the given name, as used in LLVM IR (e.g. `"uinc_wrap"`).
 This works for every operation, whether or not the version of LLVM in use supports it (see
-[`LLVM.isavailable`](@ref)).
+[`LLVM.isavailable`](@ref)). Throws an `ArgumentError` for unknown names; see
+[`tryparse`](@ref tryparse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)) for a
+version that returns `nothing` instead.
 """
 function Base.parse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString)
-    op = get(RMW_BINOP_NAMES, name, nothing)
+    op = tryparse(API.LLVMAtomicRMWBinOp, name)
     op === nothing && throw(ArgumentError("Unknown atomicrmw operation \"$name\""))
     return op
 end
+
+"""
+    tryparse(LLVM.AtomicRMWBinOp.T, name::AbstractString)
+
+Get the `atomicrmw` operation with the given name, like
+[`parse`](@ref parse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)), but return
+`nothing` if the name is unknown. As with `parse`, this recognizes every operation, whether
+or not the version of LLVM in use supports it; use [`LLVM.isavailable`](@ref) to check
+that.
+"""
+Base.tryparse(::Type{API.LLVMAtomicRMWBinOp}, name::AbstractString) =
+    get(RMW_BINOP_NAMES, name, nothing)
 
 @public irname
 

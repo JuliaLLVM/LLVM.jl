@@ -421,7 +421,9 @@ New functionality:
   `Intrinsic(name)`.
 - `cmpxchg.compare_operand` and `cmpxchg.new_value_operand` are the operands of a
   `cmpxchg` instruction, and `LLVM.irname` returns the name of an `atomicrmw` operation or
-  an atomic ordering in LLVM IR, the inverse of `parse`.
+  an atomic ordering in LLVM IR, the inverse of `parse`. `tryparse` looks up the operation
+  or ordering of a name, like `parse`, but returns `nothing` for unknown names instead of
+  throwing.
 - `alloca!` and `array_alloca!` take an `addrspace` keyword argument, for allocations in
   another address space than the one of the data layout.
 - `ce.source_element_type` works on `getelementptr` constant expressions, and

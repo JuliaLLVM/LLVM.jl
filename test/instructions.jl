@@ -387,6 +387,14 @@
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
     @test !LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOp(1000))
 
+    # operations are classified on every version of LLVM
+    fp_names = ["fadd", "fsub", "fmax", "fmin", "fmaximum", "fminimum", "fmaximumnum",
+                "fminimumnum"]
+    for op in instances(LLVM.AtomicRMWBinOp.T)
+        @test LLVM.isfloatingpoint(op) == (LLVM.irname(op) in fp_names)
+    end
+    @test !LLVM.isfloatingpoint(LLVM.API.LLVMAtomicRMWBinOpXchg)
+
     # operations can be named on every version of LLVM
     @test parse(LLVM.AtomicRMWBinOp.T, "fmaximumnum") == LLVM.API.LLVMAtomicRMWBinOpFMaximumNum
     @test parse(LLVM.AtomicRMWBinOp.T, "fminimumnum") == LLVM.API.LLVMAtomicRMWBinOpFMinimumNum

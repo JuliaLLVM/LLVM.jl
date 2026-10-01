@@ -8,8 +8,9 @@
 //
 // AtomicExpandPass runs during code generation, so its expansions don't need to be valid
 // for the IR optimizer. These copies are also used from IR passes, so they differ in that
-// the loops start with an atomic (monotonic) load instead of a plain one, and that they
-// preserve the volatility, alignment and metadata of the original instruction.
+// the loops start with an atomic (monotonic) load instead of a plain one (like LLVM 23
+// does), of an integer for floating-point and vector values, and that they preserve the
+// volatility, alignment and metadata of the original instruction.
 
 #include "LLVMExtra.h"
 
@@ -126,13 +127,14 @@ void createCmpXchgInstFun(IRBuilderBase &Builder, Value *Addr, Value *Loaded,
 }
 
 // the initial load of a cmpxchg loop, which races with other accesses so it has to be
-// atomic. before LLVM 22, atomic loads of vectors aren't supported, so those are loaded as
-// an integer of the same size.
+// atomic. floating-point and vector values are loaded as an integer of the same size, like
+// they are compared: not every target supports atomic loads of those types (before LLVM 22,
+// atomic loads of vectors aren't even valid IR), and AtomicExpandPass of LLVM 23 also casts
+// floating-point ones to integers (by default, with shouldCastAtomicLoadInIR).
 Value *createInitialLoad(IRBuilderBase &Builder, Type *Ty, Value *Addr, Align AddrAlign,
                          SyncScope::ID SSID, bool IsVolatile) {
   Type *LoadTy = Ty;
-#if LLVM_VERSION_MAJOR < 22
-  if (Ty->isVectorTy()) {
+  if (Ty->isFloatingPointTy() || Ty->isVectorTy()) {
     LoadTy = Builder.getIntNTy(Ty->getPrimitiveSizeInBits());
 #if LLVM_VERSION_MAJOR < 17
     if (!cast<PointerType>(Addr->getType())->isOpaque())
@@ -140,7 +142,6 @@ Value *createInitialLoad(IRBuilderBase &Builder, Type *Ty, Value *Addr, Align Ad
           Addr, LoadTy->getPointerTo(Addr->getType()->getPointerAddressSpace()));
 #endif
   }
-#endif
   LoadInst *Load = Builder.CreateAlignedLoad(LoadTy, Addr, AddrAlign);
   Load->setAtomic(AtomicOrdering::Monotonic, SSID);
   Load->setVolatile(IsVolatile);
@@ -205,9 +206,11 @@ struct PartwordMaskValues {
   Value *Inv_Mask = nullptr;
 };
 
-// copied from AtomicExpandPass.cpp, taking the module instead of an instruction. Before
-// LLVM 17, the address is computed using integer arithmetic (like LLVM 15), as pointers may
-// be typed. When no partword access is needed, the shift amount and mask use the integer
+// copied from AtomicExpandPass.cpp, taking the module instead of an instruction, and
+// computing the address of the word by subtracting the offset of the value from its
+// address, instead of with `llvm.ptrmask` (LLVM 16+) or `inttoptr(and(ptrtoint))` (LLVM 15),
+// which respectively aren't supported by every back-end and lose the provenance of the
+// pointer. When no partword access is needed, the shift amount and mask use the integer
 // type of the value, so that this works for floating-point values too.
 PartwordMaskValues createMaskInstrs(IRBuilderBase &Builder, Module *M, Type *ValueType,
                                     Value *Addr, Align AddrAlign, unsigned MinWordSize) {
@@ -236,29 +239,28 @@ PartwordMaskValues createMaskInstrs(IRBuilderBase &Builder, Module *M, Type *Val
   assert(ValueSize < MinWordSize);
 
   PointerType *PtrTy = cast<PointerType>(Addr->getType());
+  IntegerType *IntTy = cast<IntegerType>(DL.getIndexType(PtrTy));
   Value *PtrLSB;
 
-#if LLVM_VERSION_MAJOR >= 17
-  IntegerType *IntTy = DL.getIndexType(Ctx, PtrTy->getAddressSpace());
   if (AddrAlign < MinWordSize) {
-    PMV.AlignedAddr = Builder.CreateIntrinsic(
-        Intrinsic::ptrmask, {PtrTy, IntTy},
-        {Addr, ConstantInt::getSigned(IntTy, ~(uint64_t)(MinWordSize - 1))}, nullptr,
-        "AlignedAddr");
-
     Value *AddrInt = Builder.CreatePtrToInt(Addr, IntTy);
     PtrLSB = Builder.CreateAnd(AddrInt, MinWordSize - 1, "PtrLSB");
+    Value *BytePtr = Addr;
+#if LLVM_VERSION_MAJOR < 17
+    if (!PtrTy->isOpaque())
+      BytePtr = Builder.CreateBitCast(Addr, Builder.getInt8PtrTy(PtrTy->getAddressSpace()));
+#endif
+    PMV.AlignedAddr = Builder.CreateGEP(Builder.getInt8Ty(), BytePtr,
+                                        Builder.CreateNeg(PtrLSB), "AlignedAddr");
   } else {
     // If the alignment is high enough, the LSB are known 0.
     PMV.AlignedAddr = Addr;
     PtrLSB = ConstantInt::getNullValue(IntTy);
   }
-#else
-  Type *WordPtrType = PMV.WordType->getPointerTo(PtrTy->getAddressSpace());
-  Value *AddrInt = Builder.CreatePtrToInt(Addr, DL.getIntPtrType(Ctx, PtrTy->getAddressSpace()));
-  PMV.AlignedAddr = Builder.CreateIntToPtr(
-      Builder.CreateAnd(AddrInt, ~(uint64_t)(MinWordSize - 1)), WordPtrType, "AlignedAddr");
-  PtrLSB = Builder.CreateAnd(AddrInt, MinWordSize - 1, "PtrLSB");
+#if LLVM_VERSION_MAJOR < 17
+  if (!PtrTy->isOpaque())
+    PMV.AlignedAddr = Builder.CreateBitCast(
+        PMV.AlignedAddr, PMV.WordType->getPointerTo(PtrTy->getAddressSpace()));
 #endif
 
   if (DL.isLittleEndian()) {
@@ -269,7 +271,8 @@ PartwordMaskValues createMaskInstrs(IRBuilderBase &Builder, Module *M, Type *Val
     PMV.ShiftAmt = Builder.CreateShl(Builder.CreateXor(PtrLSB, MinWordSize - ValueSize), 3);
   }
 
-  PMV.ShiftAmt = Builder.CreateTrunc(PMV.ShiftAmt, PMV.WordType, "ShiftAmt");
+  // (AtomicExpandPass truncates, which fails for words that are wider than the index type)
+  PMV.ShiftAmt = Builder.CreateZExtOrTrunc(PMV.ShiftAmt, PMV.WordType, "ShiftAmt");
   // (AtomicExpandPass uses `(1 << (ValueSize * 8)) - 1`, which overflows for 4-byte values)
   PMV.Mask = Builder.CreateShl(
       ConstantInt::get(PMV.WordType, APInt::getLowBitsSet(MinWordSize * 8, ValueSize * 8)),

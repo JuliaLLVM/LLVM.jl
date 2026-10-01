@@ -507,7 +507,20 @@ irname(ordering::API.LLVMAtomicOrdering) = ORDERING_IRNAMES[ordering]
 msgname(op::API.LLVMAtomicRMWBinOp) = get(RMW_BINOP_IRNAMES, op, Integer(op))
 msgname(ordering::API.LLVMAtomicOrdering) = get(ORDERING_IRNAMES, ordering, Integer(ordering))
 
-is_fp_rmw(op::API.LLVMAtomicRMWBinOp) =
+@public isfloatingpoint
+
+"""
+    LLVM.isfloatingpoint(op::LLVM.AtomicRMWBinOp.T)
+
+Check whether `op` is a floating-point `atomicrmw` operation, such as `fadd` or `fmax`.
+These operations require floating-point values. The others require integers, except
+`xchg`, which also applies to floating-point and pointer values. Vectors of these types
+follow the same rules. This works for every operation, whether or not the version of LLVM
+in use supports it (see [`LLVM.isavailable`](@ref)).
+
+This corresponds to `AtomicRMWInst::isFPOperation` in LLVM's C++ API.
+"""
+isfloatingpoint(op::API.LLVMAtomicRMWBinOp) =
     op in (API.LLVMAtomicRMWBinOpFAdd, API.LLVMAtomicRMWBinOpFSub,
            API.LLVMAtomicRMWBinOpFMax, API.LLVMAtomicRMWBinOpFMin,
            API.LLVMAtomicRMWBinOpFMaximum, API.LLVMAtomicRMWBinOpFMinimum,

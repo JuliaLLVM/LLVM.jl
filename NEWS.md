@@ -423,7 +423,9 @@ New functionality:
   `cmpxchg` instruction, and `LLVM.irname` returns the name of an `atomicrmw` operation or
   an atomic ordering in LLVM IR, the inverse of `parse`. `tryparse` looks up the operation
   or ordering of a name, like `parse`, but returns `nothing` for unknown names instead of
-  throwing.
+  throwing. `LLVM.isfloatingpoint(op)` checks whether an `atomicrmw` operation is a
+  floating-point one (`fadd`, `fmax`, ...), which requires floating-point values, so that
+  generators can check that an operation applies to a value before generating it.
 - `alloca!` and `array_alloca!` take an `addrspace` keyword argument, for allocations in
   another address space than the one of the data layout.
 - `ce.source_element_type` works on `getelementptr` constant expressions, and
@@ -483,6 +485,9 @@ Bug fixes:
   `uinc_wrap` before LLVM 19), so that they can be enumerated without hard-coding their
   names. `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))` lists the ones that
   LLVM supports.
+- `partword_mask!` and `expand_partword!` work for words that are wider than the index type
+  of the pointer, e.g., 8-byte words with 32-bit pointers, for which they generated invalid
+  IR.
 - The names of metadata kinds used to index the metadata of instructions and global
   objects (`inst.metadata["tbaa"]`) are looked up in their context instead of the active
   one.
@@ -539,6 +544,15 @@ Other changes:
   "atomicrmw operation LLVM.AtomicRMWBinOp.Add ...".
 - The documentation of `expand_to_cmpxchg!`, `expand_partword!`, `lower_atomic!` and
   `atomic_rmw_value!` says that they can change the control flow and call intrinsics.
+- The compare-exchange loop of `expand_to_cmpxchg!` loads floating-point and vector values
+  as integers, like it compares them, so that it only needs integer atomics: the loop of an
+  `atomicrmw fadd float` starts with a `load atomic i32` instead of a `load atomic float`,
+  which not every target supports.
+- `partword_mask!`, and with it `expand_partword!`, computes the address of the word that
+  contains a value as `getelementptr i8, ptr, -(ptrtoint(ptr) & (word_size - 1))` on every
+  version of LLVM, instead of with `llvm.ptrmask` (LLVM 17 and later), which not every
+  target supports, or `inttoptr(and(ptrtoint(ptr), mask))`, which loses the provenance of
+  the pointer.
 - It is documented that `"system"` names the default synchronization scope, so that
   `fence!(builder, ordering; scope="system")` emits a plain `fence`, and that the body of an
   `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.

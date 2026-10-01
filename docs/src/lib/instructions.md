@@ -169,6 +169,7 @@ tryparse(::Type{LLVM.API.LLVMAtomicOrdering}, ::AbstractString)
 parse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)
 tryparse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)
 LLVM.irname
+LLVM.isfloatingpoint
 mmra!
 copy_atomic_metadata!
 ```

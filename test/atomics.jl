@@ -188,7 +188,8 @@ end
     ret!(builder, rmw)
     @test expand_to_cmpxchg!(rmw)
     ir = string(f)
-    @test occursin(r"load atomic float, .* syncscope\(\"agent\"\) monotonic", ir)
+    @test occursin(r"load atomic i32, .* syncscope\(\"agent\"\) monotonic", ir)
+    @test !occursin("load atomic float", ir)
     @test occursin(r"cmpxchg .* i32 .* syncscope\(\"agent\"\) acq_rel acquire", ir)
     @test !occursin("= atomicrmw", ir)
     LLVM.version() >= v"19" && @test occursin(r"cmpxchg .*!mmra", ir)
@@ -198,7 +199,7 @@ end
         rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpFAdd, ptr, val, MO)
         ret!(builder, rmw)
         @test expand_to_cmpxchg!(rmw)
-        @test occursin(r"load atomic (i64|<2 x float>)", string(f))
+        @test occursin(r"load atomic i64", string(f))
     end
 
     # expanding partword atomics
@@ -207,6 +208,8 @@ end
     ret!(builder, rmw)
     @test expand_partword!(rmw, 4)
     @test occursin(r"cmpxchg .* i32 .* monotonic monotonic", string(f))
+    @test occursin(r"%AlignedAddr = getelementptr i8, ", string(f))
+    @test !occursin(r"ptrmask|inttoptr", string(f))
     f, ptr, val = newfun("partword_volatile", T_i8)
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpMax, ptr, val, MO; align=1, volatile=true)
     ret!(builder, rmw)
@@ -238,6 +241,17 @@ end
     new_word = insert_masked_value!(builder, word, val, pm)
     store!(builder, new_word, pm.aligned_addr; align=pm.aligned_addr_alignment)
     ret!(builder, extract_masked_value!(builder, word, pm))
+    # (the address of the word is computed with pointer arithmetic, keeping provenance)
+    ir = string(f)
+    @test occursin(r"%PtrLSB = and i64 %.*, 3", ir)
+    @test occursin(r"%AlignedAddr = getelementptr i8, .* %[^,]*, i64 %", ir)
+    @test !occursin(r"ptrmask|inttoptr", ir)
+    f, ptr, val = newfun("mask_aligned", T_i8)
+    pm = partword_mask!(builder, T_i8, ptr; align=4, word_size=4)
+    @test pm.word_type == T_i32 && pm.aligned_addr_alignment == 4
+    word = load!(builder, pm.word_type, pm.aligned_addr; align=pm.aligned_addr_alignment)
+    ret!(builder, extract_masked_value!(builder, word, pm))
+    @test !occursin(r"PtrLSB|getelementptr|ptrtoint", string(f))
     f, ptr, val = newfun("mask_sizes", T_i32)
     pm = partword_mask!(builder, T_i32, ptr; align=4, word_size=4)
     @test pm.inv_mask === nothing
@@ -245,6 +259,37 @@ end
     @test pm.word_type == LLVM.Int64Type()
     @test occursin("i64 4294967295", string(f))
     ret!(builder, val)
+    @dispose mod_as=LLVM.Module("expansion_as") begin
+        # addresses whose index type is narrower than the pointer, on a big-endian target
+        mod_as.datalayout = "E-p1:64:64:64:32"
+        f = LLVM.Function(mod_as, "mask_as",
+                          LLVM.FunctionType(T_i8, [LLVM.PointerType(T_i8, 1), T_i8]))
+        ptr, val = f.parameters
+        position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+        pm = partword_mask!(builder, T_i8, ptr; align=1, word_size=4)
+        @test pm.aligned_addr.value_type.addrspace == 1
+        word = load!(builder, pm.word_type, pm.aligned_addr; align=pm.aligned_addr_alignment)
+        ret!(builder, extract_masked_value!(builder, word, pm))
+        ir = string(f)
+        @test occursin(r"%PtrLSB = and i32 %.*, 3", ir)
+        @test occursin(r"%AlignedAddr = getelementptr i8, .* %[^,]*, i32 %", ir)
+        @test occursin(r"xor i32 %PtrLSB, 3", ir)
+        @test verify(mod_as) === nothing
+    end
+    @dispose mod32=LLVM.Module("expansion32") begin
+        # words that are wider than the index type
+        mod32.datalayout = "e-p:32:32"
+        f = LLVM.Function(mod32, "mask_index32",
+                          LLVM.FunctionType(T_i8, [LLVM.PointerType(T_i8), T_i8]))
+        ptr, val = f.parameters
+        position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+        pm = partword_mask!(builder, T_i8, ptr; align=1, word_size=8)
+        @test pm.word_type == LLVM.Int64Type() && pm.shift.value_type == LLVM.Int64Type()
+        word = load!(builder, pm.word_type, pm.aligned_addr; align=pm.aligned_addr_alignment)
+        ret!(builder, extract_masked_value!(builder, word, pm))
+        @test occursin(r"%PtrLSB = and i32 %.*, 7", string(f))
+        @test verify(mod32) === nothing
+    end
 
     # casting atomics to integers
     f, ptr, val = newfun("cast", T_float)

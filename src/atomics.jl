@@ -63,9 +63,9 @@ lower_atomic!(inst::AtomicCmpXchgInst) = API.LLVMExtraLowerAtomicCmpXchgInst(ins
 
 Replace an `atomicrmw` with a loop around a `cmpxchg` of the same size, ordering,
 synchronization scope and volatility, e.g., for operations that the target does not
-support natively. Floating-point and vector values are compared as integers, and metadata
-that remains valid for the `cmpxchg` is copied (see [`copy_atomic_metadata!`](@ref)). The
-instruction is erased.
+support natively. Floating-point and vector values are loaded and compared as integers, so
+the expansion only needs integer atomics, and metadata that remains valid for the `cmpxchg`
+is copied (see [`copy_atomic_metadata!`](@ref)). The instruction is erased.
 
 This changes the control flow: the block containing the instruction is split, with the
 instructions that follow it moving to a new block after the loop. Positions after the
@@ -74,8 +74,8 @@ new block afterwards, and the computation can call intrinsics (see
 [`atomic_rmw_value!`](@ref)).
 
 This is a copy of LLVM's `expandAtomicRMWToCmpXchg`, which is meant for use during code
-generation: here, the loop starts with an atomic load, so that the result is also valid
-IR to optimize.
+generation: here, the loop starts with an atomic load (like it does from LLVM 23), so that
+the result is also valid IR to optimize.
 """
 expand_to_cmpxchg!(inst::AtomicRMWInst) = API.LLVMExtraExpandAtomicRMWToCmpXchg(inst) |> Bool
 
@@ -141,7 +141,11 @@ atomics on values smaller than the target supports: use [`extract_masked_value!`
 and [`insert_masked_value!`](@ref) to access the value in the word. The result depends on
 the data layout of the module (its endianness and index width).
 
-This is a copy of the partword support of AtomicExpandPass.
+This is a copy of the partword support of AtomicExpandPass, except that the address of the
+word is computed by subtracting the offset of the value from `ptr`, as
+`getelementptr i8, ptr, -(ptrtoint(ptr) & (word_size - 1))`, which keeps the provenance of
+`ptr` and needs no intrinsic (AtomicExpandPass uses `llvm.ptrmask`, which not every target
+supports).
 """
 function partword_mask!(builder::IRBuilder, T::LLVMType, ptr::Value; align::Integer,
                         word_size::Integer)
@@ -185,8 +189,8 @@ this doesn't affect the other values in the word).
 
 Operations that become a `cmpxchg` loop change the control flow like
 [`expand_to_cmpxchg!`](@ref): the block containing the instruction is split, and the
-instructions that follow it move to a new block. The expansion can also call intrinsics,
-e.g., `llvm.ptrmask` on LLVM 17 and later, and those of [`atomic_rmw_value!`](@ref).
+instructions that follow it move to a new block. The computation can call intrinsics (see
+[`atomic_rmw_value!`](@ref)).
 
 This is a copy of the partword expansion of AtomicExpandPass.
 """

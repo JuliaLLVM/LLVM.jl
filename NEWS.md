@@ -598,6 +598,12 @@ Other changes:
 - The code that expands generators using `@llvmgenerated` or `generate_llvmcall` doesn't
   compile code for every specialization of the function anymore, which on Julia 1.12 took
   about 10 ms each time.
+- The body of an `@llvmgenerated` function is compiled once, and not for every
+  specialization of the function, as it doesn't specialize on the argument types and the
+  static parameters anymore. Together with the above, this makes the first call of a new
+  specialization of, e.g., an atomic operation in UnsafeAtomics.jl about 5 times faster on
+  Julia 1.12 (5 ms instead of 28 ms), and a precompilation workload that calls one
+  specialization of a function also precompiles its body for the others.
 
 
 ## LLVM.jl v9.14

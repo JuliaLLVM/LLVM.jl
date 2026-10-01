@@ -207,6 +207,33 @@ end
 @test lg_default(1) === 2
 @test lg_default(1, Val(2)) === 3
 
+# static parameters are bound to their value, or to what Julia passes to generators for
+# unbound ones (a `TypeVar`, but something else on Julia 1.14)
+@llvmgenerated builder function lg_sparams(x::T, ::Val{N})::T where {T<:Integer,N}
+    @test T === Int
+    @test N === 3
+    f = () -> T
+    @test f() === Int
+    x
+end
+@test lg_sparams(42, Val(3)) === 42
+@generated gen_unbound(x::Union{T,Nothing}) where {T} = typeof(T)
+@llvmgenerated builder function lg_unbound(x::Union{T,Nothing})::Nothing where {T}
+    @test typeof(T) === gen_unbound(nothing)
+    nothing
+end
+@test lg_unbound(nothing) === nothing
+
+# the body is compiled once, and not for every specialization
+@llvmgenerated builder function lg_compile(x::T, ::Val{N}, rest...)::T where {T,N}
+    x
+end
+compile_time(lg_compile, Tuple{Int, Val{1}})
+@test compile_time(lg_compile, Tuple{Int32, Val{2}}) == 0
+@test compile_time(lg_compile, Tuple{UInt8, Val{:x}}) == 0
+@test compile_time(lg_compile, Tuple{UInt8, Val{:x}, Int, Nothing}) == 0
+@test lg_compile(UInt8(42), Val(:x), 1, nothing) === UInt8(42)
+
 # IR is verified as llvmcall sees it, after upgrading outdated constructs
 @llvmgenerated builder function lg_upgraded()::Int32
     ft = LLVM.FunctionType(LLVM.Int32Type())

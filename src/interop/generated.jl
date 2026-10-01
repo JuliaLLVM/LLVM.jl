@@ -37,8 +37,18 @@ function static_argument(@nospecialize(T))
     end
 end
 
+# whether a name can only be assigned to, like `_`
+function iswriteonly(name::Symbol)
+    for c in String(name)
+        c == '_' || return false
+    end
+    return true
+end
+
 vararg_exprs(fixed::Vector{Any}, name::Symbol, @nospecialize(types::Tuple)) =
     append!(fixed, Any[:($name[$i]) for i in 1:length(types)])
+
+vararg_values(values::Vector{Any}, nfixed::Int) = (values[nfixed+1:end]...,)
 
 # Emit the return from the entry function, unless the body already did so.
 function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
@@ -72,7 +82,8 @@ function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
 end
 
 function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
-                            @nospecialize(argtypes), argexprs::Vector{Any}, what::String)
+                            @nospecialize(argtypes), argexprs::Vector{Any}, what::String,
+                            sparams::Union{Nothing,Vector{Any}}=nothing)
     rettyp isa Type || throw(ArgumentError("$what: return type $rettyp is not a type"))
     (argtypes isa DataType && argtypes <: Tuple && !Base.isvatuple(argtypes)) ||
         throw(ArgumentError("$what: argument types $argtypes are not a tuple type of fixed length"))
@@ -109,7 +120,12 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
             end
 
             position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
-            rv = gen(builder, values...)
+            rv = if sparams === nothing
+                gen(builder, values...)
+            else
+                # the calling convention of `@llvmgenerated` bodies
+                gen(builder, sparams, values)
+            end
             emit_return!(builder, f, rv, rettyp, T_ret, what)
 
             # verify the IR as `llvmcall` will see it, after parsing, which upgrades
@@ -243,6 +259,16 @@ also be used for different compilation targets, so it should not make assumption
 the target. As with `@generated` functions, the body can only call functions defined before
 the `@llvmgenerated` function.
 
+The body is compiled once for all specializations of the function: it does not specialize
+on the types of the arguments or on the values of the static parameters, which it only
+sees when it runs. This makes generating a new specialization cheap, and a precompilation
+workload that calls one specialization also precompiles the body for the others. Functions
+called from the body are compiled as usual, for the types they are called with, so prefer
+taking `Val` arguments apart in the signature (`::Val{order}`, making `order` a static
+parameter) over passing them to helper functions that would be compiled for every value.
+The arguments and static parameters are local variables of the body, so they cannot be
+declared `global` in it.
+
 If the body throws an error, Julia's compiler gives up on inferring calls to the function,
 which then remain dynamic invocations (e.g., reported as an unsupported dynamic function
 invocation when compiling for a GPU), and the error is only thrown when the function is
@@ -287,7 +313,6 @@ macro llvmgenerated(builder, def)
     what = "@llvmgenerated function $fname"
 
     params = Any[]      # arguments of the method
-    names = Any[]       # arguments of the generator callback
     argtypes = Any[]    # argument types, as available in the generator
     fixed_args = Any[]  # argument expressions, excluding varargs
     vararg = nothing
@@ -317,15 +342,29 @@ macro llvmgenerated(builder, def)
 
         if isva
             push!(params, Expr(:..., param))
-            push!(names, Expr(:..., name))
             push!(argtypes, Expr(:..., name))
             vararg = name
         else
             push!(params, default === nothing ? param : Expr(:kw, param, default))
-            push!(names, name)
             push!(argtypes, name)
             push!(fixed_args, QuoteNode(name))
         end
+    end
+
+    # static parameters, except for write-only ones like `_`
+    sparams = Symbol[]
+    for w in wheres, tv in w
+        name = tv
+        if Meta.isexpr(tv, :<:, 2) || Meta.isexpr(tv, :>:, 2)
+            name = tv.args[1]
+        elseif Meta.isexpr(tv, :comparison, 5)
+            name = tv.args[3]
+        end
+        name isa Symbol ||
+            throw(ArgumentError("$what: unsupported static parameter `$tv`"))
+        name === builder &&
+            throw(ArgumentError("$what: static parameter `$name` conflicts with the name of the builder"))
+        iswriteonly(name) || push!(sparams, name)
     end
 
     # in the generator, the arguments are bound to their types
@@ -333,10 +372,28 @@ macro llvmgenerated(builder, def)
     if vararg !== nothing
         argexprs = :($vararg_exprs($argexprs, $(QuoteNode(vararg)), $vararg))
     end
-    gen = Expr(:->, Expr(:tuple, builder, names...), body)
+
+    # the body is compiled once, and not for every specialization of the function: it does
+    # not capture the static parameters, and it takes them and the values of the arguments
+    # packed in vectors, so its signature doesn't depend on their types or number.
+    sparams_var = gensym("sparams")
+    values_var = gensym("values")
+    bindings = Any[]
+    for i in 1:length(sparams)
+        push!(bindings, :(local $(sparams[i]) = $sparams_var[$i]))
+    end
+    for i in 1:length(fixed_args)
+        push!(bindings, :(local $(fixed_args[i].value) = $values_var[$i]))
+    end
+    if vararg !== nothing
+        push!(bindings, :(local $vararg = $vararg_values($values_var, $(length(fixed_args)))))
+    end
+    gen = Expr(:->, Expr(:tuple, builder, sparams_var, values_var),
+               Expr(:block, bindings..., body))
     generator = :($_generate_llvmcall($gen, $rettyp,
                                       $(GlobalRef(Core, :Tuple)){$(argtypes...)},
-                                      $argexprs, $what))
+                                      $argexprs, $what,
+                                      $(GlobalRef(Core, :Any))[$(sparams...)]))
 
     sig = Expr(:call, fname, params...)
     for w in reverse(wheres)

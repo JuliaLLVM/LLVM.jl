@@ -24,13 +24,17 @@ if LLVM.memcheck_enabled
         @test occursin("An instance of IRBuilder is being used after it was disposed of.", out)
     end
 
-    # double dispose
-    let (; out, err) =
+    # double dispose (which is only reported, as freeing the object again would crash, or
+    # hang the process when the C library aborts while holding a lock)
+    let (; out, err, success) =
         execute_code("""ctx = Context()
                         builder = IRBuilder()
                         dispose(builder)
-                        dispose(builder)""")
+                        dispose(builder)
+                        dispose(ctx)""")
         @test occursin("An instance of IRBuilder is being disposed of twice.", out)
+        @test !occursin("being used after it was disposed of", out)
+        @test success
     end
 
     # unrelated dispose

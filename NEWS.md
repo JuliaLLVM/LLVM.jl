@@ -503,6 +503,9 @@ Bug fixes:
 - Moving basic blocks (now using `move!`) works for detached blocks, which crashed, and
   before a block of another function, which corrupted the IR: the block was listed in the
   other function, but kept its old parent.
+- The `memcheck` debugging mode no longer disposes of an object that it reports as being
+  disposed of twice. Freeing its memory again crashed the process, or made it hang when the
+  C library aborted while holding a lock that Julia's crash handler needed.
 
 Other changes:
 

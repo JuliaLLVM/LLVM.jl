@@ -523,6 +523,9 @@ Bug fixes:
 - The `memcheck` debugging mode no longer disposes of an object that it reports as being
   disposed of twice. Freeing its memory again crashed the process, or made it hang when the
   C library aborted while holding a lock that Julia's crash handler needed.
+- The `memcheck` debugging mode supports objects that are allocated and disposed of
+  concurrently, e.g., by ORC compiling code on multiple threads, which could corrupt its
+  bookkeeping.
 
 Other changes:
 

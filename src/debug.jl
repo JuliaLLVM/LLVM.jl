@@ -9,6 +9,10 @@ const memcheck_enabled = parse(Bool, @load_preference("memcheck", "false"))
 
 const tracked_objects = Dict{Any,Any}()
 
+# the allocations that are being disposed of, by their allocation backtrace, at whose
+# address other threads may already allocate new objects
+const disposing_allocations = Base.IdSet{Any}()
+
 # Problems are reported once for every combination of the kind of problem, the type of
 # object, and where in user code the object was allocated and disposed of. Later
 # occurrences, e.g., uses of the object (or of other objects allocated and disposed of at
@@ -132,8 +136,14 @@ function mark_alloc(obj::Any; allow_overwrite::Bool=false)
         io = Core.stdout
         new_alloc_bt = backtrace()[2:end]
 
-        if haskey(tracked_objects, obj) && !allow_overwrite
-            old_alloc_bt, dispose_bt = tracked_objects[obj]
+        old = @lock memcheck_lock begin
+            old = get(tracked_objects, obj, nothing)
+            tracked_objects[obj] = (new_alloc_bt, nothing)
+            old !== nothing && old[1] in disposing_allocations ? nothing : old
+        end
+
+        if old !== nothing && !allow_overwrite
+            old_alloc_bt, dispose_bt = old
             id = dispose_bt === nothing ?
                 record_problem!(io, (:overwrite, typeof(obj),
                                      (user_site(old_alloc_bt), user_site(new_alloc_bt)))) :
@@ -147,8 +157,6 @@ function mark_alloc(obj::Any; allow_overwrite::Bool=false)
                 print_problem_footer(io, id)
             end
         end
-
-        tracked_objects[obj] = (new_alloc_bt, nothing)
     end
     return obj
 end
@@ -157,13 +165,14 @@ function mark_use(obj::Any)
     @static if memcheck_enabled
         io = Core.stdout
 
-        if !haskey(tracked_objects, obj)
+        entry = @lock memcheck_lock get(tracked_objects, obj, nothing)
+        if entry === nothing
             # we have to ignore unknown objects, as they may originate externally.
             # for example, a Julia-created Type we call `context` on.
             return obj
         end
 
-        alloc_bt, dispose_bt = tracked_objects[obj]
+        alloc_bt, dispose_bt = entry
         if dispose_bt !== nothing
             use_bt = backtrace()[2:end]
             id = record_problem!(io, (:use, typeof(obj),
@@ -190,7 +199,7 @@ end
 # dispose.
 function mark_untracked(obj::Any)
     @static if memcheck_enabled
-        delete!(tracked_objects, obj)
+        @lock memcheck_lock delete!(tracked_objects, obj)
     end
     return obj
 end
@@ -198,11 +207,18 @@ end
 mark_dispose(obj) = mark_dispose(Returns(nothing), obj)
 
 function mark_dispose(f, obj)
-    data = @static if memcheck_enabled
+    entry = @static if memcheck_enabled
         io = Core.stdout
         new_dispose_bt = backtrace()[2:end]
 
-        if !haskey(tracked_objects, obj)
+        entry = @lock memcheck_lock begin
+            entry = get(tracked_objects, obj, nothing)
+            if entry !== nothing && entry[2] === nothing
+                push!(disposing_allocations, entry[1])
+            end
+            entry
+        end
+        if entry === nothing
             id = record_problem!(io, (:unknown_dispose, typeof(obj),
                                       (user_site(new_dispose_bt),)))
             if id !== nothing
@@ -210,9 +226,8 @@ function mark_dispose(f, obj)
                 Base.show_backtrace(io, new_dispose_bt)
                 print_problem_footer(io, id)
             end
-            nothing
         else
-            alloc_bt, old_dispose_bt = tracked_objects[obj]
+            alloc_bt, old_dispose_bt = entry
             if old_dispose_bt !== nothing
                 id = record_problem!(io, (:double_dispose, typeof(obj),
                                           (user_site(alloc_bt), user_site(old_dispose_bt))),
@@ -234,15 +249,30 @@ function mark_dispose(f, obj)
                 # process instead of reporting the problem.
                 return
             end
-
-            (alloc_bt, new_dispose_bt)
         end
+        entry
     end
-    ret = f(obj)
     @static if memcheck_enabled
-        if data !== nothing
-            tracked_objects[obj] = data
+        try
+            f(obj)
+        catch
+            entry === nothing || @lock memcheck_lock delete!(disposing_allocations, entry[1])
+            rethrow()
         end
+
+        # the object is only recorded as disposed of afterwards, as `f` uses it. by then,
+        # another thread may have allocated a new object at the same address, so only
+        # record the disposal if the object is still the one we disposed of.
+        if entry !== nothing
+            @lock memcheck_lock begin
+                delete!(disposing_allocations, entry[1])
+                if get(tracked_objects, obj, nothing) === entry
+                    tracked_objects[obj] = (entry[1], new_dispose_bt)
+                end
+            end
+        end
+    else
+        f(obj)
     end
     return
 end
@@ -258,7 +288,8 @@ function report_leaks(code=0)
         # report leaks by the type of object and where they were allocated
         leaks = Dict{Any,Tuple{Int,Any}}()
         order = Any[]
-        for (obj, (alloc_bt, dispose_bt)) in tracked_objects
+        objects = @lock memcheck_lock collect(tracked_objects)
+        for (obj, (alloc_bt, dispose_bt)) in objects
             dispose_bt === nothing || continue
             key = (typeof(obj), user_site(alloc_bt))
             n, bt = get(leaks, key, (0, alloc_bt))

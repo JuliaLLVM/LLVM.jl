@@ -105,6 +105,51 @@ if LLVM.memcheck_enabled
                        read(path, String))
     end
 
+    # objects can be allocated and disposed of concurrently, e.g., by ORC callbacks, also
+    # when they reuse the address of an object that was just disposed of on another thread
+    let (; out, err, success) =
+        execute_code("""Threads.@threads for i in 1:Threads.nthreads()
+                            for j in 1:1000
+                                dl = LLVM.DataLayout("e")
+                                dispose(dl)
+                            end
+                        end""";
+                     env=("JULIA_NUM_THREADS" => "4",))
+        @test success
+        @test !occursin("WARNING", out)
+    end
+
+    # deterministically: another thread allocates an object at the address of one that
+    # is being disposed of, before its disposal has been recorded
+    let (; out, err, success) =
+        execute_code("""dl = LLVM.DataLayout("e")
+                        LLVM.mark_dispose(dl) do dl
+                            LLVM.API.LLVMDisposeTargetData(dl)
+                            LLVM.mark_alloc(dl)
+                        end
+                        LLVM.mark_use(dl)
+                        LLVM.mark_dispose(dl)""")
+        @test success
+        @test !occursin("WARNING", out)
+    end
+
+    # an object whose disposal failed is still alive
+    let (; out, err, success) =
+        execute_code("""dl = LLVM.DataLayout("e")
+                        try
+                            LLVM.mark_dispose(dl) do dl
+                                error("failed")
+                            end
+                        catch
+                        end
+                        LLVM.mark_use(dl)
+                        LLVM.mark_alloc(dl)
+                        dispose(dl)""")
+        @test success
+        @test !occursin("is being used after", out)
+        @test occursin("was not properly disposed of, and a new allocation will overwrite it", out)
+    end
+
     # modules accessed with `unsafe_module` remain valid after a callback of their
     # thread-safe module, also when accessed during one
     let (; out, err) =

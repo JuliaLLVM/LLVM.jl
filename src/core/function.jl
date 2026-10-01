@@ -669,9 +669,12 @@ end
     LLVM.overloaded_name(intr::LLVM.Intrinsic, params::AbstractVector{<:LLVMType})
 
 Get the name of the given overloaded intrinsic with the given parameter types, e.g.,
-`llvm.sin.f64`.
+`llvm.sin.f64`. Without types, this is the base name of the intrinsic, like `intr.name`.
+Throws an `ArgumentError` if the intrinsic isn't overloaded.
 """
 function overloaded_name(intr::Intrinsic, params::AbstractVector{<:LLVMType})
+    isoverloaded(intr) ||
+        throw(ArgumentError("Intrinsic $(name(intr)) is not overloaded"))
     len = Ref{Csize_t}()
     str = API.LLVMIntrinsicCopyOverloadedName(intr, as_vector(params), length(params), len)
     unsafe_message(convert(Ptr{Cchar}, str), len[])
@@ -686,22 +689,47 @@ function isoverloaded(intr::Intrinsic)
     API.LLVMIntrinsicIsOverloaded(intr) |> Bool
 end
 
+# LLVM uses the types of the overloaded parameters of an intrinsic without checking them,
+# naming the declaration after any extra types, and crashing if types are missing. without
+# the intrinsic's type table, only check whether there should be types at all.
+function check_overloaded_types(intr::Intrinsic, params::AbstractVector{<:LLVMType})
+    if isoverloaded(intr)
+        isempty(params) &&
+            throw(ArgumentError("Intrinsic $(name(intr)) is overloaded, so it requires the types of its overloaded parameters"))
+    else
+        isempty(params) ||
+            throw(ArgumentError("Intrinsic $(name(intr)) is not overloaded, so it does not take parameter types"))
+    end
+end
+
 """
     Function(mod::Module, intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMType[])
 
-Get the declaration of the given intrinsic in the given module.
+Get the declaration of the given intrinsic in the given module. For an overloaded
+intrinsic, `params` are the types of its overloaded parameters, in the order of the name of
+the overload: e.g., `[ptr, ptr, i64]` for `llvm.memcpy.p0.p0.i64`. Other intrinsics take no
+types. Whether the intrinsic is overloaded can differ between versions of LLVM (e.g.,
+`llvm.va_start` is overloaded since LLVM 19), which [`isoverloaded`](@ref) checks.
+
+Throws an `ArgumentError` if types are given for an intrinsic that isn't overloaded, or none
+for one that is. Other mismatches aren't detected: extra types end up in the name of the
+declaration, and missing ones crash LLVM.
 """
 function Function(mod::Module, intr::Intrinsic,
                   params::AbstractVector{<:LLVMType}=LLVMType[])
+    check_overloaded_types(intr, params)
     Value(API.LLVMGetIntrinsicDeclaration(mod, intr, as_vector(params), length(params)))
 end
 
 """
     FunctionType(intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMType[])
 
-Get the function type of the given intrinsic with the given parameter types.
+Get the function type of the given intrinsic with the given types of its overloaded
+parameters, like for [`LLVM.Function(mod, intr, params)`](@ref LLVM.Function(::LLVM.Module, ::Intrinsic,
+::Vector{<:LLVMType})), which describes how they're checked.
 """
 function FunctionType(intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMType[])
+    check_overloaded_types(intr, params)
     LLVMType(API.LLVMIntrinsicGetType(context(), intr, as_vector(params), length(params)))
 end
 

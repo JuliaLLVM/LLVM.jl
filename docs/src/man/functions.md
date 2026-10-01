@@ -103,6 +103,13 @@ julia> LLVM.Function(mod, intr, [LLVM.Int32Type()])
 declare i32 @llvm.abs.i32(i32, i1 immarg) #0
 ```
 
+The types are those of the overloaded parameters, in the order of the overloaded name
+(`llvm.abs` has one, `llvm.memcpy` three). An intrinsic that isn't overloaded takes no
+types, and an `ArgumentError` is thrown when types are passed to it, or when none are passed
+to one that is overloaded. Since some intrinsics only became overloaded in a later version
+of LLVM (e.g., `llvm.va_start` in LLVM 19), code that supports several versions can use
+`isoverloaded` to decide whether to pass types.
+
 
 ## Attributes
 

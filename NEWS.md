@@ -560,6 +560,11 @@ Bug fixes:
   string attributes, `Intrinsic(name)` and the functions of the `DIBuilder`, measure the
   string after converting it to the UTF-8 `String` that LLVM receives, instead of counting
   the code units of the original string, which truncated strings that aren't UTF-8.
+- `LLVM.Function(mod, intr, types)` and `LLVM.FunctionType(intr, types)` throw an
+  `ArgumentError` when types are given for an intrinsic that isn't overloaded, which
+  declared a function named after the types (e.g., `llvm.trap.i32`), or none for one that
+  is, which crashed LLVM. `LLVM.overloaded_name` throws for intrinsics that aren't
+  overloaded.
 
 Other changes:
 

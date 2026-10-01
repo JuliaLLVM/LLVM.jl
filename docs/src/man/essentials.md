@@ -268,6 +268,30 @@ julia> dispose(MemoryBuffer(LLVM.API.LLVMMemoryBufferRef(1)))
 WARNING: An unknown instance of MemoryBuffer is being disposed of.
 ```
 
+Disposing of a context also frees the modules that are still part of it, so memcheck
+reports using or disposing of such a module afterwards, and doesn't consider it leaked:
+
+```julia-repl
+julia> mod = Context() do ctx
+           LLVM.Module("escapee")
+       end;
+
+julia> mod.name
+WARNING: An instance of LLVM.Module is being used after the Context that owns it was disposed of.
+```
+
+The same applies to the modules in the context of a `ThreadSafeContext` (e.g., created
+after activating `context(ts_ctx)`, or copied from the module of a thread-safe module),
+which can only be used while the thread-safe context is alive: memcheck considers them
+freed when it is disposed of, even if a thread-safe module or foreign code keeps the
+underlying context alive. The modules that are borrowed from a thread-safe module (`tsm()
+do mod ... end`) are not affected, and modules that are created in the context after the
+thread-safe context was disposed of (e.g., by copying the module of a thread-safe module
+that outlives it) are not checked, although they can't be used either. Only the modules
+of contexts that LLVM.jl created are checked this way, and other objects that belong to a
+context, like values, types and metadata, are not tracked at all. Like the other warnings, these only detect the problem:
+using a module whose memory has been freed can still crash the process afterwards.
+
 Finally, when not properly disposing of an object, LLVM.jl will warn about the leaked
 object when the process exits:
 

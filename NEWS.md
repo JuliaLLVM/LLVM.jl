@@ -458,6 +458,14 @@ New functionality:
   disposed of at the same locations in user code, counting where it happens, with an update
   when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects
   by where they were allocated, instead of printing a full report every time.
+- The `memcheck` debugging mode knows that disposing of a context ends the lifetime of the
+  modules in it. Using or disposing of such a module afterwards is reported, along with
+  where the module was allocated and the context was disposed of, before the access to
+  freed memory possibly crashes the process (disposing of it is skipped), and these
+  modules are not reported as leaks anymore. For
+  a `ThreadSafeContext`, this applies to the regular modules in its context (not to the
+  modules borrowed from thread-safe modules), which are documented to only be usable while
+  the thread-safe context is alive.
 - It is documented that the element that was just returned by iterating the views of the
   instructions of a block, the blocks of a function, or the functions and global variables
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.

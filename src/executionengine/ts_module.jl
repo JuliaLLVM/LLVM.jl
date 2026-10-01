@@ -4,6 +4,15 @@
     ThreadSafeContext
 
 A thread-safe version of [`Context`](@ref).
+
+The underlying context is reference counted: the thread-safe context and every
+[`ThreadSafeModule`](@ref LLVM.ThreadSafeModule) of it share it, so that it remains alive
+while one of them is. That doesn't extend to the regular modules in the context, e.g., ones
+created after activating `context(ts_ctx)`, copied from the module of a thread-safe module,
+or taken out of one using [`LLVM.unsafe_take_module!`](@ref): these can only be used while
+the thread-safe context they were created with is alive, as disposing of it may free them.
+To keep such a module, wrap it in a thread-safe module, or serialize it, before disposing
+of the thread-safe context.
 """
 @checked struct ThreadSafeContext
     ref::API.LLVMOrcThreadSafeContextRef
@@ -21,6 +30,7 @@ This object needs to be disposed of using [`dispose(::ThreadSafeContext)`](@ref)
 function ThreadSafeContext(; opaque_pointers=nothing)
     ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext()))
     ctx = mark_untracked(context(ts_ctx))
+    memcheck_register_context(ctx, ts_ctx)
     if opaque_pointers !== nothing
         opaque_pointers!(ctx, opaque_pointers)
     end
@@ -50,13 +60,19 @@ end
 """
     dispose(ctx::ThreadSafeContext)
 
-Dispose of the thread-safe context, releasing all resources associated with it.
+Dispose of the thread-safe context, releasing all resources associated with it. This frees
+the underlying context, and the modules in it, unless a thread-safe module (or foreign
+code) keeps it alive. Regular modules in the context can't be used afterwards in either
+case (see [`ThreadSafeContext`](@ref LLVM.ThreadSafeContext)).
 
 If an exception is in flight, the context is leaked instead of freed, so that values
 captured by the exception remain valid; see [`dispose(::Context)`](@ref).
 """
 function dispose(ctx::ThreadSafeContext)
     deactivate(ctx)
+    @static if memcheck_enabled
+        memcheck_unregister_context(context(ctx), ctx)
+    end
     leak = leak_context()
     leak || _remove_handlers(context(ctx))
     mark_dispose(leak ? Returns(nothing) : API.LLVMOrcDisposeThreadSafeContext, ctx)
@@ -203,7 +219,8 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
     # the module is only valid during the callback, unless `unsafe_module` is used
     mod = Module(ref)
     tracked = !cb.tsm.unsafe_access
-    tracked && mark_alloc(mod; allow_overwrite=true)
+    # (it's borrowed for the duration of the callback, not owned by the thread-safe context)
+    tracked && mark_alloc(mod; allow_overwrite=true, owner=nothing)
     ctx = context(mod)
     activate(ctx)
     try
@@ -288,7 +305,9 @@ thread-safe module (calling it, adding it to a JIT, or taking its module again) 
 `ArgumentError`; disposing of it is fine.
 
 The module still belongs to the context of the thread-safe module, which the caller has to
-keep alive while using the module, and synchronize accesses to.
+synchronize accesses to. It can only be used while the thread-safe context of `tsm` is
+alive (see [`ThreadSafeContext`](@ref LLVM.ThreadSafeContext)), e.g., inside the do-block
+that created it.
 """
 function unsafe_take_module!(tsm::ThreadSafeModule)
     @static if version() >= v"16"

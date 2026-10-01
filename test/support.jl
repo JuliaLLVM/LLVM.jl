@@ -150,6 +150,132 @@ if LLVM.memcheck_enabled
         @test occursin("was not properly disposed of, and a new allocation will overwrite it", out)
     end
 
+    # disposing of a context ends the lifetime of its modules. (these tests use
+    # `mark_use`, as actually using the module would access freed memory)
+    let (; out, err, success) =
+        execute_code("""mod = Context() do ctx
+                            LLVM.Module("escapee")
+                        end
+                        LLVM.mark_use(mod)
+                        dispose(mod)""")
+        @test occursin("An instance of LLVM.Module is being used after the Context that owns it was disposed of.", out)
+        @test occursin("The owner was disposed of at:", out)
+        # disposing of the module would free it again, so that is only reported
+        @test occursin("An instance of LLVM.Module is being disposed of after the Context that owns it was disposed of", out)
+        @test success
+        # it's not reported as a leak
+        @test !occursin("not properly disposed of", out)
+    end
+
+    # modules don't need to be disposed of before their context, and contexts and modules
+    # can be allocated at the address of ones that were disposed of earlier
+    let (; out, err, success) =
+        execute_code("""for i in 1:100
+                            Context() do ctx
+                                mod = LLVM.Module("unused")
+                                copy(mod)
+                                LLVM.Module("disposed") do mod
+                                    mod.name
+                                end
+                            end
+                        end""")
+        @test success
+        @test !occursin("WARNING", out)
+    end
+
+    # also when the context is leaked, as it's disposed of during exception handling
+    let (; out, err, success) =
+        execute_code("""mod = try
+                            Context() do ctx
+                                global mod = LLVM.Module("escapee")
+                                error("oops")
+                            end
+                        catch
+                            mod
+                        end
+                        LLVM.mark_use(mod)""")
+        @test occursin("An instance of LLVM.Module is being used after the Context that owns it was disposed of.", out)
+        @test !occursin("not properly disposed of", out)
+    end
+
+    # also when another thread allocates an object at the address of the context before
+    # its disposal is recorded (simulated here by doing so while disposing of it)
+    let (; out, err, success) =
+        execute_code("""ctx = Context()
+                        mod = LLVM.Module("escapee")
+                        deactivate(ctx)
+                        LLVM.mark_dispose(ctx) do ctx
+                            LLVM.API.LLVMContextDispose(ctx)
+                            LLVM.mark_alloc(ctx)
+                        end
+                        LLVM.mark_use(mod)
+                        LLVM.mark_dispose(ctx)""")
+        @test occursin("An instance of LLVM.Module is being used after the Context that owns it was disposed of.", out)
+        @test !occursin("not properly disposed of", out)
+    end
+
+    # or at the address of one of its modules, which is freed together with the context
+    let (; out, err, success) =
+        execute_code("""for reuse_ctx in (false, true)
+                            ctx = Context()
+                            mod = LLVM.Module("freed")
+                            deactivate(ctx)
+                            LLVM.mark_dispose(ctx) do ctx
+                                LLVM.API.LLVMContextDispose(ctx)
+                                reuse_ctx && LLVM.mark_alloc(ctx)
+                                LLVM.mark_alloc(mod; owner=nothing)
+                            end
+                            LLVM.mark_use(mod)
+                            LLVM.mark_dispose(mod)
+                            reuse_ctx && LLVM.mark_dispose(ctx)
+                        end""")
+        @test success
+        @test !occursin("WARNING", out)
+    end
+
+    # the same applies to the modules in the context of a thread-safe context, which
+    # can't be used after it has been disposed of, even if other objects (e.g., a
+    # thread-safe module) keep the context alive
+    let (; out, err, success) =
+        execute_code("""mod = ThreadSafeContext() do ts_ctx
+                            context!(context(ts_ctx)) do
+                                LLVM.Module("escapee")
+                            end
+                        end
+                        LLVM.mark_use(mod)
+                        dispose(mod)
+                        ts_ctx = ThreadSafeContext()
+                        tsm = ThreadSafeModule("tsm")
+                        clone = tsm() do mod
+                            copy(mod)
+                        end
+                        dispose(ts_ctx)
+                        LLVM.mark_use(clone)""")
+        @test count("An instance of LLVM.Module is being used after the ThreadSafeContext that owns it was disposed of.", out) == 2
+        @test occursin("An instance of LLVM.Module is being disposed of after the ThreadSafeContext that owns it was disposed of", out)
+        # the thread-safe module itself remains valid
+        @test occursin(r"An instance of \S*ThreadSafeModule was not properly disposed of.", out)
+        @test !occursin("An instance of LLVM.Module was not properly disposed of", out)
+        @test success
+    end
+
+    # modules borrowed from a thread-safe module are not owned by the thread-safe context,
+    # which may be disposed of while they're being used
+    let (; out, err, success) =
+        execute_code("""ts_ctx = ThreadSafeContext()
+                        tsm = ThreadSafeModule("tsm")
+                        tsm() do mod
+                            dispose(ts_ctx)
+                            mod.name
+                        end
+                        tsm() do mod
+                            mod.name
+                        end
+                        dispose(tsm)""")
+        @test success
+        @test !occursin("WARNING", out)
+    end
+
     # modules accessed with `unsafe_module` remain valid after a callback of their
     # thread-safe module, also when accessed during one
     let (; out, err) =

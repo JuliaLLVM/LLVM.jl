@@ -38,6 +38,7 @@ This object needs to be disposed of using [`dispose(::Context)`](@ref).
 """
 function Context(; opaque_pointers=nothing)
     ctx = mark_alloc(Context(API.LLVMContextCreate()))
+    memcheck_register_context(ctx, ctx)
     if opaque_pointers !== nothing
         opaque_pointers!(ctx, opaque_pointers)
     end
@@ -45,6 +46,33 @@ function Context(; opaque_pointers=nothing)
     activate(ctx)
     ctx
 end
+
+# memcheck: the objects that own the contexts that LLVM.jl created, by their handle. the
+# modules in such a context are owned by that object, as disposing of it ends their
+# lifetime: a `Context` frees them, while a `ThreadSafeContext` may do so (when it holds the
+# last reference to its context), so modules of its context can't be used afterwards.
+const memcheck_contexts = Dict{API.LLVMContextRef,Any}()
+
+function memcheck_register_context(ctx::Context, owner)
+    @static if memcheck_enabled
+        @lock memcheck_lock memcheck_contexts[ctx.ref] = owner
+    end
+    return
+end
+
+function memcheck_unregister_context(ctx::Context, owner)
+    @static if memcheck_enabled
+        @lock memcheck_lock begin
+            if get(memcheck_contexts, ctx.ref, nothing) === owner
+                delete!(memcheck_contexts, ctx.ref)
+            end
+        end
+    end
+    return
+end
+
+memcheck_context_owner(ref::API.LLVMContextRef) =
+    @lock memcheck_lock get(memcheck_contexts, ref, nothing)
 
 # whether a context being disposed should be leaked instead of freed. this is the case
 # when an exception is in flight (i.e., when disposing from a `finally` block during
@@ -56,8 +84,9 @@ leak_context() = !isempty(current_exceptions())
 """
     dispose(ctx::Context)
 
-Dispose of the context, releasing all resources associated with it. The context should not
-be used after this operation.
+Dispose of the context, releasing all resources associated with it, including the modules
+that are still part of it, which don't need to be disposed of separately. Neither the
+context nor its modules should be used after this operation.
 
 If an exception is in flight (e.g., when the context is disposed of by a `finally` block
 during stack unwinding), the context is popped from the context stack but intentionally
@@ -66,6 +95,7 @@ error reporting does not crash the process.
 """
 function dispose(ctx::Context)
     deactivate(ctx)
+    memcheck_unregister_context(ctx, ctx)
     leak = leak_context()
     leak || _remove_handlers(ctx)
     # in the leak path we still record the dispose in memcheck bookkeeping,

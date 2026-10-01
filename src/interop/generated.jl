@@ -17,12 +17,19 @@ add globals from the body of an [`@llvmgenerated`](@ref) function.
 """
 current_module(builder::IRBuilder) = current_function(builder).parent
 
+# the `T` of `Type{T}` (which isn't a `DataType` anymore on Julia 1.14)
+@static if isdefined(Base, :type_parameter)
+    type_parameter(@nospecialize(T)) = Base.type_parameter(T)
+else
+    type_parameter(@nospecialize(T)) = T.parameters[1]
+end
+
 # Arguments whose value is known at generation time are not passed to `llvmcall`, but
 # bound to that value in the generator body. This is not the same as being a ghost type
 # in LLVM: `Type{T}` lowers to a boxed pointer, but its value `T` is known statically.
 function static_argument(@nospecialize(T))
-    if T isa DataType && T.name === Type.body.name
-        return Some{Any}(T.parameters[1])
+    if Base.isType(T)
+        return Some{Any}(type_parameter(T))
     elseif Base.issingletontype(T)
         return Some{Any}(T.instance)
     else

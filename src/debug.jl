@@ -10,6 +10,12 @@ const memcheck_enabled = parse(Bool, @load_preference("memcheck", "false"))
 # the objects that are tracked, by their wrapper, with when they were allocated and disposed
 # of. an object can have an owner, another tracked object that ends its lifetime when it is
 # disposed of, like a context does with the modules it contains (see `memcheck_owner`).
+#
+# objects are identified by `===`, so that the checker never calls `==` or `hash` methods,
+# which wrapper types of other packages may implement by calling into foreign code (and
+# thus back into the checker). an immutable wrapper is identified by its fields (typically
+# just its handle), so that wrapping the same handle again gives the same object, and a
+# mutable wrapper by the Julia object itself.
 struct TrackedObject
     alloc_bt::Vector
     dispose_bt::Union{Nothing,Vector}
@@ -17,10 +23,10 @@ struct TrackedObject
     # whose disposal ended its lifetime (possibly an owner of its owner).
     owner::Any
 end
-const tracked_objects = Dict{Any,TrackedObject}()
+const tracked_objects = IdDict{Any,TrackedObject}()
 
 # the objects that are alive, by their owner
-const owned_objects = Dict{Any,Set{Any}}()
+const owned_objects = IdDict{Any,Base.IdSet{Any}}()
 
 # the owner of a tracked object: a tracked object whose disposal ends its lifetime, or
 # `nothing`. this is only called when memcheck is enabled.
@@ -251,7 +257,7 @@ function mark_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner(),
                     end
                 end
                 tracked_objects[obj] = TrackedObject(new_alloc_bt, nothing, owner)
-                owner === nothing || push!(get!(Set{Any}, owned_objects, owner), obj)
+                owner === nothing || push!(get!(Base.IdSet{Any}, owned_objects, owner), obj)
                 return_value = (true, alive ? old : nothing)
             end
             return_value

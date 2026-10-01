@@ -359,6 +359,26 @@ if LLVM.memcheck_enabled
                         end""")
         @test !occursin("WARNING", out)
     end
+
+    # objects are identified by `===`, so the checker doesn't call `==` or `hash`, which
+    # wrapper types may implement by calling into foreign code
+    let (; out, err, success) =
+        execute_code("""struct Thing
+                            ref::Ptr{Cvoid}
+                        end
+                        Base.:(==)(::Thing, ::Thing) = error("==")
+                        Base.isequal(::Thing, ::Thing) = error("isequal")
+                        Base.hash(::Thing, ::UInt) = error("hash")
+                        a = LLVM.mark_alloc(Thing(Ptr{Cvoid}(1)))
+                        b = LLVM.mark_alloc(Thing(Ptr{Cvoid}(2)))
+                        LLVM.mark_dispose(Returns(nothing), Thing(Ptr{Cvoid}(1)))
+                        LLVM.mark_use(a)
+                        LLVM.mark_use(b)
+                        LLVM.mark_dispose(Returns(nothing), b)""")
+        @test success
+        @test occursin("An instance of Thing is being used after it was disposed of.", out)
+        @test count("WARNING", out) == 1
+    end
 end
 end
 

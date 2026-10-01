@@ -213,20 +213,26 @@ function mark_dispose(f, obj)
             nothing
         else
             alloc_bt, old_dispose_bt = tracked_objects[obj]
-            id = old_dispose_bt !== nothing ?
-                record_problem!(io, (:double_dispose, typeof(obj),
-                                     (user_site(alloc_bt), user_site(old_dispose_bt))),
-                                user_site(new_dispose_bt)) :
-                nothing
-            if id !== nothing
-                print(io, "\nWARNING: An instance of $(typeof(obj)) is being disposed of twice.")
-                print(io, "\nThe object was allocated at:")
-                Base.show_backtrace(io, alloc_bt)
-                print(io, "\nThe object was already disposed of at:")
-                Base.show_backtrace(io, old_dispose_bt)
-                print(io, "\nThe object is being disposed of again at:")
-                Base.show_backtrace(io, new_dispose_bt)
-                print_problem_footer(io, id)
+            if old_dispose_bt !== nothing
+                id = record_problem!(io, (:double_dispose, typeof(obj),
+                                          (user_site(alloc_bt), user_site(old_dispose_bt))),
+                                     user_site(new_dispose_bt))
+                if id !== nothing
+                    print(io, "\nWARNING: An instance of $(typeof(obj)) is being disposed of twice.")
+                    print(io, "\nThe object was allocated at:")
+                    Base.show_backtrace(io, alloc_bt)
+                    print(io, "\nThe object was already disposed of at:")
+                    Base.show_backtrace(io, old_dispose_bt)
+                    print(io, "\nThe object is being disposed of again at:")
+                    Base.show_backtrace(io, new_dispose_bt)
+                    print_problem_footer(io, id)
+                end
+
+                # don't dispose of the object again: that would free memory that was freed
+                # already, which corrupts the heap, or makes the C library abort while it
+                # holds a lock that Julia's crash handler then waits for, hanging the
+                # process instead of reporting the problem.
+                return
             end
 
             (alloc_bt, new_dispose_bt)

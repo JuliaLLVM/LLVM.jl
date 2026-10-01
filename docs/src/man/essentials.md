@@ -254,12 +254,14 @@ The package will also warn about erroneous disposals, whether it's disposing an 
 object, or disposing an object that has already been disposed of:
 
 ```julia-repl
-julia> buf = MemoryBuffer(UInt8[]);
+julia> builder = IRBuilder();
 
-julia> dispose(buf)
-julia> dispose(buf)
-WARNING: An instance of MemoryBuffer is being disposed twice.
+julia> dispose(builder)
+julia> dispose(builder)
+WARNING: An instance of IRBuilder is being disposed of twice.
 ```
+
+An object that is disposed of twice is only reported, and not disposed of again.
 
 ```julia-repl
 julia> dispose(MemoryBuffer(LLVM.API.LLVMMemoryBufferRef(1)))

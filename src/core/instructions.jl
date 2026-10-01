@@ -108,7 +108,8 @@ function identify(::Type{Instruction}, ref::API.LLVMValueRef)
     typ === Nothing && error("Unknown type opcode $opcode")
     return typ
 end
-function register(T::Type{<:Instruction}, opcode::API.LLVMOpcode)
+Base.@nospecializeinfer function register(@nospecialize(T::Type{<:Instruction}),
+                                          opcode::API.LLVMOpcode)
     check_layout(T, API.LLVMValueRef)
     instruction_opcodes[opcode+1] = T
 end

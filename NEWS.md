@@ -534,6 +534,12 @@ Other changes:
   `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.
 - Generating atomic operations is precompiled, which makes the first generator that uses
   them, e.g., in UnsafeAtomics.jl, a few hundred milliseconds faster.
+- `deps/build_local.jl` installs the library it builds in a directory that is specific to
+  the version of LLVM and of the sources, through a temporary one, so that building for
+  another version of Julia, or concurrently, no longer deletes the library that another
+  environment uses. A second argument sets the directory to install into. It also checks
+  that the library was built for the version of LLVM in use, rather than for another LLVM
+  that CMake found.
 - `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
   calling it, which created an LLVM context when none was active, so it is cheap and can
   be constant-folded (#620).

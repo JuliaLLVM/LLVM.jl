@@ -488,6 +488,10 @@ New functionality:
   of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.
 - `gep.indices` is a view of the indices of a `getelementptr` instruction or constant
   expression (the operands after the pointer), like C++'s `GEPOperator::indices()`.
+- `extract_value!` and `insert_value!` accept an empty vector of indices, which selects the
+  value itself: `extract_value!` returns it and `insert_value!` the inserted value (of the
+  same type), without creating an instruction, so that paths into nested aggregates can be
+  handled the same way whatever their length.
 
 Bug fixes:
 

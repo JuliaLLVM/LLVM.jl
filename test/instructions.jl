@@ -820,11 +820,25 @@ end
     @check_ir iv2 r"insertvalue \{ i32, \{ i8, i16 \} \} %0, i8 %\d+, 1, 0"
     @test iv2.indices == [1, 0]
 
+    # an empty path selects the aggregate itself, without an instruction
+    lastinst = last(f.entry.instructions)
+    @test extract_value!(builder, agg, Int[]) == agg
+    @test insert_value!(builder, agg, iv2, Int[]) == iv2
+    @test last(f.entry.instructions) == lastinst
+    @test_throws ArgumentError insert_value!(builder, agg, ev, Int[])
+    # also for values that aren't aggregates, which recursive code reaches at the leaves,
+    # and without renaming the value
+    @test extract_value!(builder, ev3, Int[], "renamed") == ev3
+    @test ev3.name != "renamed"
+    other = extract_value!(builder, agg, [1, 1])
+    other = trunc!(builder, other, LLVM.Int8Type())
+    @test insert_value!(builder, ev3, other, Int[], "renamed") == other
+    @test other.name != "renamed"
+
     # indices are checked
     @test_throws ArgumentError extract_value!(builder, agg, 2)
     @test_throws ArgumentError extract_value!(builder, agg, [1, 2])
     @test_throws ArgumentError extract_value!(builder, agg, [0, 0])
-    @test_throws ArgumentError extract_value!(builder, agg, Int[])
     @test_throws ArgumentError insert_value!(builder, agg, ev3, [1, 1])
     @test_throws ArgumentError insert_value!(builder, agg, ev3, 0)
 

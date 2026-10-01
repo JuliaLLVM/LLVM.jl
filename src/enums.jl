@@ -119,6 +119,9 @@ Base.@nospecializeinfer function enum_doc(scope::Symbol, @nospecialize(T::Type),
     return String(take!(io))
 end
 
+# the scope of every enum type, and the names to display its values with
+const enum_display_names = IdDict{Type,Tuple{Symbol,Dict{Int64,Symbol}}}()
+
 for (scope, typename, description, prefix, suffix, renames) in enum_scopes
     # some enums are only available on some versions of LLVM
     isdefined(API, typename) || continue
@@ -137,21 +140,29 @@ for (scope, typename, description, prefix, suffix, renames) in enum_scopes
     Core.eval(@__MODULE__, :(@public $scope))
     Core.eval(@__MODULE__, :(@doc $(enum_doc(scope, T, description, members)) $scope))
 
-    # display values using their scoped name, and a constructor for unnamed values
-    display_names = Dict{Integer,Symbol}()
+    display_names = Dict{Int64,Symbol}()
     for (name, val, _) in members
         get!(display_names, val, name)
     end
-    @eval begin
-        function Base.show(io::IO, x::$T)
-            name = get($display_names, Integer(x), nothing)
-            if name === nothing
-                print(io, "LLVM.", $(QuoteNode(scope)), ".T(", Integer(x), ")")
-            else
-                print(io, "LLVM.", $(QuoteNode(scope)), ".", name)
-            end
-        end
-        Base.show(io::IO, ::MIME"text/plain", x::$T) = show(io, x)
-        Base.print(io::IO, x::$T) = show(io, x)
+    enum_display_names[T] = (scope, display_names)
+end
+
+# display values using their scoped name, and a constructor for unnamed values. these are
+# defined once for all enums, as every method that's added to `show` makes loading LLVM.jl
+# slower (Julia has to check it against the many other methods of `show`).
+const ScopedEnum = Union{keys(enum_display_names)...}
+function Base.show(io::IO, x::ScopedEnum)
+    scope, display_names = enum_display_names[typeof(x)]
+    show_enum(io, scope, display_names, Int64(Integer(x)))
+end
+@noinline function show_enum(@nospecialize(io::IO), scope::Symbol,
+                             display_names::Dict{Int64,Symbol}, val::Int64)
+    name = get(display_names, val, nothing)
+    if name === nothing
+        print(io, "LLVM.", scope, ".T(", val, ")")
+    else
+        print(io, "LLVM.", scope, ".", name)
     end
 end
+Base.show(io::IO, ::MIME"text/plain", x::ScopedEnum) = show(io, x)
+Base.print(io::IO, x::ScopedEnum) = show(io, x)

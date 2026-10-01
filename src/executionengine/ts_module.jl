@@ -106,9 +106,19 @@ end
 Base.unsafe_convert(::Type{API.LLVMOrcThreadSafeModuleRef}, tsm::ThreadSafeModule) =
     check_usable(tsm).ref
 
+# the module can be taken out of a thread-safe module (see `unsafe_take_module!`), also
+# using another wrapper of it, which leaves it empty. LLVM asserts on (or crashes with) an
+# empty thread-safe module, so check for that natively.
+function check_has_module(tsm::ThreadSafeModule)
+    API.LLVMExtraThreadSafeModuleGetModuleUnlocked(tsm) == C_NULL &&
+        throw(ArgumentError("The module of this ThreadSafeModule has been taken out of it"))
+    return tsm
+end
+
 function check_consumable(tsm::ThreadSafeModule)
     tsm.borrowed && throw(ArgumentError("A borrowed ThreadSafeModule can't be consumed"))
-    return check_usable(tsm)
+    check_usable(tsm)
+    return check_has_module(tsm)
 end
 
 function consume!(tsm::ThreadSafeModule)
@@ -225,6 +235,7 @@ by serializing the module to bitcode that can be parsed in another context. See
 module and synchronization of its context are ensured otherwise.
 """
 function (mod::ThreadSafeModule)(f)
+    check_has_module(mod)
     cb = ThreadSafeModuleCallback(f, mod)
     GC.@preserve cb begin
         @check API.LLVMOrcThreadSafeModuleWithModuleDo(
@@ -250,10 +261,40 @@ The module is borrowed: it can only be used for as long as the thread-safe modul
 context are alive, and the thread-safe module isn't consumed. The caller is responsible
 for synchronizing all accesses to the context (which other threads may be using to compile
 code), for activating it if needed, and should never dispose of the module. The `memcheck`
-debugging mode doesn't track the module afterwards, also not when calling `tsm`.
+debugging mode doesn't track the module afterwards, also not when calling `tsm`. To take
+ownership of the module instead, see [`LLVM.unsafe_take_module!`](@ref).
 """
 function unsafe_module(tsm::ThreadSafeModule)
+    check_has_module(tsm)
     mod = Module(API.LLVMExtraThreadSafeModuleGetModuleUnlocked(tsm))
     tsm.unsafe_access = true
     return mark_untracked(mod)
+end
+
+@public unsafe_take_module!
+
+"""
+    LLVM.unsafe_take_module!(tsm::ThreadSafeModule) -> LLVM.Module
+
+Move the module out of `tsm`, leaving the thread-safe module empty, and return it. The
+caller owns the module afterwards: it has to be disposed of, or handed over to an operation
+that consumes it (like `link!`). This requires LLVM 16 or later.
+
+This is for taking ownership of the module of a thread-safe module that foreign code owns,
+e.g., the one that Julia's code generator returns. That's destructive access, also through
+a borrowed thread-safe module: the caller must know that nothing else uses the module of
+`tsm` afterwards, as its owner keeps the empty thread-safe module. Using an empty
+thread-safe module (calling it, adding it to a JIT, or taking its module again) throws an
+`ArgumentError`; disposing of it is fine.
+
+The module still belongs to the context of the thread-safe module, which the caller has to
+keep alive while using the module, and synchronize accesses to.
+"""
+function unsafe_take_module!(tsm::ThreadSafeModule)
+    @static if version() >= v"16"
+        check_has_module(tsm)
+        return mark_alloc(Module(API.LLVMExtraThreadSafeModuleTakeModule(tsm)))
+    else
+        error("Taking the module out of a ThreadSafeModule requires LLVM 16 or later")
+    end
 end

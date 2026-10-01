@@ -358,6 +358,13 @@ LLVMModuleRef LLVMExtraThreadSafeModuleGetModuleUnlocked(LLVMOrcThreadSafeModule
   return wrap(unwrap(TSM)->getModuleUnlocked());
 }
 
+#if LLVM_VERSION_MAJOR >= 16
+LLVMModuleRef LLVMExtraThreadSafeModuleTakeModule(LLVMOrcThreadSafeModuleRef TSM) {
+  return unwrap(TSM)->consumingModuleDo(
+      [](std::unique_ptr<Module> M) { return wrap(M.release()); });
+}
+#endif
+
 char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD) {
   std::string str;
   llvm::raw_string_ostream rso(str);

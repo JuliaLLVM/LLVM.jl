@@ -152,112 +152,123 @@ end
 
 # type-preserving ccall
 
+# generate the IR that calls an intrinsic. this is a regular function, taking the
+# parameters of `_typed_llvmcall` as static arguments, so that it is compiled once
+function emit_typed_llvmcall(builder, intr, rettyp, argtt, argvals, params...)
+    @nospecialize
+    intr = valueof(intr)
+    argtyps = argtt.parameters
+    const_args = Any[argval <: Val ? argval.parameters[1] : nothing
+                     for argval in argvals.parameters]
+
+    T_ret = convert(LLVMType, rettyp)
+
+    # Julia's compiler strips pointers of their element type.
+    # reconstruct those so that we can accurately look up intrinsics.
+    T_actual_args = LLVMType[]
+    actual_args = LLVM.Value[]
+    for (arg, argtyp, const_arg) in zip(params, argtyps, const_args)
+        if argtyp <: LLVMPtr
+            # passed as i8*
+            T,AS = argtyp.parameters
+            actual_typ = LLVM.PointerType(convert(LLVMType, T), AS)
+            actual_arg = if const_arg == C_NULL
+                LLVM.PointerNull(actual_typ)
+            elseif const_arg !== nothing
+                intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
+                const_inttoptr(intptr, actual_typ)
+            else
+                bitcast!(builder, arg, actual_typ)
+            end
+        elseif argtyp <: Ptr
+            T = eltype(argtyp)
+            actual_typ = LLVM.PointerType(convert(LLVMType, T))
+            actual_arg = if const_arg == C_NULL
+                LLVM.PointerNull(actual_typ)
+            elseif const_arg !== nothing
+                intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
+                const_inttoptr(intptr, actual_typ)
+            elseif arg.value_type isa LLVM.PointerType
+                # passed as i8* or ptr
+                bitcast!(builder, arg, actual_typ)
+            else
+                # passed as i64
+                inttoptr!(builder, arg, actual_typ)
+            end
+        elseif argtyp <: Bool
+            # passed as i8
+            actual_typ = LLVM.Int1Type()
+            actual_arg = if const_arg !== nothing
+                LLVM.ConstantInt(actual_typ, const_arg)
+            else
+                trunc!(builder, arg, actual_typ)
+            end
+        else
+            actual_typ = convert(LLVMType, argtyp)
+            actual_arg = if const_arg isa Integer
+                LLVM.ConstantInt(actual_typ, const_arg)
+            elseif const_arg isa AbstractFloat
+                LLVM.ConstantFP(actual_typ, const_arg)
+            else
+                arg
+            end
+        end
+        push!(T_actual_args, actual_typ)
+        push!(actual_args, actual_arg)
+    end
+
+    # same for the return type
+    T_ret_actual = if rettyp <: LLVMPtr
+        T,AS = rettyp.parameters
+        LLVM.PointerType(convert(LLVMType, T), AS)
+    elseif rettyp <: Ptr
+        T = eltype(rettyp)
+        LLVM.PointerType(convert(LLVMType, T))
+    elseif rettyp <: Bool
+        LLVM.Int1Type()
+    else
+        T_ret
+    end
+
+    intr_ft = LLVM.FunctionType(T_ret_actual, T_actual_args)
+    intr_f = LLVM.Function(current_module(builder), String(intr), intr_ft)
+    rv = call!(builder, intr_ft, intr_f, actual_args)
+
+    # also convert the return value
+    if T_ret_actual == LLVM.VoidType()
+        nothing
+    elseif rettyp <: LLVMPtr
+        bitcast!(builder, rv, T_ret)
+    elseif rettyp <: Ptr
+        if T_ret isa LLVM.PointerType
+            bitcast!(builder, rv, T_ret)
+        else
+            ptrtoint!(builder, rv, T_ret)
+        end
+    elseif rettyp <: Bool
+        zext!(builder, rv, T_ret)
+    else
+        rv
+    end
+end
+
 @generated function _typed_llvmcall(::Val{intr}, rettyp, argtt, args...) where {intr}
     # make types available for direct use in this generator
     rettyp = rettyp.parameters[1]
     argtt = argtt.parameters[1]
-    argtyps = DataType[argtt.parameters...]
     argexprs = Any[:(args[$i]) for i in 1:length(args)]
 
     # arguments passed as a `Val` are emitted as constants. we still pass their value, so
     # that the signature of the function doesn't depend on which arguments are constant.
-    const_args = Any[argval <: Val ? argval.parameters[1] : nothing for argval in args]
     for (i, argval) in enumerate(args)
-        argval <: Val && (argexprs[i] = const_args[i])
+        argval <: Val && (argexprs[i] = argval.parameters[1])
     end
 
     # build IR that calls the intrinsic, casting types if necessary
-    generate_llvmcall(rettyp, argtt, argexprs...) do builder, params...
-        T_ret = convert(LLVMType, rettyp)
-
-        # Julia's compiler strips pointers of their element type.
-        # reconstruct those so that we can accurately look up intrinsics.
-        T_actual_args = LLVMType[]
-        actual_args = LLVM.Value[]
-        for (arg, argtyp, const_arg) in zip(params, argtyps, const_args)
-            if argtyp <: LLVMPtr
-                # passed as i8*
-                T,AS = argtyp.parameters
-                actual_typ = LLVM.PointerType(convert(LLVMType, T), AS)
-                actual_arg = if const_arg == C_NULL
-                    LLVM.PointerNull(actual_typ)
-                elseif const_arg !== nothing
-                    intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
-                    const_inttoptr(intptr, actual_typ)
-                else
-                    bitcast!(builder, arg, actual_typ)
-                end
-            elseif argtyp <: Ptr
-                T = eltype(argtyp)
-                actual_typ = LLVM.PointerType(convert(LLVMType, T))
-                actual_arg = if const_arg == C_NULL
-                    LLVM.PointerNull(actual_typ)
-                elseif const_arg !== nothing
-                    intptr = LLVM.ConstantInt(LLVM.Int64Type(), Int(const_arg))
-                    const_inttoptr(intptr, actual_typ)
-                elseif arg.value_type isa LLVM.PointerType
-                    # passed as i8* or ptr
-                    bitcast!(builder, arg, actual_typ)
-                else
-                    # passed as i64
-                    inttoptr!(builder, arg, actual_typ)
-                end
-            elseif argtyp <: Bool
-                # passed as i8
-                actual_typ = LLVM.Int1Type()
-                actual_arg = if const_arg !== nothing
-                    LLVM.ConstantInt(actual_typ, const_arg)
-                else
-                    trunc!(builder, arg, actual_typ)
-                end
-            else
-                actual_typ = convert(LLVMType, argtyp)
-                actual_arg = if const_arg isa Integer
-                    LLVM.ConstantInt(actual_typ, const_arg)
-                elseif const_arg isa AbstractFloat
-                    LLVM.ConstantFP(actual_typ, const_arg)
-                else
-                    arg
-                end
-            end
-            push!(T_actual_args, actual_typ)
-            push!(actual_args, actual_arg)
-        end
-
-        # same for the return type
-        T_ret_actual = if rettyp <: LLVMPtr
-            T,AS = rettyp.parameters
-            LLVM.PointerType(convert(LLVMType, T), AS)
-        elseif rettyp <: Ptr
-            T = eltype(rettyp)
-            LLVM.PointerType(convert(LLVMType, T))
-        elseif rettyp <: Bool
-            LLVM.Int1Type()
-        else
-            T_ret
-        end
-
-        intr_ft = LLVM.FunctionType(T_ret_actual, T_actual_args)
-        intr_f = LLVM.Function(current_module(builder), String(intr), intr_ft)
-        rv = call!(builder, intr_ft, intr_f, actual_args)
-
-        # also convert the return value
-        if T_ret_actual == LLVM.VoidType()
-            nothing
-        elseif rettyp <: LLVMPtr
-            bitcast!(builder, rv, T_ret)
-        elseif rettyp <: Ptr
-            if T_ret isa LLVM.PointerType
-                bitcast!(builder, rv, T_ret)
-            else
-                ptrtoint!(builder, rv, T_ret)
-            end
-        elseif rettyp <: Bool
-            zext!(builder, rv, T_ret)
-        else
-            rv
-        end
-    end
+    generate_llvmcall(emit_typed_llvmcall, rettyp,
+                      Tuple{Val{intr}, Type{rettyp}, Type{argtt}, Type{Tuple{args...}},
+                            argtt.parameters...},
+                      nothing, nothing, nothing, nothing, argexprs...)
 end
 
 """

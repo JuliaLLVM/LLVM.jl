@@ -63,6 +63,17 @@ compile_time(nocompile, Tuple{Int, Val{1}})
 @test compile_time(nocompile, Tuple{UInt8, Val{:x}}) == 0
 @test nocompile(UInt8(42), Val(:x)) === UInt8(42)
 
+# the pattern recommended by the docstring of `generate_llvmcall`
+function emit_scale(builder, T, x)
+    @nospecialize
+    mul!(builder, x, ConstantInt(convert(LLVMType, T), sizeof(T)))
+end
+@generated scale(x::T) where {T<:Integer} =
+    generate_llvmcall(emit_scale, T, Tuple{Type{T}, T}, T, :x)
+@test scale(Int64(3)) === Int64(24)
+@test compile_time(scale, Tuple{Int32}) == 0
+@test scale(Int16(3)) === Int16(6)
+
 @eval struct GhostType end
 @eval struct NonGhostType1
     x::Int
@@ -377,6 +388,11 @@ e7(x) = @asmcall("mov \$2, \$0; mov \$2, \$1;", "=r,=r,r", true,
 let ir = sprint(io -> code_llvm(io, e7, Tuple{Int32}))
     @test occursin(r"call \{ i32, i32 \} asm", ir)
     @test !occursin(r"call \[2 x i32\] asm", ir)
+# generating the IR doesn't compile code for every assembly string or type
+asm_sig(asm, T) = Tuple{Val{Symbol(asm)}, Val{Symbol("=r,0")}, Val{false}, Val{T}, Val{Tuple{T}}, T}
+compile_time(LLVM.Interop._asmcall, asm_sig("# nop", Int))
+@test compile_time(LLVM.Interop._asmcall, asm_sig("# nop 2", Int32)) == 0
+
 end
 
 # tuples of VecElements lower to a single vector output
@@ -685,6 +701,15 @@ end
                               Tuple{Core.LLVMPtr{Singleton,0},
                               Singleton}))
     @test !occursin("\bstore\b", ir)
+end
+
+# generating the IR doesn't compile code for every intrinsic or type
+tcc_sig(T) = Tuple{Val{Symbol("llvm.bitreverse.i$(8sizeof(T))")}, Type{T}, Type{Tuple{T}}, T}
+# (on Julia 1.14, signatures with `Type{T}` aren't dispatch tuples anymore, and
+#  `code_lowered` doesn't expand generators for them)
+if Base.isdispatchtuple(tcc_sig(Int64))
+    compile_time(LLVM.Interop._typed_llvmcall, tcc_sig(Int64))
+    @test compile_time(LLVM.Interop._typed_llvmcall, tcc_sig(Int32)) == 0
 end
 
 if supports_typed_ptrs

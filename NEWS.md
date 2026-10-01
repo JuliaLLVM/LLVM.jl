@@ -606,6 +606,10 @@ Other changes:
   specialization of, e.g., an atomic operation in UnsafeAtomics.jl about 5 times faster on
   Julia 1.12 (5 ms instead of 28 ms), and a precompilation workload that calls one
   specialization of a function also precompiles its body for the others.
+- `@asmcall` and `@typed_ccall` don't compile code for every assembly string, intrinsic or
+  combination of types they're used with, which on Julia 1.12 took 15 to 50 ms each. The
+  documentation of `generate_llvmcall` describes how to write callbacks that are compiled
+  once.
 
 
 ## LLVM.jl v9.14

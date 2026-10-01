@@ -111,6 +111,15 @@ more control, e.g., because they sometimes return Julia code instead, the
 expression, which can be returned from a regular `@generated` function or spliced into an
 `@eval`'d definition.
 
+The body of an `@llvmgenerated` function is compiled once, not for every specialization: it
+doesn't specialize on the types of the arguments or the values of the static parameters.
+Generating code for a new specialization only has to run it, and a precompilation workload
+that calls one specialization of the function also precompiles the body for the others. A
+callback passed to `generate_llvmcall`, however, is compiled for its own type and for the
+types of its arguments, so a closure that captures the static parameters of a generator is
+compiled for every specialization. Refer to the documentation of `generate_llvmcall` for
+how to avoid that.
+
 
 ## Inline assembly
 

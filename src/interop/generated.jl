@@ -50,6 +50,9 @@ vararg_exprs(fixed::Vector{Any}, name::Symbol, @nospecialize(types::Tuple)) =
 
 vararg_values(values::Vector{Any}, nfixed::Int) = (values[nfixed+1:end]...,)
 
+# the value of a `Val`, without specializing on it
+valueof(@nospecialize(val::Val)) = typeof(val).parameters[1]
+
 # Emit the return from the entry function, unless the body already did so.
 function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
                       @nospecialize(rettyp), @nospecialize(T_ret::LLVMType), what::String)
@@ -187,6 +190,25 @@ one value per argument type: the LLVM parameter for arguments that are passed to
 `llvmcall`, or the argument's value if it is statically known (singletons, and `T` for
 `Type{T}`). Every argument expression is evaluated once, in order, even when the argument
 is not passed to `llvmcall`.
+
+The callback is compiled for the types of itself and of its arguments, so a closure that
+captures types (e.g., static parameters of the generator) or that takes `Val` arguments is
+compiled again for every specialization of the generated function, which can take longer
+than the rest of compiling it. To compile the callback once, pass a function that does not
+capture anything and does not specialize on its arguments, and pass compile-time
+information as statically-known arguments, which are bound to their value:
+
+```julia
+function emit_scale(builder, T, x)
+    @nospecialize
+    mul!(builder, x, ConstantInt(convert(LLVMType, T), sizeof(T)))
+end
+
+@generated scale(x::T) where {T<:Integer} =
+    generate_llvmcall(emit_scale, T, Tuple{Type{T}, T}, T, :x)
+```
+
+[`@llvmgenerated`](@ref) does this automatically.
 """
 generate_llvmcall(gen, @nospecialize(rettyp::Type), @nospecialize(argtypes::Type{<:Tuple}),
                   argexprs...) =

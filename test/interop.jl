@@ -17,6 +17,18 @@ supports_typed_ptrs = let
     end
 end
 
+# how long it takes to compile code when expanding a generator
+function compile_time(@nospecialize(f), @nospecialize(tt))
+    Base.cumulative_compile_timing(true)
+    try
+        t0 = Base.cumulative_compile_time_ns()[1]
+        code_lowered(f, tt; generated=true)
+        return Base.cumulative_compile_time_ns()[1] - t0
+    finally
+        Base.cumulative_compile_timing(false)
+    end
+end
+
 @testset "base" begin
 
 # hand-written generators, using `generate_llvmcall`
@@ -40,6 +52,16 @@ end
     end
 end
 @test baz(1) == 43
+
+# expanding a generator for new argument types shouldn't compile code, unless the callback
+# itself specializes on them
+gen_identity(builder, x, n) = (@nospecialize; x)
+@generated nocompile(x, ::Val{N}) where {N} =
+    generate_llvmcall(gen_identity, x, Tuple{x, Val{N}}, :x, :nothing)
+compile_time(nocompile, Tuple{Int, Val{1}})
+@test compile_time(nocompile, Tuple{Int32, Val{2}}) == 0
+@test compile_time(nocompile, Tuple{UInt8, Val{:x}}) == 0
+@test nocompile(UInt8(42), Val(:x)) === UInt8(42)
 
 @eval struct GhostType end
 @eval struct NonGhostType1

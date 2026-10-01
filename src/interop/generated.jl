@@ -42,7 +42,7 @@ vararg_exprs(fixed::Vector{Any}, name::Symbol, @nospecialize(types::Tuple)) =
 
 # Emit the return from the entry function, unless the body already did so.
 function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
-                      @nospecialize(rettyp), T_ret::LLVMType, what::String)
+                      @nospecialize(rettyp), @nospecialize(T_ret::LLVMType), what::String)
     ref = API.LLVMGetInsertBlock(builder)
     bb = ref == C_NULL ? nothing : BasicBlock(ref)
     if bb === nothing || bb.parent != f
@@ -76,7 +76,8 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
     rettyp isa Type || throw(ArgumentError("$what: return type $rettyp is not a type"))
     (argtypes isa DataType && argtypes <: Tuple && !Base.isvatuple(argtypes)) ||
         throw(ArgumentError("$what: argument types $argtypes are not a tuple type of fixed length"))
-    nargs = length(argtypes.parameters)
+    params = argtypes.parameters::Core.SimpleVector
+    nargs = length(params)
     length(argexprs) == nargs ||
         throw(ArgumentError("$what: got $(length(argexprs)) argument expressions for $nargs argument types"))
 
@@ -86,7 +87,8 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
         # derive the LLVM signature the same way `llvmcall` lowers the Julia one
         T_ret = convert(LLVMType, rettyp; allow_boxed=true)
         T_args = LLVMType[]
-        for (i, T) in enumerate(argtypes.parameters)
+        for i in 1:nargs
+            T = params[i]
             val = static_argument(T)
             if val !== nothing
                 values[i] = something(val)
@@ -135,7 +137,8 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
     # evaluate every argument expression once and in order, even those we don't pass on
     stmts = Any[Expr(:meta, :inline)]
     call_args = Any[]
-    for (i, ex) in enumerate(argexprs)
+    for i in 1:nargs
+        ex = argexprs[i]
         if ex isa Symbol || ex isa Expr
             tmp = gensym("arg")
             push!(stmts, :($tmp = $ex))
@@ -143,9 +146,12 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
         end
         i in abi_args && push!(call_args, ex)
     end
-    abi_types = Tuple{(argtypes.parameters[i] for i in abi_args)...}
+    abi_types = Any[]
+    for i in abi_args
+        push!(abi_types, params[i])
+    end
     push!(stmts, Expr(:call, GlobalRef(Base, :llvmcall), Expr(:tuple, ir, fn),
-                      rettyp, abi_types, call_args...))
+                      rettyp, Tuple{abi_types...}, call_args...))
     return Expr(:block, stmts...)
 end
 

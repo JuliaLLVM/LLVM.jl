@@ -595,6 +595,9 @@ Other changes:
 - `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
   calling it, which created an LLVM context when none was active, so it is cheap and can
   be constant-folded (#620).
+- The code that expands generators using `@llvmgenerated` or `generate_llvmcall` doesn't
+  compile code for every specialization of the function anymore, which on Julia 1.12 took
+  about 10 ms each time.
 
 
 ## LLVM.jl v9.14

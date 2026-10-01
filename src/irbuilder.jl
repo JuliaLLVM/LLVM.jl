@@ -472,15 +472,42 @@ malloc!(builder::IRBuilder, Ty::LLVMType, Name::String="") =
 array_malloc!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::String="") =
     Instruction(API.LLVMBuildArrayMalloc(builder, Ty, Val, Name))
 
-memset!(builder::IRBuilder, Ptr::Value, Val::Value, Len::Value, Align::Integer) =
+# the alignments of the memory intrinsics are optional: `nothing` (or 0 when passed
+# positionally) doesn't add an `align` attribute to the pointer argument
+function memset!(builder::IRBuilder, Ptr::Value, Val::Value, Len::Value, Align::Integer)
+    check_alignment(Align; allow_zero=true)
     Instruction(API.LLVMBuildMemSet(builder, Ptr, Val, Len, Align))
+end
+function memset!(builder::IRBuilder, Ptr::Value, Val::Value, Len::Value; align=nothing)
+    check_alignment(align)
+    memset!(builder, Ptr, Val, Len, something(align, 0))
+end
 
-memcpy!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value, SrcAlign::Integer, Size::Value) =
+function memcpy!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value,
+                 SrcAlign::Integer, Size::Value)
+    check_alignment(DstAlign; allow_zero=true)
+    check_alignment(SrcAlign; allow_zero=true)
     Instruction(API.LLVMBuildMemCpy(builder, Dst, DstAlign, Src, SrcAlign, Size))
+end
+function memcpy!(builder::IRBuilder, Dst::Value, Src::Value, Size::Value;
+                 dst_align=nothing, src_align=nothing)
+    check_alignment(dst_align)
+    check_alignment(src_align)
+    memcpy!(builder, Dst, something(dst_align, 0), Src, something(src_align, 0), Size)
+end
 
-memmove!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value, SrcAlign::Integer,
-         Size::Value) =
+function memmove!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value,
+                  SrcAlign::Integer, Size::Value)
+    check_alignment(DstAlign; allow_zero=true)
+    check_alignment(SrcAlign; allow_zero=true)
     Instruction(API.LLVMBuildMemMove(builder, Dst, DstAlign, Src, SrcAlign, Size))
+end
+function memmove!(builder::IRBuilder, Dst::Value, Src::Value, Size::Value;
+                  dst_align=nothing, src_align=nothing)
+    check_alignment(dst_align)
+    check_alignment(src_align)
+    memmove!(builder, Dst, something(dst_align, 0), Src, something(src_align, 0), Size)
+end
 
 free!(builder::IRBuilder, PointerVal::Value) =
     Instruction(API.LLVMBuildFree(builder, PointerVal))
@@ -1093,23 +1120,40 @@ Build a call to `free` that frees the memory at `ptr`.
 free!
 
 """
+    memset!(builder::IRBuilder, ptr::Value, val::Value, len::Value; align=nothing)
+        -> Instruction
     memset!(builder::IRBuilder, ptr::Value, val::Value, len::Value, align::Integer)
         -> Instruction
 
-Build a call to `llvm.memset` that sets `len` bytes of memory at `ptr`, which is aligned
-to `align` bytes, to the byte `val`.
+Build a call to `llvm.memset` that sets `len` bytes of memory at `ptr` to the byte `val`.
+
+The alignment `align` is a guarantee about the address `ptr`, in bytes, which is added to
+the call as an `align` attribute. By default (`align=nothing`), the call has no such
+attribute, and doesn't assume anything about the alignment of `ptr`. The alignment can also
+be passed positionally, in which case 0 means that it is unknown. Alignments are powers of 2
+up to 2^31; other values (including a keyword alignment of 0) throw an `ArgumentError`.
 """
 memset!
 
 """
+    memcpy!(builder::IRBuilder, dst::Value, src::Value, size::Value;
+            dst_align=nothing, src_align=nothing) -> Instruction
+    memmove!(builder::IRBuilder, dst::Value, src::Value, size::Value;
+             dst_align=nothing, src_align=nothing) -> Instruction
     memcpy!(builder::IRBuilder, dst::Value, dst_align::Integer, src::Value,
             src_align::Integer, size::Value) -> Instruction
     memmove!(builder::IRBuilder, dst::Value, dst_align::Integer, src::Value,
              src_align::Integer, size::Value) -> Instruction
 
 Build a call to `llvm.memcpy` or `llvm.memmove` that copies `size` bytes from `src` to
-`dst`, which are aligned to `src_align` and `dst_align` bytes. For `memcpy!`, the memory
-regions must not overlap.
+`dst`. For `memcpy!`, the memory regions must not overlap.
+
+The alignments `dst_align` and `src_align` are guarantees about the addresses `dst` and
+`src`, in bytes, which are added to the call as `align` attributes. By default (`nothing`),
+the call has no such attribute, and doesn't assume anything about the alignment of the
+pointer. The alignments can also be passed positionally, in which case 0 means that an
+alignment is unknown. Alignments are powers of 2 up to 2^31; other values (including a
+keyword alignment of 0) throw an `ArgumentError`.
 """
 memcpy!
 

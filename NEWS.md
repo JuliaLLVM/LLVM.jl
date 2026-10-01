@@ -428,6 +428,11 @@ New functionality:
   generators can check that an operation applies to a value before generating it.
 - `alloca!` and `array_alloca!` take an `addrspace` keyword argument, for allocations in
   another address space than the one of the data layout.
+- `memset!`, `memcpy!` and `memmove!` take their alignments as optional keyword arguments
+  (`align`, and `dst_align` and `src_align`), like the other builders of memory accesses:
+  `memcpy!(builder, dst, src, len)` doesn't add `align` attributes to the pointers. The
+  positional alignments remain supported, documenting that 0 means unknown, and invalid
+  alignments throw an `ArgumentError` instead of reaching LLVM.
 - `ce.source_element_type` works on `getelementptr` constant expressions, and
   `LLVM.constant_offset(gep, dl)` computes the constant byte offset of a GEP instruction or
   constant expression, as a `BigInt`, or with `LLVM.constant_offset(Int, gep, dl)` as an

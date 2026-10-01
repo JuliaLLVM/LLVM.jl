@@ -60,6 +60,18 @@ LLVM.consume!
 LLVM.adopt
 ```
 
+## Memory checking
+
+These functions make the `memcheck` debugging mode check the wrapper types of other
+packages (see [Checking other wrapper types](@ref)).
+
+```@docs
+LLVM.mark_alloc
+LLVM.mark_use
+LLVM.mark_dispose
+LLVM.mark_untracked
+```
+
 ## Exceptions
 
 ```@docs

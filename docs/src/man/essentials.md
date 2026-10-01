@@ -341,6 +341,64 @@ They were allocated at the same location, e.g.:
 ...
 ```
 
+### Checking other wrapper types
+
+Packages that wrap a related C API (like MLIR's) in wrapper types of their own can have
+memcheck check these too, using [`LLVM.mark_alloc`](@ref), [`LLVM.mark_use`](@ref),
+[`LLVM.mark_dispose`](@ref) and [`LLVM.mark_untracked`](@ref). Like the rest of memcheck,
+they do nothing unless the `memcheck` preference of LLVM.jl is enabled. Register a wrapper
+that owns a resource when creating it, check it when converting it to its handle, and
+dispose of it using `mark_dispose`:
+
+```julia
+struct Session
+    ref::API.SessionRef
+end
+Session() = LLVM.mark_alloc(Session(API.session_create()))
+LLVM.dispose(s::Session) = LLVM.mark_dispose(API.session_destroy, s)
+Base.unsafe_convert(::Type{API.SessionRef}, s::Session) = LLVM.mark_use(s).ref
+
+struct Thing
+    ref::API.ThingRef
+end
+# a thing belongs to a session, which destroys the things that are left when destroyed
+Thing(s::Session) = LLVM.mark_alloc(Thing(API.thing_create(s)); owner=s)
+LLVM.dispose(t::Thing) = LLVM.mark_dispose(API.thing_destroy, t)
+Base.unsafe_convert(::Type{API.ThingRef}, t::Thing) = LLVM.mark_use(t).ref
+```
+
+Memcheck then reports using a thing after it or its session was disposed of, disposing of
+it twice (without destroying it again) or after its session, and not disposing of a
+session or a thing at all (except for things that were destroyed with their session).
+
+Objects are identified by `===`, so register the wrapper, not the handle that the C API
+returns, and use and dispose of that wrapper, or one that is `===` to it (for an immutable
+wrapper, one with the same fields, typically just the handle). Wrappers of handles that the
+library lends out, like a thing that is looked up in a session, are not registered, and
+only checked if they are `===` to a wrapper that is tracked. When the
+library takes ownership of a tracked object, untrack it once that succeeded if it remains
+usable, or hand it over using `mark_dispose` if it doesn't:
+
+```julia
+# the session takes ownership of the thing, which can still be used
+function Base.push!(s::Session, t::Thing)
+    API.session_take_thing(s, t)
+    LLVM.mark_untracked(t)
+    return s
+end
+
+# merging destroys the other session
+merge!(s::Session, other::Session) =
+    LLVM.mark_dispose(other -> API.session_merge(s, other), other)
+```
+
+This is bookkeeping to find bugs, which doesn't make using the objects safe, and it has its
+limits: an object that was handed over isn't checked anymore, as memcheck doesn't know its
+new owner, and wrapping a resource in another type, e.g., to view it differently, gives a
+different object that memcheck doesn't relate to the original one. Only register such a
+wrapper if it takes over ownership of the resource from the original wrapper, which then
+needs to be untracked.
+
 
 ## Properties
 

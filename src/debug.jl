@@ -133,13 +133,20 @@ const problem_descriptions = Dict(
                    ("allocated", "owner disposed of"), "used"),
     :owner_dispose => ("disposed of after its owner was disposed of",
                        ("allocated", "owner disposed of"), "disposed of"),
-    :double_adopt => ("adopted while it was owned already", ("allocated",), "adopted"))
+    :double_adopt => ("adopted while it was owned already", ("allocated",), "adopted"),
+    # an owner that was passed explicitly, but can't own the object
+    :unknown_owner => ("allocated with an owner that isn't tracked", ("allocated",), nothing),
+    :dead_owner => ("allocated with an owner that was disposed of",
+                    ("allocated", "owner allocated"), nothing),
+    :cyclic_owner => ("allocated with an owner that it owns",
+                      ("allocated", "owner allocated"), nothing))
 
 function describe_problem(key)
     kind, T = key
     description = first(problem_descriptions[kind])
     if length(key) > 3
-        description = replace(description, "its owner" => "its owning $(key[4])")
+        description = replace(description, "its owner" => "its owning $(key[4])",
+                                           "an owner" => "an owning $(key[4])")
     end
     return "$T $description"
 end
@@ -209,9 +216,28 @@ function end_owned_lifetimes!(owner, dispose_bt, owner_type=typeof(owner))
     end
 end
 
+# why `owner` can't own `obj`, or `nothing` if it can: it must be tracked, alive (and not
+# being disposed of), and not owned by `obj` (directly or indirectly)
+function owner_problem(obj, owner)
+    owner === obj && return :cyclic_owner
+    entry = get(tracked_objects, owner, nothing)
+    entry === nothing && return :unknown_owner
+    if entry.dispose_bt !== nothing || entry.alloc_bt in disposing_allocations
+        return :dead_owner
+    end
+    # the owners of a live object are alive
+    ancestor = entry.owner
+    while ancestor !== nothing
+        ancestor === obj && return :cyclic_owner
+        ancestor = tracked_objects[ancestor].owner
+    end
+    return nothing
+end
+
 # start tracking an object. `owner` is another tracked object whose disposal ends the
 # lifetime of `obj` (like a context does with its modules), which defaults to
-# `memcheck_owner(obj)`. only owners that are alive are recorded. `allow_overwrite` is for
+# `memcheck_owner(obj)`. only owners that can own the object are recorded, and owners that
+# were passed explicitly (other than `nothing`) are reported otherwise. `allow_overwrite` is for
 # objects whose earlier allocation at the same address wasn't disposed of (as far as
 # memcheck knows), e.g., the borrowed modules of thread-safe modules. when `adopting` an
 # object that foreign code handed over, an object that is tracked as being alive at the
@@ -221,18 +247,33 @@ function track_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner()
     @static if memcheck_enabled
         io = Core.stdout
         new_alloc_bt = backtrace()[2:end]
-        if owner isa DefaultOwner
+        explicit_owner = !(owner isa DefaultOwner)
+        if !explicit_owner
             owner = memcheck_owner(obj)
         end
 
-        tracked, old = @lock memcheck_lock begin
+        tracked, old, invalid_owner = @lock memcheck_lock begin
             old = get(tracked_objects, obj, nothing)
             # another thread may be disposing of the object at this address
             alive = old !== nothing && old.dispose_bt === nothing &&
                     !(old.alloc_bt in disposing_allocations)
+            invalid_owner = nothing
             if adopting && alive
-                return_value = (false, old)
+                return_value = (false, old, invalid_owner)
             else
+                # check the owner before forgetting what an earlier object at this address
+                # owned, which can be the reason why it can't own this object
+                if owner !== nothing
+                    problem = owner_problem(obj, owner)
+                    if problem !== nothing
+                        if explicit_owner
+                            invalid_owner = (problem, owner,
+                                             get(tracked_objects, owner, nothing))
+                        end
+                        owner = nothing
+                    end
+                end
+
                 if old !== nothing
                     detach_owned!(obj, old)
                     # the objects owned by an earlier object at this address (which
@@ -240,27 +281,15 @@ function track_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner()
                     release_owned!(obj)
                 end
 
-                # only record live owners (whose owners are alive too), without cycles
-                if owner !== nothing
-                    owner_entry = get(tracked_objects, owner, nothing)
-                    if owner_entry === nothing || owner_entry.dispose_bt !== nothing
-                        owner = nothing
-                    else
-                        ancestor = owner
-                        while ancestor !== nothing
-                            if ancestor === obj
-                                owner = nothing
-                                break
-                            end
-                            ancestor = tracked_objects[ancestor].owner
-                        end
-                    end
-                end
                 tracked_objects[obj] = TrackedObject(new_alloc_bt, nothing, owner)
                 owner === nothing || push!(get!(Base.IdSet{Any}, owned_objects, owner), obj)
-                return_value = (true, alive ? old : nothing)
+                return_value = (true, alive ? old : nothing, invalid_owner)
             end
             return_value
+        end
+
+        if invalid_owner !== nothing
+            report_invalid_owner(io, obj, invalid_owner..., new_alloc_bt)
         end
 
         if !tracked
@@ -291,8 +320,87 @@ function track_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner()
     return obj
 end
 
+function report_invalid_owner(io, obj, problem, owner, owner_entry, alloc_bt)
+    T = typeof(obj)
+    O = typeof(owner)
+    owner_site = owner_entry === nothing ? () : (user_site(owner_entry.alloc_bt),)
+    id = record_problem!(io, (problem, T, (user_site(alloc_bt), owner_site...), O))
+    id === nothing && return
+    reason = if problem === :unknown_owner
+        "that isn't tracked (it wasn't allocated using `LLVM.mark_alloc`, or was untracked)"
+    elseif problem === :dead_owner
+        owner_entry.dispose_bt === nothing ? "that is being disposed of" :
+                                             "that was disposed of"
+    else
+        "that it owns already (directly or indirectly)"
+    end
+    print(io, "\nWARNING: An instance of $T is being allocated with an owning $O $reason, so it is tracked without an owner.")
+    if owner_entry !== nothing
+        print(io, "\nThe owner was allocated at:")
+        Base.show_backtrace(io, owner_entry.alloc_bt)
+        if owner_entry.dispose_bt !== nothing
+            print(io, "\nThe owner was disposed of at:")
+            Base.show_backtrace(io, owner_entry.dispose_bt)
+        end
+    end
+    print(io, "\nThe object is being allocated at:")
+    Base.show_backtrace(io, alloc_bt)
+    print_problem_footer(io, id)
+end
+
+@public mark_alloc, mark_use, mark_dispose, mark_untracked
+
+"""
+    LLVM.mark_alloc(obj; owner=nothing) -> obj
+
+Register `obj` as a newly allocated object with the `memcheck` debugging mode, which then
+reports using it after it was disposed of (see [`LLVM.mark_use`](@ref)), disposing of it
+twice (see [`LLVM.mark_dispose`](@ref)), and not disposing of it at all (when the process
+exits). This is meant for packages that wrap a C API in wrapper types of their own, to
+check these like LLVM.jl's objects (see [Checking other wrapper types](@ref)). Register the
+wrapper that owns a resource when creating it:
+
+```julia
+Thing() = LLVM.mark_alloc(Thing(API.thing_create()))
+```
+
+Objects are identified by `===`, not by `==` or `hash`: wrapping the same handle in an
+immutable wrapper type again gives the same object (if its other fields, if any, are `===`
+too), while a mutable wrapper is identified by the Julia object itself, and wrappers of
+different types are different objects. Registering an allocation of an object that is still
+alive is reported, as it wasn't disposed of; when the address of an object that was
+disposed of is reused, wrappers of the earlier object become indistinguishable from the
+new one.
+
+`owner` is another tracked object whose disposal ends the lifetime of `obj`, like a context
+does with the modules in it: using or disposing of `obj` after its owner was disposed of is
+reported, and `obj` isn't reported as leaked once its owner was disposed of. This is only
+bookkeeping, which doesn't extend the lifetime of the owner's resource, or transfer
+ownership in the foreign library. The owner must be tracked and alive, and not be owned by
+`obj`; otherwise, the problem is reported, and `obj` is tracked without an owner.
+
+When memcheck is disabled, this only returns `obj` (although the arguments are still
+evaluated). When it is enabled, it keeps the wrappers that it tracks reachable, also after
+they have been disposed of, so garbage collection doesn't finalize mutable wrappers.
+"""
 mark_alloc(obj::Any; owner=nothing) = track_alloc(obj; owner)
 
+
+"""
+    LLVM.mark_use(obj) -> obj
+
+Check that `obj`, as registered using [`LLVM.mark_alloc`](@ref), hasn't been disposed of,
+and that its owner hasn't been disposed of either, reporting the problem otherwise. Objects
+that aren't tracked, e.g., wrappers of handles that the foreign library lends out, aren't
+checked. Typically, this is used when a wrapper is converted to its handle:
+
+```julia
+Base.unsafe_convert(::Type{API.ThingRef}, t::Thing) = LLVM.mark_use(t).ref
+```
+
+This only reports the problem: using the object can still crash the process afterwards.
+When memcheck is disabled, this only returns `obj`.
+"""
 function mark_use(obj::Any)
     @static if memcheck_enabled
         io = Core.stdout
@@ -337,6 +445,37 @@ end
 # object can be allocated at the address of an object that was disposed of earlier, which
 # would otherwise be reported as a use after dispose. objects that it owns are not owned by
 # anything anymore.
+"""
+    LLVM.mark_untracked(obj) -> obj
+
+Stop tracking `obj` with the `memcheck` debugging mode, without disposing of it: it isn't
+checked anymore, or reported as leaked. Use this when a tracked object is handed over to
+the foreign library, which keeps it alive (and disposes of it), after the operation that
+takes ownership succeeded:
+
+```julia
+function Base.push!(c::Container, t::Thing)
+    API.container_append_owned(c, t)
+    LLVM.mark_untracked(t)
+    return c
+end
+```
+
+If the object can't be used anymore after handing it over, e.g., because the operation
+destroys it, use [`LLVM.mark_dispose`](@ref) instead
+(`LLVM.mark_dispose(t -> API.container_consume(c, t), t)`), so that later uses are
+reported. This can also be used for wrappers of handles that the foreign library lends
+out, which might otherwise be mistaken for an object that was disposed of at the same
+address.
+
+The objects that `obj` owned stay tracked without an owner, so they are reported as leaked
+unless they are disposed of (while the objects that they own keep their owner). Memcheck
+doesn't follow the object to its new owner, and doesn't relate other wrappers of the same
+resource to it: a wrapper of another type, e.g., one that views the resource differently, is
+a different object, that isn't tracked unless it is registered itself.
+
+When memcheck is disabled, this only returns `obj`.
+"""
 function mark_untracked(obj::Any)
     @static if memcheck_enabled
         @lock memcheck_lock begin
@@ -364,6 +503,28 @@ function done_disposing!(entry, owned)
     end
 end
 
+"""
+    LLVM.mark_dispose(f, obj) -> nothing
+
+Dispose of `obj` by calling `f(obj)` (discarding what it returns), and record its disposal
+with the `memcheck` debugging mode:
+
+```julia
+dispose(t::Thing) = LLVM.mark_dispose(API.thing_destroy, t)
+```
+
+- When `obj` was disposed of already, or its owner was, the problem is reported, and `f` is
+  not called, as freeing its memory again would crash the process or corrupt the heap. This
+  only applies to disposals that have been recorded: it doesn't synchronize concurrent (or
+  recursive) disposal of the same object.
+- When `obj` isn't tracked (see [`LLVM.mark_alloc`](@ref)), its disposal is reported, and
+  `f` is called nonetheless.
+- When `f` returns, `obj` is recorded as disposed of, which ends the lifetime of the objects
+  that it owns. When `f` throws, the exception is rethrown without recording the disposal
+  (even though `f` may have freed the object already).
+
+When memcheck is disabled, this only calls `f(obj)`.
+"""
 function mark_dispose(f, obj)
     entry = @static if memcheck_enabled
         io = Core.stdout

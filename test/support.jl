@@ -30,6 +30,55 @@ end
     @test_throws ArgumentError LLVM.adopt(buf)
 end
 
+# the wrapper type of another package, around a resource of a foreign library, which uses
+# memcheck's instrumentation
+struct ExternalThing
+    ref::Ptr{Cvoid}
+end
+# memcheck identifies objects by `===`, and doesn't use these
+Base.:(==)(::ExternalThing, ::ExternalThing) = error("ExternalThing ==")
+Base.isequal(::ExternalThing, ::ExternalThing) = error("ExternalThing isequal")
+Base.hash(::ExternalThing, ::UInt) = error("ExternalThing hash")
+
+@testset "instrumenting other wrapper types" begin
+    destroyed = Ptr{Cvoid}[]
+    destroy(t) = (push!(destroyed, t.ref); 42)
+
+    session = ExternalThing(Ptr{Cvoid}(1))
+    thing = ExternalThing(Ptr{Cvoid}(2))
+    @test LLVM.mark_alloc(session) === session
+    @test LLVM.mark_alloc(thing; owner=session) === thing
+    @test LLVM.mark_use(thing) === thing
+    if LLVM.memcheck_enabled
+        @test LLVM.tracked_objects[ExternalThing(Ptr{Cvoid}(2))].owner === session
+    end
+
+    # an exception in the callback isn't recorded as a disposal, so it can be retried
+    @test_throws ErrorException LLVM.mark_dispose(t -> error("failed"), thing)
+    @test LLVM.mark_dispose(destroy, ExternalThing(Ptr{Cvoid}(2))) === nothing
+    @test destroyed == [thing.ref]
+    if LLVM.memcheck_enabled
+        @test LLVM.tracked_objects[thing].dispose_bt !== nothing
+    end
+
+    # untracked objects aren't checked, and their disposal is only reported
+    other = ExternalThing(Ptr{Cvoid}(3))
+    @test LLVM.mark_alloc(other) === other
+    @test LLVM.mark_untracked(other) === other
+    if LLVM.memcheck_enabled
+        @test !haskey(LLVM.tracked_objects, other)
+    else
+        # without memcheck, the callback is always called, also when disposing twice
+        LLVM.mark_dispose(destroy, other)
+        LLVM.mark_dispose(destroy, other)
+        @test destroyed == [thing.ref, other.ref, other.ref]
+        empty!(destroyed)
+    end
+
+    LLVM.mark_dispose(destroy, session)
+    @test last(destroyed) == session.ref
+end
+
 if LLVM.memcheck_enabled
 @testset "memcheck" begin
     # use after dispose (of an object that doesn't track its ownership, unlike, e.g., a
@@ -395,6 +444,150 @@ if LLVM.memcheck_enabled
         @test success
         @test occursin("An instance of Thing is being used after it was disposed of.", out)
         @test count("WARNING", out) == 1
+    end
+
+    @testset "other wrapper types" begin
+        # wrapper types of another package, and a destructor that only records what it
+        # destroyed (the handles aren't real)
+        prelude = """
+            struct Session
+                ref::Ptr{Cvoid}
+            end
+            struct Thing
+                ref::Ptr{Cvoid}
+            end
+            mutable struct Handle
+                ref::Ptr{Cvoid}
+            end
+            for T in (Session, Thing)
+                @eval Base.:(==)(::\$T, ::\$T) = error("==")
+                @eval Base.isequal(::\$T, ::\$T) = error("isequal")
+                @eval Base.hash(::\$T, ::UInt) = error("hash")
+            end
+            destroyed = Int[]
+            destroy(x) = push!(destroyed, Int(x.ref))
+            """
+
+        # a clean lifecycle, using wrappers that are reconstructed from their handle, and
+        # an owner whose disposal ends the lifetime of the objects it owns
+        let (; out, err, success) =
+            execute_code(prelude * """
+                s = LLVM.mark_alloc(Session(Ptr{Cvoid}(1)))
+                t = LLVM.mark_alloc(Thing(Ptr{Cvoid}(2)); owner=s)
+                u = LLVM.mark_alloc(Thing(Ptr{Cvoid}(3)); owner=s)
+                LLVM.mark_use(Thing(Ptr{Cvoid}(2)))
+                LLVM.mark_dispose(destroy, Thing(Ptr{Cvoid}(2)))
+                LLVM.mark_dispose(destroy, Session(Ptr{Cvoid}(1)))
+                println("destroyed: ", destroyed)""")
+            @test success
+            @test occursin("destroyed: [2, 1]", out)
+            @test !occursin("WARNING", out)
+        end
+
+        # problems with the lifetime of objects, and of the objects they own
+        let (; out, err, success) =
+            execute_code(prelude * """
+                s = LLVM.mark_alloc(Session(Ptr{Cvoid}(1)))
+                t = LLVM.mark_alloc(Thing(Ptr{Cvoid}(2)); owner=s)
+                v = LLVM.mark_alloc(Thing(Ptr{Cvoid}(4)))
+                LLVM.mark_dispose(destroy, v)
+                LLVM.mark_use(v)
+                LLVM.mark_dispose(destroy, v)
+                LLVM.mark_dispose(destroy, Thing(Ptr{Cvoid}(5)))
+                LLVM.mark_dispose(destroy, s)
+                LLVM.mark_use(t)
+                LLVM.mark_dispose(destroy, t)
+                println("destroyed: ", destroyed)""")
+            @test success
+            @test occursin("An instance of Thing is being used after it was disposed of.", out)
+            @test occursin("An instance of Thing is being disposed of twice.", out)
+            @test occursin("An unknown instance of Thing is being disposed of.", out)
+            @test occursin("An instance of Thing is being used after the Session that owns it was disposed of.", out)
+            @test occursin("An instance of Thing is being disposed of after the Session that owns it was disposed of", out)
+            # objects are not destroyed again, but unknown ones are destroyed
+            @test occursin("destroyed: [4, 5, 1]", out)
+            @test count("WARNING", out) == 5
+        end
+
+        # owners that can't own an object are reported, and the object is tracked without
+        # an owner
+        let (; out, err, success) =
+            execute_code(prelude * """
+                s = LLVM.mark_alloc(Session(Ptr{Cvoid}(1)))
+                LLVM.mark_dispose(destroy, s)
+                a = LLVM.mark_alloc(Thing(Ptr{Cvoid}(2)); owner=Session(Ptr{Cvoid}(9)))
+                b = LLVM.mark_alloc(Thing(Ptr{Cvoid}(3)); owner=s)
+                c = LLVM.mark_alloc(Thing(Ptr{Cvoid}(4)); owner=Thing(Ptr{Cvoid}(4)))
+                d = Thing(Ptr{Cvoid}(6))
+                LLVM.mark_dispose(LLVM.mark_alloc(Session(Ptr{Cvoid}(5)))) do s
+                    LLVM.mark_alloc(d; owner=s)
+                end
+                # (an earlier object at the same address owns the owner indirectly)
+                p = LLVM.mark_alloc(Thing(Ptr{Cvoid}(7)))
+                q = LLVM.mark_alloc(Thing(Ptr{Cvoid}(8)); owner=p)
+                r = LLVM.mark_alloc(Thing(Ptr{Cvoid}(10)); owner=q)
+                p = LLVM.mark_alloc(Thing(Ptr{Cvoid}(7)); owner=r)
+                owners = [LLVM.tracked_objects[x].owner for x in (a, b, c, d, p, q, r)]
+                println("owners: ", map(o -> o === nothing ? 0 : Int(o.ref), owners))
+                println("owning p: ", haskey(LLVM.owned_objects, p))
+                for x in (a, b, c, d, r, q, p)
+                    LLVM.mark_dispose(destroy, x)
+                end""")
+            @test success
+            @test occursin("An instance of Thing is being allocated with an owning Session that isn't tracked", out)
+            @test occursin("An instance of Thing is being allocated with an owning Session that was disposed of, so it is tracked without an owner.", out)
+            @test occursin("An instance of Thing is being allocated with an owning Session that is being disposed of", out)
+            @test count("An instance of Thing is being allocated with an owning Thing that it owns already", out) == 2
+            @test occursin("An instance of Thing was not properly disposed of, and a new allocation will overwrite it.", out)
+            @test count("WARNING", out) == 6
+            # the objects with an invalid owner have no owner, and the earlier object at
+            # the address of `p` doesn't own `q` anymore
+            @test occursin("owners: [0, 0, 0, 0, 0, 0, 8]", out)
+            @test occursin("owning p: false", out)
+        end
+
+        # untracking an object stops checking it, while the objects it owns stay tracked
+        # (without an owner), and keep owning their objects
+        let (; out, err, success) =
+            execute_code(prelude * """
+                s = LLVM.mark_alloc(Session(Ptr{Cvoid}(1)))
+                t = LLVM.mark_alloc(Thing(Ptr{Cvoid}(2)); owner=s)
+                w = LLVM.mark_alloc(Thing(Ptr{Cvoid}(3)); owner=t)
+                handed = LLVM.mark_untracked(LLVM.mark_alloc(Thing(Ptr{Cvoid}(4))))
+                LLVM.mark_use(handed)
+                LLVM.mark_untracked(s)
+                LLVM.mark_dispose(destroy, s)
+                LLVM.mark_use(t)
+                LLVM.mark_dispose(destroy, t)
+                LLVM.mark_use(w)
+                s2 = LLVM.mark_alloc(Session(Ptr{Cvoid}(5)))
+                t2 = LLVM.mark_alloc(Thing(Ptr{Cvoid}(6)); owner=s2)
+                LLVM.mark_untracked(s2)""")
+            @test success
+            @test occursin("An unknown instance of Session is being disposed of.", out)
+            @test occursin("An instance of Thing is being used after the Thing that owns it was disposed of.", out)
+            @test occursin("An instance of Thing was not properly disposed of.", out)
+            @test count("WARNING", out) == 3
+        end
+
+        # a mutable wrapper is identified by the Julia object, and wrappers of different
+        # types are different objects
+        let (; out, err, success) =
+            execute_code(prelude * """
+                h = LLVM.mark_alloc(Handle(Ptr{Cvoid}(1)))
+                LLVM.mark_dispose(destroy, Handle(Ptr{Cvoid}(1)))
+                h.ref = Ptr{Cvoid}(2)
+                LLVM.mark_use(h)
+                LLVM.mark_dispose(destroy, h)
+                t = LLVM.mark_alloc(Thing(Ptr{Cvoid}(3)))
+                LLVM.mark_dispose(destroy, Session(Ptr{Cvoid}(3)))
+                LLVM.mark_use(t)
+                LLVM.mark_dispose(destroy, t)""")
+            @test success
+            @test occursin("An unknown instance of Handle is being disposed of.", out)
+            @test occursin("An unknown instance of Session is being disposed of.", out)
+            @test count("WARNING", out) == 2
+        end
     end
 end
 end

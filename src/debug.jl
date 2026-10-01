@@ -168,7 +168,7 @@ function report_repeated_problems(io)
     println(io)
 end
 
-# the default `owner` of `mark_alloc`, determined using `memcheck_owner`
+# the default `owner` of `track_alloc`, determined using `memcheck_owner`
 struct DefaultOwner end
 
 # stop tracking an object as owned by its owner
@@ -216,8 +216,8 @@ end
 # memcheck knows), e.g., the borrowed modules of thread-safe modules. when `adopting` an
 # object that foreign code handed over, an object that is tracked as being alive at the
 # same address is not overwritten, but reported (keeping what memcheck knows about it).
-function mark_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner(),
-                    adopting::Bool=false)
+function track_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner(),
+                     adopting::Bool=false)
     @static if memcheck_enabled
         io = Core.stdout
         new_alloc_bt = backtrace()[2:end]
@@ -291,6 +291,8 @@ function mark_alloc(obj::Any; allow_overwrite::Bool=false, owner=DefaultOwner(),
     return obj
 end
 
+mark_alloc(obj::Any; owner=nothing) = track_alloc(obj; owner)
+
 function mark_use(obj::Any)
     @static if memcheck_enabled
         io = Core.stdout
@@ -350,9 +352,10 @@ function mark_untracked(obj::Any)
 end
 
 # start tracking an object that foreign code handed over (see `adopt`)
-mark_adopt(obj::Any) = mark_alloc(obj; adopting=true)
+mark_adopt(obj::Any) = track_alloc(obj; adopting=true)
 
-mark_dispose(obj) = mark_dispose(Returns(nothing), obj)
+# record that an object was disposed of, e.g., by an operation that consumed it
+mark_disposed(obj) = mark_dispose(Returns(nothing), obj)
 
 function done_disposing!(entry, owned)
     delete!(disposing_allocations, entry.alloc_bt)

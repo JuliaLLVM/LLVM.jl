@@ -146,7 +146,7 @@ if LLVM.memcheck_enabled
                             LLVM.mark_alloc(dl)
                         end
                         LLVM.mark_use(dl)
-                        LLVM.mark_dispose(dl)""")
+                        LLVM.mark_disposed(dl)""")
         @test success
         @test !occursin("WARNING", out)
     end
@@ -227,7 +227,7 @@ if LLVM.memcheck_enabled
                             LLVM.mark_alloc(ctx)
                         end
                         LLVM.mark_use(mod)
-                        LLVM.mark_dispose(ctx)""")
+                        LLVM.mark_disposed(ctx)""")
         @test occursin("An instance of LLVM.Module is being used after the Context that owns it was disposed of.", out)
         @test !occursin("not properly disposed of", out)
     end
@@ -244,8 +244,8 @@ if LLVM.memcheck_enabled
                                 LLVM.mark_alloc(mod; owner=nothing)
                             end
                             LLVM.mark_use(mod)
-                            LLVM.mark_dispose(mod)
-                            reuse_ctx && LLVM.mark_dispose(ctx)
+                            LLVM.mark_disposed(mod)
+                            reuse_ctx && LLVM.mark_disposed(ctx)
                         end""")
         @test success
         @test !occursin("WARNING", out)
@@ -321,7 +321,7 @@ if LLVM.memcheck_enabled
                             LLVM.adopt(val)
                         end
                         LLVM.mark_use(val)
-                        LLVM.mark_dispose(val)""")
+                        LLVM.mark_disposed(val)""")
         @test success
         @test !occursin("WARNING", out)
     end

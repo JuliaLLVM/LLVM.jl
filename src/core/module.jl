@@ -149,7 +149,7 @@ Create a new module with the given name.
 This object needs to be disposed of using [`dispose`](@ref).
 """
 Module(name::AbstractString) =
-    mark_alloc(Module(API.LLVMModuleCreateWithNameInContext(name, context())))
+    track_alloc(Module(API.LLVMModuleCreateWithNameInContext(name, context())))
 
 """
     copy(mod::LLVM.Module)
@@ -158,7 +158,7 @@ Clone the given module.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-Base.copy(mod::Module) = mark_alloc(Module(API.LLVMCloneModule(mod)))
+Base.copy(mod::Module) = track_alloc(Module(API.LLVMCloneModule(mod)))
 
 """
     dispose(mod::LLVM.Module)
@@ -329,7 +329,7 @@ function Base.parse(::Type{Module}, ir::AbstractString)
         throw(LLVMException(error))
     end
 
-    mark_alloc(Module(out_ref[]))
+    track_alloc(Module(out_ref[]))
 end
 
 """
@@ -372,7 +372,7 @@ function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     status && throw(LLVMException(unsafe_message(out_error[])))
     check_diagnostic(ctx)
 
-    mark_alloc(Module(out_ref[]))
+    track_alloc(Module(out_ref[]))
 end
 
 """

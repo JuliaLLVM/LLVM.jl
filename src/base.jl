@@ -408,7 +408,7 @@ end
 function consume_owned!(obj)
     check_owned(obj)
     obj.owned = false
-    mark_dispose(obj)
+    mark_disposed(obj)
     return obj.ref
 end
 

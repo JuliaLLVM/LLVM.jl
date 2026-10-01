@@ -140,7 +140,7 @@ end
 function consume!(tsm::ThreadSafeModule)
     check_consumable(tsm)
     tsm.owned = false
-    mark_dispose(tsm)
+    mark_disposed(tsm)
     return tsm.ref
 end
 
@@ -174,7 +174,7 @@ function ThreadSafeModule(mod::Module)
 
     ref = API.LLVMOrcCreateNewThreadSafeModule(mod, ts_context())
     tsm = ThreadSafeModule(ref)
-    mark_dispose(mod)
+    mark_disposed(mod)
     return tsm
 end
 
@@ -220,7 +220,7 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
     mod = Module(ref)
     tracked = !cb.tsm.unsafe_access
     # (it's borrowed for the duration of the callback, not owned by the thread-safe context)
-    tracked && mark_alloc(mod; allow_overwrite=true, owner=nothing)
+    tracked && track_alloc(mod; allow_overwrite=true, owner=nothing)
     ctx = context(mod)
     activate(ctx)
     try
@@ -230,7 +230,7 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
         return API.LLVMCreateStringError(msg)
     finally
         # also check whether `unsafe_module` was called during the callback
-        tracked && !cb.tsm.unsafe_access && mark_dispose(mod)
+        tracked && !cb.tsm.unsafe_access && mark_disposed(mod)
         deactivate(ctx)
     end
     return convert(API.LLVMErrorRef, C_NULL)
@@ -312,7 +312,7 @@ that created it.
 function unsafe_take_module!(tsm::ThreadSafeModule)
     @static if version() >= v"16"
         check_has_module(tsm)
-        return mark_alloc(Module(API.LLVMExtraThreadSafeModuleTakeModule(tsm)))
+        return track_alloc(Module(API.LLVMExtraThreadSafeModuleTakeModule(tsm)))
     else
         error("Taking the module out of a ThreadSafeModule requires LLVM 16 or later")
     end

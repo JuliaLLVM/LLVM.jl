@@ -693,8 +693,9 @@ const ATOMIC_RMW_BINOP_SINCE = (
     isavailable(op::LLVM.AtomicRMWBinOp.T)
 
 Check whether the atomic read-modify-write operation `op` is supported by the version of
-LLVM in use. All operations can be named on every LLVM version, but instructions can only
-be created with the ones that are available.
+LLVM in use. All operations can be named on every LLVM version, and are listed by
+`instances(LLVM.AtomicRMWBinOp.T)`, but instructions can only be created with the ones
+that are available, e.g., `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))`.
 """
 function isavailable(op::API.LLVMAtomicRMWBinOp)
     since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)

@@ -468,6 +468,11 @@ Bug fixes:
   than the active one. A scope can also be assigned to an instruction by name
   (`inst.syncscope = "agent"`). The constructor from an integer ID has been removed.
 - `parse(LLVM.AtomicRMWBinOp.T, name)` supports `fmaximumnum` and `fminimumnum`.
+- `instances(LLVM.AtomicRMWBinOp.T)` lists every `atomicrmw` operation, including the ones
+  that LLVM.jl defines because the C API of the LLVM version in use lacks them (e.g.,
+  `uinc_wrap` before LLVM 19), so that they can be enumerated without hard-coding their
+  names. `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))` lists the ones that
+  LLVM supports.
 - The names of metadata kinds used to index the metadata of instructions and global
   objects (`inst.metadata["tbaa"]`) are looked up in their context instead of the active
   one.

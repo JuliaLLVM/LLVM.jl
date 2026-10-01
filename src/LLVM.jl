@@ -46,6 +46,37 @@ function inline_wrapper(ex)
     end
     return ex
 end
+
+# atomicrmw operations that older C APIs lack, numbered as in newer ones, so that they can be
+# named and enumerated on every LLVM version (`LLVM.isavailable` says whether LLVM supports
+# them). they are added to the definition of the enum in the generated wrappers, so that
+# CEnum knows them too, e.g., for `instances`.
+const backfilled_rmw_binops = (
+    :LLVMAtomicRMWBinOpUIncWrap => 15, :LLVMAtomicRMWBinOpUDecWrap => 16,
+    :LLVMAtomicRMWBinOpUSubCond => 17, :LLVMAtomicRMWBinOpUSubSat => 18,
+    :LLVMAtomicRMWBinOpFMaximum => 19, :LLVMAtomicRMWBinOpFMinimum => 20,
+    :LLVMAtomicRMWBinOpFMaximumNum => 21, :LLVMAtomicRMWBinOpFMinimumNum => 22)
+const rmw_binops_definitions = Ref(0)
+function backfill_rmw_binops(ex)
+    # the definition is `@cenum LLVMAtomicRMWBinOp::UInt32 begin ... end`, documented
+    def = Meta.isexpr(ex, :macrocall) && ex.args[1] == GlobalRef(Core, Symbol("@doc")) ?
+          ex.args[end] : ex
+    Meta.isexpr(def, :macrocall) && def.args[1] === Symbol("@cenum") &&
+        def.args[3] == :(LLVMAtomicRMWBinOp::UInt32) || return ex
+    rmw_binops_definitions[] += 1
+    members = def.args[4].args
+    defined = Dict(m.args[1] => m.args[2] for m in members if Meta.isexpr(m, :(=)))
+    for (name, val) in backfilled_rmw_binops
+        if haskey(defined, name)
+            defined[name] == val || error("LLVM defines $name as $(defined[name]), not $val")
+        else
+            val in values(defined) && error("LLVM defines another atomicrmw operation as $val")
+            push!(members, :($name = $val))
+        end
+    end
+    return ex
+end
+wrapper_mapexpr(ex) = inline_wrapper(backfill_rmw_binops(ex))
 @nospecialize
 let
     if version().major < 15
@@ -59,20 +90,14 @@ let
     end
     @assert isdir(dir)
 
-    include(inline_wrapper, joinpath(dir, "libLLVM.jl"))
-    include(inline_wrapper, joinpath(dir, "libLLVM_extra.jl"))
+    include(wrapper_mapexpr, joinpath(dir, "libLLVM.jl"))
+    include(wrapper_mapexpr, joinpath(dir, "libLLVM_extra.jl"))
 end
-include(inline_wrapper, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
+include(wrapper_mapexpr, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 @specialize
 
-# atomicrmw operations that older C APIs lack, numbered as in newer ones, so that they can be
-# named on every LLVM version (use `LLVM.isavailable` to check whether LLVM supports them)
-for (name, val) in ((:LLVMAtomicRMWBinOpUIncWrap, 15), (:LLVMAtomicRMWBinOpUDecWrap, 16),
-                    (:LLVMAtomicRMWBinOpUSubCond, 17), (:LLVMAtomicRMWBinOpUSubSat, 18),
-                    (:LLVMAtomicRMWBinOpFMaximum, 19), (:LLVMAtomicRMWBinOpFMinimum, 20),
-                    (:LLVMAtomicRMWBinOpFMaximumNum, 21), (:LLVMAtomicRMWBinOpFMinimumNum, 22))
-    isdefined(@__MODULE__, name) || @eval const $name = LLVMAtomicRMWBinOp($val)
-end
+rmw_binops_definitions[] == 1 ||
+    error("Expected one definition of LLVMAtomicRMWBinOp in the wrappers, found $(rmw_binops_definitions[])")
 
 end # module API
 @public API

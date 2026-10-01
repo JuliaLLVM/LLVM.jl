@@ -18,7 +18,9 @@ jobs:
   binary_test:
     name: Julia ${{ matrix.version }} ${{ matrix.llvm_args }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # nightly jobs on Windows and macOS take 12-15 minutes, mostly precompiling for a
+    # new nightly and saving the depot cache; the test step has its own timeout to catch hangs
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -81,6 +83,7 @@ jobs:
         if: runner.os == 'Windows'
 
       - name: Run tests
+        timeout-minutes: 20
         run: |
           julia -e 'open("LocalPreferences.toml", "a") do io
                       println(io, "typecheck = \"true\"")

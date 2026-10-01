@@ -217,6 +217,44 @@
         @check_ir memmoveinst r"call void @llvm.memmove.p0.p0.i32\(ptr align 4 %.+, ptr align 8 %.+, i32 32, i1 false\)"
     end
 
+    # without alignments, the pointer arguments have no `align` attribute
+    p = supports_typed_pointers(ctx) ? raw"i8\*" : "ptr"
+    memsetinst = memset!(builder, ptr, ConstantInt(Int8(1)), ConstantInt(Int32(2)))
+    @test occursin(Regex("call void @llvm.memset.+\\($p %.+, i8 1, i32 2, i1 false\\)"), string(memsetinst))
+    memsetinst = memset!(builder, ptr, ConstantInt(Int8(1)), ConstantInt(Int32(2)); align=16)
+    @test occursin(Regex("call void @llvm.memset.+\\($p align 16 %.+, i8 1"), string(memsetinst))
+    memsetinst = memset!(builder, ptr, ConstantInt(Int8(1)), ConstantInt(Int32(2)), 0)
+    @test occursin(Regex("call void @llvm.memset.+\\($p %.+, i8 1"), string(memsetinst))
+    for f! in (memcpy!, memmove!)
+        inst = f!(builder, allocainst, ptr, ConstantInt(Int32(32)))
+        @test occursin(Regex("\\($p %.+, $p %.+, i32 32, i1 false\\)"), string(inst))
+        inst = f!(builder, allocainst, ptr, ConstantInt(Int32(32)); src_align=2)
+        @test occursin(Regex("\\($p %.+, $p align 2 %.+, i32 32"), string(inst))
+        inst = f!(builder, allocainst, ptr, ConstantInt(Int32(32)); dst_align=4, src_align=1)
+        @test occursin(Regex("\\($p align 4 %.+, $p align 1 %.+, i32 32"), string(inst))
+        inst = f!(builder, allocainst, 0, ptr, 8, ConstantInt(Int32(32)))
+        @test occursin(Regex("\\($p %.+, $p align 8 %.+, i32 32"), string(inst))
+        inst = f!(builder, allocainst, 4, ptr, 0, ConstantInt(Int32(32)))
+        @test occursin(Regex("\\($p align 4 %.+, $p %.+, i32 32"), string(inst))
+        inst = f!(builder, allocainst, 0, ptr, 0, ConstantInt(Int32(32)))
+        @test occursin(Regex("\\($p %.+, $p %.+, i32 32, i1 false\\)"), string(inst))
+    end
+
+    # invalid alignments are rejected before building anything
+    insts = collect(builder.insert_block.instructions)
+    len = ConstantInt(Int32(2))
+    @test_throws ArgumentError memset!(builder, ptr, ConstantInt(Int8(1)), len; align=0)
+    @test_throws ArgumentError memset!(builder, ptr, ConstantInt(Int8(1)), len; align=3)
+    @test_throws ArgumentError memset!(builder, ptr, ConstantInt(Int8(1)), len, 3)
+    @test_throws ArgumentError memset!(builder, ptr, ConstantInt(Int8(1)), len, -1)
+    for f! in (memcpy!, memmove!)
+        @test_throws ArgumentError f!(builder, allocainst, ptr, len; dst_align=0)
+        @test_throws ArgumentError f!(builder, allocainst, ptr, len; src_align=6)
+        @test_throws ArgumentError f!(builder, allocainst, 4, ptr, 3, len)
+        @test_throws ArgumentError f!(builder, allocainst, 2^32, ptr, 4, len)
+    end
+    @test collect(builder.insert_block.instructions) == insts
+
     ptr1 = fn.parameters[5]
 
     freeinst = free!(builder, ptr1)

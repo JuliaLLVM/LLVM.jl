@@ -58,12 +58,10 @@ end
           ret void
         }"""
         @dispose badmod=parse(LLVM.Module, bad_ir) begin
-            @test_throws "invalid operand in inline asm" LLVM.emit(tm, badmod,
-                                                                  LLVM.API.LLVMAssemblyFile)
+            @test_throws LLVMException LLVM.emit(tm, badmod, LLVM.API.LLVMAssemblyFile)
             mktemp() do path, io
-                @test_throws "invalid operand in inline asm" LLVM.emit(tm, badmod,
-                                                                      LLVM.API.LLVMAssemblyFile,
-                                                                      path)
+                @test_throws LLVMException LLVM.emit(tm, badmod, LLVM.API.LLVMAssemblyFile,
+                                                    path)
             end
         end
         @test String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile)) == asm

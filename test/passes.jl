@@ -760,7 +760,7 @@ end
     # in a child process so native state abandoned by longjmp cannot affect the
     # rest of the test suite.
     script = joinpath(@__DIR__, "raw_newpm_longjmp.jl")
-    project = dirname(@__DIR__)
+    project = dirname(Base.active_project())
     @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project $script`)
 end
 

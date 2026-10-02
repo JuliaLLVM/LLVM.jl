@@ -222,15 +222,17 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
     cb = Base.unsafe_pointer_to_objref(data)::ThreadSafeModuleCallback
     # the module is only valid during the callback, unless `unsafe_module` is used
     mod = Module(ref)
-    tracked = !cb.tsm.unsafe_access
-    # (it's borrowed for the duration of the callback, not owned by the thread-safe context)
-    borrows = get!(task_local_storage(), :llvm_tsm_borrows) do
-        Dict{API.LLVMModuleRef,Tuple{Int,Bool}}()
-    end
-    if tracked
-        depth, unsafe = get(borrows, ref, (0, false))
-        depth == 0 && track_alloc(mod; allow_overwrite=true, owner=nothing)
-        borrows[ref] = (depth + 1, unsafe)
+    @static if memcheck_enabled
+        tracked = !cb.tsm.unsafe_access
+        # (it's borrowed for the callback, not owned by the thread-safe context)
+        if tracked
+            borrows = get!(task_local_storage(), :llvm_tsm_borrows) do
+                Dict{API.LLVMModuleRef,Tuple{Int,Bool}}()
+            end
+            depth, unsafe = get(borrows, ref, (0, false))
+            depth == 0 && track_alloc(mod; allow_overwrite=true, owner=nothing)
+            borrows[ref] = (depth + 1, unsafe)
+        end
     end
     ctx = context(mod)
     activate(ctx)
@@ -245,13 +247,15 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
         return API.LLVMCreateStringError(msg)
     finally
         # also check whether `unsafe_module` was called during the callback
-        if tracked
-            depth, unsafe = borrows[ref]
-            if depth == 1
-                delete!(borrows, ref)
-                unsafe || mark_disposed(mod)
-            else
-                borrows[ref] = (depth - 1, unsafe)
+        @static if memcheck_enabled
+            if tracked
+                depth, unsafe = borrows[ref]
+                if depth == 1
+                    delete!(borrows, ref)
+                    unsafe || mark_disposed(mod)
+                else
+                    borrows[ref] = (depth - 1, unsafe)
+                end
             end
         end
         deactivate(ctx)
@@ -308,10 +312,12 @@ function unsafe_module(tsm::ThreadSafeModule)
     check_has_module(tsm)
     mod = Module(API.LLVMExtraThreadSafeModuleGetModuleUnlocked(tsm))
     tsm.unsafe_access = true
-    borrows = get(task_local_storage(), :llvm_tsm_borrows, nothing)
-    if borrows !== nothing && haskey(borrows, mod.ref)
-        depth, _ = borrows[mod.ref]
-        borrows[mod.ref] = (depth, true)
+    @static if memcheck_enabled
+        borrows = get(task_local_storage(), :llvm_tsm_borrows, nothing)
+        if borrows !== nothing && haskey(borrows, mod.ref)
+            depth, _ = borrows[mod.ref]
+            borrows[mod.ref] = (depth, true)
+        end
     end
     return mark_untracked(mod)
 end

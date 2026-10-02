@@ -246,6 +246,9 @@ are bound to LLVM values instead of their types:
   instead: singletons like `Val{x}()` are bound to the instance, and `Type{T}` to `T`;
 - varargs are bound to a tuple of the above.
 
+Varargs may use `args...`, `args::Vararg`, `args::Vararg{T,N}`, or the corresponding
+`Core.Vararg` spelling. Other aliases for `Vararg` are not recognized by the macro.
+
 The value returned by the body is returned by the function. It should be an LLVM value of
 the type the return type `RT` lowers to, or `nothing` if `RT` has no LLVM representation
 (like `Nothing`). If the body terminates the current block itself, e.g., using `ret!`
@@ -312,6 +315,10 @@ macro llvmgenerated(def)
     throw(ArgumentError("@llvmgenerated expects the name of the builder as first argument, e.g., `@llvmgenerated builder function ...`"))
 end
 
+is_vararg_head(head) = head === :Vararg ||
+    (Meta.isexpr(head, :., 2) && head.args[1] === :Core &&
+     head.args[2] isa QuoteNode && head.args[2].value === :Vararg)
+
 macro llvmgenerated(builder, def)
     builder isa Symbol ||
         throw(ArgumentError("@llvmgenerated expects the name of the builder as first argument, e.g., `@llvmgenerated builder function ...`"))
@@ -349,9 +356,9 @@ macro llvmgenerated(builder, def)
         if Meta.isexpr(param, :kw, 2)
             param, default = param.args
         end
-        explicit_va = Meta.isexpr(param, :(::)) &&
-                      Meta.isexpr(param.args[end], :curly) &&
-                      param.args[end].args[1] === :Vararg
+        typ = Meta.isexpr(param, :(::)) ? param.args[end] : nothing
+        explicit_va = is_vararg_head(typ) ||
+                      (Meta.isexpr(typ, :curly) && is_vararg_head(typ.args[1]))
         isva |= explicit_va
         isva && i != length(call.args) - 1 &&
             throw(ArgumentError("$what: only the last argument can be a vararg"))

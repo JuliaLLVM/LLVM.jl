@@ -167,6 +167,26 @@ end
 @test lg_explicit_vararg(1) === 1
 @test lg_explicit_vararg(1, 2, 3) === 6
 
+@llvmgenerated builder function lg_bare_vararg(x::Int, rest::Vararg)::Int
+    acc = x
+    for val in rest
+        val isa LLVM.Value && (acc = add!(builder, acc, val))
+    end
+    acc
+end
+@test lg_bare_vararg(1) === 1
+@test lg_bare_vararg(1, 2, Val(3), 4) === 7
+
+@llvmgenerated builder function lg_core_vararg(x::Int, rest::Core.Vararg{Int,N})::Int where N
+    acc = x
+    for val in rest
+        acc = add!(builder, acc, val)
+    end
+    acc
+end
+@test lg_core_vararg(1) === 1
+@test lg_core_vararg(1, 2, 3) === 6
+
 # Bool arguments and return values lower to i8
 @llvmgenerated builder function lg_iszero(x::Int)::Bool
     cmp = icmp!(builder, LLVM.API.LLVMIntEQ, x, ConstantInt(0))

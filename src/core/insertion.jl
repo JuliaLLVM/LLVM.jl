@@ -29,9 +29,11 @@ BasicBlock(LLVM.after(entry), "cont")
 ```
 
 An insertion point is resolved when it is created: `LLVM.after(x)` is the position before
-the object that follows `x`, or the end of the list if `x` is the last one. Inserting
-several objects at the same insertion point therefore keeps them in the order they were
-inserted in, but an object that is added after `x` in the meantime ends up after them.
+the object that follows `x`, or the end of the list if `x` is the last one. Repeated
+insertion of instructions, blocks, functions or globals at the same point preserves order.
+An object added after `x` in the meantime appears before later insertions at a saved
+`LLVM.after(x)` point. Debug records inserted at a head position reverse order on LLVM
+19 and later; see [`dbg_declare!`](@ref).
 
 Like an iterator, an insertion point refers to the object that it inserts before (its
 anchor), and is invalidated when that object is erased, or when it is moved elsewhere.

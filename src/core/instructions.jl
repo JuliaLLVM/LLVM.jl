@@ -371,7 +371,17 @@ ordering(::AtomicCmpXchgInst) =
 function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
     # loads and stores can be made atomic by setting an ordering, but LLVM asserts when
     # setting an invalid ordering on other instructions
-    if inst isa AtomicRMWInst
+    if inst isa LoadInst
+        (ord == API.LLVMAtomicOrderingRelease || ord == API.LLVMAtomicOrderingAcquireRelease) &&
+            throw(ArgumentError("atomic loads cannot have release semantics"))
+        ord == API.LLVMAtomicOrderingNotAtomic ||
+            check_atomic_type(value_type(inst), "An atomic load")
+    elseif inst isa StoreInst
+        (ord == API.LLVMAtomicOrderingAcquire || ord == API.LLVMAtomicOrderingAcquireRelease) &&
+            throw(ArgumentError("atomic stores cannot have acquire semantics"))
+        ord == API.LLVMAtomicOrderingNotAtomic ||
+            check_atomic_type(value_type(inst.value_operand), "An atomic store")
+    elseif inst isa AtomicRMWInst
         is_stronger(ord, API.LLVMAtomicOrderingUnordered) ||
             throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $(msgname(ord))"))
     elseif inst isa FenceInst
@@ -833,6 +843,7 @@ function success_ordering(inst::AtomicCmpXchgInst)
 end
 
 function success_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
+    check_cmpxchg_orderings(ord, failure_ordering(inst))
     API.LLVMSetCmpXchgSuccessOrdering(inst, ord)
 end
 
@@ -843,7 +854,19 @@ function failure_ordering(inst::AtomicCmpXchgInst)
 end
 
 function failure_ordering!(inst::AtomicCmpXchgInst, ord::API.LLVMAtomicOrdering)
+    check_cmpxchg_orderings(success_ordering(inst), ord)
     API.LLVMSetCmpXchgFailureOrdering(inst, ord)
+end
+
+function check_cmpxchg_orderings(success::API.LLVMAtomicOrdering,
+                                 failure::API.LLVMAtomicOrdering)
+    (is_stronger(success, API.LLVMAtomicOrderingUnordered) &&
+     is_stronger(failure, API.LLVMAtomicOrderingUnordered)) ||
+        throw(ArgumentError("cmpxchg requires orderings of at least monotonic, got " *
+                            "success=$(msgname(success)) and failure=$(msgname(failure))"))
+    (failure == API.LLVMAtomicOrderingRelease ||
+     failure == API.LLVMAtomicOrderingAcquireRelease) &&
+        throw(ArgumentError("The failure ordering of a cmpxchg cannot be release or acq_rel, got $(msgname(failure))"))
 end
 
 @property AtomicCmpXchgInst failure_ordering failure_ordering!
@@ -1226,9 +1249,15 @@ Check if the given branch instruction is conditional.
 """
 isconditional(br::BrInst) = API.LLVMIsConditional(br) |> Bool
 
-condition(br::BrInst) = Value(API.LLVMGetCondition(br))
+function condition(br::BrInst)
+    isconditional(br) || return nothing
+    Value(API.LLVMGetCondition(br))
+end
 
-condition!(br::BrInst, cond::Value) = API.LLVMSetCondition(br, cond)
+function condition!(br::BrInst, cond::Value)
+    isconditional(br) || throw(ArgumentError("cannot set the condition of an unconditional branch"))
+    API.LLVMSetCondition(br, cond)
+end
 
 @property BrInst condition condition!
 
@@ -1423,9 +1452,13 @@ function Base.push!(iter::PhiIncomingSet, (val, bb)::Tuple{<:Value, BasicBlock})
 end
 
 function Base.append!(iter::PhiIncomingSet, args)
-    for arg in args
-        push!(iter, arg)
+    vals = Value[]
+    blocks = BasicBlock[]
+    for (val, bb) in args
+        push!(vals, val)
+        push!(blocks, bb)
     end
+    isempty(vals) || API.LLVMAddIncoming(iter.phi, vals, blocks, length(vals))
     return iter
 end
 

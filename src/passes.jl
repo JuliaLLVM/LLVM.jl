@@ -89,13 +89,15 @@ LoopPassManager(; use_memory_ssa=false) =
 @vocabulary Passes ModulePass, FunctionPass
 
 """
-    ModulePass(name, callback)
-    FunctionPass(name, callback)
+    ModulePass(name, callback; required=false)
+    FunctionPass(name, callback; required=false)
 
 Create a new custom pass. The `name` is a string that will be used to identify the pass
 in the pass manager. The `callback` is a function that will be called when the pass is
 run. The function should take a single argument, the module or function to be processed,
 and return a boolean indicating whether the pass made any changes.
+Set `required=true` for a pass needed for correctness; LLVM then does not skip it on
+`optnone` functions or under `-opt-bisect-limit`.
 
 Before using a custom pass, it must be registered with a pass builder using `register!`.
 LLVM.jl catches exceptions from these callbacks and rethrows them as `PassException`
@@ -110,16 +112,19 @@ struct CustomPass
   type::Symbol
   name::String
   callback::Any
+  required::Bool
 end
 @vocabulary Passes CustomPass
 
 Base.string(pass::CustomPass) = pass.name
 
 @doc (@doc CustomPass)
-ModulePass(name, callback)   = CustomPass(:module, name, callback)
+ModulePass(name, callback; required::Bool=false) =
+    CustomPass(:module, name, callback, required)
 
 @doc (@doc CustomPass)
-FunctionPass(name, callback) = CustomPass(:function, name, callback)
+FunctionPass(name, callback; required::Bool=false) =
+    CustomPass(:function, name, callback, required)
 
 # State struct to store callback and any caught exception
 mutable struct CustomPassState
@@ -199,19 +204,20 @@ pass pipelines. The `verify_each` keyword argument enables module verification a
 pass, while `debug_logging` can be used to enable more output. Pass builder objects need to
 be disposed of after use, e.g., using `@dispose` or the do-block form.
 
-Several other keyword arguments can be used to tune the pipeline. This only has an effect
-when using one of LLVM's default pipelines, like `default<O3>`:
+Several other keyword arguments can override LLVM's version- and configuration-dependent
+pipeline defaults. This only has an effect when using one of LLVM's default pipelines,
+like `default<O3>`:
 
-- `loop_interleaving::Bool=false`: Enable loop interleaving.
-- `loop_vectorization::Bool=false`: Enable loop vectorization.
-- `slp_vectorization::Bool=false`: Enable SLP vectorization.
-- `loop_unrolling::Bool=false`: Enable loop unrolling.
-- `forget_all_scev_in_loop_unroll::Bool=false`: Forget all SCEV information in loop
+- `loop_interleaving::Bool`: Enable loop interleaving.
+- `loop_vectorization::Bool`: Enable loop vectorization.
+- `slp_vectorization::Bool`: Enable SLP vectorization.
+- `loop_unrolling::Bool`: Enable loop unrolling.
+- `forget_all_scev_in_loop_unroll::Bool`: Forget all SCEV information in loop
   unrolling.
-- `licm_mssa_opt_cap::Int=0`: LICM MSSA optimization cap.
-- `licm_mssa_no_acc_for_promotion_cap::Int=0`: LICM MSSA no access for promotion cap.
-- `call_graph_profile::Bool=false`: Enable call graph profiling.
-- `merge_functions::Bool=false`: Enable function merging.
+- `licm_mssa_opt_cap::Int`: LICM MSSA optimization cap.
+- `licm_mssa_no_acc_for_promotion_cap::Int`: LICM MSSA no access for promotion cap.
+- `call_graph_profile::Bool`: Enable call graph profiling.
+- `merge_functions::Bool`: Enable function merging.
 
 After a pass builder is constructed, custom passes can be registered with `register!`,
 passes or nested pass managers can be added with `add!`, and finally the passes can be run
@@ -294,10 +300,7 @@ end
 
 PassBuilder(f::Core.Function; kwargs...) = with_disposal(f, PassBuilder(; kwargs...))
 
-function dispose(pb::PassBuilder)
-    API.LLVMDisposePassBuilderOptions(pb.opts)
-    mark_disposed(pb)
-end
+dispose(pb::PassBuilder) = mark_dispose(API.LLVMDisposePassBuilderOptions, pb)
 
 """
     register!(pb, custom_pass)
@@ -308,6 +311,8 @@ used in a pass pipeline.
 See also: [`ModulePass`](@ref), [`FunctionPass`](@ref)
 """
 function register!(pb::PassBuilder, pass::CustomPass)
+    any(p -> p.type === pass.type && p.name == pass.name, pb.custom_passes) &&
+        throw(ArgumentError("pass $(pass.name) is already registered for $(pass.type)"))
     push!(pb.custom_passes, pass)
     return pb
 end
@@ -414,14 +419,14 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
         for (i,pass) in enumerate(pb.custom_passes)
             if pass.type === :module
                 cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Cvoid}))
-                api = API.LLVMPassBuilderExtensionsRegisterModulePass
+                api = API.LLVMPassBuilderExtensionsRegisterModulePassWithRequired
             elseif pass.type === :function
                 cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Cvoid}))
-                api = API.LLVMPassBuilderExtensionsRegisterFunctionPass
+                api = API.LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired
             else
                 throw(ArgumentError("invalid pass type $(pass.type)"))
             end
-            api(exts, pass.name, cb, Ref(states, i))
+            api(exts, pass.name, cb, Ref(states, i), pass.required)
         end
 
         # register Julia passes
@@ -436,7 +441,7 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
         # register AA pipeline
         if !isempty(aa_pipeline)
             if version() >= v"20"
-                API.LLVMPassBuilderOptionsSetAAPipeline(pb.opts, aa_pipeline)
+                API.LLVMPassBuilderOptionsSetAAPipeline(pb, aa_pipeline)
             else
                 API.LLVMPassBuilderExtensionsSetAAPipeline(exts, aa_pipeline)
             end
@@ -445,15 +450,15 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
         try
             if target isa Module
                 @check API.LLVMRunJuliaPasses(target, pipeline, something(tm, C_NULL),
-                                              pb.opts, exts)
+                                              pb, exts)
             elseif target isa Function
                 @check API.LLVMRunJuliaPassesOnFunction(target, pipeline,
-                                                        something(tm, C_NULL), pb.opts, exts)
+                                                        something(tm, C_NULL), pb, exts)
             end
         finally
             # the options keep a pointer to the AA pipeline, which is only valid during the run
             if !isempty(aa_pipeline) && version() >= v"20"
-                API.LLVMPassBuilderOptionsSetAAPipeline(pb.opts, C_NULL)
+                API.LLVMPassBuilderOptionsSetAAPipeline(pb, C_NULL)
             end
         end
 
@@ -510,7 +515,7 @@ end
 ## pass definitions
 
 # convert Julia keyword arguments to a LLVM pass parameter string
-function kwargs_to_params(kwargs; allow_empty=false)
+function kwargs_to_params(kwargs)
     isempty(kwargs) && return ""
 
     params = String[]

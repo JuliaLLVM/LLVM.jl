@@ -33,8 +33,7 @@ end
 @loop_pass "JuliaLICM" JuliaLICMPass
 @loop_pass "LowerSIMDLoop" LowerSIMDLoopPass
 
-# convert Julia keyword arguments to a Julia/LLVM pass parameter string
-# XXX: annoyingly, Julia's LLVM passes use `-` while LLVM uses `_`. Fix this?
+# Julia's parser uses underscores in option names, unlike ordinary LLVM passes.
 function kwargs_to_params(kwargs)
     isempty(kwargs) && return ""
 
@@ -69,8 +68,6 @@ function JuliaPipeline(; opt_level=nothing, kwargs...)
     "julia" * kwargs_to_params(kwargs)
 end
 
-# XXX: if we go through the PassBuilder parser, Julia won't insert the PassBuilder's
-# callbacks in the right spots. that's why Julia also provides `jl_build_newpm_pipeline`.
-# is this still true? can we fix that, and continue using the PassBuilder interface?
-
+# Julia builds its own pipeline because its textual parser passes no extension points
+# to `buildPipeline`, so it does not inherit the surrounding PassBuilder's callbacks.
 

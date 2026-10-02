@@ -206,6 +206,7 @@ end
             dispose(mod1)
 
             push!(engine, mod2)
+            @test_throws ArgumentError push!(engine, mod2)
             @test haskey(engine.functions, "add_2")
             @test engine.functions["add_2"] isa LLVM.Function
 

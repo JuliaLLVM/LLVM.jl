@@ -132,15 +132,22 @@ function ObjectLinkingLayer(es::ExecutionSession,
                             triple::AbstractString=LLVM.default_triple();
                             override_object_flags::Union{Nothing,Bool}=nothing,
                             auto_claim_object_symbols::Union{Nothing,Bool}=nothing)
+    triple = Base.cconvert(Cstring, triple)
+    Base.unsafe_convert(Cstring, triple)  # validate embedded NUL before allocating the layer
     ref = API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
-    API.LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(ref, triple)
-    if override_object_flags !== nothing
-        API.LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(
-            ref, override_object_flags)
-    end
-    if auto_claim_object_symbols !== nothing
-        API.LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
-            ref, auto_claim_object_symbols)
+    try
+        API.LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(ref, triple)
+        if override_object_flags !== nothing
+            API.LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(
+                ref, override_object_flags)
+        end
+        if auto_claim_object_symbols !== nothing
+            API.LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
+                ref, auto_claim_object_symbols)
+        end
+    catch
+        API.LLVMExtraDisposeRTDyldObjectLinkingLayer(ref)
+        rethrow()
     end
     ObjectLinkingLayer(ref)
 end
@@ -629,6 +636,7 @@ end
 
 function add!(lljit::LLJIT, jd::JITDylib, mod::ThreadSafeModule)
     # consumed, even on failure
+    check_has_module(mod)
     err = API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, consume!(mod))
     @check err
     return
@@ -753,6 +761,7 @@ end
 function add!(lljit::LLJIT, rt::ResourceTracker, mod::ThreadSafeModule)
     check_usable(rt)
     # consumed, even on failure
+    check_has_module(mod)
     err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, consume!(mod))
     @check err
     return
@@ -912,8 +921,10 @@ end
 ```
 
 Both arguments are borrowed: `f` should not dispose of them, or pass them to APIs that take
-ownership. The transformation is kept alive for as long as the JIT, and should be installed
-before any code is added to it. It may be called on whichever thread materializes code.
+ownership. The Julia `LLJIT` wrapper used to install the transformation roots it. Keep that
+exact wrapper alive until the native JIT is destroyed, especially when wrapping a foreign
+JIT. Install the transformation before adding code. It may be called on whichever thread
+materializes code.
 
 If `f` throws, materialization of the module fails, and the original exception can be
 retrieved by calling [`check_callback_error!`](@ref) on the layer.

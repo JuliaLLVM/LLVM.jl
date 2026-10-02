@@ -157,6 +157,36 @@ end
 end
 @test lg_vararg(1, 2, Val(100), 3, nothing, 4) === 10
 
+@llvmgenerated builder function lg_explicit_vararg(x::Int, rest::Vararg{Int,N})::Int where N
+    acc = x
+    for val in rest
+        acc = add!(builder, acc, val)
+    end
+    acc
+end
+@test lg_explicit_vararg(1) === 1
+@test lg_explicit_vararg(1, 2, 3) === 6
+
+@llvmgenerated builder function lg_bare_vararg(x::Int, rest::Vararg)::Int
+    acc = x
+    for val in rest
+        val isa LLVM.Value && (acc = add!(builder, acc, val))
+    end
+    acc
+end
+@test lg_bare_vararg(1) === 1
+@test lg_bare_vararg(1, 2, Val(3), 4) === 7
+
+@llvmgenerated builder function lg_core_vararg(x::Int, rest::Core.Vararg{Int,N})::Int where N
+    acc = x
+    for val in rest
+        acc = add!(builder, acc, val)
+    end
+    acc
+end
+@test lg_core_vararg(1) === 1
+@test lg_core_vararg(1, 2, 3) === 6
+
 # Bool arguments and return values lower to i8
 @llvmgenerated builder function lg_iszero(x::Int)::Bool
     cmp = icmp!(builder, LLVM.API.LLVMIntEQ, x, ConstantInt(0))
@@ -285,6 +315,7 @@ end
 @test_throws "keyword arguments are not supported" @eval @llvmgenerated b function lg_bad(x; y)::Nothing end
 @test_throws "conflicts with the name of the builder" @eval @llvmgenerated b function lg_bad(b)::Nothing end
 @test_throws "expects the name of the builder" @eval @llvmgenerated function lg_bad(b)::Nothing end
+@test_throws "typed callable receivers are not supported" @eval @llvmgenerated b function (::LGCallable)(x::Int)::Int x end
 
 # the functional interface, evaluating arguments even when they aren't passed
 counter = Ref(0)
@@ -302,6 +333,10 @@ end)
     nothing
 end)
 @test_throws UndefVarError lg_undef()
+@eval lg_globalref() = $(generate_llvmcall(Nothing, Tuple{Nothing}, GlobalRef(Main, :lg_missing_global)) do builder, x
+    nothing
+end)
+@test_throws UndefVarError lg_globalref()
 
 end
 

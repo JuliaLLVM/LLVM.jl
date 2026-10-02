@@ -35,8 +35,6 @@ end
 
 
 Base.sizeof(typ::LLVMType) = error("LLVM types are not sized")
-# TODO: expose LLVMSizeOf/LLVMAlignOf, yielding run-time values?
-# XXX: can we query type sizes from the data layout or target?
 
 const type_kinds = Vector{Type}(fill(Nothing, typemax(API.LLVMTypeKind)+1))
 function identify(::Type{LLVMType}, ref::API.LLVMTypeRef)

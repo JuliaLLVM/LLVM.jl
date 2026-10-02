@@ -647,20 +647,8 @@ check_available(op::API.LLVMAtomicRMWBinOp) =
     isavailable(op) ||
         throw(ArgumentError("atomicrmw operation $(msgname(op)) is not supported by LLVM $(version())"))
 
-function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
-                     ordering::API.LLVMAtomicOrdering, singleThread::Bool)
-    check_available(op)
-    # only LLVMExtra's builder knows about operations that the C API doesn't define yet
-    if version() < v"19" && Integer(op) > Integer(API.LLVMAtomicRMWBinOpFMin)
-        # SyncScope::SingleThread or ::System
-        scope = SyncScope(singleThread ? 0 : 1, context(builder))
-        return atomic_rmw!(builder, op, Ptr, Val, ordering, scope)
-    end
-    Instruction(API.LLVMBuildAtomicRMW(builder, op, Ptr, Val, ordering, singleThread))
-end
-
-function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
-                     ordering::API.LLVMAtomicOrdering, syncscope::SyncScope)
+function _build_atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
+                            ordering::API.LLVMAtomicOrdering, syncscope::SyncScope)
     check_available(op)
     check_context(syncscope, context(builder))
     @static if v"16" <= version() < v"19"
@@ -705,15 +693,20 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     end
     check_atomic_type(T, "atomicrmw")
     check_alignment(align)
-    inst = if scope === nothing
-        atomic_rmw!(builder, op, Ptr, Val, ordering, false)
-    else
-        atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(builder, scope))
-    end
+    inst = _build_atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(builder, scope))
     align === nothing || alignment!(inst, align)
     volatile && volatile!(inst, true)
     return inst
 end
+
+atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, ptr::Value, val::Value,
+            ordering::API.LLVMAtomicOrdering, singleThread::Bool) =
+    atomic_rmw!(builder, op, ptr, val, ordering;
+                scope=SyncScope(singleThread ? 0 : 1, context(builder)))
+
+atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, ptr::Value, val::Value,
+            ordering::API.LLVMAtomicOrdering, scope::SyncScope) =
+    atomic_rmw!(builder, op, ptr, val, ordering; scope)
 
 """
     atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
@@ -732,11 +725,7 @@ function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
                          success::API.LLVMAtomicOrdering,
                          failure::API.LLVMAtomicOrdering=strongest_failure_ordering(success);
                          scope=nothing, align=nothing, volatile::Bool=false, weak::Bool=false)
-    (is_stronger(success, Unordered) && is_stronger(failure, Unordered)) ||
-        throw(ArgumentError("cmpxchg requires orderings of at least monotonic, got " *
-                            "success=$(msgname(success)) and failure=$(msgname(failure))"))
-    (failure == Release || failure == AcquireRelease) &&
-        throw(ArgumentError("The failure ordering of a cmpxchg cannot be release or acq_rel, got $(msgname(failure))"))
+    check_cmpxchg_orderings(success, failure)
     T = value_type(Cmp)
     T == value_type(New) ||
         throw(ArgumentError("cmpxchg requires values of the same type, got $(string(T)) and $(string(value_type(New)))"))
@@ -744,31 +733,32 @@ function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
         throw(ArgumentError("cmpxchg requires integer or pointer values, got $(string(T))"))
     check_atomic_type(T, "cmpxchg")
     check_alignment(align)
-    inst = if scope === nothing
-        atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure, false)
-    else
-        atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure,
-                        atomic_scope(builder, scope))
-    end
+    inst = _build_atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure,
+                                  atomic_scope(builder, scope))
     align === nothing || alignment!(inst, align)
     volatile && volatile!(inst, true)
     weak && weak!(inst, true)
     return inst
 end
 
-atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
-                SuccessOrdering::API.LLVMAtomicOrdering,
-                FailureOrdering::API.LLVMAtomicOrdering, SingleThread::Bool) =
-    Instruction(API.LLVMBuildAtomicCmpXchg(builder, Ptr, Cmp, New, SuccessOrdering,
-                                           FailureOrdering, SingleThread))
-
-function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
+function _build_atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
                          SuccessOrdering::API.LLVMAtomicOrdering,
                          FailureOrdering::API.LLVMAtomicOrdering, syncscope::SyncScope)
     check_context(syncscope, context(builder))
     Instruction(API.LLVMBuildAtomicCmpXchgSyncScope(builder, Ptr, Cmp, New, SuccessOrdering,
                                                     FailureOrdering, syncscope.id))
 end
+
+atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
+                success::API.LLVMAtomicOrdering, failure::API.LLVMAtomicOrdering,
+                singleThread::Bool) =
+    atomic_cmpxchg!(builder, ptr, cmp, new, success, failure;
+                    scope=SyncScope(singleThread ? 0 : 1, context(builder)))
+
+atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
+                success::API.LLVMAtomicOrdering, failure::API.LLVMAtomicOrdering,
+                scope::SyncScope) =
+    atomic_cmpxchg!(builder, ptr, cmp, new, success, failure; scope)
 
 function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
               Indices::AbstractVector{<:Value}, Name::AbstractString="")
@@ -879,11 +869,6 @@ function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector
                                                     length(Args), as_vector(Bundles),
                                                     length(Bundles), Name))
 end
-
-# convenience function to be able to call `call!` with a `call.operand_bundles` argument
-call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
-      Bundles::OperandBundleIterator, Name::AbstractString="") =
-    call!(builder, Ty, Fn, Args, collect(Bundles), Name)
 
 va_arg!(builder::IRBuilder, List::Value, Ty::LLVMType, Name::AbstractString="") =
     Instruction(API.LLVMBuildVAArg(builder, List, Ty, Name))

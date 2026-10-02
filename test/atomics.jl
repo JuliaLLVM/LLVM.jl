@@ -226,6 +226,24 @@ end
     ret!(builder, extract_value!(builder, cx, 0))
     @test expand_partword!(cx, 4)
     @test occursin("partword.cmpxchg.loop", string(f))
+    f, ptr, val = newfun("partword_bad_alignment", LLVM.Int16Type())
+    rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, val, MO; align=1)
+    ret!(builder, rmw)
+    before = string(f)
+    @test_throws ArgumentError expand_partword!(rmw, 4)
+    @test string(f) == before
+    @test_throws ArgumentError partword_mask!(builder, LLVM.Int16Type(), ptr;
+                                               align=1, word_size=4)
+    @test string(f) == before
+    @test_throws ArgumentError partword_mask!(builder, LLVM.StructType([T_i32]), ptr;
+                                               align=4, word_size=4)
+    @test string(f) == before
+    f, ptr, val = newfun("partword_pointer", LLVM.PointerType(T_i8))
+    cx = atomic_cmpxchg!(builder, ptr, val, val, MO)
+    ret!(builder, extract_value!(builder, cx, 0))
+    before = string(f)
+    @test_throws ArgumentError expand_partword!(cx, 16)
+    @test string(f) == before
     f, ptr, val = newfun("wordsized", T_i32)
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, val, MO)
     ret!(builder, rmw)
@@ -234,6 +252,10 @@ end
 
     # accessing a value in the word that contains it
     f, ptr, val = newfun("mask", T_i8)
+    before = string(f)
+    @test_throws "partword address must be a pointer" partword_mask!(
+        builder, T_i8, ConstantInt(Int32(0)); align=1, word_size=4)
+    @test string(f) == before
     pm = partword_mask!(builder, T_i8, ptr; align=1, word_size=4)
     @test pm.word_type == T_i32 && pm.value_type == T_i8 && pm.aligned_addr_alignment == 4
     @test pm.inv_mask !== nothing
@@ -255,6 +277,13 @@ end
     f, ptr, val = newfun("mask_sizes", T_i32)
     pm = partword_mask!(builder, T_i32, ptr; align=4, word_size=4)
     @test pm.inv_mask === nothing
+    before = string(f)
+    pm = partword_mask!(builder, T_i32, ptr; align=1, word_size=4)
+    @test pm.inv_mask === nothing && pm.aligned_addr_alignment == 1
+    @test string(f) == before
+    @test_throws "partword address must be a pointer" partword_mask!(
+        builder, T_i32, ConstantInt(Int32(0)); align=1, word_size=4)
+    @test string(f) == before
     pm = partword_mask!(builder, T_i32, ptr; align=4, word_size=8)
     @test pm.word_type == LLVM.Int64Type()
     @test occursin("i64 4294967295", string(f))
@@ -275,6 +304,17 @@ end
         @test occursin(r"%AlignedAddr = getelementptr i8, .* %[^,]*, i32 %", ir)
         @test occursin(r"xor i32 %PtrLSB, 3", ir)
         @test verify(mod_as) === nothing
+    end
+    @dispose mod_ni=LLVM.Module("expansion_ni") begin
+        mod_ni.datalayout = "e-p1:64:64-ni:1"
+        f = LLVM.Function(mod_ni, "mask_ni",
+                          LLVM.FunctionType(T_i8, [LLVM.PointerType(T_i8, 1), T_i8]))
+        ptr, val = f.parameters
+        position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+        @test_throws "non-integral pointer representation" partword_mask!(
+            builder, T_i8, ptr; align=1, word_size=4)
+        ret!(builder, val)
+        @test verify(mod_ni) === nothing
     end
     @dispose mod32=LLVM.Module("expansion32") begin
         # words that are wider than the index type

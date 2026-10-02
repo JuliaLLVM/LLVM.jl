@@ -395,6 +395,14 @@ function LLVMExtraCastAtomicToInteger(Inst)
     ccall((:LLVMExtraCastAtomicToInteger, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
 end
 
+function LLVMExtraIsNonIntegralPointerType(M, T)
+    ccall((:LLVMExtraIsNonIntegralPointerType, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
+end
+
+function LLVMExtraMustNotIntroducePtrToInt(M, T)
+    ccall((:LLVMExtraMustNotIntroducePtrToInt, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
+end
+
 struct LLVMExtraPartwordMaskValues
     WordType::LLVMTypeRef
     ValueType::LLVMTypeRef
@@ -451,6 +459,14 @@ const LLVMJuliaModulePassCallback = Ptr{Cvoid}
 
 # typedef LLVMBool ( * LLVMJuliaFunctionPassCallback ) ( LLVMValueRef F , void * Thunk )
 const LLVMJuliaFunctionPassCallback = Ptr{Cvoid}
+
+function LLVMPassBuilderExtensionsRegisterModulePassWithRequired(Options, PassName, Callback, Thunk, Required)
+    ccall((:LLVMPassBuilderExtensionsRegisterModulePassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
+end
+
+function LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(Options, PassName, Callback, Thunk, Required)
+    ccall((:LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
+end
 
 function LLVMPassBuilderExtensionsRegisterModulePass(Options, PassName, Callback, Thunk)
     ccall((:LLVMPassBuilderExtensionsRegisterModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
@@ -726,4 +742,3 @@ end
 function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
 end
-

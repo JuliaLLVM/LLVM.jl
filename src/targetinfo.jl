@@ -32,6 +32,8 @@ no-op.
 
 Subtypes override only the queries they care about; any query left
 un-overridden is handled by LLVM's `TargetTransformInfoImplBase`.
+For a query receiving `Value`, provide a method accepting `Value` whenever adding
+specialized methods: an installed callback can receive any value kind.
 
 Attach an instance with [`target_transform_info!`](@ref); attaching `nothing`
 reverts to LLVM's native TTI. When a `TargetMachine` is also supplied to
@@ -389,6 +391,17 @@ function build_custom_tti_options(tti::AbstractTargetTransformInfo)
         has_branch_divergence(tti)::Bool : nothing
     single_threaded = overrides(is_single_threaded) ?
         is_single_threaded(tti)::Bool : nothing
+
+    for hook in (is_source_of_divergence, is_always_uniform,
+                 get_assumed_addr_space, get_predicated_addr_space)
+        if overrides(hook, Value) && !hasmethod(hook, Tuple{T,Value})
+            throw(ArgumentError("$(nameof(hook)) needs a fallback method for Value"))
+        end
+    end
+    if overrides(rewrite_intrinsic_with_address_space, Value, Value, Value) &&
+       !hasmethod(rewrite_intrinsic_with_address_space, Tuple{T,Value,Value,Value})
+        throw(ArgumentError("rewrite_intrinsic_with_address_space needs a fallback method for Value arguments"))
+    end
 
     opts = API.LLVMCreateTTIOptions()
     flat_as === nothing || API.LLVMTTIOptionsSetFlatAddressSpace(opts, flat_as)

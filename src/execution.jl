@@ -240,8 +240,9 @@ Add another module to the execution engine.
 This takes ownership of the module.
 """
 function Base.push!(engine::ExecutionEngine, mod::Module)
+    mod in engine.mods && throw(ArgumentError("module is already in the execution engine"))
     push!(engine.mods, mod)
-    API.LLVMAddModule(engine.ref, mod.ref)
+    API.LLVMAddModule(engine, mod)
     return engine
 end
 

@@ -158,7 +158,7 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
     call_args = Any[]
     for i in 1:nargs
         ex = argexprs[i]
-        if ex isa Symbol || ex isa Expr
+        if ex isa Symbol || ex isa Expr || ex isa GlobalRef
             tmp = gensym("arg")
             push!(stmts, :($tmp = $ex))
             ex = tmp
@@ -246,6 +246,9 @@ are bound to LLVM values instead of their types:
   instead: singletons like `Val{x}()` are bound to the instance, and `Type{T}` to `T`;
 - varargs are bound to a tuple of the above.
 
+Varargs may use `args...`, `args::Vararg`, `args::Vararg{T,N}`, or the corresponding
+`Core.Vararg` spelling. Other aliases for `Vararg` are not recognized by the macro.
+
 The value returned by the body is returned by the function. It should be an LLVM value of
 the type the return type `RT` lowers to, or `nothing` if `RT` has no LLVM representation
 (like `Nothing`). If the body terminates the current block itself, e.g., using `ret!`
@@ -312,6 +315,10 @@ macro llvmgenerated(def)
     throw(ArgumentError("@llvmgenerated expects the name of the builder as first argument, e.g., `@llvmgenerated builder function ...`"))
 end
 
+is_vararg_head(head) = head === :Vararg ||
+    (Meta.isexpr(head, :., 2) && head.args[1] === :Core &&
+     head.args[2] isa QuoteNode && head.args[2].value === :Vararg)
+
 macro llvmgenerated(builder, def)
     builder isa Symbol ||
         throw(ArgumentError("@llvmgenerated expects the name of the builder as first argument, e.g., `@llvmgenerated builder function ...`"))
@@ -333,6 +340,8 @@ macro llvmgenerated(builder, def)
         throw(ArgumentError("@llvmgenerated expects a function definition"))
     fname = call.args[1]
     what = "@llvmgenerated function $fname"
+    Meta.isexpr(fname, :(::)) &&
+        throw(ArgumentError("$what: typed callable receivers are not supported"))
 
     params = Any[]      # arguments of the method
     argtypes = Any[]    # argument types, as available in the generator
@@ -342,13 +351,17 @@ macro llvmgenerated(builder, def)
         Meta.isexpr(arg, :parameters) &&
             throw(ArgumentError("$what: keyword arguments are not supported"))
         isva = Meta.isexpr(arg, :...)
-        isva && i != length(call.args) - 1 &&
-            throw(ArgumentError("$what: only the last argument can be a vararg"))
         param = isva ? arg.args[1] : arg
         default = nothing
         if Meta.isexpr(param, :kw, 2)
             param, default = param.args
         end
+        typ = Meta.isexpr(param, :(::)) ? param.args[end] : nothing
+        explicit_va = is_vararg_head(typ) ||
+                      (Meta.isexpr(typ, :curly) && is_vararg_head(typ.args[1]))
+        isva |= explicit_va
+        isva && i != length(call.args) - 1 &&
+            throw(ArgumentError("$what: only the last argument can be a vararg"))
         if param isa Symbol
             name = param
         elseif Meta.isexpr(param, :(::), 2) && param.args[1] isa Symbol
@@ -368,7 +381,7 @@ macro llvmgenerated(builder, def)
             throw(ArgumentError("$what: argument `$name` conflicts with the name of the builder"))
 
         if isva
-            push!(params, Expr(:..., param))
+            push!(params, explicit_va ? param : Expr(:..., param))
             push!(argtypes, Expr(:..., name))
             vararg = name
         else

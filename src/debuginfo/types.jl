@@ -1,5 +1,15 @@
 ## type
 
+function metadata_elements(elements::AbstractVector)
+    out = Metadata[]
+    for element in elements
+        element isa Metadata ||
+            throw(ArgumentError("expected a metadata element, got $(typeof(element))"))
+        push!(out, element)
+    end
+    return out
+end
+
 @vocabulary IR DIType, DIEnumerator, DISubrange
 @vocabulary Build basic_type!, unspecified_type!, pointer_type!, reference_type!, nullptr_type!,
         typedef_type!, qualified_type!, artificial_type!, object_pointer_type!,
@@ -408,7 +418,7 @@ end
 """
     struct_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                 file::DIFile, line::Integer, size_in_bits::Integer,
-                align_in_bits::Integer, elements::AbstractVector{<:Metadata};
+                align_in_bits::Integer, elements::AbstractVector;
                 flags=API.LLVMDIFlagZero, derived_from=nothing,
                 runtime_lang::Integer=0, vtable_holder=nothing,
                 unique_id::AbstractString="") -> DICompositeType
@@ -417,13 +427,13 @@ Create a new struct type.
 """
 function struct_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                      file::DIFile, line::Integer, size_in_bits::Integer,
-                     align_in_bits::Integer, elements::AbstractVector{<:Metadata};
+                     align_in_bits::Integer, elements::AbstractVector;
                      flags=API.LLVMDIFlagZero, derived_from=nothing,
                      runtime_lang::Integer=0, vtable_holder=nothing,
                      unique_id::AbstractString="")
     name = String(name)
     unique_id = String(unique_id)
-    elts = convert(Vector{Metadata}, elements)
+    elts = metadata_elements(elements)
     DICompositeType(API.LLVMDIBuilderCreateStructType(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
@@ -438,7 +448,7 @@ end
 """
     union_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                file::DIFile, line::Integer, size_in_bits::Integer,
-               align_in_bits::Integer, elements::AbstractVector{<:Metadata};
+               align_in_bits::Integer, elements::AbstractVector;
                flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
                unique_id::AbstractString="") -> DICompositeType
 
@@ -446,12 +456,12 @@ Create a new union type.
 """
 function union_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                     file::DIFile, line::Integer, size_in_bits::Integer,
-                    align_in_bits::Integer, elements::AbstractVector{<:Metadata};
+                    align_in_bits::Integer, elements::AbstractVector;
                     flags=API.LLVMDIFlagZero, runtime_lang::Integer=0,
                     unique_id::AbstractString="")
     name = String(name)
     unique_id = String(unique_id)
-    elts = convert(Vector{Metadata}, elements)
+    elts = metadata_elements(elements)
     DICompositeType(API.LLVMDIBuilderCreateUnionType(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
@@ -465,7 +475,7 @@ end
     class_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                file::DIFile, line::Integer, size_in_bits::Integer,
                align_in_bits::Integer, offset_in_bits::Integer,
-               elements::AbstractVector{<:Metadata};
+               elements::AbstractVector;
                flags=API.LLVMDIFlagZero, derived_from=nothing,
                vtable_holder=nothing, template_params=nothing,
                unique_id::AbstractString="") -> DICompositeType
@@ -475,13 +485,13 @@ Create a new C++ class type.
 function class_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                     file::DIFile, line::Integer, size_in_bits::Integer,
                     align_in_bits::Integer, offset_in_bits::Integer,
-                    elements::AbstractVector{<:Metadata};
+                    elements::AbstractVector;
                     flags=API.LLVMDIFlagZero, derived_from=nothing,
                     vtable_holder=nothing, template_params=nothing,
                     unique_id::AbstractString="")
     name = String(name)
     unique_id = String(unique_id)
-    elts = convert(Vector{Metadata}, elements)
+    elts = metadata_elements(elements)
     DICompositeType(API.LLVMDIBuilderCreateClassType(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
@@ -496,14 +506,14 @@ end
 
 """
     array_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
-               element_type::DIType, subscripts::AbstractVector{<:Metadata}) -> DICompositeType
+               element_type::DIType, subscripts::AbstractVector) -> DICompositeType
 
 Create a new array type. Subscripts are typically built with
 [`subrange!`](@ref).
 """
 function array_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
-                    element_type::DIType, subscripts::AbstractVector{<:Metadata})
-    subs = convert(Vector{Metadata}, subscripts)
+                    element_type::DIType, subscripts::AbstractVector)
+    subs = metadata_elements(subscripts)
     DICompositeType(API.LLVMDIBuilderCreateArrayType(
         builder, UInt64(size_in_bits), UInt32(align_in_bits),
         element_type, subs, Cuint(length(subs))))
@@ -511,14 +521,14 @@ end
 
 """
     vector_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
-                element_type::DIType, subscripts::AbstractVector{<:Metadata}) -> DICompositeType
+                element_type::DIType, subscripts::AbstractVector) -> DICompositeType
 
 Create a new vector type. Subscripts are typically built with
 [`subrange!`](@ref).
 """
 function vector_type!(builder::DIBuilder, size_in_bits::Integer, align_in_bits::Integer,
-                     element_type::DIType, subscripts::AbstractVector{<:Metadata})
-    subs = convert(Vector{Metadata}, subscripts)
+                     element_type::DIType, subscripts::AbstractVector)
+    subs = metadata_elements(subscripts)
     DICompositeType(API.LLVMDIBuilderCreateVectorType(
         builder, UInt64(size_in_bits), UInt32(align_in_bits),
         element_type, subs, Cuint(length(subs))))
@@ -562,7 +572,7 @@ end
 """
     enumeration_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                      file::DIFile, line::Integer, size_in_bits::Integer,
-                     align_in_bits::Integer, elements::AbstractVector{<:Metadata};
+                     align_in_bits::Integer, elements::AbstractVector;
                      underlying_type=nothing) -> DICompositeType
 
 Create a new enumeration type. `elements` should be a vector of
@@ -571,10 +581,10 @@ enumeration, if it has one.
 """
 function enumeration_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                           file::DIFile, line::Integer, size_in_bits::Integer,
-                          align_in_bits::Integer, elements::AbstractVector{<:Metadata};
+                          align_in_bits::Integer, elements::AbstractVector;
                           underlying_type::Union{DIType,Nothing}=nothing)
     name = String(name)
-    elts = convert(Vector{Metadata}, elements)
+    elts = metadata_elements(elements)
     DICompositeType(API.LLVMDIBuilderCreateEnumerationType(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         file, Cuint(line),
@@ -812,7 +822,7 @@ end
     dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                       file::DIFile, line::Integer, size_in_bits::Integer,
                       align_in_bits::Integer, element_type::DIType,
-                      subscripts::AbstractVector{<:Metadata};
+                      subscripts::AbstractVector;
                       data_location=nothing, associated=nothing,
                       allocated=nothing, rank=nothing,
                       bit_stride=nothing) -> DICompositeType
@@ -823,12 +833,12 @@ Requires LLVM 21+.
 function dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
                            file::DIFile, line::Integer, size_in_bits::Integer,
                            align_in_bits::Integer, element_type::DIType,
-                           subscripts::AbstractVector{<:Metadata};
+                           subscripts::AbstractVector;
                            data_location=nothing, associated=nothing,
                            allocated=nothing, rank=nothing,
                            bit_stride=nothing)
     name = String(name)
-    subs = convert(Vector{Metadata}, subscripts)
+    subs = metadata_elements(subscripts)
     DICompositeType(API.LLVMDIBuilderCreateDynamicArrayType(
         builder, something(scope, C_NULL), name, Csize_t(ncodeunits(name)),
         Cuint(line), file,
@@ -850,15 +860,15 @@ end # @static if version() >= v"21"
 
 @doc """
     replace_arrays!(builder::DIBuilder, T::DICompositeType,
-                   elements::AbstractVector{<:Metadata}) -> DICompositeType
+                   elements::AbstractVector) -> DICompositeType
 
 Replace the elements array of the given composite type `T`, and return the resulting type.
 Use the returned type instead of `T`, as LLVM can replace `T` with an existing, identical
 type. Requires LLVM 21+.
 """
 function replace_arrays!(builder::DIBuilder, T::DICompositeType,
-                        elements::AbstractVector{<:Metadata})
-    elts = convert(Vector{Metadata}, elements)
+                        elements::AbstractVector)
+    elts = metadata_elements(elements)
     tref = Ref(T.ref)
     API.LLVMReplaceArrays(builder, tref, elts, Cuint(length(elts)))
     return Metadata(tref[])::DICompositeType

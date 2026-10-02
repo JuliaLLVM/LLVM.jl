@@ -51,6 +51,13 @@ end
         @test_throws BoundsError LLVM.offsetof(dl, st, 3)
         @test_throws ArgumentError LLVM.element_at(dl, st, 8)
     end
+    opaque = LLVM.StructType("OpaqueLayout")
+    for query in (LLVM.bit_size, LLVM.storage_size, LLVM.abi_size,
+                  LLVM.abi_alignment, LLVM.frame_alignment, LLVM.preferred_alignment)
+        @test_throws ArgumentError query(dl, opaque)
+    end
+    @test_throws ArgumentError LLVM.element_at(dl, opaque, 0)
+    @test_throws ArgumentError LLVM.offsetof(dl, opaque, 1)
 
     @test dl.globals_addrspace == 0
     @dispose dl2=LLVM.DataLayout(dlstr*"-G1") begin

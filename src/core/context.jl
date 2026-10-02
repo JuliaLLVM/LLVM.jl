@@ -36,7 +36,10 @@ depends on the LLVM version.
 
 This object needs to be disposed of using [`dispose(::Context)`](@ref).
 """
-function Context(; opaque_pointers=nothing)
+function Context(; opaque_pointers::Union{Nothing,Bool}=nothing)
+    @static if version() >= v"17"
+        opaque_pointers === false && throw(ArgumentError("LLVM >=17 does not support typed pointers"))
+    end
     ctx = mark_alloc(Context(API.LLVMContextCreate()))
     memcheck_register_context(ctx, ctx)
     if opaque_pointers !== nothing

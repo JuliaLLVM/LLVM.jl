@@ -279,38 +279,73 @@ void LLVMPassBuilderExtensionsPushRegistrationCallbacks(
 
 // Custom passes
 
-struct JuliaCustomModulePass : llvm::PassInfoMixin<JuliaCustomModulePass> {
+template <bool Required>
+struct JuliaCustomModulePass : llvm::PassInfoMixin<JuliaCustomModulePass<Required>> {
   LLVMJuliaModulePassCallback Callback;
   void *Thunk;
   JuliaCustomModulePass(LLVMJuliaModulePassCallback Callback, void *Thunk)
       : Callback(Callback), Thunk(Thunk) {}
+  static bool isRequired() { return Required; }
+  static StringRef name() { return "JuliaCustomModulePass"; }
   llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &) {
     auto changed = Callback(wrap(&M), Thunk);
     return changed ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
   }
 };
 
-struct JuliaCustomFunctionPass : llvm::PassInfoMixin<JuliaCustomFunctionPass> {
+template <bool Required>
+struct JuliaCustomFunctionPass : llvm::PassInfoMixin<JuliaCustomFunctionPass<Required>> {
   LLVMJuliaFunctionPassCallback Callback;
   void *Thunk;
   JuliaCustomFunctionPass(LLVMJuliaFunctionPassCallback Callback, void *Thunk)
       : Callback(Callback), Thunk(Thunk) {}
+  static bool isRequired() { return Required; }
+  static StringRef name() { return "JuliaCustomFunctionPass"; }
   llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &) {
     auto changed = Callback(wrap(&F), Thunk);
     return changed ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
   }
 };
 
+void LLVMPassBuilderExtensionsRegisterModulePassWithRequired(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaModulePassCallback Callback, void *Thunk, LLVMBool Required) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->ModulePipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, Thunk, Required](StringRef Name, ModulePassManager &PM,
+                                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        if (Name == PassName && Pipeline.empty()) {
+          if (Required)
+            PM.addPass(JuliaCustomModulePass<true>(Callback, Thunk));
+          else
+            PM.addPass(JuliaCustomModulePass<false>(Callback, Thunk));
+          return true;
+        }
+        return false;
+      });
+  return;
+}
+
 void LLVMPassBuilderExtensionsRegisterModulePass(LLVMPassBuilderExtensionsRef Extensions,
                                                  const char *PassName,
                                                  LLVMJuliaModulePassCallback Callback,
                                                  void *Thunk) {
+  LLVMPassBuilderExtensionsRegisterModulePassWithRequired(Extensions, PassName, Callback,
+                                                          Thunk, false);
+}
+
+void LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaFunctionPassCallback Callback, void *Thunk, LLVMBool Required) {
   LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
-  PassExts->ModulePipelineParsingCallbacks.push_back(
-      [PassName, Callback, Thunk](StringRef Name, ModulePassManager &PM,
-                                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
-        if (Name.consume_front(PassName)) {
-          PM.addPass(JuliaCustomModulePass(Callback, Thunk));
+  PassExts->FunctionPipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, Thunk, Required](StringRef Name, FunctionPassManager &PM,
+                                                   ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        if (Name == PassName && Pipeline.empty()) {
+          if (Required)
+            PM.addPass(JuliaCustomFunctionPass<true>(Callback, Thunk));
+          else
+            PM.addPass(JuliaCustomFunctionPass<false>(Callback, Thunk));
           return true;
         }
         return false;
@@ -322,17 +357,8 @@ void LLVMPassBuilderExtensionsRegisterFunctionPass(LLVMPassBuilderExtensionsRef 
                                                    const char *PassName,
                                                    LLVMJuliaFunctionPassCallback Callback,
                                                    void *Thunk) {
-  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
-  PassExts->FunctionPipelineParsingCallbacks.push_back(
-      [PassName, Callback, Thunk](StringRef Name, FunctionPassManager &PM,
-                                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
-        if (Name.consume_front(PassName)) {
-          PM.addPass(JuliaCustomFunctionPass(Callback, Thunk));
-          return true;
-        }
-        return false;
-      });
-  return;
+  LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(Extensions, PassName, Callback,
+                                                            Thunk, false);
 }
 
 // Alias analysis pipeline (back-port of llvm/llvm-project#102482)

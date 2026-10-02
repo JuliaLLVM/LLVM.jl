@@ -623,6 +623,12 @@ end
         @test ca.elements[2].value_type == LLVM.ArrayType(LLVM.ArrayType(LLVM.Int64Type(), 4), 3)
         @test ca.elements[2].elements[3].elements[4] == ConstantInt(vec[2,3,4])
     end
+    for dims in ((2, 2), (0, 2), (2, 0), (2, 0, 3))
+        c = ConstantArray(zeros(Int32, dims))
+        @test c.value_type == foldr((n, t) -> LLVM.ArrayType(t, n), dims;
+                                      init=LLVM.Int32Type())
+        @test length(c.elements) == first(dims)
+    end
 
     # with rows that aren't stored as packed data
     let
@@ -688,6 +694,18 @@ end
     let
         @test_throws ArgumentError ConstantStruct(1)
     end
+    let
+        i32 = LLVM.Int32Type()
+        u = LLVM.UndefValue(i32)
+        p = LLVM.PoisonValue(i32)
+        @test ConstantStruct(LLVM.Constant[u]) isa LLVM.UndefValue
+        @test ConstantStruct(LLVM.Constant[p]) isa LLVM.PoisonValue
+        @test ConstantArray(i32, LLVM.Constant[u]).elements[1] isa LLVM.UndefValue
+        @test_throws ArgumentError u.elements
+        packed = ConstantStruct(TestStruct(true, 1, 1.0), "PackedTestStruct"; packed=true)
+        @test ispacked(packed.value_type)
+        @test_throws ArgumentError ConstantStruct(TestStruct(true, 1, 1.0), "PackedTestStruct")
+    end
 
     end
 
@@ -701,6 +719,11 @@ end
         @test cda isa ConstantDataArray
         @test cda.value_type == LLVM.ArrayType(eltyp, 4)
         @test collect(cda.elements) == ConstantInt.(vec)
+    end
+    for vec in (UInt8[], zeros(UInt8, 3), zeros(UInt32, 2))
+        c = ConstantDataArray(vec)
+        @test c isa ConstantAggregateZero
+        @test c == LLVM.Value(c.ref)
     end
 
     # strings
@@ -1156,6 +1179,8 @@ end
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     phi = phi!(builder, T_ptr)
     append!(phi.incoming, [(ce, left), (null(T_ptr), entry)])
+    append!(phi.incoming, phi.incoming)
+    @test length(phi.incoming) == 4
     ret!(builder, load!(builder, T_i32, phi))
 
     @test convert_users_to_instructions!(LLVM.Constant[gv])
@@ -1565,8 +1590,11 @@ end
         # names are looked up in the context of the object whose metadata is accessed
         gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
         md = MDNode([MDString("x")])
+        @test isempty(collect(gv.metadata))
+        @test !haskey(gv.metadata, "missing")
         context!(ctx) do
             gv.metadata["another.kind"] = md
+            @test length(collect(gv.metadata)) == 1
             @test haskey(gv.metadata, "another.kind")
             @test gv.metadata["another.kind"] == md
             @test gv.metadata[MDKind("another.kind"; context=other_ctx)] == md
@@ -3046,6 +3074,15 @@ end
     @test brinst.condition == fn.parameters[1]
     brinst.condition = fn.parameters[2]
     @test brinst.condition == fn.parameters[2]
+    @test retinst.parent !== nothing
+    @dispose othermod=LLVM.Module("unconditional") otherbuilder=IRBuilder() begin
+        otherfn = LLVM.Function(othermod, "loop", LLVM.FunctionType(LLVM.VoidType()))
+        otherbb = BasicBlock(otherfn, "entry")
+        position!(otherbuilder, LLVM.at_end(otherbb))
+        unconditional = br!(otherbuilder, otherbb)
+        @test unconditional.condition === nothing
+        @test_throws ArgumentError (unconditional.condition = fn.parameters[1])
+    end
 
     let succ = bb1.terminator.successors
         @test eltype(succ) == BasicBlock

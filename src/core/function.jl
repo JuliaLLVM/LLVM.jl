@@ -140,6 +140,8 @@ whether they are externally initialized, their attributes and code model. Return
 The name, linkage, body or initializer, and metadata are not copied. Parameter attributes
 are copied by position, so if the parameters of `dest` differ from those of `src`, fix up
 `dest.parameter_attributes` afterwards.
+COMDAT is not copied. If the source has no personality, prefix or prologue data, those
+fields on the destination are left as they were.
 """
 function copy_attributes!(dest::Function, src::Function)
     API.LLVMExtraCopyAttributesFrom(dest, src)
@@ -212,9 +214,8 @@ end
 @property Function alignment alignment!
 
 function entry(f::Function)
-    # LLVM does not check whether the function has a body
-    API.LLVMCountBasicBlocks(f) == 0 && return nothing
-    BasicBlock(API.LLVMGetEntryBasicBlock(f))
+    ref = API.LLVMGetFirstBasicBlock(f)
+    ref == C_NULL ? nothing : BasicBlock(ref)
 end
 
 @property Function entry
@@ -498,6 +499,7 @@ blocks(f::Function) = FunctionBlockSet(f)
 @property Function blocks
 
 Base.size(iter::FunctionBlockSet) = (Int(API.LLVMCountBasicBlocks(iter.f)),)
+Base.isempty(iter::FunctionBlockSet) = API.LLVMGetFirstBasicBlock(iter.f) == C_NULL
 
 Base.IndexStyle(::Type{FunctionBlockSet}) = IndexLinear()
 
@@ -532,23 +534,15 @@ end
 @property BasicBlock next
 @property BasicBlock prev
 
-# LLVM keeps blocks in a linked list, so random access walks the list (from whichever end
-# is closest). caching the blocks would make the view go stale when blocks are added or
-# removed.
+# LLVM keeps blocks in a linked list. Caching them would make the view go stale.
 function Base.getindex(iter::FunctionBlockSet, i::Int)
-    n = length(iter)
-    @boundscheck 1 <= i <= n || throw(BoundsError(iter, i))
-    if i <= n ÷ 2
-        ref = API.LLVMGetFirstBasicBlock(iter.f)
-        for _ in 2:i
-            ref = API.LLVMGetNextBasicBlock(ref)
-        end
-    else
-        ref = API.LLVMGetLastBasicBlock(iter.f)
-        for _ in i+1:n
-            ref = API.LLVMGetPreviousBasicBlock(ref)
-        end
+    @boundscheck i >= 1 || throw(BoundsError(iter, i))
+    ref = API.LLVMGetFirstBasicBlock(iter.f)
+    for _ in 2:i
+        ref == C_NULL && break
+        ref = API.LLVMGetNextBasicBlock(ref)
     end
+    @boundscheck ref != C_NULL || throw(BoundsError(iter, i))
     return BasicBlock(ref)
 end
 

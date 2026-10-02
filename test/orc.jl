@@ -596,7 +596,9 @@ end
                 @test_throws "taken out" LLVM.unsafe_take_module!(t)
             end
             @test_throws "taken out" add!(lljit, lljit.main_dylib, tsm)
-            @test LLVM.consume!(tsm) == tsm.ref
+            ref = LLVM.consume!(tsm)
+            @test ref == tsm.ref
+            LLVM.API.LLVMOrcDisposeThreadSafeModule(ref)
             dispose(tsm)
 
             # the module is owned by the caller

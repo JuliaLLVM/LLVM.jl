@@ -113,6 +113,7 @@ function parameter_variable!(builder::DIBuilder, scope::DILocalScope, name::Abst
                             arg_no::Integer, file::DIFile, line::Integer, type::DIType;
                             always_preserve::Bool=false,
                             flags=API.LLVMDIFlagZero)
+    1 <= arg_no <= typemax(Cuint) || throw(ArgumentError("parameter number must be positive and fit in Cuint"))
     name = String(name)
     DILocalVariable(API.LLVMDIBuilderCreateParameterVariable(
         builder, scope, name, Csize_t(ncodeunits(name)), Cuint(arg_no),

@@ -260,6 +260,12 @@ end
             @test LLVM.typedef_type!(dib, i64, "TopInt", file, 1, nothing) isa LLVM.DIDerivedType
             @test LLVM.struct_type!(dib, nothing, "Top", file, 1, 64, 64,
                                     LLVM.Metadata[]) isa LLVM.DICompositeType
+            members = MDTuple(LLVM.Metadata[mem])
+            @test LLVM.struct_type!(dib, nothing, "FromView", file, 1, 64, 64,
+                                    members.operands) isa LLVM.DICompositeType
+            @test_throws ArgumentError LLVM.struct_type!(dib, nothing, "BadView", file,
+                                                          1, 64, 64,
+                                                          MDTuple([nothing]).operands)
             @test LLVM.forward_decl!(dib, DW_TAG_structure_type, "TopFwd", nothing, file,
                                      1) isa LLVM.DICompositeType
 
@@ -299,6 +305,8 @@ end
             @test DILocation(2, 1, sp).scope == sp
 
             p = LLVM.parameter_variable!(dib, sp, "a", 1, file, 1, i64)
+            @test_throws ArgumentError LLVM.parameter_variable!(dib, sp, "bad", 0, file, 1, i64)
+            @test_throws ArgumentError LLVM.parameter_variable!(dib, sp, "bad", -1, file, 1, i64)
             @test p isa LLVM.DILocalVariable
 
             # expressions

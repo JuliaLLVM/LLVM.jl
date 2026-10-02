@@ -55,14 +55,9 @@ end
 """
     finalize_subprogram!(builder::DIBuilder, sp::DISubprogram)
 
-Finalize a single subprogram early, sealing its retained-nodes list. After
-this, no more local variables can be added to `sp`. A no-op if `sp` was not
-tracked by `builder` (e.g. created elsewhere or already finalized).
-
-Calling this is never required for correctness — [`dispose`](@ref) /
-[`finalize!`](@ref) finalize every tracked subprogram automatically. Use it
-only when streaming many subprograms through the builder and wanting to
-release their bookkeeping early.
+Materialize the retained nodes currently tracked for `sp`. Call this after adding its
+local variables if finalizing it early. [`dispose`](@ref) and [`finalize!`](@ref) finalize
+tracked subprograms automatically.
 """
 finalize_subprogram!(builder::DIBuilder, sp::DISubprogram) =
     API.LLVMDIBuilderFinalizeSubprogram(builder, sp)
@@ -289,7 +284,7 @@ register(DIImportedEntity, API.LLVMDIImportedEntityMetadataKind)
                      file::DIFile, line::Integer) -> DIImportedEntity
     imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                      entity::Union{DIModule,DIImportedEntity}, file::DIFile, line::Integer;
-                     elements::AbstractVector{<:Metadata}=Metadata[]) -> DIImportedEntity
+                     elements::AbstractVector=Metadata[]) -> DIImportedEntity
 
 Create a new [`DIImportedEntity`](@ref LLVM.DIImportedEntity) that imports a namespace
 (like C++'s `using namespace`), a module, or an alias of another imported entity into
@@ -302,8 +297,8 @@ imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing}, ns::DINamesp
 
 function imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                           alias::DIImportedEntity, file::DIFile, line::Integer;
-                          elements::AbstractVector{<:Metadata}=Metadata[])
-    elts = convert(Vector{Metadata}, elements)
+                          elements::AbstractVector=Metadata[])
+    elts = metadata_elements(elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromAlias(
         builder, something(scope, C_NULL), alias, file, Cuint(line),
         elts, Cuint(length(elts))))
@@ -311,8 +306,8 @@ end
 
 function imported_module!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                           mod::DIModule, file::DIFile, line::Integer;
-                          elements::AbstractVector{<:Metadata}=Metadata[])
-    elts = convert(Vector{Metadata}, elements)
+                          elements::AbstractVector=Metadata[])
+    elts = metadata_elements(elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedModuleFromModule(
         builder, something(scope, C_NULL), mod, file, Cuint(line),
         elts, Cuint(length(elts))))
@@ -321,7 +316,7 @@ end
 """
     imported_declaration!(builder::DIBuilder, scope::Union{DIScope,Nothing}, decl::DINode,
                           file::DIFile, line::Integer, name::AbstractString;
-                          elements::AbstractVector{<:Metadata}=Metadata[])
+                          elements::AbstractVector=Metadata[])
         -> DIImportedEntity
 
 Create a new [`DIImportedEntity`](@ref LLVM.DIImportedEntity) that imports the declaration
@@ -331,9 +326,9 @@ Create a new [`DIImportedEntity`](@ref LLVM.DIImportedEntity) that imports the d
 function imported_declaration!(builder::DIBuilder, scope::Union{DIScope,Nothing},
                                decl::DINode, file::DIFile, line::Integer,
                                name::AbstractString;
-                               elements::AbstractVector{<:Metadata}=Metadata[])
+                               elements::AbstractVector=Metadata[])
     name = String(name)
-    elts = convert(Vector{Metadata}, elements)
+    elts = metadata_elements(elements)
     DIImportedEntity(API.LLVMDIBuilderCreateImportedDeclaration(
         builder, something(scope, C_NULL), decl, file, Cuint(line),
         name, Csize_t(ncodeunits(name)),

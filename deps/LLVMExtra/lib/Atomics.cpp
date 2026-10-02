@@ -23,6 +23,11 @@
 
 using namespace llvm;
 
+LLVMBool LLVMExtraIsNonIntegralPointerType(LLVMModuleRef M, LLVMTypeRef T) {
+  auto *PT = dyn_cast<PointerType>(unwrap(T));
+  return PT && unwrap(M)->getDataLayout().isNonIntegralPointerType(PT);
+}
+
 namespace {
 
 // the values of LLVMAtomicRMWBinOp in the most recent C API, for every operation the

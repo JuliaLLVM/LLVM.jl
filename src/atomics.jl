@@ -47,9 +47,10 @@ end
 
 Replace an `atomicrmw` or `cmpxchg` instruction with non-atomic code that loads the value,
 computes the result, and stores it, with the same alignment and volatility. This is only
-valid if no other thread can access the memory at the same time, e.g., for thread-private
-memory, or for a `singlethread` synchronization scope. The instruction is erased, so
-builders positioned at it need to be repositioned, and the computation can call intrinsics
+valid when no competing or asynchronous access or synchronization requirement is lost,
+e.g., for thread-private memory. The instruction is erased, so builders positioned at it
+need to be repositioned. Volatile cmpxchg lowering can split the block and move following
+instructions. The computation can call intrinsics
 (see [`atomic_rmw_value!`](@ref)).
 
 This is based on LLVM's `lowerAtomicRMWInst` and `lowerAtomicCmpXchgInst`, which don't
@@ -93,7 +94,28 @@ function cast_atomic_to_integer!(inst::Union{LoadInst,StoreInst,AtomicRMWInst})
     if inst isa AtomicRMWInst && binop(inst) != API.LLVMAtomicRMWBinOpXchg
         throw(ArgumentError("Only atomicrmw xchg instructions can be cast to an integer type"))
     end
+    T = inst isa LoadInst ? value_type(inst) : value_type(inst.value_operand)
+    if T isa PointerType
+        mod = parent(parent(parent(inst)))
+        Bool(API.LLVMExtraIsNonIntegralPointerType(mod, T)) &&
+            throw(ArgumentError("cannot cast an atomic access to a non-integral pointer value"))
+    end
     Instruction(API.LLVMExtraCastAtomicToInteger(inst))
+end
+
+function check_partword(mod::Module, T::LLVMType, ptr::Value, align::Integer,
+                        word_size::Integer; identity::Bool=false)
+    T isa PointerType && throw(ArgumentError("pointer-valued partword operations are unsupported"))
+    issized(T) || throw(ArgumentError("partword value type must have a fixed size"))
+    n = storage_size(mod.datalayout, T)
+    (n > 0 && ispow2(n)) || throw(ArgumentError("partword value must have a power-of-two byte size"))
+    if !identity || n < word_size
+        align >= n || throw(ArgumentError("partword value must be naturally aligned"))
+        if align < word_size && Bool(API.LLVMExtraIsNonIntegralPointerType(mod, value_type(ptr)))
+            throw(ArgumentError("partword address has a non-integral pointer representation"))
+        end
+    end
+    return n
 end
 
 """
@@ -151,6 +173,8 @@ function partword_mask!(builder::IRBuilder, T::LLVMType, ptr::Value; align::Inte
                         word_size::Integer)
     check_alignment(align)
     check_alignment(word_size)
+    mod = parent(parent(insert_block(builder)))
+    check_partword(mod, T, ptr, align, word_size)
     raw = Ref{API.LLVMExtraPartwordMaskValues}()
     API.LLVMExtraCreatePartwordMaskValues(builder, T, ptr, align, word_size, raw)
     return PartwordMask(raw[])
@@ -185,7 +209,8 @@ smaller than `word_size`, in which case this returns `false`. The result depends
 data layout of the module (see [`partword_mask!`](@ref)).
 
 The rest of the word must be accessible, as it is read and written back (atomically, so
-this doesn't affect the other values in the word).
+this doesn't affect the other values in the word). The value must have a fixed size and
+be naturally aligned; pointer-valued partword operations are unsupported.
 
 Operations that become a `cmpxchg` loop change the control flow like
 [`expand_to_cmpxchg!`](@ref): the block containing the instruction is split, and the
@@ -196,9 +221,15 @@ This is a copy of the partword expansion of AtomicExpandPass.
 """
 function expand_partword!(inst::AtomicRMWInst, word_size::Integer)
     check_alignment(word_size)
+    mod = parent(parent(parent(inst)))
+    check_partword(mod, value_type(inst), inst.pointer_operand, alignment(inst), word_size;
+                   identity=true)
     API.LLVMExtraExpandPartwordAtomicRMW(inst, word_size) |> Bool
 end
 function expand_partword!(inst::AtomicCmpXchgInst, word_size::Integer)
     check_alignment(word_size)
+    mod = parent(parent(parent(inst)))
+    check_partword(mod, value_type(inst.compare_operand), inst.pointer_operand,
+                   alignment(inst), word_size; identity=true)
     API.LLVMExtraExpandPartwordCmpXchg(inst, word_size) |> Bool
 end

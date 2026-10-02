@@ -735,3 +735,7 @@ function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
 end
 
+
+function LLVMExtraIsNonIntegralPointerType(M, T)
+    ccall((:LLVMExtraIsNonIntegralPointerType, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
+end

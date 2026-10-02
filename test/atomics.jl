@@ -226,6 +226,21 @@ end
     ret!(builder, extract_value!(builder, cx, 0))
     @test expand_partword!(cx, 4)
     @test occursin("partword.cmpxchg.loop", string(f))
+    f, ptr, val = newfun("partword_bad_alignment", LLVM.Int16Type())
+    rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, val, MO; align=1)
+    ret!(builder, rmw)
+    before = string(f)
+    @test_throws ArgumentError expand_partword!(rmw, 4)
+    @test string(f) == before
+    @test_throws ArgumentError partword_mask!(builder, LLVM.Int16Type(), ptr;
+                                               align=1, word_size=4)
+    @test string(f) == before
+    f, ptr, val = newfun("partword_pointer", LLVM.PointerType(T_i8))
+    cx = atomic_cmpxchg!(builder, ptr, val, val, MO)
+    ret!(builder, extract_value!(builder, cx, 0))
+    before = string(f)
+    @test_throws ArgumentError expand_partword!(cx, 16)
+    @test string(f) == before
     f, ptr, val = newfun("wordsized", T_i32)
     rmw = atomic_rmw!(builder, O.LLVMAtomicRMWBinOpAdd, ptr, val, MO)
     ret!(builder, rmw)

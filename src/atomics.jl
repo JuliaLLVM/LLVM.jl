@@ -104,12 +104,14 @@ function cast_atomic_to_integer!(inst::Union{LoadInst,StoreInst,AtomicRMWInst})
 end
 
 function check_partword(mod::Module, T::LLVMType, ptr::Value, align::Integer,
-                        word_size::Integer; identity::Bool=false)
-    T isa PointerType && throw(ArgumentError("pointer-valued partword operations are unsupported"))
+                        word_size::Integer)
+    T isa Union{IntegerType,FloatingPointType} ||
+        (T isa VectorType && element_type(T) isa Union{IntegerType,FloatingPointType}) ||
+        throw(ArgumentError("partword value type must be an integer, floating point, or fixed vector of those types"))
     issized(T) || throw(ArgumentError("partword value type must have a fixed size"))
     n = storage_size(mod.datalayout, T)
     (n > 0 && ispow2(n)) || throw(ArgumentError("partword value must have a power-of-two byte size"))
-    if !identity || n < word_size
+    if n < word_size
         align >= n || throw(ArgumentError("partword value must be naturally aligned"))
         if align < word_size && Bool(API.LLVMExtraIsNonIntegralPointerType(mod, value_type(ptr)))
             throw(ArgumentError("partword address has a non-integral pointer representation"))
@@ -163,6 +165,11 @@ atomics on values smaller than the target supports: use [`extract_masked_value!`
 and [`insert_masked_value!`](@ref) to access the value in the word. The result depends on
 the data layout of the module (its endianness and index width).
 
+`T` must be an integer, floating-point, or fixed vector of those types, with a positive
+power-of-two byte size. Values smaller than `word_size` must be naturally aligned. For
+values at least `word_size` bytes wide, the result is an identity mask and no alignment
+check is needed.
+
 This is a copy of the partword support of AtomicExpandPass, except that the address of the
 word is computed by subtracting the offset of the value from `ptr`, as
 `getelementptr i8, ptr, -(ptrtoint(ptr) & (word_size - 1))`, which keeps the provenance of
@@ -209,8 +216,9 @@ smaller than `word_size`, in which case this returns `false`. The result depends
 data layout of the module (see [`partword_mask!`](@ref)).
 
 The rest of the word must be accessible, as it is read and written back (atomically, so
-this doesn't affect the other values in the word). The value must have a fixed size and
-be naturally aligned; pointer-valued partword operations are unsupported.
+this doesn't affect the other values in the word). A value smaller than `word_size` must
+be naturally aligned. Only integer, floating-point and fixed-vector values are supported;
+pointer-valued partword operations are unsupported.
 
 Operations that become a `cmpxchg` loop change the control flow like
 [`expand_to_cmpxchg!`](@ref): the block containing the instruction is split, and the
@@ -222,14 +230,13 @@ This is a copy of the partword expansion of AtomicExpandPass.
 function expand_partword!(inst::AtomicRMWInst, word_size::Integer)
     check_alignment(word_size)
     mod = parent(parent(parent(inst)))
-    check_partword(mod, value_type(inst), inst.pointer_operand, alignment(inst), word_size;
-                   identity=true)
+    check_partword(mod, value_type(inst), inst.pointer_operand, alignment(inst), word_size)
     API.LLVMExtraExpandPartwordAtomicRMW(inst, word_size) |> Bool
 end
 function expand_partword!(inst::AtomicCmpXchgInst, word_size::Integer)
     check_alignment(word_size)
     mod = parent(parent(parent(inst)))
     check_partword(mod, value_type(inst.compare_operand), inst.pointer_operand,
-                   alignment(inst), word_size; identity=true)
+                   alignment(inst), word_size)
     API.LLVMExtraExpandPartwordCmpXchg(inst, word_size) |> Bool
 end

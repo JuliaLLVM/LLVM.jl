@@ -235,6 +235,9 @@ end
     @test_throws ArgumentError partword_mask!(builder, LLVM.Int16Type(), ptr;
                                                align=1, word_size=4)
     @test string(f) == before
+    @test_throws ArgumentError partword_mask!(builder, LLVM.StructType([T_i32]), ptr;
+                                               align=4, word_size=4)
+    @test string(f) == before
     f, ptr, val = newfun("partword_pointer", LLVM.PointerType(T_i8))
     cx = atomic_cmpxchg!(builder, ptr, val, val, MO)
     ret!(builder, extract_value!(builder, cx, 0))
@@ -270,6 +273,10 @@ end
     f, ptr, val = newfun("mask_sizes", T_i32)
     pm = partword_mask!(builder, T_i32, ptr; align=4, word_size=4)
     @test pm.inv_mask === nothing
+    before = string(f)
+    pm = partword_mask!(builder, T_i32, ptr; align=1, word_size=4)
+    @test pm.inv_mask === nothing && pm.aligned_addr_alignment == 1
+    @test string(f) == before
     pm = partword_mask!(builder, T_i32, ptr; align=4, word_size=8)
     @test pm.word_type == LLVM.Int64Type()
     @test occursin("i64 4294967295", string(f))

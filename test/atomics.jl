@@ -252,6 +252,10 @@ end
 
     # accessing a value in the word that contains it
     f, ptr, val = newfun("mask", T_i8)
+    before = string(f)
+    @test_throws "partword address must be a pointer" partword_mask!(
+        builder, T_i8, ConstantInt(Int32(0)); align=1, word_size=4)
+    @test string(f) == before
     pm = partword_mask!(builder, T_i8, ptr; align=1, word_size=4)
     @test pm.word_type == T_i32 && pm.value_type == T_i8 && pm.aligned_addr_alignment == 4
     @test pm.inv_mask !== nothing
@@ -276,6 +280,9 @@ end
     before = string(f)
     pm = partword_mask!(builder, T_i32, ptr; align=1, word_size=4)
     @test pm.inv_mask === nothing && pm.aligned_addr_alignment == 1
+    @test string(f) == before
+    @test_throws "partword address must be a pointer" partword_mask!(
+        builder, T_i32, ConstantInt(Int32(0)); align=1, word_size=4)
     @test string(f) == before
     pm = partword_mask!(builder, T_i32, ptr; align=4, word_size=8)
     @test pm.word_type == LLVM.Int64Type()

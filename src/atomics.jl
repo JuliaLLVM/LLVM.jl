@@ -105,6 +105,8 @@ end
 
 function check_partword(mod::Module, T::LLVMType, ptr::Value, align::Integer,
                         word_size::Integer)
+    value_type(ptr) isa PointerType ||
+        throw(ArgumentError("partword address must be a pointer"))
     T isa Union{IntegerType,FloatingPointType} ||
         (T isa VectorType && element_type(T) isa Union{IntegerType,FloatingPointType}) ||
         throw(ArgumentError("partword value type must be an integer, floating point, or fixed vector of those types"))
@@ -165,10 +167,10 @@ atomics on values smaller than the target supports: use [`extract_masked_value!`
 and [`insert_masked_value!`](@ref) to access the value in the word. The result depends on
 the data layout of the module (its endianness and index width).
 
-`T` must be an integer, floating-point, or fixed vector of those types, with a positive
-power-of-two byte size. Values smaller than `word_size` must be naturally aligned. For
-values at least `word_size` bytes wide, the result is an identity mask and no alignment
-check is needed.
+`ptr` must have pointer type. `T` must be an integer, floating-point, or fixed vector of
+those types, with a positive power-of-two byte size. Values smaller than `word_size` must
+be naturally aligned. For values at least `word_size` bytes wide, the result is an identity
+mask and no alignment check is needed.
 
 This is a copy of the partword support of AtomicExpandPass, except that the address of the
 word is computed by subtracting the offset of the value from `ptr`, as

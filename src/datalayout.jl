@@ -94,7 +94,13 @@ Get the size of the given type in bits for the target data layout, like C++'s
 
 See also: [`storage_size`](@ref), [`abi_size`](@ref).
 """
-bit_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMSizeOfTypeInBits(dl, typ))
+function check_layout_type(typ::LLVMType)
+    issized(typ) || throw(ArgumentError("type $typ has no fixed layout"))
+    return typ
+end
+
+bit_size(dl::DataLayout, typ::LLVMType) =
+    Int(API.LLVMSizeOfTypeInBits(dl, check_layout_type(typ)))
 
 """
     storage_size(dl::DataLayout, typ::LLVMType)
@@ -103,7 +109,8 @@ Get the number of bytes that storing a value of the given type may overwrite, fo
 target data layout, like C++'s `DataLayout::getTypeStoreSize`, e.g., 1 for `i1` and 2 for
 `i9`.
 """
-storage_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMStoreSizeOfType(dl, typ))
+storage_size(dl::DataLayout, typ::LLVMType) =
+    Int(API.LLVMStoreSizeOfType(dl, check_layout_type(typ)))
 
 """
     abi_size(dl::DataLayout, typ::LLVMType)
@@ -111,14 +118,16 @@ storage_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMStoreSizeOfType(dl, ty
 Get the offset in bytes between successive values of the given type in memory, including
 alignment padding, for the target data layout, like C++'s `DataLayout::getTypeAllocSize`.
 """
-abi_size(dl::DataLayout, typ::LLVMType) = Int(API.LLVMABISizeOfType(dl, typ))
+abi_size(dl::DataLayout, typ::LLVMType) =
+    Int(API.LLVMABISizeOfType(dl, check_layout_type(typ)))
 
 """
     abi_alignment(dl::DataLayout, typ::LLVMType)
 
 Get the ABI alignment of the given type in bytes for the target data layout.
 """
-abi_alignment(dl::DataLayout, typ::LLVMType) = Int(API.LLVMABIAlignmentOfType(dl, typ))
+abi_alignment(dl::DataLayout, typ::LLVMType) =
+    Int(API.LLVMABIAlignmentOfType(dl, check_layout_type(typ)))
 
 """
     frame_alignment(dl::DataLayout, typ::LLVMType)
@@ -126,7 +135,7 @@ abi_alignment(dl::DataLayout, typ::LLVMType) = Int(API.LLVMABIAlignmentOfType(dl
 Get the call frame alignment of the given type in bytes for the target data layout.
 """
 frame_alignment(dl::DataLayout, typ::LLVMType) =
-    Int(API.LLVMCallFrameAlignmentOfType(dl, typ))
+    Int(API.LLVMCallFrameAlignmentOfType(dl, check_layout_type(typ)))
 
 
 """
@@ -139,7 +148,7 @@ data layout.
 preferred_alignment(::DataLayout, ::Union{LLVMType, GlobalVariable})
 
 preferred_alignment(dl::DataLayout, typ::LLVMType) =
-    Int(API.LLVMPreferredAlignmentOfType(dl, typ))
+    Int(API.LLVMPreferredAlignmentOfType(dl, check_layout_type(typ)))
 preferred_alignment(dl::DataLayout, var::GlobalVariable) =
     Int(API.LLVMPreferredAlignmentOfGlobal(dl, var))
 
@@ -166,6 +175,7 @@ Like the `elements` of the struct type, elements are numbered from 1.
 See also: [`element_at`](@ref).
 """
 function offsetof(dl::DataLayout, typ::StructType, i::Integer)
+    check_layout_type(typ)
     1 <= i <= length(elements(typ)) || throw(BoundsError(elements(typ), i))
     Int(API.LLVMOffsetOfElement(dl, typ, i - 1))
 end

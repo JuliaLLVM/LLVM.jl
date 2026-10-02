@@ -407,7 +407,8 @@ register(ConstantDataArray, API.LLVMConstantDataArrayValueKind)
 Create a constant array of simple data values of the given type and data.
 
 The element type needs to be a 1/2/4/8-byte integer or a half/bfloat/float/double type, of
-the same size as the elements of `data`, whose bits are used as-is.
+the same size as the elements of `data`, whose bits are used as-is. LLVM may return a
+`ConstantAggregateZero` for empty or all-zero data.
 """
 function ConstantDataArray(typ::LLVMType, data::AbstractVector{T}) where {T <: Union{Integer, AbstractFloat}}
     # the element types supported by ConstantDataSequential
@@ -429,7 +430,7 @@ function ConstantDataArray(typ::LLVMType, data::AbstractVector{T}) where {T <: U
 
     # the data is passed as a pointer, so make sure it is stored contiguously
     data isa Array || (data = collect(data))
-    return ConstantDataArray(API.LLVMConstDataArray(typ, data, sizeof(data)))
+    return Value(API.LLVMConstDataArray(typ, data, sizeof(data)))::Constant
 end
 
 """
@@ -563,14 +564,13 @@ function ConstantArray(typ::LLVMType, data::AbstractArray{<:Constant,N}) where {
     @assert all(x->x==typ, value_type.(data))
 
     if N == 1
-        # XXX: this can return a ConstDataArray (presumably as an optimization?)
-        return Value(API.LLVMConstArray(typ, Array(data), length(data)))
+        return Value(API.LLVMConstArray(typ, Array(data), length(data)))::Constant
     end
 
     ca_vec = map(x->ConstantArray(typ, x), eachslice(data, dims=1))
-    ca_typ = value_type(first(ca_vec))
+    ca_typ = foldr((n, eltyp)->ArrayType(eltyp, n), size(data)[2:end]; init=typ)
 
-    return ConstantArray(API.LLVMConstArray(ca_typ, ca_vec, length(ca_vec)))
+    return Value(API.LLVMConstArray(ca_typ, ca_vec, length(ca_vec)))::Constant
 end
 
 # shorthands with arrays of plain Julia data
@@ -608,16 +608,14 @@ A constant struct of values.
 end
 register(ConstantStruct, API.LLVMConstantStructValueKind)
 
-ConstantStructOrAggregateZero(value) = Value(value)::Union{ConstantStruct,ConstantAggregateZero}
-
 """
     ConstantStruct(values::AbstractVector{<:Constant}; packed=false)
 
 Create an anonymous constant struct of the given values.
 """
 ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
-    ConstantStructOrAggregateZero(API.LLVMConstStructInContext(context(), as_vector(values),
-                                                               length(values), packed))
+    Value(API.LLVMConstStructInContext(context(), as_vector(values),
+                                       length(values), packed))::Constant
 
 """
     ConstantStruct(typ::LLVM.StructType, values::AbstractVector{<:Constant})
@@ -625,8 +623,7 @@ ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
 Create a constant struct of the given type and values.
 """
 ConstantStruct(typ::StructType, values::AbstractVector{<:Constant}) =
-    ConstantStructOrAggregateZero(API.LLVMConstNamedStruct(typ, as_vector(values),
-                                                           length(values)))
+    Value(API.LLVMConstNamedStruct(typ, as_vector(values), length(values)))::Constant
 
 """
     ConstantStruct(value::T, [name=String(nameof(T)), anonymous=false, packed=false])
@@ -655,13 +652,13 @@ function ConstantStruct(value::T, name::AbstractString=String(nameof(T));
         ConstantStruct(constants; packed)
     elseif haskey(types(context()), name)
         typ = types(context())[name]
-        if collect(elements(typ)) != value_type.(constants)
+        if collect(elements(typ)) != value_type.(constants) || ispacked(typ) != packed
             throw(ArgumentError("Cannot create struct $name {$(join(value_type.(constants), ", "))} as it is already defined in this context as {$(join(elements(typ), ", "))}."))
         end
         ConstantStruct(typ, constants)
     else
         typ = StructType(name)
-        elements!(typ, value_type.(constants))
+        elements!(typ, value_type.(constants); packed)
         ConstantStruct(typ, constants)
     end
 end
@@ -693,8 +690,15 @@ const AnyConstantAggregate =
     Union{ConstantAggregate, ConstantDataSequential, ConstantAggregateZero}
 
 elements(c::AnyConstantAggregate) = ConstantAggregateElementSet(c)
+function elements(c::Union{UndefValue,PoisonValue})
+    typ = value_type(c)
+    typ isa Union{ArrayType,StructType,VectorType} ||
+        throw(ArgumentError("$typ is not an aggregate type"))
+    return ConstantAggregateElementSet(c)
+end
 
 @property AnyConstantAggregate elements
+@property Union{UndefValue,PoisonValue} elements
 
 function Base.size(iter::ConstantAggregateElementSet)
     typ = value_type(iter.c)

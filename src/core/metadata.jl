@@ -543,24 +543,20 @@ end
 function Base.iterate(md::GlobalMetadataDict)
     num_entries = Ref{Csize_t}()
     entries = API.LLVMGlobalCopyAllMetadata(md.val, num_entries)
-    num_entries[] == 0 && return nothing
-
     metadata = Pair{MDKind,Metadata}[]
-    for i in 1:num_entries[]
-        kind = API.LLVMValueMetadataEntriesGetKind(entries, i-1)
-        entry = API.LLVMValueMetadataEntriesGetMetadata(entries, i-1)
-        metadata = push!(metadata, MDKind(kind) => Metadata(entry))
+    try
+        for i in 1:num_entries[]
+            kind = API.LLVMValueMetadataEntriesGetKind(entries, i-1)
+            entry = API.LLVMValueMetadataEntriesGetMetadata(entries, i-1)
+            push!(metadata, MDKind(kind) => Metadata(entry))
+        end
+    finally
+        API.LLVMDisposeValueMetadataEntries(entries)
     end
-    API.LLVMDisposeValueMetadataEntries(entries)
-
-    val, state = iterate(metadata)
-    val, (state, metadata)
+    iterate(md, (metadata, 1))
 end
-function Base.iterate(md::GlobalMetadataDict, (state, metadata))
-    out = iterate(metadata, state)
-    out === nothing && return nothing
-    val, state = out
-    val, (state, metadata)
+function Base.iterate(md::GlobalMetadataDict, (metadata, i))
+    i > length(metadata) ? nothing : (metadata[i], (metadata, i+1))
 end
 
 function Base.setindex!(md::GlobalMetadataDict, node::Metadata, key)

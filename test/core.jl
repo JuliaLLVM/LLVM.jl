@@ -623,6 +623,12 @@ end
         @test ca.elements[2].value_type == LLVM.ArrayType(LLVM.ArrayType(LLVM.Int64Type(), 4), 3)
         @test ca.elements[2].elements[3].elements[4] == ConstantInt(vec[2,3,4])
     end
+    for dims in ((2, 2), (0, 2), (2, 0), (2, 0, 3))
+        c = ConstantArray(zeros(Int32, dims))
+        @test c.value_type == foldr((n, t) -> LLVM.ArrayType(t, n), dims;
+                                      init=LLVM.Int32Type())
+        @test length(c.elements) == first(dims)
+    end
 
     # with rows that aren't stored as packed data
     let
@@ -688,6 +694,18 @@ end
     let
         @test_throws ArgumentError ConstantStruct(1)
     end
+    let
+        i32 = LLVM.Int32Type()
+        u = LLVM.UndefValue(i32)
+        p = LLVM.PoisonValue(i32)
+        @test ConstantStruct(LLVM.Constant[u]) isa LLVM.UndefValue
+        @test ConstantStruct(LLVM.Constant[p]) isa LLVM.PoisonValue
+        @test ConstantArray(i32, LLVM.Constant[u]).elements[1] isa LLVM.UndefValue
+        @test_throws ArgumentError u.elements
+        packed = ConstantStruct(TestStruct(true, 1, 1.0), "PackedTestStruct"; packed=true)
+        @test ispacked(packed.value_type)
+        @test_throws ArgumentError ConstantStruct(TestStruct(true, 1, 1.0), "PackedTestStruct")
+    end
 
     end
 
@@ -701,6 +719,11 @@ end
         @test cda isa ConstantDataArray
         @test cda.value_type == LLVM.ArrayType(eltyp, 4)
         @test collect(cda.elements) == ConstantInt.(vec)
+    end
+    for vec in (UInt8[], zeros(UInt8, 3), zeros(UInt32, 2))
+        c = ConstantDataArray(vec)
+        @test c isa ConstantAggregateZero
+        @test c == LLVM.Value(c.ref)
     end
 
     # strings

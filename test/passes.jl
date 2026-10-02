@@ -271,6 +271,38 @@ end
                                                         mod -> error("oops")), mod)
         @test_throws ArgumentError run!(CustomModulePass(), mod; invalid_option=true)
     end
+
+    @dispose ctx=Context() mod=parse(LLVM.Module,
+        "define void @f() noinline optnone { ret void }") begin
+        fn = mod.functions["f"]
+        optional_calls = Ref(0)
+        required_calls = Ref(0)
+        optional = FunctionPass("probe", _ -> (optional_calls[] += 1; false))
+        required = FunctionPass("probe", _ -> (required_calls[] += 1; false);
+                                required=true)
+        run!(optional, fn)
+        run!(required, fn)
+        @test optional_calls[] == 0
+        @test required_calls[] == 1
+        run!(required, mod)
+        @test required_calls[] == 2
+
+        @dispose pb=PassBuilder() begin
+            seen = String[]
+            register!(pb, FunctionPass("clean", _ -> (push!(seen, "clean"); false)))
+            register!(pb, FunctionPass("clean-extra", _ -> (push!(seen, "clean-extra"); false);
+                                       required=true))
+            @test_throws ArgumentError register!(pb, FunctionPass("clean", _ -> false))
+            add!(pb, "function(clean-extra)")
+            run!(pb, mod)
+            @test seen == ["clean-extra"]
+        end
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("clean", _ -> false))
+            add!(pb, "function(clean<unknown>)")
+            @test_throws LLVM.LLVMException run!(pb, mod)
+        end
+    end
 end
 
 @testset "registration callbacks" begin

@@ -322,6 +322,14 @@ void LLVMPassBuilderExtensionsRegisterFunctionPass(LLVMPassBuilderExtensionsRef 
                                                    const char *PassName,
                                                    LLVMJuliaFunctionPassCallback Callback,
                                                    void *Thunk);
+void LLVMPassBuilderExtensionsRegisterModulePassWithRequired(LLVMPassBuilderExtensionsRef Options,
+                                                             const char *PassName,
+                                                             LLVMJuliaModulePassCallback Callback,
+                                                             void *Thunk, LLVMBool Required);
+void LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(LLVMPassBuilderExtensionsRef Options,
+                                                               const char *PassName,
+                                                               LLVMJuliaFunctionPassCallback Callback,
+                                                               void *Thunk, LLVMBool Required);
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#102482
 void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensions,
                                             const char *AAPipeline);

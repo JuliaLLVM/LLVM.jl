@@ -327,6 +327,14 @@ const LLVMJuliaModulePassCallback = Ptr{Cvoid}
 # typedef LLVMBool ( * LLVMJuliaFunctionPassCallback ) ( LLVMValueRef F , void * Thunk )
 const LLVMJuliaFunctionPassCallback = Ptr{Cvoid}
 
+function LLVMPassBuilderExtensionsRegisterModulePassWithRequired(Options, PassName, Callback, Thunk, Required)
+    ccall((:LLVMPassBuilderExtensionsRegisterModulePassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
+end
+
+function LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(Options, PassName, Callback, Thunk, Required)
+    ccall((:LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
+end
+
 function LLVMPassBuilderExtensionsRegisterModulePass(Options, PassName, Callback, Thunk)
     ccall((:LLVMPassBuilderExtensionsRegisterModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
 end

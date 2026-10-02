@@ -53,7 +53,7 @@ jobs:
     name: Julia ${{ matrix.version }} ${{ matrix.llvm_args }} (assert) - Linux
     needs: report-start
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read

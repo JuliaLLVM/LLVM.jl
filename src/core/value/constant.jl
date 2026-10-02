@@ -204,8 +204,10 @@ ConstantInt(typ::IntegerType, val::SmallInteger, signed=false) =
 """
     ConstantInt(typ::LLVM.IntegerType, val, [signed=false])
 
-Create a constant integer value of the given type and value. If `signed` is `true`, the
-value is treated as a signed integer.
+Create a constant integer value of the given type and value. For values represented in a
+64-bit word, `signed=true` sign-extends that word to a wider LLVM type; otherwise it is
+zero-extended. Arbitrary-precision values use their full two's-complement bit pattern,
+truncated to the LLVM type's width.
 """
 function ConstantInt(typ::IntegerType, val::Integer, signed=false)
     # the two's complement words of the value, truncated to the width of the type
@@ -1223,17 +1225,7 @@ linkage!(val::GlobalValue, linkage::API.LLVMLinkage) =
 @property GlobalValue linkage linkage!
 
 function section(val::GlobalValue)
-  #=
-  The following started to fail on LLVM 4.0:
-    @dispose ctx=Context() begin
-      @dispose mod=LLVM.Module("SomeModule") begin
-        st = LLVM.StructType("SomeType")
-        ft = LLVM.FunctionType(st, [st])
-        fn = LLVM.Function(mod, "SomeFunction", ft)
-        section(fn) == ""
-      end
-      end
-  =#
+  # LLVM may return null for an object with no section.
   section_ptr = API.LLVMGetSection(val)
   return section_ptr != C_NULL ? unsafe_string(section_ptr) : ""
 end

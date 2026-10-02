@@ -514,7 +514,7 @@ end
 ## pass definitions
 
 # convert Julia keyword arguments to a LLVM pass parameter string
-function kwargs_to_params(kwargs; allow_empty=false)
+function kwargs_to_params(kwargs)
     isempty(kwargs) && return ""
 
     params = String[]

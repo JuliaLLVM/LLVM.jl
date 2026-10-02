@@ -86,7 +86,6 @@ The IR values that are used to compute the location of the variable described by
 variable record, as a read-only view. There is usually only one, but records that use a
 `!DIArgList` can refer to several. Entries are `nothing` if the value has been deleted.
 
-See also the `LLVM.DbgRecord` property.
 
     record.value
 

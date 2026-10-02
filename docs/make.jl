@@ -31,6 +31,7 @@ function main()
         pages = [
             "Home"    => "index.md",
             "Usage"  => [
+                "man/migration10.md",
                 "man/essentials.md",
                 "man/types.md",
                 "man/values.md",

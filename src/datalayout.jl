@@ -86,6 +86,11 @@ globals_addrspace(dl::DataLayout) = API.LLVMGlobalsAddressSpace(dl) |> Int
 
 @property DataLayout globals_addrspace
 
+function check_layout_type(typ::LLVMType)
+    issized(typ) || throw(ArgumentError("type $typ has no fixed layout"))
+    return typ
+end
+
 """
     bit_size(dl::DataLayout, typ::LLVMType)
 
@@ -94,11 +99,6 @@ Get the size of the given type in bits for the target data layout, like C++'s
 
 See also: [`storage_size`](@ref), [`abi_size`](@ref).
 """
-function check_layout_type(typ::LLVMType)
-    issized(typ) || throw(ArgumentError("type $typ has no fixed layout"))
-    return typ
-end
-
 bit_size(dl::DataLayout, typ::LLVMType) =
     Int(API.LLVMSizeOfTypeInBits(dl, check_layout_type(typ)))
 

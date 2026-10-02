@@ -1,0 +1,655 @@
+# Migrating to LLVM.jl 10
+
+This release reorganizes LLVM.jl's API, so that it can be combined with other packages and
+has one spelling for every concept. The "Vocabularies" and "Properties" sections of the
+manual describe the new design.
+
+Namespace:
+
+- `using LLVM` now only brings `@dispose` into scope, so that it doesn't clash with other
+  packages. The rest of the API is public, and can be used qualified
+  (`LLVM.isdeclaration(f)`) or brought into scope by opting into one of the new
+  vocabularies: `LLVM.IR` for the object model, its predicates and operations, `LLVM.Build`
+  for the `IRBuilder`, the `DIBuilder` and constant expressions, `LLVM.Passes` for passes
+  and pipelines, and `LLVM.ORC` for the ORC JIT. Code that did `using LLVM` typically needs
+  `using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes`.
+- Targets, target machines, data layouts, target initialization, the disassembler and the
+  legacy execution engines are not part of any vocabulary, and need to be qualified
+  (`LLVM.TargetMachine`, `LLVM.DataLayout`), as do `LLVM.Module` and `LLVM.Function`,
+  which would clash with Base. Types that used to require qualification, like
+  `LLVM.Int32Type()`, `LLVM.PointerType`, `LLVM.FunctionType` and the instruction types
+  (`LLVM.CallInst`, `LLVM.LoadInst`, ...), are part of `LLVM.IR`, and so are new union
+  types for groups of instructions that share properties: `CallBase` (`call`, `invoke` and
+  `callbr`), `TerminatorInst`, `AtomicInst`, `MemAccessInst`, `AlignedInst`, `NoWrapInst`,
+  `ExactInst`, `NonNegInst` and `FPMathInst`.
+- The functions of the `DIBuilder` (`LLVM.file!`, `LLVM.subprogram!`, ...), which were
+  public but not exported, are part of `LLVM.Build`.
+
+Properties:
+
+- What an LLVM object has is now a property: its attributes (`f.name`, `gv.linkage`,
+  `mod.triple`, `loc.line`), its relationships to other objects (`inst.parent.parent`,
+  `bb.terminator`, `f.entry`, `gv.initializer`), and its contents (`mod.functions`,
+  `f.blocks`, `inst.operands`). Assigning to a property sets it, where that is supported
+  (`gv.linkage = LLVM.Linkage.Internal`). This generally follows the getters and
+  setters of LLVM's C++ API, e.g., `I->getParent()` becomes `inst.parent`.
+- The functions that used to provide this information have been removed from the API:
+  `name(f)` becomes `f.name`, `name!(f, "x")` becomes `f.name = "x"`, `blocks(f)` becomes
+  `f.blocks`, `LLVM.parent(inst)` becomes `inst.parent`, and so on. The exception is
+  `context`, because of `context()` (the task-local context): `context(mod)` becomes
+  `mod.context`, but `context()` and `context!` remain. Functions remain for predicates
+  (`isdeclaration(f)`), computations that take arguments, and operations.
+- Relationships that can be absent are `nothing`: the `entry` of a function without a body,
+  the `parent` of an instruction or block that has been removed, and the `next` or `prev`
+  sibling at the end of a list.
+- The contents of objects are live views of the IR, which reflect later changes. They are
+  mutable where LLVM supports it (`inst.operands[i] = val`,
+  `push!(f.function_attributes, attr)`, `mod.flags[name, behavior] = md`), and read-only
+  otherwise, so that mutation throws an error instead of silently changing a copy. Keyed
+  lookups index these views (`mod.functions["f"]`, `inst.metadata[kind]`), and collections
+  indexed by position are vectors of views (`f.parameter_attributes[i]`,
+  `call.argument_attributes[i]`, `switch.case_values[i]`). Collections that used to be
+  copies are now views too: the operands of metadata nodes and named metadata nodes, the
+  parameters of function types, the predecessors of a block, the arguments of a call and
+  the location operands of a debug record. Use `collect` to get a copy. Functions that take
+  a vector of IR objects accept these views.
+- Siblings in a list are the `next` and `prev` properties, replacing `nextinst`/`previnst`,
+  `nextblock`/`prevblock`, `nextfun`/`prevfun`, `nextglobal`/`prevglobal`,
+  `nextalias`/`prevalias` and `nextifunc`/`previfunc`. They are also available on function
+  parameters, named metadata nodes and debug records (`prev` requires LLVM 20).
+- Flags that can be assigned are `Bool` properties named without an `is` or `has` prefix,
+  replacing pairs of predicates and setters: `gv.constant` (`isconstant(gv)`/`constant!`),
+  `gv.externally_initialized` (`isextinit`/`extinit!`), `gv.threadlocal`, `inst.volatile`,
+  `cmpxchg.weak`, `call.tailcall`, and the poison-generating flags introduced in 9.14,
+  `inst.nuw`, `inst.nsw`, `inst.exact`, `inst.disjoint`, `inst.nneg` and `inst.samesign`,
+  which are only available on the instructions (and LLVM versions) that support them.
+  `isconstant(val)` still exists, but only checks whether a value is a constant.
+- `gv.unnamed_addr` holds an `LLVM.UnnamedAddr.T`, replacing `unnamed_addr` and
+  `local_unnamed_addr`, which described the same state with two Bools. `gv.threadlocal` is
+  a Bool view of `gv.threadlocal_mode`, and `call.tailcall` of the new `call.tailcall_kind`
+  (available on every LLVM version).
+- The fast-math flags of a floating-point instruction are a `FastMathFlags` view with a Bool
+  property per flag: `inst.fast_math.nnan = true` sets a flag, `inst.fast_math.fast = true`
+  sets all of them, and `inst.fast_math = (; nnan=true)` replaces all flags.
+  `NamedTuple(inst.fast_math)` replaces `fast_math(inst)`.
+- The memory effects of a function are a `FunctionMemoryEffects` view of its `memory`
+  attribute, which can be modified in place (`f.memory_effects[:argmem] = :read`) or
+  replaced (`f.memory_effects = MemoryEffects(...)`). Calls have the same property,
+  `call.memory_effects`, for the `memory` attribute of the call site, replacing
+  `memory_effects` and `memory_effects!` on call site attributes.
+- Module-level inline assembly is a collection: `push!(mod.inline_asm, asm)` appends,
+  `empty!` clears, and `String(mod.inline_asm)` returns its text, replacing `inline_asm`
+  and `inline_asm!`. This anticipates LLVM 24, which represents it as a list of fragments.
+- The global values in `llvm.used` and `llvm.compiler.used` are sets, available as
+  `mod.used` and `mod.compiler_used`, which support `push!`, `delete!`, `union!`,
+  `setdiff!`, `empty!`, iteration and `in`. This replaces `set_used!(mod, gvs...)` and
+  `set_compiler_used!`, which could only append global variables, with
+  `union!(mod.used, gvs)`.
+- The documentation of properties is part of the docstring of the type that has them, in
+  a "Properties" section, e.g., `?LLVM.GlobalVariable` or `?LLVM.CallBase`.
+- The ORC API follows the same design: `jit.triple`, `jit.datalayout_string`, `jit.global_prefix`
+  (replacing `get_prefix`), `jit.execution_session`, `lljit.main_dylib`,
+  `lljit.ir_transform_layer`, `jljit.ir_compile_layer`, `jd.default_resource_tracker` and
+  `mr.requested_symbols` (replacing `get_requested_symbols`, as a read-only view). The
+  constructors that used to return these, like `JITDylib(lljit)` or
+  `ExecutionSession(jit)`, have been removed; constructors that create objects, like
+  `JITDylib(es, name)`, remain.
+- The size, offset and alignment of debug info types are `ty.size_in_bits`,
+  `ty.offset_in_bits` and `ty.align_in_bits`. This replaces `offset(ty)`, `align(ty)` and
+  `sizeof(ty)`, which returned eight times the size in bits.
+
+Renamed functionality, for consistency:
+
+- `is_opaque(ptrtyp)` is now `isopaque`, like for structure types, `is_atomic` is
+  `isatomic`, and `LLVM.available(op)` is `LLVM.isavailable`.
+- `targetmachinebuilder!`, `linkinglayercreator!` and `set_transform!` are now
+  `target_machine_builder!`, `linking_layer_creator!` and `transform!`.
+- `debuglocation` is now the `debug_location` property, and `threadlocalmode` the
+  `threadlocal_mode` property.
+- `LLVM.triple()` (the host triple) is now `LLVM.default_triple()`, and
+  `LLVM.name(intrinsic, types)` is `LLVM.overloaded_name`.
+- `subprogram!(f, sp)` becomes `f.subprogram = sp`, while `subprogram!` remains the
+  `DIBuilder` function that creates a subprogram. `debuglocation!(builder, inst)`, which
+  copied the builder's debug location to an instruction, becomes
+  `inst.debug_location = builder.debug_location`.
+- `elements!(st, elems, packed)` takes `packed` as a keyword argument, as documented.
+
+Removed functionality:
+
+- `LLVM.Interop.create_function` and `call_function` have been removed in favor of
+  `@llvmgenerated` and `generate_llvmcall`.
+- Deprecated functionality has been removed: `called_value`, `predicate_int`,
+  `predicate_real`, `unsafe_delete!`, `get_subprogram`/`set_subprogram!`, `has_orc_v1`,
+  `has_orc_v2`, `has_newpm`, `has_julia_ojit`, `ValueMetadataDict`,
+  `LLVM.Interop.JuliaPipelinePass`, `lookup(jljit, name)` without a `JITDylib`, string
+  sync scopes for `fence!`/`atomic_rmw!`/`atomic_cmpxchg!`, `size(::VectorType)`,
+  `Module(::Module)`, `Instruction(::Instruction)`, `delete!` on functions and blocks, the
+  old spellings of pass keyword arguments (e.g., `allow_partial`, now `partial`), `nuwneg!`
+  and `const_nuwneg`, `CreateDynamicLibrarySearchGeneratorForProcess(prefix)` (use
+  `DynamicLibrarySearchGenerator(jit)`), `reexports` (use `lazy_reexports`), `get_prefix`
+  and `get_requested_symbols`. `string(::MDString)` now returns the textual form of the
+  metadata, like for other metadata; use `convert(String, md)` for the string's contents.
+
+Pass managers:
+
+- The legacy pass manager has been removed: `ModulePassManager()` and
+  `FunctionPassManager(mod)` from the legacy API, legacy custom passes, `PassManagerBuilder`
+  and the legacy transform functions (`instruction_combining!`, ..., which only existed
+  before LLVM 17), the legacy Julia passes in `LLVM.Interop` (`alloc_opt!`, ...),
+  `add_transform_info!`, `add_library_info!` and `LLVM.has_oldpm()`. LLVM deprecated the
+  legacy pass manager, and LLVM.jl's interface to the new one works on every supported
+  version of LLVM, including custom passes written in Julia.
+- The new pass manager's types lost their `NewPM` prefix: `PassBuilder`, `PassManager`,
+  `ModulePassManager()`, `CGSCCPassManager()`, `FunctionPassManager()`,
+  `LoopPassManager()`, `AAManager()`, custom passes created with `ModulePass(name, f)` and
+  `FunctionPass(name, f)` (of type `CustomPass`), and the `DebugifyPass` and
+  `CheckDebugifyPass` constructors.
+- Custom correctness passes that must run on `optnone` functions need
+  `FunctionPass(name, f; required=true)` (or `ModulePass(...; required=true)`). The default
+  remains optional. Audit migrated legacy passes individually.
+- `add!` and `register!` return the pass builder or pass manager, including when adding a
+  nested pass manager using a do-block, instead of internal state.
+- `ExpandReductionsPass()` (`expand-reductions`) is available on every supported version of
+  LLVM; LLVM itself only registers it with the new pass manager since LLVM 21.
+
+Insertion points:
+
+- Where to insert or move IR objects is an `InsertionPoint`, created with
+  `LLVM.before(x)`, `LLVM.after(x)`, `LLVM.at_begin(c)`, `LLVM.at_end(c)` and
+  `LLVM.after_phis(bb)`. These factories are public, but not part of a vocabulary.
+  Positions are resolved when they are created, and follow LLVM's rules for debug
+  records: `before(inst)` inserts after the debug records attached to `inst`, while
+  `after(prev)` and `at_begin(bb)` insert before them.
+- `position!(builder, pos)` positions a builder at an insertion point, replacing
+  `position!(builder, inst)` and `position!(builder, bb)`, which didn't make clear where
+  instructions would go (`LLVM.before(inst)` and `LLVM.at_end(bb)`, respectively).
+  `LLVM.after(inst)` also works for the last instruction of a block, `LLVM.at_begin(bb)`
+  positions before any PHI nodes, and `LLVM.after_phis(bb)` at the first position where
+  other instructions can go, like C++'s `getFirstInsertionPt`. `builder.position` is the
+  insertion point of a builder, and `builder.insert_block` the block, replacing
+  `position(builder)`. `position!(builder, pos) do ... end` positions a builder
+  temporarily, and restores its position and debug location afterwards.
+- `move!(x, pos)` moves an instruction, basic block, function or global variable to an
+  insertion point, replacing `move_before` and `move_after`. Instructions and blocks that
+  are not part of a block or function are inserted, which replaces `insert!(builder, inst)`
+  (use `move!(inst, builder.position)`), and they can be moved to another block or function.
+  To retain the old builder insertion's debug-location behavior, assign
+  `inst.debug_location = builder.debug_location` first.
+- `BasicBlock(pos, name)` creates a block at an insertion point, replacing
+  `BasicBlock(bb, name)`, which inserted before `bb`.
+- `dbg_declare!`, `dbg_value!` and `dbg_label!` insert debug records (or intrinsics, before
+  LLVM 19) at an insertion point, replacing `declare_before!`, `declare_at_end!`,
+  `value_before!`, `value_at_end!`, `label_before!` and `label_at_end!`. The end of a block
+  is always its literal end, so records can't be inserted after a terminator; before,
+  `declare_at_end!` inserted before the terminator and `value_at_end!` after it.
+
+Debug information:
+
+- `DISubProgram` is renamed to `DISubprogram`, LLVM's spelling, and is a `DILocalScope`,
+  like the lexical blocks. `DILocalScope` is public, and locations (`DILocation`), local
+  variables (`auto_variable!`, `parameter_variable!`), lexical blocks and labels require
+  one, as LLVM does, instead of accepting any `DIScope` (e.g., a file or compile unit,
+  which fails to verify).
+- The scope of other declarations (types, subprograms, global variables, namespaces,
+  modules and imported entities) can be `nothing`, for a declaration at the top level.
+  `scope.file` is `nothing` for a scope without a file instead of throwing, and assigning
+  `nothing` to `f.subprogram` removes the subprogram of a function.
+- Temporary metadata nodes are owned by a `TemporaryMDNode` handle, which other metadata
+  refers to as `temp.node`, and that is consumed by replacing the node with
+  `replace_temporary!(temp, node)` or by disposing of it. `TemporaryMDNode(operands)`
+  (with do-block and `@dispose` support) replaces `temporary_mdnode`, `dispose(temp)`
+  replaces `dispose_temporary`, and `replace_temporary!` replaces
+  `replace_uses!(temp, node)`, which accepted any metadata. `replaceable_composite_type!`
+  and `temp_global_variable_fwd_decl!` return a `TemporaryMDNode` too, which has to be
+  replaced or disposed of before the `DIBuilder` is finalized.
+- `imported_module!` replaces `imported_module_from_namespace!`,
+  `imported_module_from_module!` and `imported_module_from_alias!`, depending on the type
+  of what is imported. `enumerator!` accepts a `size_in_bits` keyword for arbitrary-precision
+  enumerators (on LLVM 21 and later), replacing `enumerator_arbitrary!`, and throws an
+  `ArgumentError` for values that don't fit, while it used to throw an `InexactError` for
+  unsigned values above `typemax(Int64)`, even with `unsigned=true`. `get_or_create_subrange!` is renamed to `subrange!`, and
+  `MDTuple(elements)` (or `MDNode(elements)`) replaces `get_or_create_array!` and
+  `get_or_create_type_array!`.
+- Optional arguments of the `DIBuilder` functions are keywords, with consistent names:
+  `subprogram!` takes `local_to_unit`, `definition` and `optimized` (instead of
+  `is_local_to_unit`, `is_definition` and `is_optimized`), `global_variable_expression!`
+  and `temp_global_variable_fwd_decl!` take `local_to_unit` as a keyword instead of a
+  positional argument, as do `lexical_block_file!` its `discriminator`, `inheritance!` its
+  `vbptr_offset`, and the `imported_*!` functions their `elements`. The `class_ty` of
+  `enumeration_type!` is renamed to `underlying_type`, and `subrange_type!` and
+  `dynamic_array_type!` take their file before their line, like the other functions.
+  `subroutine_type!` accepts `nothing` as a parameter type, for variadic subroutines, and
+  rejects parameter types that aren't `DIType`s, which LLVM doesn't check.
+
+ORC:
+
+- Functions that consume their arguments have a `!`: `define!(jd, mu)` replaces
+  `define`, and `emit!(layer, mr, tsm)` replaces `emit` for the JIT's layers.
+  `check_callback_error!` replaces `check_callback_error`, since it clears the exception it
+  rethrows. `LLVM.ORC` no longer exports the target machine's `emit`, which needs to be
+  qualified (`LLVM.emit(tm, mod, filetype)`), like the rest of the target machine API.
+- Materialization units, definition generators, target machine builders and `LLJITBuilder`s
+  keep track of whether LLVM has taken them over (by `define!`, `add!(jd, dg)`,
+  `target_machine_builder!` and `LLJIT(builder)`). Using them afterwards throws an
+  `ArgumentError`, and disposing of them does nothing, where it used to free them twice.
+  `MaterializationUnit` is public, and materialization units that aren't defined can be
+  disposed of, which for a `CustomMaterializationUnit` also releases its callbacks.
+- `SymbolFlags(; exported, callable, weak, materialization_side_effects_only,
+  target_flags)` replaces `symbol_flags`, which returned the C API's `LLVMJITSymbolFlags`.
+  `absolute_symbols`, `lazy_reexports` and `CustomMaterializationUnit` only take `name =>
+  definition` pairs, and check them before taking ownership of the names; the methods that
+  took the C API's symbol map structures (and passed anything else to LLVM unchecked) have
+  been removed. The initializer symbol of a `CustomMaterializationUnit` is the `init`
+  keyword argument. Definitions that LLVM asserts on are rejected: an initializer that
+  isn't one of the unit's symbols or isn't `materialization_side_effects_only`, absolute
+  symbols that are `materialization_side_effects_only`, and lazy reexports that aren't
+  callable.
+- Thread-safe modules and object linking layers keep track of being consumed too (by
+  `add!` and `emit!`, and by being returned from a linking layer creator). The thread-safe
+  modules that an IR transformation receives are borrowed: they can't be consumed or
+  disposed of, and can't be used after the transformation returns. Disposing of an object
+  linking layer that wasn't handed over to a JIT no longer crashes when the execution
+  session ends, which works around an LLVM bug (#629) using a new LLVMExtra function.
+- Memory buffers keep track of being consumed too, by `add!` to a JIT and by lazily parsing
+  bitcode (`parse(LLVM.Module, membuf; lazy=true)`), so that they can be disposed of after
+  being handed over, e.g., using `@dispose`.
+- `JITDylib(jljit[, name])` returned the JITDylib that is shared by all users of Julia's
+  JIT before Julia 1.14.0-DEV.2171, but created a new one on every call on newer Julia, so
+  code that called it to get "the" JITDylib silently used new, empty ones there. It is
+  replaced by `jljit.external_dylib`, the shared JITDylib (before Julia 1.14.0-DEV.2171),
+  and `JITDylib(jljit, name)`, which creates one (from Julia 1.14.0-DEV.2171). Each throws
+  an error on the versions of Julia that don't support it, so choose one when
+  initializing, and keep using it. `LLVM.supports_jit_dylib_creation(jljit)` tells which.
+- `LLVM.consume!(obj)` hands an object that LLVM.jl tracks the ownership of over to foreign
+  code, e.g., a `ccall` that takes ownership of a thread-safe module, returning its handle,
+  after which the wrapper can't be used anymore and disposing of it does nothing.
+  `ThreadSafeModule(ref)` and `ThreadSafeModule(ref; borrowed=true)` wrap a handle from
+  foreign code, taking over the responsibility to dispose of it or not, and
+  `LLVM.unsafe_module(tsm)` returns the module of a thread-safe module without locking its
+  context, for when calling the thread-safe module isn't possible, and
+  `LLVM.unsafe_take_module!(tsm)` (LLVM 16+) moves the module out of a thread-safe module
+  that foreign code owns, e.g., the one of Julia's code generator.
+- `LLVM.consume!(buf; borrow=true)` hands a memory buffer over to foreign code that keeps
+  it alive and lets the caller keep using it, like clang's `SourceManager` does: the
+  wrapper remains usable, but can't be consumed again, and disposing of it does nothing.
+- Materialization responsibilities can't be used after being consumed by `emit!`, and the
+  responsibility that an IR transformation receives is borrowed, like its module. Resource
+  trackers can't be used after being disposed of, and disposing of them again does
+  nothing, where it released the tracker twice. The default tracker of a JITDylib can't be
+  used after being removed, which destroys it. Such uses throw an `ArgumentError` instead
+  of using freed memory.
+
+Targets and execution engines:
+
+- `TargetMachine(target, triple; cpu, features, opt_level, reloc, code)` takes its CPU and
+  features as keyword arguments instead of optional positional ones, and the optimization
+  level is `opt_level` instead of `optlevel`, like elsewhere. `JITTargetMachine(; triple,
+  cpu, features, opt_level)` takes keywords as it was documented to (it took positional
+  arguments), and has a do-block form. The legacy `LLVM.JIT(mod; opt_level)` takes its
+  optimization level as a keyword too.
+- `LLVM.hasasmparser` is renamed to `LLVM.hasasmbackend`, which is what it checks.
+- Target machines keep track of being consumed by `TargetMachineBuilder(tm)`, and thus by
+  `LLJIT(; tm)`: using them afterwards throws an `ArgumentError`, and disposing of them
+  does nothing, where `@dispose tm=JITTargetMachine() jit=LLJIT(; tm) ...` freed the target
+  machine twice.
+- The operations that take ownership of a module (`ThreadSafeModule(mod)`, `link!`, and
+  creating an execution engine) document that they do so even if they fail. Unlike the
+  objects above, modules don't keep track of being consumed.
+- The data layout of a JIT is `jit.datalayout_string` (it was `jit.datalayout`, a string,
+  while `mod.datalayout` is a `DataLayout`), and `DataLayout(jit)` creates a `DataLayout`
+  that can be queried.
+- The hooks of a custom `AbstractTargetTransformInfo` return `nothing` for absent address
+  spaces instead of `typemax(UInt)`: `get_assumed_addr_space` returns an integer or
+  `nothing`, `get_predicated_addr_space` a `(pointer, addrspace)` tuple or `nothing`, and
+  `flat_address_space` can return `nothing`. Address spaces that pointers can't have (24
+  bits) are reported instead of truncated, which rejects the old sentinel.
+  `collect_flat_address_operands` returns 1-based argument positions, like
+  `call.arguments`.
+- `LLVM.execute(engine, f, args)` runs a function in a legacy execution engine, replacing
+  a method of `Base.run`, and `LLVM.to_float(val, typ)` gets the floating-point number of a
+  `GenericValue`, replacing the three-argument `convert(T, val, typ)`. Only float and double
+  generic values are supported, which the C API requires.
+
+Types, constants and data layouts:
+
+- LLVM types and constants no longer implement Base's collection functions, which
+  returned LLVM objects where Julia expects Julia types, and whose results depended on
+  LLVM's constant folding. The element type and length of array and vector types are
+  `ty.element_type` and `ty.length`, and the element type of a typed pointer is
+  `ptrtyp.element_type` (`nothing` for an opaque pointer), replacing `eltype` and
+  `length`. `isemptytype(ty)` replaces `isempty(ty)`.
+- `c.elements` is a read-only vector of the elements of an aggregate constant: arrays,
+  structs and vectors, their simple data variants (`ConstantDataArray` and
+  `ConstantDataVector`), and `zeroinitializer`. It replaces indexing, `length`, `size`,
+  `eltype` and `collect` on constants, which for a `zeroinitializer` (e.g., what
+  `ConstantArray([0, 0, 0])` folds to) had no elements. `LLVM.ConstantAggregate` is public.
+- `LLVM.bit_size(dl, ty)` returns the size of a type in bits, replacing `sizeof(dl, ty)`,
+  which divided by 8 as a float and threw for `i1`. The size and alignment queries of data
+  layouts return `Int`s. `LLVM.element_at` returns, and `LLVM.offsetof` takes, a 1-based
+  element index, like the `elements` of the struct type, and they check their arguments.
+- The floating-point types are public types named like their constructors:
+  `LLVM.DoubleType()` returns an `LLVM.DoubleType` instead of an internal `LLVM.LLVMDouble`,
+  and similarly for `HalfType`, `BFloatType`, `FloatType`, `FP128Type`, `X86FP80Type` and
+  `PPCFP128Type`. Code can dispatch on them (`T isa LLVM.DoubleType`), instead of comparing
+  with a type that belongs to the active context or checking the type kind.
+- `mod.metadata[name]` throws a `KeyError` for missing named metadata instead of creating
+  it; use `get!(mod.metadata, name)`, or `get`. The view supports `length`, and `first`
+  returns a `name => node` pair.
+- `ctx.types` and `engine.functions` only support lookups (`[name]`, `haskey` and `get`),
+  since LLVM can't enumerate them; `ctx.types` is no longer an `AbstractDict`.
+- Functions that take vectors of IR objects accept any `AbstractVector`, like the views of
+  the IR (e.g., `gep!`, `ret!`, `call!` with operand bundles, `ConstantStruct`,
+  `const_gep`, `MDNode` and the `DIBuilder` functions), and `clone` accepts any
+  `AbstractDict` as its value map.
+
+Enumerations:
+
+- The enums of the C API, which LLVM.jl uses for enum-valued state, are available using
+  scoped names, without the common prefix and suffix of their names:
+  `LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage`, `LLVM.IntPredicate.EQ`,
+  `LLVM.Opcode.BitCast`, and `LLVM.Linkage.T === LLVM.API.LLVMLinkage` for the type. These
+  modules are public but not part of a vocabulary, and are generated from `LLVM.API`, so
+  they contain the values that it defines for the current version of LLVM (including
+  backfilled `atomicrmw` operations; see `LLVM.isavailable`). Values of these enums
+  are displayed and converted to strings using these names, e.g., `LLVM.Linkage.Internal`
+  instead of `LLVMInternalLinkage::LLVMLinkage = 0x00000008` (or `LLVMInternalLinkage`, for
+  `string`). `LLVM.DebugEmissionKind` covers the debug info levels of Julia's code
+  generator, as used with its `CodegenParams`.
+
+Attributes:
+
+- The kind of an enum, type or constant range attribute is a `Symbol` naming it
+  (`attr.kind == :nounwind`) instead of an integer ID, and enum, type and string attributes
+  are displayed as the call that creates them (`EnumAttribute(:align, 16)`). Code that
+  compared `attr.kind` against an ID from the C API (e.g., from
+  `LLVMGetEnumAttributeKindForName`) now silently compares a Symbol against an integer; use
+  the keyed operations below instead, or `LLVM.API.LLVMGetEnumAttributeKind(attr)`.
+- The constructors of attributes accept Symbols, and reject unknown kinds, kinds that
+  belong to another kind of attribute (e.g., `EnumAttribute(:sret)`, which needs a type),
+  and values for kinds that don't take one, which used to create invalid attributes.
+- Attribute sets can be indexed by kind, using a `Symbol` for LLVM's attribute kinds and a
+  string for string attributes: `haskey(f.function_attributes, :nounwind)`,
+  `attrs["target-cpu"]`, `get(call.argument_attributes[1], :align, nothing)` and
+  `delete!(attrs, :noinline)`.
+
+New functionality:
+
+- The remaining resources can be created with a do-block that disposes of them
+  afterwards, like the other ones: `PassBuilder`, `DomTree`, `PostDomTree`, `LLJITBuilder`,
+  `TargetMachineBuilder`, `ObjectLinkingLayer`, `DynamicLibrarySearchGenerator`,
+  `LocalIndirectStubsManager`, `LocalLazyCallThroughManager` and `ThreadSafeModule`.
+- `LLVM.Interop.addrspacecast`, which the manual already described, is exported.
+- Every public name is documented, including the functions that return the names of
+  passes, the instruction types, the instruction builders and the constant expressions.
+
+- `get(mod.functions, name, default)`, and similarly for global variables, aliases and
+  ifuncs, looks up a value without throwing. `get!(f, mod.functions, name)` looks up a
+  function, or calls `f` to declare it (e.g., using a do-block that also adds attributes),
+  like C++'s `Module::getOrInsertFunction`, and `get!(f, mod.globals, name)` does the same
+  for global variables.
+- Properties for the operands and types of common instructions: `inst.pointer_operand`
+  (loads, stores, GEPs, `atomicrmw` and `cmpxchg`), `inst.value_operand` (stores and
+  `atomicrmw`), `alloca.allocated_type`, `gep.source_element_type`, `gep.inbounds`,
+  `inst.indices` of `extractvalue` and `insertvalue`, `call.called_function` (the function
+  that is called directly, or `nothing`), `arg.index`, and `f.intrinsic` (the intrinsic,
+  or `nothing`). `call.called_operand` can be assigned to replace the callee.
+- `isintrinsic` accepts any value, and optionally the intrinsic to check for, e.g.,
+  `isintrinsic(call.called_operand, Intrinsic("llvm.memcpy"))`. `Intrinsic(name)` throws
+  for unknown intrinsics, and intrinsics are displayed by name (`Intrinsic("llvm.abs")`)
+  instead of by their ID, which differs between versions of LLVM.
+- `copy_attributes!(dest, src)` copies the attributes of a function or global variable
+  that aren't needed to create it (calling convention, section, function attributes, ...),
+  like C++'s `copyAttributesFrom`, e.g., to replace a function by one with a different
+  signature.
+- `extract_value!` and `insert_value!` accept a vector of indices to access nested
+  elements, and check the indices. `exactudiv!` builds an exact unsigned division.
+- `comes_before` orders instructions, and `may_read_from_memory`, `may_write_to_memory` and
+  `may_have_side_effects` query what they may do. `take_name!(val, from)` transfers a name, and `strip_pointer_casts` and
+  `strip_pointer_casts_and_aliases` look through casts and aliases.
+- `val.users` is a view of the users of a value, and `remove_dead_constant_users!(c)`
+  removes constant expressions that use a constant but are unused themselves.
+- `supports_fast_math(inst)` checks whether an instruction can have fast-math flags, which
+  for `phi`, `select` and `call` instructions depends on their type.
+- `isstring(val)` checks whether a value is a constant string, and `String(str)` returns
+  the contents of one.
+- `switch.cases` is a mutable view of the cases of a switch instruction, which supports
+  adding cases with `push!` and `append!`.
+- `verify(f)` reports the verifier's message instead of "broken function", and
+  `verification_error` returns the message (or `nothing`) instead of throwing.
+- `register_callbacks!(pb, callback)` registers a native pass builder callback, like the
+  ones of pass plugins, to use passes implemented in C++ with a `PassBuilder`.
+- `LLVM.host_cpu_name()` and `LLVM.host_cpu_features()` return the name and features of
+  the host CPU, e.g., to create a `TargetMachine` for it.
+- `tryparse(Intrinsic, name)` looks up an intrinsic, returning `nothing` for names that the
+  version of LLVM in use doesn't know, and `parse(Intrinsic, name)` is the same as
+  `Intrinsic(name)`.
+- `cmpxchg.compare_operand` and `cmpxchg.new_value_operand` are the operands of a
+  `cmpxchg` instruction, and `LLVM.irname` returns the name of an `atomicrmw` operation or
+  an atomic ordering in LLVM IR, the inverse of `parse`. `tryparse` looks up the operation
+  or ordering of a name, like `parse`, but returns `nothing` for unknown names instead of
+  throwing. `LLVM.isfloatingpoint(op)` checks whether an `atomicrmw` operation is a
+  floating-point one (`fadd`, `fmax`, ...), which requires floating-point values, so that
+  generators can check that an operation applies to a value before generating it.
+- `alloca!` and `array_alloca!` take an `addrspace` keyword argument, for allocations in
+  another address space than the one of the data layout.
+- `memset!`, `memcpy!` and `memmove!` take their alignments as optional keyword arguments
+  (`align`, and `dst_align` and `src_align`), like the other builders of memory accesses:
+  `memcpy!(builder, dst, src, len)` doesn't add `align` attributes to the pointers. The
+  positional alignments remain supported, documenting that 0 means unknown, and invalid
+  alignments throw an `ArgumentError` instead of reaching LLVM.
+- `ce.source_element_type` works on `getelementptr` constant expressions, and
+  `LLVM.constant_offset(gep, dl)` computes the constant byte offset of a GEP instruction or
+  constant expression, as a `BigInt`, or with `LLVM.constant_offset(Int, gep, dl)` as an
+  `Int`.
+- `const_splat(vectyp, value)` creates a vector constant of which all elements are
+  `value`, a constant or a Julia number.
+- `run!(pass, mod)` runs a single custom pass (`ModulePass` or `FunctionPass`) on a module
+  or function, without having to register it with a pass builder first.
+- The memory effects of functions and calls (`f.memory_effects`, `call.memory_effects`)
+  can be used on LLVM 15, which doesn't have the `memory` attribute: they read and write
+  the attributes it replaced (`readnone`, `readonly`, `argmemonly`, ...), and throw for
+  effects that those can't represent. This makes `if LLVM.version() >= v"16"` branches
+  between both unnecessary. `LLVM.memory_attributes(effects)` creates the attributes for
+  some effects on any version, e.g., for function declarations.
+- The fixed metadata kinds (`MD_dbg`, `MD_tbaa`, ...) are public and part of `LLVM.IR`,
+  and `MDKind(name; context)` looks up a kind in another context than the active one.
+- `LLVM.Interop.volatile_load` and `volatile_store!` are like `unsafe_load` and
+  `unsafe_store!` on `Core.LLVMPtr`, using volatile memory accesses.
+- Block addresses (`blockaddress(@f, %bb)`) are `BlockAddress` constants, with the
+  `ba.function` and `ba.block` properties, and `BlockAddress(bb)` creates one. The `none`
+  token, the zero value of target extension types and signed pointers are
+  `ConstantTokenNone`, `ConstantTargetNone` and `ConstantPtrAuth` constants. Previously,
+  encountering any of these, e.g., as an operand of an `indirectbr` or `cleanuppad`
+  instruction, or creating `null(LLVM.TokenType())`, threw an "Unknown value kind" error.
+- `LLVM.load_library_permanently`, `LLVM.add_symbol` and `LLVM.find_symbol` are public.
+  They make libraries and symbols available to the legacy execution engines, using LLVM's
+  process-wide symbol search. `load_library_permanently` throws an `LLVMException` if the
+  library can't be loaded, where it returned the C API's status.
+- `LLVM.run_static_constructors!(engine)` and `LLVM.run_static_destructors!(engine)` run
+  the static constructors and destructors (`llvm.global_ctors` and `llvm.global_dtors`) of
+  the modules in a legacy execution engine, e.g., for C++ code with global objects.
+- The `memcheck` debugging mode reports every problem once for objects allocated and
+  disposed of at the same locations in user code, counting where it happens, with an update
+  when it happened 10, 100, 1000, ... times and a summary at exit, and groups leaked objects
+  by where they were allocated, instead of printing a full report every time.
+- The `memcheck` debugging mode knows that disposing of a context ends the lifetime of the
+  modules in it. Using or disposing of such a module afterwards is reported, along with
+  where the module was allocated and the context was disposed of, before the access to
+  freed memory possibly crashes the process (disposing of it is skipped), and these
+  modules are not reported as leaks anymore. For
+  a `ThreadSafeContext`, this applies to the regular modules in its context (not to the
+  modules borrowed from thread-safe modules), which are documented to only be usable while
+  the thread-safe context is alive.
+- `LLVM.adopt(obj)` registers an object that foreign code handed over to the caller (e.g.,
+  a module, memory buffer, generic value or context that a C API returned with ownership),
+  so that the `memcheck` debugging mode tracks it like objects that LLVM.jl created,
+  instead of reporting its disposal as that of an unknown instance.
+- `LLVM.mark_alloc`, `LLVM.mark_use`, `LLVM.mark_dispose(f, obj)` and `LLVM.mark_untracked`
+  are public, so that packages that wrap a related C API (like MLIR's) can have the
+  `memcheck` debugging mode check their own wrapper types (see "Checking other wrapper
+  types" in the manual). Memcheck identifies objects by `===` instead of `isequal` and
+  `hash`, which it no longer calls. `mark_alloc` registers an object without an owner
+  unless one is passed, and reports owners that are not tracked, have been (or are being)
+  disposed of, or are owned by the object. Code that used these
+  functions while they were internal: `mark_dispose(obj)` without a callback and the
+  `allow_overwrite` and `adopting` keyword arguments of `mark_alloc` have been removed
+  (use `mark_dispose(f, obj)` with the destructor, or `mark_untracked` to hand over an
+  object), and `@checked` and `refcheck` remain internal.
+- `dispose`, `activate` and `deactivate` are documented as generic functions that other
+  packages can add methods to for their own types, e.g., so that they work with
+  `@dispose`, or to maintain a task-local stack of their own contexts.
+- It is documented that the element that was just returned by iterating the views of the
+  instructions of a block, the blocks of a function, or the functions and global variables
+  of a module can be erased, and that wrappers can be used as keys of a `Dict` directly.
+- `gep.indices` is a view of the indices of a `getelementptr` instruction or constant
+  expression (the operands after the pointer), like C++'s `GEPOperator::indices()`.
+- `extract_value!` and `insert_value!` accept an empty vector of indices, which selects the
+  value itself: `extract_value!` returns it and `insert_value!` the inserted value (of the
+  same type), without creating an instruction, so that paths into nested aggregates can be
+  handled the same way whatever their length.
+
+Bug fixes:
+
+- `LLVM.pointersize` returns an `Int`, like the other size queries of data layouts,
+  instead of a `Cuint`.
+- `InternalizePass(; preserved_gvs)` works on every supported version of LLVM, where it
+  failed to parse on versions that don't support the `preserve-gv` parameter (before
+  LLVM 19, except for Julia's LLVM 18).
+- Synchronization scopes belong to the context they were created in: `inst.syncscope`
+  records the instruction's context, so that its `name` and display no longer depend on
+  the active context, in which the scope's ID can refer to another scope. Scopes of
+  different contexts are different, and using a scope with an instruction or builder of
+  another context throws an `ArgumentError`. Scope names passed to the builders resolve in
+  the builder's context, and `SyncScope(name; context)` creates a scope in another context
+  than the active one. A scope can also be assigned to an instruction by name
+  (`inst.syncscope = "agent"`). The constructor from an integer ID has been removed.
+- `parse(LLVM.AtomicRMWBinOp.T, name)` supports `fmaximumnum` and `fminimumnum`.
+- `instances(LLVM.AtomicRMWBinOp.T)` lists every `atomicrmw` operation, including the ones
+  that LLVM.jl defines because the C API of the LLVM version in use lacks them (e.g.,
+  `uinc_wrap` before LLVM 19), so that they can be enumerated without hard-coding their
+  names. `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))` lists the ones that
+  LLVM supports.
+- `partword_mask!` and `expand_partword!` work for words that are wider than the index type
+  of the pointer, e.g., 8-byte words with 32-bit pointers, for which they generated invalid
+  IR. A subword value must be naturally aligned and have a fixed, power-of-two byte size;
+  pointer-valued subword expansion is unsupported. Address masking requires an integral
+  address representation.
+- The names of metadata kinds used to index the metadata of instructions and global
+  objects (`inst.metadata["tbaa"]`) are looked up in their context instead of the active
+  one.
+- Loading LLVM.jl on Julia 1.10 no longer prints a warning about a soft-scope variable.
+- The docstrings of debug info functionality that is only defined for some versions of
+  LLVM, like `DbgRecord` and `DILabel`, are no longer dropped.
+- Running a `PassBuilder` with custom passes multiple times no longer uses the
+  callbacks, and garbage-collected state, of the first run.
+- Array types with 2^32 or more elements can be created, and their `length` is correct
+  (on LLVM 17 and later), instead of being truncated to 32 bits.
+- The operands of constants other than global values can no longer be changed using the
+  `operands` view, which corrupted LLVM's uniquing of constants.
+- Integer constants wider than 64 bits are created and converted correctly:
+  `ConstantInt(LLVM.IntType(128), Int128(-1))` used to be `2^64-1`, zero threw an
+  `InexactError`, and converting went through LLVM's 64-bit getters.
+- `ConstantRangeAttribute` checks that its bounds have the right number of words and form a
+  valid range, instead of reading out of bounds or failing an assertion in LLVM.
+- Strings are passed to LLVM by their number of bytes, so non-ASCII metadata strings, module
+  names and flags, named metadata, sync scopes and operand bundle tags aren't truncated.
+- The traits of views are defined on their types, so that generic code sees, e.g., that
+  `f.parameters` supports linear indexing and that `bb.instructions` contains instructions.
+- Custom TTI overrides that are specialized on the argument types of the callbacks, like
+  `is_noop_addr_space_cast(::MyTTI, ::UInt, ::UInt)`, are no longer silently ignored, and
+  operand lists that don't fit the C API's buffer are reported instead of truncated.
+- `replace_metadata_uses!` replaces by values of another type directly on LLVM 18+, and no
+  longer loops forever on older versions when the new value isn't a global value.
+- `PassBuilder` no longer leaks its options when given an invalid keyword argument.
+- `unsafe_store!` on `Core.LLVMPtr` returns the pointer, like Base.
+- `erase!` on an instruction or basic block that isn't part of a block or function, and
+  `clone(bb; dest=nothing)` on LLVM 18 and later, no longer crash.
+- `delete!(engine, mod)` does nothing for a module that isn't part of the execution engine,
+  and checks the status that the C API returns.
+- `struct_gep!` requires a `StructType`, and checks that its (zero-based) field index
+  selects a field, which LLVM asserted on or silently got wrong.
+- Moving basic blocks (now using `move!`) works for detached blocks, which crashed, and
+  before a block of another function, which corrupted the IR: the block was listed in the
+  other function, but kept its old parent.
+- The `memcheck` debugging mode no longer disposes of an object that it reports as being
+  disposed of twice. Freeing its memory again crashed the process, or made it hang when the
+  C library aborted while holding a lock that Julia's crash handler needed.
+- The `memcheck` debugging mode supports objects that are allocated and disposed of
+  concurrently, e.g., by ORC compiling code on multiple threads, which could corrupt its
+  bookkeeping.
+- `@llvmgenerated` functions can have arguments named `_`, which failed to compile because
+  the argument was passed on to `llvmcall` by name.
+- Functions that pass a string and its length to LLVM, like `StringAttribute`, looking up
+  string attributes, `Intrinsic(name)` and the functions of the `DIBuilder`, measure the
+  string after converting it to the UTF-8 `String` that LLVM receives, instead of counting
+  the code units of the original string, which truncated strings that aren't UTF-8.
+- `LLVM.Function(mod, intr, types)` and `LLVM.FunctionType(intr, types)` throw an
+  `ArgumentError` when types are given for an intrinsic that isn't overloaded, which
+  declared a function named after the types (e.g., `llvm.trap.i32`), or none for one that
+  is, which crashed LLVM. `LLVM.overloaded_name` throws for intrinsics that aren't
+  overloaded.
+
+Other changes:
+
+- Every function that takes a string accepts any `AbstractString`, like the `SubString`
+  of a regex match, instead of only a `String`: looking up and creating values by name
+  (`mod.functions[name]`, `get!(f, mod.globals, name)`, `LLVM.Function(mod, name, ft)`,
+  `ctx.types[name]`, `engine.functions[name]`, ...), setting names and other properties
+  (`val.name = name`, `gv.section = section`), naming the instructions created by an
+  `IRBuilder`, and IR, pipelines, metadata strings, attribute kinds, triples, CPUs,
+  features and paths. The C API, which these functions replace, accepted any string too.
+- Mutating methods on views, like `push!` on attribute sets or `setindex!` on metadata,
+  return the view, like Base's collections do, instead of `nothing`.
+- `f.blocks` no longer caches the blocks of the function, which made it return stale blocks
+  after blocks were added or removed.
+- Attribute sets support `append!` as documented, and they, the metadata of an instruction
+  and the flags of a module can be iterated.
+- Property access on values whose concrete type is only known at run time doesn't dispatch.
+- The errors about atomic operations name operations and orderings as LLVM IR does, e.g.,
+  "atomicrmw operation fmaximum is not supported by LLVM 18.1.7" instead of "atomicrmw
+  operation 19 ...", and "atomicrmw add requires an integer value, got float" instead of
+  "atomicrmw operation LLVM.AtomicRMWBinOp.Add ...".
+- The documentation of `expand_to_cmpxchg!`, `expand_partword!`, `lower_atomic!` and
+  `atomic_rmw_value!` says that they can change the control flow and call intrinsics.
+- The compare-exchange loop of `expand_to_cmpxchg!` loads floating-point and vector values
+  as integers, like it compares them, so that it only needs integer atomics: the loop of an
+  `atomicrmw fadd float` starts with a `load atomic i32` instead of a `load atomic float`,
+  which not every target supports.
+- `partword_mask!`, and with it `expand_partword!`, computes the address of the word that
+  contains a value as `getelementptr i8, ptr, -(ptrtoint(ptr) & (word_size - 1))` on every
+  version of LLVM, instead of with `llvm.ptrmask` (LLVM 17 and later), which not every
+  target supports, or `inttoptr(and(ptrtoint(ptr), mask))`, which loses the provenance of
+  the pointer.
+- It is documented that `"system"` names the default synchronization scope, so that
+  `fence!(builder, ordering; scope="system")` emits a plain `fence`, and that the body of an
+  `@llvmgenerated` function should print with `Core.println`, as `println` can fail there.
+  Its docstring no longer claims that only Julia 1.10 passes pointers to the body as
+  typed pointers (or as integers, for `Ptr`), which 1.11 does too.
+- Generating atomic operations is precompiled, which makes the first generator that uses
+  them, e.g., in UnsafeAtomics.jl, a few hundred milliseconds faster.
+- `deps/build_local.jl` installs the library it builds in a directory that is specific to
+  the version of LLVM and of the sources, through a temporary one, so that building for
+  another version of Julia, or concurrently, no longer deletes the library that another
+  environment uses. A second argument sets the directory to install into. It also checks
+  that the library was built for the version of LLVM in use, rather than for another LLVM
+  that CMake found.
+- `Interop.isghosttype(::Type)` implements the rule of Julia's code generator instead of
+  calling it, which created an LLVM context when none was active, so it is cheap and can
+  be constant-folded (#620).
+- The code that expands generators using `@llvmgenerated` or `generate_llvmcall` doesn't
+  compile code for every specialization of the function anymore, which on Julia 1.12 took
+  about 10 ms each time.
+- The body of an `@llvmgenerated` function is compiled once, and not for every
+  specialization of the function, as it doesn't specialize on the argument types and the
+  static parameters anymore. Together with the above, this makes the first call of a new
+  specialization of, e.g., an atomic operation in UnsafeAtomics.jl about 5 times faster on
+  Julia 1.12 (5 ms instead of 28 ms), and a precompilation workload that calls one
+  specialization of a function also precompiles its body for the others.
+- `@asmcall` and `@typed_ccall` don't compile code for every assembly string, intrinsic or
+  combination of types they're used with, which on Julia 1.12 took 15 to 50 ms each. The
+  documentation of `generate_llvmcall` describes how to write callbacks that are compiled
+  once.
+- Defining and expanding `@llvmgenerated` functions is precompiled, including LLVM.jl's own
+  ones for loading from and storing to `Core.LLVMPtr`s, which makes the first call of
+  `unsafe_load` or `unsafe_store!` on an `LLVMPtr` take a few milliseconds instead of a few
+  hundred.

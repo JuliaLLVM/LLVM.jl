@@ -1590,8 +1590,11 @@ end
         # names are looked up in the context of the object whose metadata is accessed
         gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
         md = MDNode([MDString("x")])
+        @test isempty(collect(gv.metadata))
+        @test !haskey(gv.metadata, "missing")
         context!(ctx) do
             gv.metadata["another.kind"] = md
+            @test length(collect(gv.metadata)) == 1
             @test haskey(gv.metadata, "another.kind")
             @test gv.metadata["another.kind"] == md
             @test gv.metadata[MDKind("another.kind"; context=other_ctx)] == md

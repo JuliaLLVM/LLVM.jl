@@ -1250,8 +1250,8 @@ Check if the given branch instruction is conditional.
 isconditional(br::BrInst) = API.LLVMIsConditional(br) |> Bool
 
 function condition(br::BrInst)
-    ref = API.LLVMGetCondition(br)
-    ref == C_NULL ? nothing : Value(ref)
+    isconditional(br) || return nothing
+    Value(API.LLVMGetCondition(br))
 end
 
 function condition!(br::BrInst, cond::Value)

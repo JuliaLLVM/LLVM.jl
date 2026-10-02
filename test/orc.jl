@@ -45,6 +45,9 @@ end
             ThreadSafeModule(ts_mod.ref; borrowed=true)() do inner
                 @test inner.name == "nested"
             end
+            @test_throws LLVMException ts_mod() do _
+                error("nested borrow failure")
+            end
             @test outer.name == "nested"
             if LLVM.memcheck_enabled
                 @test LLVM.tracked_objects[outer].dispose_bt === nothing
@@ -529,6 +532,8 @@ end
     end
     @dispose lljit=LLJIT() begin
         @dispose oll=ObjectLinkingLayer(lljit.execution_session) begin end
+        @test_throws ArgumentError ObjectLinkingLayer(lljit.execution_session,
+                                                      "invalid\0triple")
     end
 
     # handing objects over to foreign code

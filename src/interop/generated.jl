@@ -158,7 +158,7 @@ function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
     call_args = Any[]
     for i in 1:nargs
         ex = argexprs[i]
-        if ex isa Symbol || ex isa Expr
+        if ex isa Symbol || ex isa Expr || ex isa GlobalRef
             tmp = gensym("arg")
             push!(stmts, :($tmp = $ex))
             ex = tmp
@@ -333,6 +333,8 @@ macro llvmgenerated(builder, def)
         throw(ArgumentError("@llvmgenerated expects a function definition"))
     fname = call.args[1]
     what = "@llvmgenerated function $fname"
+    Meta.isexpr(fname, :(::)) &&
+        throw(ArgumentError("$what: typed callable receivers are not supported"))
 
     params = Any[]      # arguments of the method
     argtypes = Any[]    # argument types, as available in the generator
@@ -342,13 +344,17 @@ macro llvmgenerated(builder, def)
         Meta.isexpr(arg, :parameters) &&
             throw(ArgumentError("$what: keyword arguments are not supported"))
         isva = Meta.isexpr(arg, :...)
-        isva && i != length(call.args) - 1 &&
-            throw(ArgumentError("$what: only the last argument can be a vararg"))
         param = isva ? arg.args[1] : arg
         default = nothing
         if Meta.isexpr(param, :kw, 2)
             param, default = param.args
         end
+        explicit_va = Meta.isexpr(param, :(::)) &&
+                      Meta.isexpr(param.args[end], :curly) &&
+                      param.args[end].args[1] === :Vararg
+        isva |= explicit_va
+        isva && i != length(call.args) - 1 &&
+            throw(ArgumentError("$what: only the last argument can be a vararg"))
         if param isa Symbol
             name = param
         elseif Meta.isexpr(param, :(::), 2) && param.args[1] isa Symbol
@@ -368,7 +374,7 @@ macro llvmgenerated(builder, def)
             throw(ArgumentError("$what: argument `$name` conflicts with the name of the builder"))
 
         if isva
-            push!(params, Expr(:..., param))
+            push!(params, explicit_va ? param : Expr(:..., param))
             push!(argtypes, Expr(:..., name))
             vararg = name
         else

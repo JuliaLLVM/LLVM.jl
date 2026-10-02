@@ -648,18 +648,6 @@ check_available(op::API.LLVMAtomicRMWBinOp) =
         throw(ArgumentError("atomicrmw operation $(msgname(op)) is not supported by LLVM $(version())"))
 
 function _build_atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
-                            ordering::API.LLVMAtomicOrdering, singleThread::Bool)
-    check_available(op)
-    # only LLVMExtra's builder knows about operations that the C API doesn't define yet
-    if version() < v"19" && Integer(op) > Integer(API.LLVMAtomicRMWBinOpFMin)
-        # SyncScope::SingleThread or ::System
-        scope = SyncScope(singleThread ? 0 : 1, context(builder))
-        return _build_atomic_rmw!(builder, op, Ptr, Val, ordering, scope)
-    end
-    Instruction(API.LLVMBuildAtomicRMW(builder, op, Ptr, Val, ordering, singleThread))
-end
-
-function _build_atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                             ordering::API.LLVMAtomicOrdering, syncscope::SyncScope)
     check_available(op)
     check_context(syncscope, context(builder))
@@ -705,11 +693,7 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     end
     check_atomic_type(T, "atomicrmw")
     check_alignment(align)
-    inst = if scope === nothing
-        _build_atomic_rmw!(builder, op, Ptr, Val, ordering, false)
-    else
-        _build_atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(builder, scope))
-    end
+    inst = _build_atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(builder, scope))
     align === nothing || alignment!(inst, align)
     volatile && volatile!(inst, true)
     return inst
@@ -749,23 +733,13 @@ function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
         throw(ArgumentError("cmpxchg requires integer or pointer values, got $(string(T))"))
     check_atomic_type(T, "cmpxchg")
     check_alignment(align)
-    inst = if scope === nothing
-        _build_atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure, false)
-    else
-        _build_atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure,
-                        atomic_scope(builder, scope))
-    end
+    inst = _build_atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure,
+                                  atomic_scope(builder, scope))
     align === nothing || alignment!(inst, align)
     volatile && volatile!(inst, true)
     weak && weak!(inst, true)
     return inst
 end
-
-_build_atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
-                SuccessOrdering::API.LLVMAtomicOrdering,
-                FailureOrdering::API.LLVMAtomicOrdering, SingleThread::Bool) =
-    Instruction(API.LLVMBuildAtomicCmpXchg(builder, Ptr, Cmp, New, SuccessOrdering,
-                                           FailureOrdering, SingleThread))
 
 function _build_atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
                          SuccessOrdering::API.LLVMAtomicOrdering,

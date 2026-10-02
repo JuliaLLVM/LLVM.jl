@@ -1179,6 +1179,8 @@ end
     ce = const_gep(T_arr, gv, LLVM.Constant[ConstantInt(Int32(0)), ConstantInt(Int32(2))])
     phi = phi!(builder, T_ptr)
     append!(phi.incoming, [(ce, left), (null(T_ptr), entry)])
+    append!(phi.incoming, phi.incoming)
+    @test length(phi.incoming) == 4
     ret!(builder, load!(builder, T_i32, phi))
 
     @test convert_users_to_instructions!(LLVM.Constant[gv])
@@ -3069,6 +3071,15 @@ end
     @test brinst.condition == fn.parameters[1]
     brinst.condition = fn.parameters[2]
     @test brinst.condition == fn.parameters[2]
+    @test retinst.parent !== nothing
+    @dispose othermod=LLVM.Module("unconditional") otherbuilder=IRBuilder() begin
+        otherfn = LLVM.Function(othermod, "loop", LLVM.FunctionType(LLVM.VoidType()))
+        otherbb = BasicBlock(otherfn, "entry")
+        position!(otherbuilder, LLVM.at_end(otherbb))
+        unconditional = br!(otherbuilder, otherbb)
+        @test unconditional.condition === nothing
+        @test_throws ArgumentError (unconditional.condition = fn.parameters[1])
+    end
 
     let succ = bb1.terminator.successors
         @test eltype(succ) == BasicBlock

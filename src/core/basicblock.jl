@@ -38,6 +38,7 @@ iterating the view, so use `collect` to get a vector.
 
 The successors of the basic block, i.e., the `successors` of its terminator. Throws an
 `ArgumentError` if the block does not have a terminator.
+A saved view refers to that terminator; query `bb.successors` again after replacing it.
 
     bb.next
     bb.prev

@@ -34,12 +34,15 @@ The context in which the value was created.
 The uses of the value, as a read-only view that can be iterated. Each [`LLVM.Use`](@ref)
 refers to the `user` that has the value as an operand. Since LLVM 21, constants like
 integers do not keep track of their uses, so their `uses` are always empty.
+Changing operands or erasing users while iterating may invalidate the next use.
 
     val.users
 
 The users of the value, i.e., the `user` of each of its `uses`, as a read-only view that
 can be iterated. Like C++'s `Value::users()`, a user that uses the value multiple times
 (e.g., `add %x, %x`) occurs multiple times.
+For destructive traversal, collect distinct users first, e.g., `unique(collect(val.users))`.
+Such a snapshot does not protect users erased indirectly by another transformation.
 """
 abstract type Value end
 @properties Value

@@ -273,6 +273,7 @@ function Base.collect(set::ModuleUsedSet)
     set.compiler ? API.LLVMGetCompilerUsed(set.mod, refs) : API.LLVMGetUsed(set.mod, refs)
     return GlobalValue[Value(ref) for ref in refs]
 end
+Base.copy(set::ModuleUsedSet) = Set(collect(set))
 
 # LLVM only supports fetching all values at once
 function Base.iterate(set::ModuleUsedSet, (vals, i)=(collect(set), 1))

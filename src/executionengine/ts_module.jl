@@ -27,7 +27,10 @@ Create a new thread-safe context. The behavior of `opaque_pointers` is the same 
 
 This object needs to be disposed of using [`dispose(::ThreadSafeContext)`](@ref).
 """
-function ThreadSafeContext(; opaque_pointers=nothing)
+function ThreadSafeContext(; opaque_pointers::Union{Nothing,Bool}=nothing)
+    @static if version() >= v"17"
+        opaque_pointers === false && throw(ArgumentError("LLVM >=17 does not support typed pointers"))
+    end
     ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext()))
     ctx = mark_untracked(context(ts_ctx))
     memcheck_register_context(ctx, ts_ctx)
@@ -138,7 +141,8 @@ function check_consumable(tsm::ThreadSafeModule)
 end
 
 function consume!(tsm::ThreadSafeModule)
-    check_consumable(tsm)
+    tsm.borrowed && throw(ArgumentError("A borrowed ThreadSafeModule can't be consumed"))
+    check_usable(tsm)
     tsm.owned = false
     mark_disposed(tsm)
     return tsm.ref
@@ -220,17 +224,36 @@ function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
     mod = Module(ref)
     tracked = !cb.tsm.unsafe_access
     # (it's borrowed for the duration of the callback, not owned by the thread-safe context)
-    tracked && track_alloc(mod; allow_overwrite=true, owner=nothing)
+    borrows = get!(task_local_storage(), :llvm_tsm_borrows) do
+        Dict{API.LLVMModuleRef,Tuple{Int,Bool}}()
+    end
+    if tracked
+        depth, unsafe = get(borrows, ref, (0, false))
+        depth == 0 && track_alloc(mod; allow_overwrite=true, owner=nothing)
+        borrows[ref] = (depth + 1, unsafe)
+    end
     ctx = context(mod)
     activate(ctx)
     try
         cb.ret = cb.callback(Module(ref))
     catch err
-        msg = sprint(Base.display_error, err, Base.catch_backtrace())
+        msg = try
+            sprint(Base.display_error, err, Base.catch_backtrace())
+        catch
+            "ThreadSafeModule callback failed (error formatting also failed)"
+        end
         return API.LLVMCreateStringError(msg)
     finally
         # also check whether `unsafe_module` was called during the callback
-        tracked && !cb.tsm.unsafe_access && mark_disposed(mod)
+        if tracked
+            depth, unsafe = borrows[ref]
+            if depth == 1
+                delete!(borrows, ref)
+                unsafe || mark_disposed(mod)
+            else
+                borrows[ref] = (depth - 1, unsafe)
+            end
+        end
         deactivate(ctx)
     end
     return convert(API.LLVMErrorRef, C_NULL)
@@ -285,6 +308,11 @@ function unsafe_module(tsm::ThreadSafeModule)
     check_has_module(tsm)
     mod = Module(API.LLVMExtraThreadSafeModuleGetModuleUnlocked(tsm))
     tsm.unsafe_access = true
+    borrows = get(task_local_storage(), :llvm_tsm_borrows, nothing)
+    if borrows !== nothing && haskey(borrows, mod.ref)
+        depth, _ = borrows[mod.ref]
+        borrows[mod.ref] = (depth, true)
+    end
     return mark_untracked(mod)
 end
 

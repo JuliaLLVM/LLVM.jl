@@ -1,3 +1,6 @@
+struct UnprintableCallbackError <: Exception end
+Base.showerror(::IO, ::UnprintableCallbackError) = error("showerror failed")
+
 @testset "orc" begin
 
 let lljit=LLJIT()
@@ -32,6 +35,29 @@ end
 end
 
 @testset "ThreadSafeModule" begin
+    @dispose ts_ctx=ThreadSafeContext() ts_mod=ThreadSafeModule("nested") begin
+        local borrowed_mod
+        ts_mod() do outer
+            borrowed_mod = outer
+            ts_mod() do inner
+                @test inner.name == "nested"
+            end
+            ThreadSafeModule(ts_mod.ref; borrowed=true)() do inner
+                @test inner.name == "nested"
+            end
+            @test outer.name == "nested"
+            if LLVM.memcheck_enabled
+                @test LLVM.tracked_objects[outer].dispose_bt === nothing
+            end
+        end
+        if LLVM.memcheck_enabled
+            @test LLVM.tracked_objects[borrowed_mod].dispose_bt !== nothing
+        end
+        @test_throws "error formatting also failed" ts_mod() do _
+            throw(UnprintableCallbackError())
+        end
+        @test ts_mod(mod -> mod.name) == "nested"
+    end
     @dispose ts_ctx=ThreadSafeContext() ts_mod=ThreadSafeModule("jit") begin
         @test_throws LLVMException ts_mod() do mod
             error("Error")
@@ -565,7 +591,7 @@ end
                 @test_throws "taken out" LLVM.unsafe_take_module!(t)
             end
             @test_throws "taken out" add!(lljit, lljit.main_dylib, tsm)
-            @test_throws "taken out" LLVM.consume!(tsm)
+            @test LLVM.consume!(tsm) == tsm.ref
             dispose(tsm)
 
             # the module is owned by the caller

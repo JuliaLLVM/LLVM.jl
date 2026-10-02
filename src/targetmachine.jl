@@ -144,21 +144,20 @@ Generate code for the given module using the target machine, returning the binar
 If assembly code was requested, the binary data can be converted back using `String`.
 """
 function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType)
-    out_error = Ref{Cstring}()
-    out_membuf = Ref{API.LLVMMemoryBufferRef}()
+    ctx = context(mod)
+    prepare_diagnostic(ctx)
+    out_error = Ref{Cstring}(C_NULL)
+    out_membuf = Ref{API.LLVMMemoryBufferRef}(C_NULL)
     status = API.LLVMTargetMachineEmitToMemoryBuffer(tm, mod, filetype,
                                                      out_error, out_membuf) |> Bool
-
-    if status
-        error = unsafe_message(out_error[])
-        throw(LLVMException(error))
-    end
-
-    membuf = mark_alloc(MemoryBuffer(out_membuf[]))
+    error = out_error[] == C_NULL ? nothing : unsafe_message(out_error[])
+    membuf = out_membuf[] == C_NULL ? nothing : mark_alloc(MemoryBuffer(out_membuf[]))
     try
-        convert(Vector{UInt8}, membuf)
+        check_diagnostic(ctx, status, something(error, "target emission failed"))
+        membuf === nothing && throw(LLVMException("target emission returned no buffer"))
+        return convert(Vector{UInt8}, membuf)
     finally
-        dispose(membuf)
+        membuf === nothing || dispose(membuf)
     end
 end
 
@@ -170,13 +169,12 @@ Generate code for the given module using the target machine, writing it to the g
 """
 function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType,
               path::AbstractString)
-    out_error = Ref{Cstring}()
+    ctx = context(mod)
+    prepare_diagnostic(ctx)
+    out_error = Ref{Cstring}(C_NULL)
     status = API.LLVMTargetMachineEmitToFile(tm, mod, path, filetype, out_error) |> Bool
-
-    if status
-        error = unsafe_message(out_error[])
-        throw(LLVMException(error))
-    end
+    error = out_error[] == C_NULL ? nothing : unsafe_message(out_error[])
+    check_diagnostic(ctx, status, something(error, "target emission failed"))
 
     return nothing
 end

@@ -409,6 +409,9 @@ end
     # LLVM's baseline well enough that InferAddressSpaces can't find a flat AS
     # and therefore folds nothing — same observable behavior as no TTI at all.
     struct BaselineTTI <: LLVM.AbstractTargetTransformInfo end
+    struct PartialValueTTI <: LLVM.AbstractTargetTransformInfo end
+    LLVM.get_assumed_addr_space(::PartialValueTTI, ::LLVM.GlobalVariable) = 1
+    @test_throws ArgumentError LLVM.build_custom_tti_options(PartialValueTTI())
 
     @dispose ctx=Context() mod=make_mod() begin
         @dispose pb=PassBuilder() begin

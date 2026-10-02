@@ -53,6 +53,21 @@ end
             @test asm == read(path, String)
         end
 
+        bad_ir = raw"""define void @bad() {
+          %x = call i8 asm sideeffect "mov %ah, ${0:h}", "=r,~{eax},~{ebx},~{ecx},~{edx},~{dirflag},~{fpsr},~{flags}"()
+          ret void
+        }"""
+        @dispose badmod=parse(LLVM.Module, bad_ir) begin
+            @test_throws "invalid operand in inline asm" LLVM.emit(tm, badmod,
+                                                                  LLVM.API.LLVMAssemblyFile)
+            mktemp() do path, io
+                @test_throws "invalid operand in inline asm" LLVM.emit(tm, badmod,
+                                                                      LLVM.API.LLVMAssemblyFile,
+                                                                      path)
+            end
+        end
+        @test String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile)) == asm
+
         @test_throws LLVMException LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile, "/")
     end
 

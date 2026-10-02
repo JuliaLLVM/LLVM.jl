@@ -559,8 +559,8 @@ Create a constant array of values of the given type and data.
 
 !!! note
 
-    When using simple data types, this constructor can also return a
-    [`ConstantDataArray`](@ref).
+    This constructor can return another constant kind, such as
+    [`ConstantDataArray`](@ref), `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
 """
 function ConstantArray(typ::LLVMType, data::AbstractArray{<:Constant,N}) where {N}
     @assert all(x->x==typ, value_type.(data))
@@ -614,6 +614,7 @@ register(ConstantStruct, API.LLVMConstantStructValueKind)
     ConstantStruct(values::AbstractVector{<:Constant}; packed=false)
 
 Create an anonymous constant struct of the given values.
+LLVM may fold the result to `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
 """
 ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
     Value(API.LLVMConstStructInContext(context(), as_vector(values),
@@ -623,6 +624,7 @@ ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
     ConstantStruct(typ::LLVM.StructType, values::AbstractVector{<:Constant})
 
 Create a constant struct of the given type and values.
+LLVM may fold the result to `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
 """
 ConstantStruct(typ::StructType, values::AbstractVector{<:Constant}) =
     Value(API.LLVMConstNamedStruct(typ, as_vector(values), length(values)))::Constant

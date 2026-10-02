@@ -11,18 +11,19 @@ highlights below describe the main changes for packages upgrading to this releas
 `@llvmgenerated` defines staged functions that generate LLVM IR from a Julia signature;
 `generate_llvmcall` supports hand-written generators. These replace repeated LLVM and
 Julia signature declarations in `create_function` / `call_function` code. Static arguments
-remain available in the generator but are omitted from the `llvmcall` ABI. Argument
-expressions are evaluated once in order, and explicit `Vararg{T,N}` syntax is supported.
-Typed callable receivers are outside this interface. Generator bodies compile once across
+remain available in the generator but are omitted from the `llvmcall` ABI. Generators
+support explicit `Vararg{T,N}` syntax and compile once across
 specializations, reducing the cost of generating IR for new argument types.
 
 ### Namespaces, properties and IR views
 
 `using LLVM` exports only `@dispose`. Opt into `LLVM.IR`, `LLVM.Build`, `LLVM.Passes`, and
-`LLVM.ORC`, or qualify names. Object state and relationships use properties: `f.name`,
+`LLVM.ORC`, or qualify names. The old getter and setter functions were removed without
+deprecations; see the manual's *Vocabularies* and *Properties* pages for the new spellings.
+Object state and relationships use properties: `f.name`,
 `f.blocks`, `inst.parent`, `mod.globals`, and writable forms such as `gv.linkage = ...`.
-Collections are live IR views; use `collect` or `copy(mod.used)` for a snapshot. PHI incoming
-pairs may be appended from an aliased view. Use `LLVM.before(inst)` and `LLVM.at_end(bb)`
+Collections are live IR views; use `collect` or `copy(mod.used)` for a snapshot.
+Use `LLVM.before(inst)` and `LLVM.at_end(bb)`
 for insertion and movement; the other factories are `LLVM.after`, `LLVM.at_begin`, and
 `LLVM.after_phis`. An instruction moved with
 `move!(inst, builder.position)` keeps its own debug location; assign
@@ -59,8 +60,8 @@ direction of debug-location assignment matters when porting old `debuglocation!`
 ### ORC and ownership
 
 Thread-safe modules, target machines, buffers and JIT resources distinguish owning,
-borrowed and consumed wrappers. `consume!` performs a Julia-side handoff after a foreign
-consumer succeeds. A borrowed module from a thread-safe module is valid only during its
+borrowed and consumed wrappers. Call `LLVM.consume!(x)` once foreign code has taken
+ownership of `x`. A borrowed module from a thread-safe module is valid only during its
 callback unless `unsafe_module` is used. Keep the exact Julia `LLJIT` wrapper that owns
 foreign JIT callbacks rooted until the native JIT is destroyed. `jit.datalayout_string`
 returns the text; `DataLayout(jit)` creates a queryable layout object.
@@ -70,7 +71,7 @@ returns the text; `DataLayout(jit)` creates a queryable layout object.
 `PassBuilder` is the single pass-manager interface. Custom `ModulePass` and `FunctionPass`
 callbacks accept `required=true` when correctness requires execution on `optnone` code;
 optional remains the default. Audit legacy correctness passes during migration. Target
-emission reports deferred diagnostics and releases failed-output buffers. Legacy execution
+emission reports deferred diagnostics. Legacy execution
 engines gain explicit execution and static constructor/destructor runners. Machine code
 can be decoded lazily with `Disassembler` and `disassemble`.
 
@@ -79,11 +80,7 @@ can be decoded lazily with `Disassembler` and `disassemble`.
 Stack allocation builders accept `align`; functions expose alignment. Global aliases and
 ifuncs have wrappers and collection views. Integer poison flags, exact floating-point
 constant bit patterns, debug-record inspection and memory-effect attributes are supported.
-Common IR traversal and builder calls are faster. `ConstantDataArray` copies strided
-inputs before passing them to LLVM.
-
-**Release prerequisite:** these APIs require a matching LLVMExtra_jll build. The currently
-pinned 0.0.49 artifact predates several native functions and must be updated before release.
+Common IR traversal and builder calls are faster.
 
 
 ## LLVM.jl v9.13

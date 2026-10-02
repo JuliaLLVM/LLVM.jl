@@ -96,7 +96,8 @@ Create a new custom pass. The `name` is a string that will be used to identify t
 in the pass manager. The `callback` is a function that will be called when the pass is
 run. The function should take a single argument, the module or function to be processed,
 and return a boolean indicating whether the pass made any changes.
-Set `required=true` for a correctness pass that must run on `optnone` functions.
+Set `required=true` for a pass needed for correctness; LLVM then does not skip it on
+`optnone` functions or under `-opt-bisect-limit`.
 
 Before using a custom pass, it must be registered with a pass builder using `register!`.
 LLVM.jl catches exceptions from these callbacks and rethrows them as `PassException`

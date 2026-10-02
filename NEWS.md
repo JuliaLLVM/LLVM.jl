@@ -19,7 +19,8 @@ specializations, reducing the cost of generating IR for new argument types.
 
 `using LLVM` exports only `@dispose`. Opt into `LLVM.IR`, `LLVM.Build`, `LLVM.Passes`, and
 `LLVM.ORC`, or qualify names. The old getter and setter functions were removed without
-deprecations; see the manual's *Vocabularies* and *Properties* pages for the new spellings.
+deprecations; see the *Vocabularies* and *Properties* sections of the Essentials manual
+for the new spellings.
 Object state and relationships use properties: `f.name`,
 `f.blocks`, `inst.parent`, `mod.globals`, and writable forms such as `gv.linkage = ...`.
 Collections are live IR views; use `collect` or `copy(mod.used)` for a snapshot.
@@ -69,8 +70,8 @@ returns the text; `DataLayout(jit)` creates a queryable layout object.
 ### Passes and native execution
 
 `PassBuilder` is the single pass-manager interface. Custom `ModulePass` and `FunctionPass`
-callbacks accept `required=true` when correctness requires execution on `optnone` code;
-optional remains the default. Audit legacy correctness passes during migration. Target
+callbacks accept `required=true` when correctness requires LLVM to run them even where it
+skips optional passes. Audit legacy correctness passes during migration. Target
 emission reports deferred diagnostics. Legacy execution
 engines gain explicit execution and static constructor/destructor runners. Machine code
 can be decoded lazily with `Disassembler` and `disassemble`.

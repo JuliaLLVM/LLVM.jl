@@ -115,7 +115,8 @@ function check_partword(mod::Module, T::LLVMType, ptr::Value, align::Integer,
     (n > 0 && ispow2(n)) || throw(ArgumentError("partword value must have a power-of-two byte size"))
     if n < word_size
         align >= n || throw(ArgumentError("partword value must be naturally aligned"))
-        if align < word_size && Bool(API.LLVMExtraIsNonIntegralPointerType(mod, value_type(ptr)))
+        if align < word_size &&
+           Bool(API.LLVMExtraMustNotIntroducePtrToInt(mod, value_type(ptr)))
             throw(ArgumentError("partword address has a non-integral pointer representation"))
         end
     end
@@ -167,10 +168,10 @@ atomics on values smaller than the target supports: use [`extract_masked_value!`
 and [`insert_masked_value!`](@ref) to access the value in the word. The result depends on
 the data layout of the module (its endianness and index width).
 
-`ptr` must have pointer type. `T` must be an integer, floating-point, or fixed vector of
-those types, with a positive power-of-two byte size. Values smaller than `word_size` must
-be naturally aligned. For values at least `word_size` bytes wide, the result is an identity
-mask and no alignment check is needed.
+`ptr` must have pointer type and permit address extraction. `T` must be an integer,
+floating-point, or fixed vector of those types, with a positive power-of-two byte size.
+Values smaller than `word_size` must be naturally aligned. For values at least `word_size`
+bytes wide, the result is an identity mask and no alignment check is needed.
 
 This is a copy of the partword support of AtomicExpandPass, except that the address of the
 word is computed by subtracting the offset of the value from `ptr`, as

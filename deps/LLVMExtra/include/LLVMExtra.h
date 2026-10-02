@@ -280,6 +280,7 @@ LLVMBool LLVMExtraLowerAtomicCmpXchgInst(LLVMValueRef CXI);
 LLVMBool LLVMExtraExpandAtomicRMWToCmpXchg(LLVMValueRef RMWI);
 LLVMValueRef LLVMExtraCastAtomicToInteger(LLVMValueRef Inst);
 LLVMBool LLVMExtraIsNonIntegralPointerType(LLVMModuleRef M, LLVMTypeRef T);
+LLVMBool LLVMExtraMustNotIntroducePtrToInt(LLVMModuleRef M, LLVMTypeRef T);
 typedef struct {
   LLVMTypeRef WordType;
   LLVMTypeRef ValueType;

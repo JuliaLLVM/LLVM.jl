@@ -28,6 +28,15 @@ LLVMBool LLVMExtraIsNonIntegralPointerType(LLVMModuleRef M, LLVMTypeRef T) {
   return PT && unwrap(M)->getDataLayout().isNonIntegralPointerType(PT);
 }
 
+LLVMBool LLVMExtraMustNotIntroducePtrToInt(LLVMModuleRef M, LLVMTypeRef T) {
+  auto *PT = dyn_cast<PointerType>(unwrap(T));
+#if LLVM_VERSION_MAJOR >= 22
+  return PT && unwrap(M)->getDataLayout().mustNotIntroducePtrToInt(PT->getAddressSpace());
+#else
+  return PT && unwrap(M)->getDataLayout().isNonIntegralPointerType(PT);
+#endif
+}
+
 namespace {
 
 // the values of LLVMAtomicRMWBinOp in the most recent C API, for every operation the

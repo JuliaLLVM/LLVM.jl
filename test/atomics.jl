@@ -305,6 +305,17 @@ end
         @test occursin(r"xor i32 %PtrLSB, 3", ir)
         @test verify(mod_as) === nothing
     end
+    @dispose mod_ni=LLVM.Module("expansion_ni") begin
+        mod_ni.datalayout = "e-p1:64:64-ni:1"
+        f = LLVM.Function(mod_ni, "mask_ni",
+                          LLVM.FunctionType(T_i8, [LLVM.PointerType(T_i8, 1), T_i8]))
+        ptr, val = f.parameters
+        position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+        @test_throws "non-integral pointer representation" partword_mask!(
+            builder, T_i8, ptr; align=1, word_size=4)
+        ret!(builder, val)
+        @test verify(mod_ni) === nothing
+    end
     @dispose mod32=LLVM.Module("expansion32") begin
         # words that are wider than the index type
         mod32.datalayout = "e-p:32:32"

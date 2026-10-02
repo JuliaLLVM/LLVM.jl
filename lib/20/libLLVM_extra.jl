@@ -270,6 +270,14 @@ function LLVMExtraCastAtomicToInteger(Inst)
     ccall((:LLVMExtraCastAtomicToInteger, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
 end
 
+function LLVMExtraIsNonIntegralPointerType(M, T)
+    ccall((:LLVMExtraIsNonIntegralPointerType, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
+end
+
+function LLVMExtraMustNotIntroducePtrToInt(M, T)
+    ccall((:LLVMExtraMustNotIntroducePtrToInt, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
+end
+
 struct LLVMExtraPartwordMaskValues
     WordType::LLVMTypeRef
     ValueType::LLVMTypeRef
@@ -639,9 +647,4 @@ end
 
 function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
-end
-
-
-function LLVMExtraIsNonIntegralPointerType(M, T)
-    ccall((:LLVMExtraIsNonIntegralPointerType, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
 end

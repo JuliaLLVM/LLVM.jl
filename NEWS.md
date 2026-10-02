@@ -3,9 +3,8 @@
 
 ## LLVM.jl v10.0
 
-LLVM.jl 10 uses a smaller set of consistent names and explicit ownership rules. See the
-[full migration guide](docs/src/man/migration10.md) for the
-before/after spelling inventory and examples.
+LLVM.jl 10 uses a smaller set of consistent names and explicit ownership rules. The
+highlights below describe the main changes for packages upgrading to this release.
 
 ### Generated IR and Julia interop
 

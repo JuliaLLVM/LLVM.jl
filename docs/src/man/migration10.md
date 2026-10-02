@@ -60,7 +60,7 @@ Properties:
 - Flags that can be assigned are `Bool` properties named without an `is` or `has` prefix,
   replacing pairs of predicates and setters: `gv.constant` (`isconstant(gv)`/`constant!`),
   `gv.externally_initialized` (`isextinit`/`extinit!`), `gv.threadlocal`, `inst.volatile`,
-  `cmpxchg.weak`, `call.tailcall`, and the poison-generating flags introduced in 9.14,
+  `cmpxchg.weak`, `call.tailcall`, and the poison-generating flags added for v10,
   `inst.nuw`, `inst.nsw`, `inst.exact`, `inst.disjoint`, `inst.nneg` and `inst.samesign`,
   which are only available on the instructions (and LLVM versions) that support them.
   `isconstant(val)` still exists, but only checks whether a value is a constant.

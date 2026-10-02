@@ -14,8 +14,8 @@ before/after spelling inventory and examples.
 Julia signature declarations in `create_function` / `call_function` code. Static arguments
 remain available in the generator but are omitted from the `llvmcall` ABI. Argument
 expressions are evaluated once in order, and explicit `Vararg{T,N}` syntax is supported.
-Typed callable receivers are outside this interface. The package retains its measured
-nonspecializing generator implementation and IR verification.
+Typed callable receivers are outside this interface. Generator bodies compile once across
+specializations, reducing the cost of generating IR for new argument types.
 
 ### Namespaces, properties and IR views
 
@@ -23,8 +23,9 @@ nonspecializing generator implementation and IR verification.
 `LLVM.ORC`, or qualify names. Object state and relationships use properties: `f.name`,
 `f.blocks`, `inst.parent`, `mod.globals`, and writable forms such as `gv.linkage = ...`.
 Collections are live IR views; use `collect` or `copy(mod.used)` for a snapshot. PHI incoming
-pairs may be appended from an aliased view. Use `LLVM.before`, `after`, `at_begin`,
-`at_end`, and `after_phis` for insertion and movement. An instruction moved with
+pairs may be appended from an aliased view. Use `LLVM.before(inst)` and `LLVM.at_end(bb)`
+for insertion and movement; the other factories are `LLVM.after`, `LLVM.at_begin`, and
+`LLVM.after_phis`. An instruction moved with
 `move!(inst, builder.position)` keeps its own debug location; assign
 `inst.debug_location = builder.debug_location` to copy the builder's location. Debug
 records inserted at a head position reverse their order on LLVM 19 and later.
@@ -74,13 +75,13 @@ emission reports deferred diagnostics and releases failed-output buffers. Legacy
 engines gain explicit execution and static constructor/destructor runners. Machine code
 can be decoded lazily with `Disassembler` and `disassemble`.
 
-### Other features carried from unreleased v9.14 notes
+### Additional features
 
 Stack allocation builders accept `align`; functions expose alignment. Global aliases and
 ifuncs have wrappers and collection views. Integer poison flags, exact floating-point
 constant bit patterns, debug-record inspection and memory-effect attributes are supported.
-IR traversal and builder dispatch retain the latency improvements developed for this
-release. `ConstantDataArray` copies strided inputs before passing them to LLVM.
+Common IR traversal and builder calls are faster. `ConstantDataArray` copies strided
+inputs before passing them to LLVM.
 
 **Release prerequisite:** these APIs require a matching LLVMExtra_jll build. The currently
 pinned 0.0.49 artifact predates several native functions and must be updated before release.

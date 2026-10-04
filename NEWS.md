@@ -11,6 +11,12 @@ Custom passes written in Julia can now use LLVM's analyses. A function pass crea
 can return a `PreservedAnalyses` value (e.g. `PreservedAnalyses(CFGAnalyses)`) instead of
 a boolean.
 
+The new `LLVM.Analysis` vocabulary groups the analyses and the values they compute.
+`ConstantRange` and `KnownBits` are immutable values that represent the possible values of
+an integer, and use LLVM's implementation to compute with them (`r + s`,
+`intersect_with(r, s)`, `binary_op(LLVM.Opcode.Mul, r, s; nsw=true)`, ...). Range
+attributes can be created from, and read back as, a `ConstantRange` (`attr.value`).
+
 
 ## LLVM.jl v10.0
 

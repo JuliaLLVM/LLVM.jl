@@ -660,5 +660,66 @@ void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
 // LLVMDisposeMessage) if it is broken
 LLVMBool LLVMExtraVerifyFunction(LLVMValueRef Fn, char **OutMessage);
 
+// Constant ranges
+//
+// A range of integers of `NumBits` bits is passed as its lower (inclusive) and upper
+// (exclusive) bound, as arrays of 64-bit words (least significant first); equal bounds
+// denote the empty range when they are zero, and the full range when they are the maximum
+// value. Results are written to output arrays of the same layout.
+typedef enum {
+  LLVMExtraNoUnsignedWrap = 1 << 0,
+  LLVMExtraNoSignedWrap = 1 << 1,
+} LLVMExtraNoWrapKind;
+typedef enum {
+  LLVMExtraSmallestRange,
+  LLVMExtraUnsignedRange,
+  LLVMExtraSignedRange,
+} LLVMExtraPreferredRangeType;
+// the range of the result of a binary operator applied to values of the given ranges,
+// assuming the operation does not wrap as specified by `NoWrapKind` (a combination of
+// `LLVMExtraNoWrapKind` flags). returns false if the opcode isn't a binary operator.
+LLVMBool LLVMExtraConstantRangeBinaryOp(LLVMOpcode Opcode, unsigned NoWrapKind,
+                                        unsigned NumBits, const uint64_t *LowerA,
+                                        const uint64_t *UpperA, const uint64_t *LowerB,
+                                        const uint64_t *UpperB, uint64_t *LowerOut,
+                                        uint64_t *UpperOut);
+// the range of the result of a trunc, zext or sext to `ResultBits` bits. returns false for
+// other opcodes, or if the result width isn't valid for the cast.
+LLVMBool LLVMExtraConstantRangeCastOp(LLVMOpcode Opcode, unsigned NumBits,
+                                      const uint64_t *Lower, const uint64_t *Upper,
+                                      unsigned ResultBits, uint64_t *LowerOut,
+                                      uint64_t *UpperOut);
+// a range that contains the intersection (or union) of the two ranges, preferring a
+// result of the given type when there are multiple candidates
+void LLVMExtraConstantRangeIntersectWith(unsigned NumBits, const uint64_t *LowerA,
+                                         const uint64_t *UpperA, const uint64_t *LowerB,
+                                         const uint64_t *UpperB,
+                                         LLVMExtraPreferredRangeType Type, uint64_t *LowerOut,
+                                         uint64_t *UpperOut);
+void LLVMExtraConstantRangeUnionWith(unsigned NumBits, const uint64_t *LowerA,
+                                     const uint64_t *UpperA, const uint64_t *LowerB,
+                                     const uint64_t *UpperB, LLVMExtraPreferredRangeType Type,
+                                     uint64_t *LowerOut, uint64_t *UpperOut);
+// the smallest range containing every value X for which `X pred Y` holds for some
+// (allowed) or for all (satisfying) Y in the given range
+void LLVMExtraConstantRangeMakeICmpRegion(LLVMIntPredicate Predicate, LLVMBool Satisfying,
+                                          unsigned NumBits, const uint64_t *Lower,
+                                          const uint64_t *Upper, uint64_t *LowerOut,
+                                          uint64_t *UpperOut);
+// conversions between known bits (as masks of the bits that are known to be zero and one)
+// and ranges
+void LLVMExtraConstantRangeFromKnownBits(unsigned NumBits, const uint64_t *Zero,
+                                         const uint64_t *One, LLVMBool Signed,
+                                         uint64_t *LowerOut, uint64_t *UpperOut);
+void LLVMExtraConstantRangeToKnownBits(unsigned NumBits, const uint64_t *Lower,
+                                       const uint64_t *Upper, uint64_t *ZeroOut,
+                                       uint64_t *OneOut);
+#if LLVM_VERSION_MAJOR >= 19
+// the value of a constant range attribute: its bit width, and if `Lower` and `Upper` are
+// not NULL, its bounds
+unsigned LLVMExtraGetConstantRangeAttributeValue(LLVMAttributeRef A, uint64_t *Lower,
+                                                 uint64_t *Upper);
+#endif
+
 LLVM_C_EXTERN_C_END
 #endif

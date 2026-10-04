@@ -790,3 +790,42 @@ end
 function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
 end
+
+@cenum LLVMExtraNoWrapKind::UInt32 begin
+    LLVMExtraNoUnsignedWrap = 1
+    LLVMExtraNoSignedWrap = 2
+end
+
+@cenum LLVMExtraPreferredRangeType::UInt32 begin
+    LLVMExtraSmallestRange = 0
+    LLVMExtraUnsignedRange = 1
+    LLVMExtraSignedRange = 2
+end
+
+function LLVMExtraConstantRangeBinaryOp(Opcode, NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeBinaryOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), Opcode, NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeCastOp(Opcode, NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeCastOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Ptr{UInt64}, Ptr{UInt64}, Cuint, Ptr{UInt64}, Ptr{UInt64}), Opcode, NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeIntersectWith(NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeIntersectWith, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, LLVMExtraPreferredRangeType, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeUnionWith(NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeUnionWith, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, LLVMExtraPreferredRangeType, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeMakeICmpRegion(Predicate, Satisfying, NumBits, Lower, Upper, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeMakeICmpRegion, libLLVMExtra), Cvoid, (LLVMIntPredicate, LLVMBool, Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), Predicate, Satisfying, NumBits, Lower, Upper, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeFromKnownBits(NumBits, Zero, One, Signed, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeFromKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), NumBits, Zero, One, Signed, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeToKnownBits(NumBits, Lower, Upper, ZeroOut, OneOut)
+    ccall((:LLVMExtraConstantRangeToKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), NumBits, Lower, Upper, ZeroOut, OneOut)
+end

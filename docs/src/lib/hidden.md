@@ -154,3 +154,9 @@ FunctionPass
 ```@docs
 CFGAnalyses
 ```
+
+```@docs
+issignwrappedset
+union_with
+satisfying_icmp_region
+```

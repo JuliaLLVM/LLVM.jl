@@ -25,8 +25,8 @@ of a string attribute. Attribute sets can be indexed by this kind, e.g.,
     attr.value
 
 The value of the attribute: an integer for enum attributes (0 if the attribute has no
-value), a string for string attributes, and a type for type attributes. Constant range
-attributes do not have this property, as the C API cannot read their value.
+value), a string for string attributes, a type for type attributes, and a
+[`ConstantRange`](@ref) for constant range attributes (LLVM 19+).
 """
 abstract type Attribute end
 @properties Attribute
@@ -47,12 +47,14 @@ end
 
 """
     ConstantRangeAttribute <: Attribute
+    ConstantRangeAttribute(kind, range::ConstantRange)
     ConstantRangeAttribute(kind, nbits::Integer, lower::AbstractVector{UInt64},
                            upper::AbstractVector{UInt64})
 
-An attribute whose value is a range of integers of `nbits` bits, like `range`, from
-`lower` (inclusive) to `upper` (exclusive), given as the 64-bit words of the bounds (least
-significant first). Creating one requires LLVM 19+.
+An attribute whose value is a range of integers, like `range`: a non-full
+[`ConstantRange`](@ref), or the range of integers of `nbits` bits from `lower` (inclusive)
+to `upper` (exclusive), given as the 64-bit words of the bounds (least significant first).
+Creating one requires LLVM 19+.
 """
 @checked struct ConstantRangeAttribute <: Attribute
     ref::API.LLVMAttributeRef
@@ -90,12 +92,14 @@ function Attribute(ref::API.LLVMAttributeRef)
     end
 end
 
-# display attributes as the call that creates them (eliding the value of range attributes,
-# which the C API cannot read back)
+# display attributes as the call that creates them (eliding the values that can't be read)
 function Base.show(io::IO, attr::Attribute)
     print(io, nameof(typeof(attr)), "(")
     show(io, kind(attr))
-    if attr isa Union{EnumAttribute,StringAttribute,TypeAttribute}
+    if attr isa ConstantRangeAttribute && version() >= v"19"
+        print(io, ", ")
+        show(io, value(attr))
+    elseif attr isa Union{EnumAttribute,StringAttribute,TypeAttribute}
         val = value(attr)
         if !(attr isa EnumAttribute && val == 0) && !(attr isa StringAttribute && isempty(val))
             print(io, ", ")
@@ -256,6 +260,23 @@ if version() >= v"19"
         return ConstantRangeAttribute(
             API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
                                                  as_vector(lower), as_vector(upper)))
+    end
+end
+
+if version() >= v"19"
+    function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, r::ConstantRange)
+        isfullset(r) && throw(ArgumentError("A range attribute cannot be the full range"))
+        return ConstantRangeAttribute(kind, bitwidth(r), collect(getfield(r, :lower)),
+                                      collect(getfield(r, :upper)))
+    end
+
+    function value(attr::ConstantRangeAttribute)
+        nbits = API.LLVMExtraGetConstantRangeAttributeValue(attr, C_NULL, C_NULL)
+        n = nwords(nbits)
+        lower = Vector{UInt64}(undef, n)
+        upper = Vector{UInt64}(undef, n)
+        API.LLVMExtraGetConstantRangeAttributeValue(attr, lower, upper)
+        return unsafe_range(nbits, Tuple(lower)::Words, Tuple(upper)::Words)
     end
 end
 
@@ -577,3 +598,4 @@ end
 
 @property Attribute kind
 @property Union{EnumAttribute,StringAttribute,TypeAttribute} value
+version() >= v"19" && @property ConstantRangeAttribute value

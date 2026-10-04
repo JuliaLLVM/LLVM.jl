@@ -6,6 +6,7 @@
 LLVM.IR
 LLVM.Build
 LLVM.Passes
+LLVM.Analysis
 LLVM.ORC
 ```
 

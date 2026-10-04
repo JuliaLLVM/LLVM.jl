@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -10,8 +10,9 @@ DocTestSetup = quote
 end
 ```
 
-LLVM supports many analyses, but only few are available through the C API, and thus
-available in LLVM.jl.
+LLVM.jl provides access to several of LLVM's analyses, which are part of the
+`LLVM.Analysis` vocabulary. Most of them are available to custom passes, through the
+analysis manager of a pass pipeline (see [`FunctionAnalysisManager`](@ref)).
 
 
 ## IR verification
@@ -46,7 +47,7 @@ which returns the verifier's message, or `nothing` if the IR is valid.
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -99,4 +100,28 @@ true
 
 julia> dominates(tree, first(foo.instructions), first(entry.instructions))
 false
+```
+
+
+## Constant ranges and known bits
+
+Many analyses describe the possible values of integers as a range, or as the bits that are
+known to be zero or one. These are represented by the `ConstantRange` and `KnownBits`
+values, which can also be used on their own. Computations on them are performed by LLVM:
+
+```jldoctest
+julia> r = ConstantRange(64, 0, 100)
+ConstantRange(64, 0, 100)
+
+julia> r.unsigned_max
+0x0000000000000063
+
+julia> r * ConstantRange(64, 4) + ConstantRange(64, 1)
+ConstantRange(64, 1, 398)
+
+julia> intersect_with(r, ConstantRange(64, 50, 200))
+ConstantRange(64, 50, 100)
+
+julia> ConstantRange(KnownBits(64, ~UInt64(0xff), 0))
+ConstantRange(64, 0, 256)
 ```

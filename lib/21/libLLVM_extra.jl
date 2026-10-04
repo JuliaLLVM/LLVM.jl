@@ -339,6 +339,42 @@ function LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(Options, Pass
     ccall((:LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
 end
 
+mutable struct LLVMOpaqueFunctionAnalysisManager end
+
+const LLVMFunctionAnalysisManagerRef = Ptr{LLVMOpaqueFunctionAnalysisManager}
+
+mutable struct LLVMOpaquePreservedAnalyses end
+
+const LLVMPreservedAnalysesRef = Ptr{LLVMOpaquePreservedAnalyses}
+
+# typedef void ( * LLVMJuliaFunctionPassWithAnalysesCallback ) ( LLVMValueRef F , LLVMFunctionAnalysisManagerRef AM , LLVMPreservedAnalysesRef PA , void * Thunk )
+const LLVMJuliaFunctionPassWithAnalysesCallback = Ptr{Cvoid}
+
+function LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(Extensions, PassName, Callback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassWithAnalysesCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, Thunk, Required)
+end
+
+@cenum LLVMExtraFunctionAnalysis::UInt32 begin
+    LLVMExtraDominatorTreeAnalysis = 0
+    LLVMExtraPostDominatorTreeAnalysis = 1
+end
+
+function LLVMExtraFunctionAnalysisManagerGetResult(AM, F, Analysis)
+    ccall((:LLVMExtraFunctionAnalysisManagerGetResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
+end
+
+function LLVMExtraFunctionAnalysisManagerGetCachedResult(AM, F, Analysis)
+    ccall((:LLVMExtraFunctionAnalysisManagerGetCachedResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
+end
+
+function LLVMExtraSetPreservedAnalyses(PA, All, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraSetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, CFG, Analyses, NumAnalyses)
+end
+
+function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, CFG, Analyses, NumAnalyses)
+end
+
 function LLVMPassBuilderExtensionsRegisterModulePass(Options, PassName, Callback, Thunk)
     ccall((:LLVMPassBuilderExtensionsRegisterModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
 end

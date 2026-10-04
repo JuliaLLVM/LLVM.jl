@@ -332,6 +332,45 @@ void LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(LLVMPassBuilderEx
                                                                const char *PassName,
                                                                LLVMJuliaFunctionPassCallback Callback,
                                                                void *Thunk, LLVMBool Required);
+
+// Custom function passes that use analyses. The callback receives the function analysis
+// manager of the pipeline, and an output object that it sets (with
+// `LLVMExtraSetPreservedAnalyses`) to the analyses that remain valid after the pass; it
+// starts out as preserving none. Analysis results obtained from the manager are owned by
+// it, and must not be used after the callback returns.
+typedef struct LLVMOpaqueFunctionAnalysisManager *LLVMFunctionAnalysisManagerRef;
+typedef struct LLVMOpaquePreservedAnalyses *LLVMPreservedAnalysesRef;
+typedef void (*LLVMJuliaFunctionPassWithAnalysesCallback)(LLVMValueRef F,
+                                                         LLVMFunctionAnalysisManagerRef AM,
+                                                         LLVMPreservedAnalysesRef PA,
+                                                         void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaFunctionPassWithAnalysesCallback Callback, void *Thunk, LLVMBool Required);
+// the function analyses that can be queried, preserved and invalidated
+typedef enum {
+  LLVMExtraDominatorTreeAnalysis,
+  LLVMExtraPostDominatorTreeAnalysis,
+} LLVMExtraFunctionAnalysis;
+// get the result of an analysis for a function, computing it if needed (the result type
+// depends on the analysis, e.g. a `DominatorTree *`)
+void *LLVMExtraFunctionAnalysisManagerGetResult(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMValueRef F,
+                                                LLVMExtraFunctionAnalysis Analysis);
+// get the result of an analysis for a function if it has been computed, or NULL
+void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManagerRef AM,
+                                                      LLVMValueRef F,
+                                                      LLVMExtraFunctionAnalysis Analysis);
+// a set of preserved analyses is passed as: whether all analyses are preserved, whether
+// all CFG analyses are preserved, and a list of individual analyses that are preserved
+void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All, LLVMBool CFG,
+                                   const LLVMExtraFunctionAnalysis *Analyses,
+                                   unsigned NumAnalyses);
+// invalidate the analyses of a function that are not in the given set
+void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMValueRef F, LLVMBool All, LLVMBool CFG,
+                                                const LLVMExtraFunctionAnalysis *Analyses,
+                                                unsigned NumAnalyses);
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#102482
 void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensions,
                                             const char *AAPipeline);

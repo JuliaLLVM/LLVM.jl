@@ -1,6 +1,17 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.1
+
+### Analyses
+
+Custom passes written in Julia can now use LLVM's analyses. A function pass created with
+`FunctionPass(name, callback; analyses=true)` receives the pipeline's
+`FunctionAnalysisManager`, which returns analysis results by type (`am[DomTree]`), and
+can return a `PreservedAnalyses` value (e.g. `PreservedAnalyses(CFGAnalyses)`) instead of
+a boolean.
+
+
 ## LLVM.jl v10.0
 
 LLVM.jl 10 uses a smaller set of consistent names and explicit ownership rules. The

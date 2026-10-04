@@ -33,6 +33,15 @@ run!(::LLVM.CustomPass, ::Union{LLVM.Function, LLVM.Module}, ::Union{Nothing, LL
 register_callbacks!
 ```
 
+### Analyses in custom passes
+
+```@docs
+FunctionAnalysisManager
+PreservedAnalyses
+AllAnalyses
+invalidate!
+```
+
 ## Custom target info
 
 ```@docs

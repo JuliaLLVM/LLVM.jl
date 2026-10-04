@@ -150,3 +150,7 @@ AAManager
 ModulePass
 FunctionPass
 ```
+
+```@docs
+CFGAnalyses
+```

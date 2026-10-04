@@ -16,6 +16,7 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/Support/KnownBits.h>
+#include <llvm/Transforms/Utils/Local.h>
 
 using namespace llvm;
 
@@ -543,4 +544,28 @@ unsigned LLVMExtraLoopGetDepth(LLVMLoopRef L) { return unwrap(L)->getLoopDepth()
 
 LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB) {
   return unwrap(L)->contains(unwrap(BB));
+}
+
+
+// Dominance
+
+LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,
+                                                       LLVMValueRef Inst, LLVMUseRef U) {
+  return unwrap(Tree)->dominates(unwrap<Instruction>(Inst), *unwrap(U));
+}
+
+LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
+                                              LLVMBasicBlockRef B) {
+  return unwrap(Tree)->dominates(unwrap(A), unwrap(B));
+}
+
+
+// Dead code
+
+LLVMBool LLVMExtraIsInstructionTriviallyDead(LLVMValueRef Inst) {
+  return isInstructionTriviallyDead(unwrap<Instruction>(Inst));
+}
+
+LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst) {
+  return RecursivelyDeleteTriviallyDeadInstructions(unwrap(Inst));
 }

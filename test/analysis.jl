@@ -397,4 +397,77 @@ end
     end
 end
 
+@testset "dominance of uses and blocks" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i64 @f(i1 %c, i64 %x) {
+        entry:
+          %a = add i64 %x, 1
+          br i1 %c, label %then, label %join
+        then:
+          %b = add i64 %a, 1
+          br label %join
+        join:
+          %p = phi i64 [ %b, %then ], [ %a, %entry ]
+          %q = add i64 %p, %a
+          ret i64 %q
+        }""") begin
+        fn = mod.functions["f"]
+        entry, then, join = fn.blocks
+        a = first(entry.instructions)
+        b = first(then.instructions)
+        p, q = collect(join.instructions)[1:2]
+        @dispose dt=DomTree(fn) begin
+            @test dominates(dt, entry, join)
+            @test !dominates(dt, then, join)
+            @test dominates(dt, then, then)
+            for use in b.uses
+                # the use of %b in the phi is at the end of %then
+                @test dominates(dt, b, use)
+            end
+            @test all(use -> dominates(dt, a, use), a.uses)
+            @test !dominates(dt, b, first(a.uses))
+        end
+    end
+end
+
+@testset "dead code" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        declare void @g(i64)
+        define void @f(i64 %x) {
+          %a = add i64 %x, 1
+          %b = mul i64 %a, 2
+          %c = add i64 %a, 3
+          call void @g(i64 %c)
+          %d = add i64 %x, 4
+          ret void
+        }""") begin
+        fn = mod.functions["f"]
+        a, b, c, call, d = collect(only(fn.blocks).instructions)
+        @test is_trivially_dead(b)
+        @test is_trivially_dead(d)
+        @test !is_trivially_dead(a)
+        @test !is_trivially_dead(call)
+        @test !erase_trivially_dead!(a)
+        # erasing %b leaves %a, which is still used by %c
+        @test erase_trivially_dead!(b)
+        @test length(collect(only(fn.blocks).instructions)) == 5
+        @test erase_trivially_dead!(d)
+        @test length(collect(only(fn.blocks).instructions)) == 4
+        @test verify(fn) === nothing
+    end
+
+    # operands that become dead are erased recursively
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i64 %x) {
+          %a = add i64 %x, 1
+          %b = mul i64 %a, 2
+          ret void
+        }""") begin
+        fn = mod.functions["f"]
+        b = collect(only(fn.blocks).instructions)[2]
+        @test erase_trivially_dead!(b)
+        @test length(collect(only(fn.blocks).instructions)) == 1
+    end
+end
+
 end

@@ -892,3 +892,19 @@ end
 function LLVMExtraLoopContains(L, BB)
     ccall((:LLVMExtraLoopContains, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMBasicBlockRef), L, BB)
 end
+
+function LLVMExtraDominatorTreeInstructionDominatesUse(Tree, Inst, U)
+    ccall((:LLVMExtraDominatorTreeInstructionDominatesUse, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMUseRef), Tree, Inst, U)
+end
+
+function LLVMExtraDominatorTreeBlockDominates(Tree, A, B)
+    ccall((:LLVMExtraDominatorTreeBlockDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef, LLVMBasicBlockRef), Tree, A, B)
+end
+
+function LLVMExtraIsInstructionTriviallyDead(Inst)
+    ccall((:LLVMExtraIsInstructionTriviallyDead, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(Inst)
+    ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructions, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end

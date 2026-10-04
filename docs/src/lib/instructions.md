@@ -5,6 +5,8 @@ Instruction
 copy(::Instruction)
 remove!(::Instruction)
 erase!(::Instruction)
+is_trivially_dead
+erase_trivially_dead!
 comes_before
 may_read_from_memory
 may_write_to_memory

@@ -51,6 +51,15 @@ end
     dominates(tree::PostDomTree, A::Instruction, B::Instruction)
 
 Check if instruction `A` dominates instruction `B` in the dominator tree `tree`.
+
+    dominates(tree::DomTree, A::Instruction, use::Use)
+
+Check if instruction `A` dominates a use of a value, i.e., whether the value of `A` is
+available where it is used (for a use by a PHI node, at the end of the incoming block).
+
+    dominates(tree::DomTree, A::BasicBlock, B::BasicBlock)
+
+Check if basic block `A` dominates basic block `B`.
 """
 dominates(tree, A::Instruction, B::Instruction)
 
@@ -92,6 +101,12 @@ dispose(domtree::DomTree) = mark_dispose(API.LLVMDisposeDominatorTree, domtree)
 function dominates(domtree::DomTree, A::Instruction, B::Instruction)
     API.LLVMDominatorTreeInstructionDominates(domtree, A, B) |> Bool
 end
+
+dominates(domtree::DomTree, A::Instruction, use::Use) =
+    API.LLVMExtraDominatorTreeInstructionDominatesUse(domtree, A, use) |> Bool
+
+dominates(domtree::DomTree, A::BasicBlock, B::BasicBlock) =
+    API.LLVMExtraDominatorTreeBlockDominates(domtree, A, B) |> Bool
 
 
 ## post-dominance
@@ -623,3 +638,29 @@ function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
         API.LLVMExtraScalarEvolutionGetRange(se, s, signed, lo, hi)
     end
 end
+
+
+## dead code
+
+@vocabulary IR is_trivially_dead, erase_trivially_dead!
+
+"""
+    is_trivially_dead(inst::Instruction)
+
+Check whether the instruction is unused and has no side effects, so that it can be
+deleted.
+"""
+is_trivially_dead(inst::Instruction) = API.LLVMExtraIsInstructionTriviallyDead(inst) |> Bool
+
+"""
+    erase_trivially_dead!(inst::Instruction)
+
+If the instruction is trivially dead (see [`is_trivially_dead`](@ref)), erase it, together
+with its operands that become trivially dead as a result, recursively. Returns whether the
+instruction was erased.
+
+Other wrappers of the erased instructions (e.g., of the operands of `inst`) must not be used
+anymore.
+"""
+erase_trivially_dead!(inst::Instruction) =
+    API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(inst) |> Bool

@@ -34,6 +34,10 @@ properties for its operands, value or loop. Expressions can be combined (`scev_a
 `scev_minus`), searched (`contains_scev(s, SCEVAddRecExpr)`), and bounded
 (`ConstantRange(se, s)`). `LoopInfo` returns the innermost `Loop` of a block (`li[bb]`).
 
+`dominates(domtree, inst, use)` and `dominates(domtree, bb1, bb2)` check the dominance of
+uses and blocks, and `is_trivially_dead` / `erase_trivially_dead!` find and (recursively)
+erase unused instructions without side effects.
+
 
 ## LLVM.jl v10.0
 

@@ -839,5 +839,17 @@ LLVMLoopRef LLVMExtraLoopGetParent(LLVMLoopRef L);
 unsigned LLVMExtraLoopGetDepth(LLVMLoopRef L);
 LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB);
 
+// dominance of uses and blocks
+LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,
+                                                       LLVMValueRef Inst, LLVMUseRef U);
+LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
+                                              LLVMBasicBlockRef B);
+
+// whether an instruction is unused and has no side effects, and delete such an instruction
+// together with the operands that become trivially dead (returns false if the instruction
+// is not trivially dead)
+LLVMBool LLVMExtraIsInstructionTriviallyDead(LLVMValueRef Inst);
+LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst);
+
 LLVM_C_EXTERN_C_END
 #endif

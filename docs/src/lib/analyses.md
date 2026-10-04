@@ -42,3 +42,9 @@ is_valid_assume_for_context
 is_guaranteed_not_to_be_poison
 program_undefined_if_poison
 ```
+
+## Lazy value info
+
+```@docs
+LazyValueInfo
+```

@@ -227,4 +227,52 @@ end
     end
 end
 
+@testset "lazy value info" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i64 @f(i64 %i, i64 %n) {
+        entry:
+          %c = icmp ult i64 %i, 100
+          br i1 %c, label %then, label %exit
+        then:
+          %x = add i64 %i, 1
+          %y = icmp ult i64 %i, %n
+          br label %exit
+        exit:
+          %p = phi i64 [ %x, %then ], [ 0, %entry ]
+          %q = mul i64 %p, 2
+          ret i64 %q
+        }""") begin
+        with_analyses(mod, "f") do fn, am
+            lvi = am[LazyValueInfo]
+            i, n = fn.parameters
+            entry, then, exit = fn.blocks
+            x, y = collect(then.instructions)[1:2]
+            p, q = collect(exit.instructions)[1:2]
+
+            # ranges at a context instruction, using dominating branch conditions and PHIs
+            @test ConstantRange(lvi, i; at=x) == ConstantRange(64, 0, 100)
+            @test ConstantRange(lvi, i; at=entry.terminator) == ConstantRange(64)
+            @test ConstantRange(lvi, p; at=q) == ConstantRange(64, 0, 101)
+
+            # ranges on an edge
+            @test ConstantRange(lvi, i; from=entry, to=then) == ConstantRange(64, 0, 100)
+            @test ConstantRange(lvi, i; from=entry, to=exit) == ConstantRange(64, 100, 0)
+
+            # ranges at a use
+            if LLVM.version() >= v"16"
+                use = only(filter(u -> u.user == y, collect(n.uses)))
+                @test ConstantRange(lvi, use) == ConstantRange(64)
+                use = only(filter(u -> u.user == x, collect(i.uses)))
+                @test ConstantRange(lvi, use) == ConstantRange(64, 0, 100)
+            end
+
+            @test_throws ArgumentError ConstantRange(lvi, i)
+            @test_throws ArgumentError ConstantRange(lvi, i; from=entry)
+            @test_throws ArgumentError ConstantRange(lvi, i; from=entry, to=then,
+                                                     undef_allowed=true)
+            @test_throws ArgumentError ConstantRange(lvi, fn; at=x)
+        end
+    end
+end
+
 end

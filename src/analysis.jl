@@ -323,3 +323,68 @@ a way that is guaranteed to execute.
 """
 program_undefined_if_poison(inst::Instruction) =
     API.LLVMExtraProgramUndefinedIfPoison(inst) |> Bool
+
+
+## lazy value info
+
+@vocabulary Analysis LazyValueInfo
+
+"""
+    LazyValueInfo
+
+LLVM's lazy value information analysis, which computes the ranges of integer values at
+specific points of a function, taking into account the conditions of the branches that lead
+there (and assumptions). It is obtained from the analysis manager of a custom pass
+(`am[LazyValueInfo]`), and queried by constructing a range:
+
+    ConstantRange(lvi, v; at::Instruction, undef_allowed=false)
+    ConstantRange(lvi, v; from::BasicBlock, to::BasicBlock, at=nothing)
+    ConstantRange(lvi, use::Use; undef_allowed=false)
+
+These compute the range of the integer (or vector of integers) `v` at instruction `at`, on
+the edge between blocks `from` and `to` (optionally at an instruction `at` in `to`), or at
+a use of `v` (LLVM 16+), which also takes into account the instruction using it. With
+`undef_allowed=true`, the range may not include all values of a `v` that is undef.
+
+The analysis caches its results, which become stale when the function changes (see
+[`invalidate!`](@ref)).
+"""
+@checked struct LazyValueInfo
+    ref::API.LLVMLazyValueInfoRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMLazyValueInfoRef}, lvi::LazyValueInfo) = lvi.ref
+
+function ConstantRange(lvi::LazyValueInfo, v::Value; at::Union{Nothing,Instruction}=nothing,
+                       from::Union{Nothing,BasicBlock}=nothing,
+                       to::Union{Nothing,BasicBlock}=nothing, undef_allowed::Bool=false)
+    nbits = checked_integer_width(v)
+    if from === nothing && to === nothing
+        at === nothing &&
+            throw(ArgumentError("Either a context instruction or an edge is required"))
+        compute_range(Val(nwords(nbits)), nbits) do lo, hi
+            API.LLVMExtraLazyValueInfoGetConstantRange(lvi, v, at, undef_allowed, lo,
+                                                       hi) |> Bool
+        end
+    elseif from !== nothing && to !== nothing
+        undef_allowed &&
+            throw(ArgumentError("`undef_allowed` is not supported for ranges on an edge"))
+        compute_range(Val(nwords(nbits)), nbits) do lo, hi
+            API.LLVMExtraLazyValueInfoGetConstantRangeOnEdge(lvi, v, from, to,
+                                                             something(at, C_NULL), lo,
+                                                             hi) |> Bool
+        end
+    else
+        throw(ArgumentError("An edge requires both `from` and `to`"))
+    end
+end
+
+if version() >= v"16"
+    function ConstantRange(lvi::LazyValueInfo, use::Use; undef_allowed::Bool=false)
+        nbits = checked_integer_width(use.value)
+        compute_range(Val(nwords(nbits)), nbits) do lo, hi
+            API.LLVMExtraLazyValueInfoGetConstantRangeAtUse(lvi, use, undef_allowed, lo,
+                                                            hi) |> Bool
+        end
+    end
+end

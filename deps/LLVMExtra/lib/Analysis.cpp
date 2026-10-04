@@ -2,6 +2,7 @@
 
 #include <llvm/ADT/APInt.h>
 #include <llvm/Analysis/AssumptionCache.h>
+#include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/ConstantRange.h>
@@ -16,6 +17,7 @@
 using namespace llvm;
 
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(AssumptionCache, LLVMAssumptionCacheRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(LazyValueInfo, LLVMLazyValueInfoRef)
 // defined in Core.cpp
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(DominatorTree, LLVMDominatorTreeRef)
 
@@ -314,3 +316,43 @@ LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheR
 LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst) {
   return programUndefinedIfPoison(unwrap<Instruction>(Inst));
 }
+
+
+// LazyValueInfo
+
+LLVMBool LLVMExtraLazyValueInfoGetConstantRange(LLVMLazyValueInfoRef LVI, LLVMValueRef V,
+                                                LLVMValueRef CxtI, LLVMBool UndefAllowed,
+                                                uint64_t *Lower, uint64_t *Upper) {
+  Value *Val = unwrap(V);
+  if (!Val->getType()->isIntOrIntVectorTy())
+    return false;
+  writeRange(unwrap(LVI)->getConstantRange(Val, unwrap<Instruction>(CxtI), UndefAllowed),
+             Lower, Upper);
+  return true;
+}
+
+LLVMBool LLVMExtraLazyValueInfoGetConstantRangeOnEdge(LLVMLazyValueInfoRef LVI,
+                                                      LLVMValueRef V, LLVMBasicBlockRef From,
+                                                      LLVMBasicBlockRef To,
+                                                      LLVMValueRef CxtI, uint64_t *Lower,
+                                                      uint64_t *Upper) {
+  Value *Val = unwrap(V);
+  if (!Val->getType()->isIntOrIntVectorTy())
+    return false;
+  writeRange(unwrap(LVI)->getConstantRangeOnEdge(Val, unwrap(From), unwrap(To),
+                                                 CxtI ? unwrap<Instruction>(CxtI) : nullptr),
+             Lower, Upper);
+  return true;
+}
+
+#if LLVM_VERSION_MAJOR >= 16
+LLVMBool LLVMExtraLazyValueInfoGetConstantRangeAtUse(LLVMLazyValueInfoRef LVI, LLVMUseRef U,
+                                                     LLVMBool UndefAllowed, uint64_t *Lower,
+                                                     uint64_t *Upper) {
+  Use *TheUse = unwrap(U);
+  if (!TheUse->get()->getType()->isIntOrIntVectorTy())
+    return false;
+  writeRange(unwrap(LVI)->getConstantRangeAtUse(*TheUse, UndefAllowed), Lower, Upper);
+  return true;
+}
+#endif

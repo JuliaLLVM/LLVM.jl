@@ -352,6 +352,7 @@ typedef enum {
   LLVMExtraDominatorTreeAnalysis,
   LLVMExtraPostDominatorTreeAnalysis,
   LLVMExtraAssumptionAnalysis,
+  LLVMExtraLazyValueAnalysis,
 } LLVMExtraFunctionAnalysis;
 // get the result of an analysis for a function, computing it if needed (the result type
 // depends on the analysis, e.g. a `DominatorTree *`)
@@ -755,6 +756,25 @@ LLVMBool LLVMExtraIsValidAssumeForContext(LLVMValueRef Assume, LLVMValueRef CxtI
 LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheRef AC,
                                             LLVMValueRef CxtI, LLVMDominatorTreeRef DT);
 LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst);
+
+// LazyValueInfo: ranges of integer values at a context instruction, on an edge between two
+// blocks (optionally at a context instruction in the destination), or at a use (LLVM 17+).
+// The range is written as for constant ranges; the functions return false if the value is
+// not an integer (or vector of integers).
+typedef struct LLVMOpaqueLazyValueInfo *LLVMLazyValueInfoRef;
+LLVMBool LLVMExtraLazyValueInfoGetConstantRange(LLVMLazyValueInfoRef LVI, LLVMValueRef V,
+                                                LLVMValueRef CxtI, LLVMBool UndefAllowed,
+                                                uint64_t *Lower, uint64_t *Upper);
+LLVMBool LLVMExtraLazyValueInfoGetConstantRangeOnEdge(LLVMLazyValueInfoRef LVI,
+                                                      LLVMValueRef V, LLVMBasicBlockRef From,
+                                                      LLVMBasicBlockRef To,
+                                                      LLVMValueRef CxtI, uint64_t *Lower,
+                                                      uint64_t *Upper);
+#if LLVM_VERSION_MAJOR >= 16
+LLVMBool LLVMExtraLazyValueInfoGetConstantRangeAtUse(LLVMLazyValueInfoRef LVI, LLVMUseRef U,
+                                                     LLVMBool UndefAllowed, uint64_t *Lower,
+                                                     uint64_t *Upper);
+#endif
 
 LLVM_C_EXTERN_C_END
 #endif

@@ -24,6 +24,10 @@ assumptions (`ac[v]` for those that affect a value), and new ones are registered
 `push!`. `is_valid_assume_for_context`, `is_guaranteed_not_to_be_poison` and
 `program_undefined_if_poison` mirror the corresponding LLVM queries.
 
+`LazyValueInfo` computes ranges at a point of the function, also using the conditions of
+the branches that lead there: `ConstantRange(lvi, v; at=inst)`, on an edge between two
+blocks (`from`, `to`), or at a use (LLVM 16+).
+
 
 ## LLVM.jl v10.0
 

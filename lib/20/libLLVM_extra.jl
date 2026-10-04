@@ -362,6 +362,7 @@ end
     LLVMExtraDominatorTreeAnalysis = 0
     LLVMExtraPostDominatorTreeAnalysis = 1
     LLVMExtraAssumptionAnalysis = 2
+    LLVMExtraLazyValueAnalysis = 3
 end
 
 function LLVMExtraFunctionAnalysisManagerGetResult(AM, F, Analysis)
@@ -767,4 +768,20 @@ end
 
 function LLVMExtraProgramUndefinedIfPoison(Inst)
     ccall((:LLVMExtraProgramUndefinedIfPoison, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+mutable struct LLVMOpaqueLazyValueInfo end
+
+const LLVMLazyValueInfoRef = Ptr{LLVMOpaqueLazyValueInfo}
+
+function LLVMExtraLazyValueInfoGetConstantRange(LVI, V, CxtI, UndefAllowed, Lower, Upper)
+    ccall((:LLVMExtraLazyValueInfoGetConstantRange, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMValueRef, LLVMValueRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), LVI, V, CxtI, UndefAllowed, Lower, Upper)
+end
+
+function LLVMExtraLazyValueInfoGetConstantRangeOnEdge(LVI, V, From, To, CxtI, Lower, Upper)
+    ccall((:LLVMExtraLazyValueInfoGetConstantRangeOnEdge, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMValueRef, LLVMBasicBlockRef, LLVMBasicBlockRef, LLVMValueRef, Ptr{UInt64}, Ptr{UInt64}), LVI, V, From, To, CxtI, Lower, Upper)
+end
+
+function LLVMExtraLazyValueInfoGetConstantRangeAtUse(LVI, U, UndefAllowed, Lower, Upper)
+    ccall((:LLVMExtraLazyValueInfoGetConstantRangeAtUse, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMUseRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), LVI, U, UndefAllowed, Lower, Upper)
 end

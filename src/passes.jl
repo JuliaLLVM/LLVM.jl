@@ -246,7 +246,8 @@ function analyses, which it owns and caches:
   preserved.
 
 The supported analyses are [`DomTree`](@ref), [`PostDomTree`](@ref),
-[`AssumptionCache`](@ref) and [`LazyValueInfo`](@ref).
+[`AssumptionCache`](@ref), [`LazyValueInfo`](@ref), [`ScalarEvolution`](@ref) and
+[`LoopInfo`](@ref).
 
 Analysis results borrowed from the manager must not be disposed of, and must not be used
 after the pass returns. They also become stale when the pass changes the IR in a way that
@@ -274,6 +275,8 @@ analysis_id(::Type{DomTree}) = API.LLVMExtraDominatorTreeAnalysis
 analysis_id(::Type{PostDomTree}) = API.LLVMExtraPostDominatorTreeAnalysis
 analysis_id(::Type{AssumptionCache}) = API.LLVMExtraAssumptionAnalysis
 analysis_id(::Type{LazyValueInfo}) = API.LLVMExtraLazyValueAnalysis
+analysis_id(::Type{ScalarEvolution}) = API.LLVMExtraScalarEvolutionAnalysis
+analysis_id(::Type{LoopInfo}) = API.LLVMExtraLoopAnalysis
 
 # analysis results are owned by the analysis manager; stop tracking their wrappers, so that
 # memcheck doesn't mistake them for objects that were disposed of at the same address

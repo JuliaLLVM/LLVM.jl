@@ -10,7 +10,7 @@
 # for wider integers.
 const Words{N} = NTuple{N,UInt64}
 
-nwords(nbits::Integer) = cld(nbits, 64)
+nwords(nbits::Integer) = cld(Int(nbits), 64)
 
 unsigned_type(N::Int) = N == 1 ? UInt64 : N == 2 ? UInt128 : BigInt
 signed_type(N::Int) = N == 1 ? Int64 : N == 2 ? Int128 : BigInt

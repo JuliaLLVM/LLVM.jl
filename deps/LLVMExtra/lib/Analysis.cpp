@@ -3,6 +3,9 @@
 #include <llvm/ADT/APInt.h>
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/LazyValueInfo.h>
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/ConstantRange.h>
@@ -18,6 +21,14 @@ using namespace llvm;
 
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(AssumptionCache, LLVMAssumptionCacheRef)
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(LazyValueInfo, LLVMLazyValueInfoRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(ScalarEvolution, LLVMScalarEvolutionRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(LoopInfo, LLVMLoopInfoRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(Loop, LLVMLoopRef)
+
+static const SCEV *unwrap(LLVMSCEVRef S) { return reinterpret_cast<const SCEV *>(S); }
+static LLVMSCEVRef wrap(const SCEV *S) {
+  return reinterpret_cast<LLVMSCEVRef>(const_cast<SCEV *>(S));
+}
 // defined in Core.cpp
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(DominatorTree, LLVMDominatorTreeRef)
 
@@ -356,3 +367,180 @@ LLVMBool LLVMExtraLazyValueInfoGetConstantRangeAtUse(LLVMLazyValueInfoRef LVI, L
   return true;
 }
 #endif
+
+
+// ScalarEvolution
+
+LLVMBool LLVMExtraScalarEvolutionIsSCEVable(LLVMScalarEvolutionRef SE, LLVMTypeRef Ty) {
+  return unwrap(SE)->isSCEVable(unwrap(Ty));
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetSCEV(LLVMScalarEvolutionRef SE, LLVMValueRef V) {
+  return wrap(unwrap(SE)->getSCEV(unwrap(V)));
+}
+
+// whether expressions can be added: they need to have the same effective type (with
+// pointers treated as integers of their index width), and at most one can be a pointer
+static bool areCompatibleOperands(ScalarEvolution &SE, ArrayRef<const SCEV *> Ops,
+                                  unsigned MaxPointers) {
+  unsigned NumPointers = 0;
+  Type *Ty = nullptr;
+  for (const SCEV *S : Ops) {
+    if (isa<SCEVCouldNotCompute>(S))
+      return false;
+    Type *ETy = SE.getEffectiveSCEVType(S->getType());
+    if (Ty && ETy != Ty)
+      return false;
+    Ty = ETy;
+    if (S->getType()->isPointerTy())
+      NumPointers++;
+  }
+  return NumPointers <= MaxPointers;
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetAddExpr(LLVMScalarEvolutionRef SE, LLVMSCEVRef *Ops,
+                                               unsigned NumOps) {
+  SmallVector<const SCEV *, 4> Operands;
+  for (unsigned I = 0; I < NumOps; ++I)
+    Operands.push_back(unwrap(Ops[I]));
+  if (Operands.empty() || !areCompatibleOperands(*unwrap(SE), Operands, 1))
+    return nullptr;
+  return wrap(unwrap(SE)->getAddExpr(Operands));
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVMSCEVRef LHS,
+                                                 LLVMSCEVRef RHS) {
+  // the difference of two pointers is an integer (or could-not-compute if they have
+  // different bases), so they can both be pointers
+  if (!areCompatibleOperands(*unwrap(SE), {unwrap(LHS), unwrap(RHS)}, 2))
+    return nullptr;
+  return wrap(unwrap(SE)->getMinusSCEV(unwrap(LHS), unwrap(RHS)));
+}
+
+unsigned LLVMExtraScalarEvolutionGetRange(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
+                                          LLVMBool Signed, uint64_t *Lower,
+                                          uint64_t *Upper) {
+  // could-not-compute expressions have no type
+  if (isa<SCEVCouldNotCompute>(unwrap(S)))
+    return 0;
+  if (!Lower || !Upper)
+    return unwrap(SE)->getTypeSizeInBits(unwrap(S)->getType());
+  const ConstantRange &CR =
+      Signed ? unwrap(SE)->getSignedRange(unwrap(S)) : unwrap(SE)->getUnsignedRange(unwrap(S));
+  writeRange(CR, Lower, Upper);
+  return CR.getBitWidth();
+}
+
+LLVMExtraSCEVKind LLVMExtraSCEVGetKind(LLVMSCEVRef S) {
+  switch (unwrap(S)->getSCEVType()) {
+  case scConstant:
+    return LLVMExtraSCEVConstantKind;
+  case scTruncate:
+    return LLVMExtraSCEVTruncateKind;
+  case scZeroExtend:
+    return LLVMExtraSCEVZeroExtendKind;
+  case scSignExtend:
+    return LLVMExtraSCEVSignExtendKind;
+  case scAddExpr:
+    return LLVMExtraSCEVAddKind;
+  case scMulExpr:
+    return LLVMExtraSCEVMulKind;
+  case scUDivExpr:
+    return LLVMExtraSCEVUDivKind;
+  case scAddRecExpr:
+    return LLVMExtraSCEVAddRecKind;
+  case scUMaxExpr:
+    return LLVMExtraSCEVUMaxKind;
+  case scSMaxExpr:
+    return LLVMExtraSCEVSMaxKind;
+  case scUMinExpr:
+    return LLVMExtraSCEVUMinKind;
+  case scSMinExpr:
+    return LLVMExtraSCEVSMinKind;
+  case scSequentialUMinExpr:
+    return LLVMExtraSCEVSequentialUMinKind;
+  case scUnknown:
+    return LLVMExtraSCEVUnknownKind;
+  case scCouldNotCompute:
+    return LLVMExtraSCEVCouldNotComputeKind;
+#if LLVM_VERSION_MAJOR >= 17
+  case scVScale:
+    return LLVMExtraSCEVVScaleKind;
+#endif
+  case scPtrToInt:
+    return LLVMExtraSCEVPtrToIntKind;
+  default:
+    return LLVMExtraSCEVOtherKind;
+  }
+}
+
+LLVMTypeRef LLVMExtraSCEVGetType(LLVMSCEVRef S) {
+  if (isa<SCEVCouldNotCompute>(unwrap(S)))
+    return nullptr;
+  return wrap(unwrap(S)->getType());
+}
+
+// the operands of an expression (SCEV::operands() only exists since LLVM 16)
+static SmallVector<const SCEV *, 4> getOperands(const SCEV *S) {
+  SmallVector<const SCEV *, 4> Ops;
+  if (auto *Cast = dyn_cast<SCEVCastExpr>(S))
+    Ops.append(Cast->operands().begin(), Cast->operands().end());
+  else if (auto *NAry = dyn_cast<SCEVNAryExpr>(S))
+    Ops.append(NAry->operands().begin(), NAry->operands().end());
+  else if (auto *UDiv = dyn_cast<SCEVUDivExpr>(S))
+    Ops.append({UDiv->getLHS(), UDiv->getRHS()});
+  return Ops;
+}
+
+unsigned LLVMExtraSCEVGetOperands(LLVMSCEVRef S, LLVMSCEVRef *Ops) {
+  auto Operands = getOperands(unwrap(S));
+  if (Ops)
+    for (unsigned I = 0; I < Operands.size(); ++I)
+      Ops[I] = wrap(Operands[I]);
+  return Operands.size();
+}
+
+LLVMValueRef LLVMExtraSCEVGetValue(LLVMSCEVRef S) {
+  if (auto *C = dyn_cast<SCEVConstant>(unwrap(S)))
+    return wrap(C->getValue());
+  if (auto *U = dyn_cast<SCEVUnknown>(unwrap(S)))
+    return wrap(U->getValue());
+  return nullptr;
+}
+
+LLVMLoopRef LLVMExtraSCEVAddRecGetLoop(LLVMSCEVRef S) {
+  if (auto *AR = dyn_cast<SCEVAddRecExpr>(unwrap(S)))
+    return wrap(const_cast<Loop *>(AR->getLoop()));
+  return nullptr;
+}
+
+LLVMBool LLVMExtraSCEVContains(LLVMSCEVRef S, LLVMExtraSCEVKind Kind) {
+  return SCEVExprContains(unwrap(S), [Kind](const SCEV *X) {
+    return LLVMExtraSCEVGetKind(wrap(X)) == Kind;
+  });
+}
+
+char *LLVMExtraPrintSCEVToString(LLVMSCEVRef S) {
+  std::string Buf;
+  raw_string_ostream OS(Buf);
+  unwrap(S)->print(OS);
+  OS.flush();
+  return strdup(Buf.c_str());
+}
+
+
+// LoopInfo
+
+LLVMLoopRef LLVMExtraLoopInfoGetLoopFor(LLVMLoopInfoRef LI, LLVMBasicBlockRef BB) {
+  return wrap(unwrap(LI)->getLoopFor(unwrap(BB)));
+}
+
+LLVMBasicBlockRef LLVMExtraLoopGetHeader(LLVMLoopRef L) { return wrap(unwrap(L)->getHeader()); }
+
+LLVMLoopRef LLVMExtraLoopGetParent(LLVMLoopRef L) { return wrap(unwrap(L)->getParentLoop()); }
+
+unsigned LLVMExtraLoopGetDepth(LLVMLoopRef L) { return unwrap(L)->getLoopDepth(); }
+
+LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB) {
+  return unwrap(L)->contains(unwrap(BB));
+}

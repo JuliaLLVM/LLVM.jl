@@ -353,6 +353,8 @@ typedef enum {
   LLVMExtraPostDominatorTreeAnalysis,
   LLVMExtraAssumptionAnalysis,
   LLVMExtraLazyValueAnalysis,
+  LLVMExtraScalarEvolutionAnalysis,
+  LLVMExtraLoopAnalysis,
 } LLVMExtraFunctionAnalysis;
 // get the result of an analysis for a function, computing it if needed (the result type
 // depends on the analysis, e.g. a `DominatorTree *`)
@@ -775,6 +777,67 @@ LLVMBool LLVMExtraLazyValueInfoGetConstantRangeAtUse(LLVMLazyValueInfoRef LVI, L
                                                      LLVMBool UndefAllowed, uint64_t *Lower,
                                                      uint64_t *Upper);
 #endif
+
+// ScalarEvolution: symbolic expressions (SCEVs) for integer and pointer values, which are
+// owned by the analysis.
+typedef struct LLVMOpaqueScalarEvolution *LLVMScalarEvolutionRef;
+typedef struct LLVMOpaqueSCEV *LLVMSCEVRef;
+typedef struct LLVMOpaqueLoop *LLVMLoopRef;
+typedef enum {
+  LLVMExtraSCEVConstantKind,
+  LLVMExtraSCEVTruncateKind,
+  LLVMExtraSCEVZeroExtendKind,
+  LLVMExtraSCEVSignExtendKind,
+  LLVMExtraSCEVAddKind,
+  LLVMExtraSCEVMulKind,
+  LLVMExtraSCEVUDivKind,
+  LLVMExtraSCEVAddRecKind,
+  LLVMExtraSCEVUMaxKind,
+  LLVMExtraSCEVSMaxKind,
+  LLVMExtraSCEVUMinKind,
+  LLVMExtraSCEVSMinKind,
+  LLVMExtraSCEVSequentialUMinKind,
+  LLVMExtraSCEVUnknownKind,
+  LLVMExtraSCEVCouldNotComputeKind,
+  LLVMExtraSCEVVScaleKind,
+  LLVMExtraSCEVPtrToIntKind,
+  // kinds of expressions that are not known to LLVMExtra
+  LLVMExtraSCEVOtherKind,
+} LLVMExtraSCEVKind;
+LLVMBool LLVMExtraScalarEvolutionIsSCEVable(LLVMScalarEvolutionRef SE, LLVMTypeRef Ty);
+LLVMSCEVRef LLVMExtraScalarEvolutionGetSCEV(LLVMScalarEvolutionRef SE, LLVMValueRef V);
+// build expressions; returns NULL if the operands have incompatible types (or if one of
+// them is could-not-compute)
+LLVMSCEVRef LLVMExtraScalarEvolutionGetAddExpr(LLVMScalarEvolutionRef SE, LLVMSCEVRef *Ops,
+                                               unsigned NumOps);
+LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVMSCEVRef LHS,
+                                                 LLVMSCEVRef RHS);
+// the signed or unsigned range of an expression, written as for constant ranges if `Lower`
+// and `Upper` are not NULL; returns the bit width of the range, or 0 for could-not-compute
+unsigned LLVMExtraScalarEvolutionGetRange(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
+                                          LLVMBool Signed, uint64_t *Lower, uint64_t *Upper);
+LLVMExtraSCEVKind LLVMExtraSCEVGetKind(LLVMSCEVRef S);
+// the type of an expression, or NULL for could-not-compute
+LLVMTypeRef LLVMExtraSCEVGetType(LLVMSCEVRef S);
+// the operands of an expression, written to `Ops` if not NULL; returns their number
+unsigned LLVMExtraSCEVGetOperands(LLVMSCEVRef S, LLVMSCEVRef *Ops);
+// the value of a constant or unknown expression, or NULL for other expressions
+LLVMValueRef LLVMExtraSCEVGetValue(LLVMSCEVRef S);
+// the loop of an add recurrence, or NULL for other expressions
+LLVMLoopRef LLVMExtraSCEVAddRecGetLoop(LLVMSCEVRef S);
+// whether an expression contains a subexpression of the given kind (including itself)
+LLVMBool LLVMExtraSCEVContains(LLVMSCEVRef S, LLVMExtraSCEVKind Kind);
+char *LLVMExtraPrintSCEVToString(LLVMSCEVRef S);
+
+// LoopInfo: the natural loops of a function
+typedef struct LLVMOpaqueLoopInfo *LLVMLoopInfoRef;
+// the innermost loop containing a block, or NULL
+LLVMLoopRef LLVMExtraLoopInfoGetLoopFor(LLVMLoopInfoRef LI, LLVMBasicBlockRef BB);
+LLVMBasicBlockRef LLVMExtraLoopGetHeader(LLVMLoopRef L);
+// the loop containing a loop, or NULL for an outermost loop
+LLVMLoopRef LLVMExtraLoopGetParent(LLVMLoopRef L);
+unsigned LLVMExtraLoopGetDepth(LLVMLoopRef L);
+LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB);
 
 LLVM_C_EXTERN_C_END
 #endif

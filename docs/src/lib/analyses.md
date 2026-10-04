@@ -48,3 +48,15 @@ program_undefined_if_poison
 ```@docs
 LazyValueInfo
 ```
+
+## Loops and scalar evolution
+
+```@docs
+LoopInfo
+Loop
+ScalarEvolution
+SCEV
+scev_add
+contains_scev
+ConstantRange(::ScalarEvolution, ::SCEV)
+```

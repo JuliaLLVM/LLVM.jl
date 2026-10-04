@@ -3,6 +3,8 @@
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/LazyValueInfo.h>
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/TargetTransformInfoImpl.h>
@@ -418,6 +420,10 @@ void *LLVMExtraFunctionAnalysisManagerGetResult(LLVMFunctionAnalysisManagerRef A
     return &FAM.getResult<AssumptionAnalysis>(Fn);
   case LLVMExtraLazyValueAnalysis:
     return &FAM.getResult<LazyValueAnalysis>(Fn);
+  case LLVMExtraScalarEvolutionAnalysis:
+    return &FAM.getResult<ScalarEvolutionAnalysis>(Fn);
+  case LLVMExtraLoopAnalysis:
+    return &FAM.getResult<LoopAnalysis>(Fn);
   }
   llvm_unreachable("unknown function analysis");
 }
@@ -436,6 +442,10 @@ void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManage
     return FAM.getCachedResult<AssumptionAnalysis>(Fn);
   case LLVMExtraLazyValueAnalysis:
     return FAM.getCachedResult<LazyValueAnalysis>(Fn);
+  case LLVMExtraScalarEvolutionAnalysis:
+    return FAM.getCachedResult<ScalarEvolutionAnalysis>(Fn);
+  case LLVMExtraLoopAnalysis:
+    return FAM.getCachedResult<LoopAnalysis>(Fn);
   }
   llvm_unreachable("unknown function analysis");
 }
@@ -461,6 +471,12 @@ static PreservedAnalyses buildPreservedAnalyses(LLVMBool All, LLVMBool CFG,
       break;
     case LLVMExtraLazyValueAnalysis:
       PA.preserve<LazyValueAnalysis>();
+      break;
+    case LLVMExtraScalarEvolutionAnalysis:
+      PA.preserve<ScalarEvolutionAnalysis>();
+      break;
+    case LLVMExtraLoopAnalysis:
+      PA.preserve<LoopAnalysis>();
       break;
     }
   }

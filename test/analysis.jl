@@ -275,4 +275,126 @@ end
     end
 end
 
+@testset "loops and scalar evolution" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i64 @f(i64 %n, i64 %a) {
+        entry:
+          %b = add i64 %a, 7
+          %nz = zext i32 7 to i64
+          br label %outer
+        outer:
+          %j = phi i64 [ 0, %entry ], [ %j.next, %outer.latch ]
+          br label %inner
+        inner:
+          %i = phi i64 [ 0, %outer ], [ %i.next, %inner ]
+          %i.next = add nuw nsw i64 %i, 1
+          %ci = icmp ult i64 %i.next, 10
+          br i1 %ci, label %inner, label %outer.latch
+        outer.latch:
+          %j.next = add nuw nsw i64 %j, 1
+          %cj = icmp ult i64 %j.next, %n
+          br i1 %cj, label %outer, label %exit
+        exit:
+          %r = add i64 %b, %j
+          ret i64 %r
+        }""") begin
+        with_analyses(mod, "f") do fn, am
+            li = am[LoopInfo]
+            se = am[ScalarEvolution]
+            n, a = fn.parameters
+            entry, outer, inner, latch, exit = fn.blocks
+            b = first(entry.instructions)
+            j = first(outer.instructions)
+            i = first(inner.instructions)
+            r = first(exit.instructions)
+
+            # loops
+            @test li[entry] === nothing
+            @test li[exit] === nothing
+            outer_loop = li[outer]
+            inner_loop = li[inner]
+            @test outer_loop isa Loop
+            @test li[latch] == outer_loop
+            @test outer_loop.header == outer
+            @test inner_loop.header == inner
+            @test outer_loop.depth == 1
+            @test inner_loop.depth == 2
+            @test outer_loop.parent === nothing
+            @test inner_loop.parent == outer_loop
+            @test inner in outer_loop
+            @test !(outer in inner_loop)
+            @test !(exit in outer_loop)
+            @test sprint(show, inner_loop) == "Loop(header=\"inner\", depth=2)"
+
+            # expressions
+            sa = se[a]
+            @test sa isa SCEVUnknown
+            @test sa.value == a
+            @test sa.type == LLVM.Int64Type()
+            sb = se[b]
+            @test sb isa SCEVAddExpr
+            @test length(sb.operands) == 2
+            seven = only(filter(x -> x isa SCEVConstant, sb.operands))
+            @test convert(Int, seven.value) == 7
+            @test se[b] == sb                       # expressions are uniqued
+            @test sprint(show, sb) == "SCEVAddExpr((7 + %a))"
+
+            # add recurrences
+            si = se[i]
+            @test si isa SCEVAddRecExpr
+            @test si.loop == inner_loop
+            @test ConstantRange(se, si) == ConstantRange(64, 0, 10)
+            @test ConstantRange(se, si; signed=true) == ConstantRange(64, 0, 10)
+            @test contains_scev(si, SCEVAddRecExpr)
+            @test !contains_scev(sb, SCEVAddRecExpr)
+            @test contains_scev(sb, SCEVUnknown)
+            @test ConstantRange(se, se[ConstantInt(Int64(-1))]) == ConstantRange(64, -1)
+
+            # building expressions
+            @test scev_minus(se, sb, sa) == seven
+            @test scev_add(se, sa, seven) == sb
+            @test scev_add(se, sa) == sa
+            @test scev_minus(se, sa, sa) isa SCEVConstant
+            @test_throws ArgumentError scev_add(se)
+            @test_throws ArgumentError se[fn.blocks[1].terminator]
+
+            # incompatible operands
+            s32 = se[ConstantInt(Int32(1))]
+            @test_throws ArgumentError scev_add(se, sa, s32)
+            @test_throws ArgumentError scev_minus(se, sa, s32)
+        end
+    end
+end
+
+@testset "pointer expressions" begin
+    @dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i8*" : "ptr"
+    @dispose mod=parse(LLVM.Module, """
+        define void @f($ptr %p, $ptr %q, i64 %i) {
+          %a = getelementptr i8, $ptr %p, i64 %i
+          %b = getelementptr i8, $ptr %p, i64 8
+          ret void
+        }""") begin
+        with_analyses(mod, "f") do fn, am
+            se = am[ScalarEvolution]
+            p, q, i = fn.parameters
+            a, b = collect(only(fn.blocks).instructions)[1:2]
+            # pointers with the same base can be subtracted
+            d = scev_minus(se, se[a], se[b])
+            @test d isa SCEVAddExpr
+            @test d.type == LLVM.Int64Type()
+            # with different bases, the difference is could-not-compute
+            cnc = scev_minus(se, se[p], se[q])
+            @test cnc isa SCEVCouldNotCompute
+            @test_throws ArgumentError cnc.type
+            @test_throws ArgumentError ConstantRange(se, cnc)
+            @test_throws ArgumentError scev_add(se, cnc, se[i])
+            # a sum can only have one pointer operand
+            @test scev_add(se, se[p], se[i]) == se[a]
+            @test_throws ArgumentError scev_add(se, se[p], se[q])
+        end
+    end
+    end
+end
+
 end

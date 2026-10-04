@@ -500,6 +500,8 @@ end
     LLVMExtraPostDominatorTreeAnalysis = 1
     LLVMExtraAssumptionAnalysis = 2
     LLVMExtraLazyValueAnalysis = 3
+    LLVMExtraScalarEvolutionAnalysis = 4
+    LLVMExtraLoopAnalysis = 5
 end
 
 function LLVMExtraFunctionAnalysisManagerGetResult(AM, F, Analysis)
@@ -886,4 +888,109 @@ end
 
 function LLVMExtraLazyValueInfoGetConstantRangeAtUse(LVI, U, UndefAllowed, Lower, Upper)
     ccall((:LLVMExtraLazyValueInfoGetConstantRangeAtUse, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMUseRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), LVI, U, UndefAllowed, Lower, Upper)
+end
+
+mutable struct LLVMOpaqueScalarEvolution end
+
+const LLVMScalarEvolutionRef = Ptr{LLVMOpaqueScalarEvolution}
+
+mutable struct LLVMOpaqueSCEV end
+
+const LLVMSCEVRef = Ptr{LLVMOpaqueSCEV}
+
+mutable struct LLVMOpaqueLoop end
+
+const LLVMLoopRef = Ptr{LLVMOpaqueLoop}
+
+@cenum LLVMExtraSCEVKind::UInt32 begin
+    LLVMExtraSCEVConstantKind = 0
+    LLVMExtraSCEVTruncateKind = 1
+    LLVMExtraSCEVZeroExtendKind = 2
+    LLVMExtraSCEVSignExtendKind = 3
+    LLVMExtraSCEVAddKind = 4
+    LLVMExtraSCEVMulKind = 5
+    LLVMExtraSCEVUDivKind = 6
+    LLVMExtraSCEVAddRecKind = 7
+    LLVMExtraSCEVUMaxKind = 8
+    LLVMExtraSCEVSMaxKind = 9
+    LLVMExtraSCEVUMinKind = 10
+    LLVMExtraSCEVSMinKind = 11
+    LLVMExtraSCEVSequentialUMinKind = 12
+    LLVMExtraSCEVUnknownKind = 13
+    LLVMExtraSCEVCouldNotComputeKind = 14
+    LLVMExtraSCEVVScaleKind = 15
+    LLVMExtraSCEVPtrToIntKind = 16
+    LLVMExtraSCEVOtherKind = 17
+end
+
+function LLVMExtraScalarEvolutionIsSCEVable(SE, Ty)
+    ccall((:LLVMExtraScalarEvolutionIsSCEVable, libLLVMExtra), LLVMBool, (LLVMScalarEvolutionRef, LLVMTypeRef), SE, Ty)
+end
+
+function LLVMExtraScalarEvolutionGetSCEV(SE, V)
+    ccall((:LLVMExtraScalarEvolutionGetSCEV, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMValueRef), SE, V)
+end
+
+function LLVMExtraScalarEvolutionGetAddExpr(SE, Ops, NumOps)
+    ccall((:LLVMExtraScalarEvolutionGetAddExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, Ptr{LLVMSCEVRef}, Cuint), SE, Ops, NumOps)
+end
+
+function LLVMExtraScalarEvolutionGetMinusSCEV(SE, LHS, RHS)
+    ccall((:LLVMExtraScalarEvolutionGetMinusSCEV, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMSCEVRef), SE, LHS, RHS)
+end
+
+function LLVMExtraScalarEvolutionGetRange(SE, S, Signed, Lower, Upper)
+    ccall((:LLVMExtraScalarEvolutionGetRange, libLLVMExtra), Cuint, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), SE, S, Signed, Lower, Upper)
+end
+
+function LLVMExtraSCEVGetKind(S)
+    ccall((:LLVMExtraSCEVGetKind, libLLVMExtra), LLVMExtraSCEVKind, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVGetType(S)
+    ccall((:LLVMExtraSCEVGetType, libLLVMExtra), LLVMTypeRef, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVGetOperands(S, Ops)
+    ccall((:LLVMExtraSCEVGetOperands, libLLVMExtra), Cuint, (LLVMSCEVRef, Ptr{LLVMSCEVRef}), S, Ops)
+end
+
+function LLVMExtraSCEVGetValue(S)
+    ccall((:LLVMExtraSCEVGetValue, libLLVMExtra), LLVMValueRef, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVAddRecGetLoop(S)
+    ccall((:LLVMExtraSCEVAddRecGetLoop, libLLVMExtra), LLVMLoopRef, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVContains(S, Kind)
+    ccall((:LLVMExtraSCEVContains, libLLVMExtra), LLVMBool, (LLVMSCEVRef, LLVMExtraSCEVKind), S, Kind)
+end
+
+function LLVMExtraPrintSCEVToString(S)
+    ccall((:LLVMExtraPrintSCEVToString, libLLVMExtra), Cstring, (LLVMSCEVRef,), S)
+end
+
+mutable struct LLVMOpaqueLoopInfo end
+
+const LLVMLoopInfoRef = Ptr{LLVMOpaqueLoopInfo}
+
+function LLVMExtraLoopInfoGetLoopFor(LI, BB)
+    ccall((:LLVMExtraLoopInfoGetLoopFor, libLLVMExtra), LLVMLoopRef, (LLVMLoopInfoRef, LLVMBasicBlockRef), LI, BB)
+end
+
+function LLVMExtraLoopGetHeader(L)
+    ccall((:LLVMExtraLoopGetHeader, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopGetParent(L)
+    ccall((:LLVMExtraLoopGetParent, libLLVMExtra), LLVMLoopRef, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopGetDepth(L)
+    ccall((:LLVMExtraLoopGetDepth, libLLVMExtra), Cuint, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopContains(L, BB)
+    ccall((:LLVMExtraLoopContains, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMBasicBlockRef), L, BB)
 end

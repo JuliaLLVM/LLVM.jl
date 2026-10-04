@@ -388,3 +388,238 @@ if version() >= v"16"
         end
     end
 end
+
+
+## loop info
+
+@vocabulary Analysis LoopInfo, Loop
+
+"""
+    LoopInfo
+
+The natural loops of a function, as computed by LLVM's loop analysis. It is obtained from
+the analysis manager of a custom pass (`am[LoopInfo]`). Indexing it with a basic block,
+`li[bb]`, returns the innermost [`Loop`](@ref) containing the block, or `nothing` if the
+block is not part of a loop.
+"""
+@checked struct LoopInfo
+    ref::API.LLVMLoopInfoRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMLoopInfoRef}, li::LoopInfo) = li.ref
+
+"""
+    Loop
+
+A natural loop, as identified by [`LoopInfo`](@ref). Loops are owned by the loop analysis.
+Use `bb in loop` to check whether a basic block is part of the loop (or of one of its
+nested loops).
+
+Like the loop analysis itself, loops must not be used after the pass that obtained them
+returns, or after the analysis was invalidated.
+
+# Properties
+
+- `loop.header`: the header block of the loop, which dominates all of its blocks.
+- `loop.parent`: the loop containing this loop, or `nothing` for an outermost loop.
+- `loop.depth`: the nesting depth of the loop (1 for an outermost loop).
+"""
+@checked struct Loop
+    ref::API.LLVMLoopRef
+end
+@properties Loop
+
+Base.unsafe_convert(::Type{API.LLVMLoopRef}, loop::Loop) = loop.ref
+
+loop_or_nothing(ref::API.LLVMLoopRef) = ref == C_NULL ? nothing : Loop(ref)
+
+Base.getindex(li::LoopInfo, bb::BasicBlock) =
+    loop_or_nothing(API.LLVMExtraLoopInfoGetLoopFor(li, bb))
+
+header(loop::Loop) = BasicBlock(API.LLVMExtraLoopGetHeader(loop))
+parent(loop::Loop) = loop_or_nothing(API.LLVMExtraLoopGetParent(loop))
+depth(loop::Loop) = Int(API.LLVMExtraLoopGetDepth(loop))
+
+@property Loop header
+@property Loop parent
+@property Loop depth
+
+Base.in(bb::BasicBlock, loop::Loop) = API.LLVMExtraLoopContains(loop, bb) |> Bool
+
+Base.show(io::IO, loop::Loop) =
+    print(io, "Loop(header=", repr(header(loop).name), ", depth=", depth(loop), ")")
+
+
+## scalar evolution
+
+@vocabulary Analysis ScalarEvolution, SCEV, SCEVConstant, SCEVVScale, SCEVTruncateExpr,
+                     SCEVZeroExtendExpr, SCEVSignExtendExpr, SCEVPtrToIntExpr, SCEVAddExpr,
+                     SCEVMulExpr, SCEVUDivExpr, SCEVAddRecExpr, SCEVUMaxExpr, SCEVSMaxExpr,
+                     SCEVUMinExpr, SCEVSMinExpr, SCEVSequentialUMinExpr, SCEVUnknown,
+                     SCEVCouldNotCompute, scev_add, scev_minus, contains_scev
+
+"""
+    ScalarEvolution
+
+LLVM's scalar evolution analysis, which represents integer and pointer values as symbolic
+expressions ([`SCEV`](@ref)s), e.g., to recognize induction variables of loops. It is
+obtained from the analysis manager of a custom pass (`am[ScalarEvolution]`).
+
+- `se[v]`: the expression for the integer or pointer value `v`;
+- [`scev_add`](@ref), [`scev_minus`](@ref): build new expressions;
+- `ConstantRange(se, s; signed=false)`: the range of the values of an expression.
+
+Expressions are owned by the analysis and uniqued, so that expressions that are equal are
+also identical (`==`). The analysis caches its results, which become stale when the
+function changes.
+"""
+@checked struct ScalarEvolution
+    ref::API.LLVMScalarEvolutionRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMScalarEvolutionRef}, se::ScalarEvolution) = se.ref
+
+"""
+    SCEV
+
+A symbolic expression for a value, as computed by [`ScalarEvolution`](@ref). Expressions
+are represented by a concrete subtype for each kind of expression: `SCEVConstant`,
+`SCEVUnknown` (a value that the analysis does not look into), `SCEVAddExpr`,
+`SCEVMulExpr`, `SCEVUDivExpr`, `SCEVAddRecExpr` (an add recurrence, like an induction
+variable of a loop), casts (`SCEVTruncateExpr`, `SCEVZeroExtendExpr`,
+`SCEVSignExtendExpr`, `SCEVPtrToIntExpr`), minima and maxima (`SCEVUMaxExpr`,
+`SCEVSMaxExpr`, `SCEVUMinExpr`, `SCEVSMinExpr`, `SCEVSequentialUMinExpr`), `SCEVVScale`
+(LLVM 17+), and `SCEVCouldNotCompute` (e.g., for the difference of pointers with
+different bases). Like the analysis itself, expressions must not be used after the pass
+that obtained them returns, or after the analysis was invalidated.
+
+# Properties
+
+- `s.type`: the type of the expression (not available for `SCEVCouldNotCompute`).
+- `s.operands`: the operands of the expression (a vector of `SCEV`s).
+- `s.value`: the `ConstantInt` of a `SCEVConstant`, or the value of a `SCEVUnknown`.
+- `s.loop`: the [`Loop`](@ref) of a `SCEVAddRecExpr`.
+"""
+abstract type SCEV end
+@properties SCEV
+
+Base.unsafe_convert(::Type{API.LLVMSCEVRef}, s::SCEV) = s.ref
+
+const scev_kinds = Dict{API.LLVMExtraSCEVKind,Type{<:SCEV}}()
+
+for (T, kind) in [(:SCEVConstant, :LLVMExtraSCEVConstantKind),
+                  (:SCEVTruncateExpr, :LLVMExtraSCEVTruncateKind),
+                  (:SCEVZeroExtendExpr, :LLVMExtraSCEVZeroExtendKind),
+                  (:SCEVSignExtendExpr, :LLVMExtraSCEVSignExtendKind),
+                  (:SCEVAddExpr, :LLVMExtraSCEVAddKind),
+                  (:SCEVMulExpr, :LLVMExtraSCEVMulKind),
+                  (:SCEVUDivExpr, :LLVMExtraSCEVUDivKind),
+                  (:SCEVAddRecExpr, :LLVMExtraSCEVAddRecKind),
+                  (:SCEVUMaxExpr, :LLVMExtraSCEVUMaxKind),
+                  (:SCEVSMaxExpr, :LLVMExtraSCEVSMaxKind),
+                  (:SCEVUMinExpr, :LLVMExtraSCEVUMinKind),
+                  (:SCEVSMinExpr, :LLVMExtraSCEVSMinKind),
+                  (:SCEVSequentialUMinExpr, :LLVMExtraSCEVSequentialUMinKind),
+                  (:SCEVUnknown, :LLVMExtraSCEVUnknownKind),
+                  (:SCEVCouldNotCompute, :LLVMExtraSCEVCouldNotComputeKind),
+                  (:SCEVVScale, :LLVMExtraSCEVVScaleKind),
+                  (:SCEVPtrToIntExpr, :LLVMExtraSCEVPtrToIntKind),
+                  (:SCEVOtherExpr, :LLVMExtraSCEVOtherKind)]
+    @eval begin
+        @checked struct $T <: SCEV
+            ref::API.LLVMSCEVRef
+        end
+        scev_kinds[API.$kind] = $T
+        scev_kind(::Type{$T}) = API.$kind
+        @doc (@doc SCEV) $T
+    end
+end
+
+# wrap an expression in the type corresponding to its kind
+function SCEV(ref::API.LLVMSCEVRef)
+    ref == C_NULL && throw(UndefRefError())
+    return scev_kinds[API.LLVMExtraSCEVGetKind(ref)](ref)
+end
+
+function type(s::SCEV)
+    s isa SCEVCouldNotCompute &&
+        throw(ArgumentError("A could-not-compute expression has no type"))
+    return LLVMType(API.LLVMExtraSCEVGetType(s))
+end
+
+function operands(s::SCEV)
+    n = API.LLVMExtraSCEVGetOperands(s, C_NULL)
+    refs = Vector{API.LLVMSCEVRef}(undef, n)
+    API.LLVMExtraSCEVGetOperands(s, refs)
+    return SCEV[SCEV(ref) for ref in refs]
+end
+
+value(s::SCEVConstant) = ConstantInt(API.LLVMExtraSCEVGetValue(s))
+value(s::SCEVUnknown) = Value(API.LLVMExtraSCEVGetValue(s))
+
+loop(s::SCEVAddRecExpr) = Loop(API.LLVMExtraSCEVAddRecGetLoop(s))
+
+@property SCEV type
+@property SCEV operands
+@property Union{SCEVConstant,SCEVUnknown} value
+@property SCEVAddRecExpr loop
+
+function Base.show(io::IO, s::SCEV)
+    str = unsafe_message(API.LLVMExtraPrintSCEVToString(s))
+    print(io, nameof(typeof(s)), "(", str, ")")
+end
+
+function Base.getindex(se::ScalarEvolution, v::Value)
+    API.LLVMExtraScalarEvolutionIsSCEVable(se, value_type(v)) |> Bool ||
+        throw(ArgumentError("Scalar evolution only supports integer and pointer values"))
+    return SCEV(API.LLVMExtraScalarEvolutionGetSCEV(se, v))
+end
+
+"""
+    scev_add(se::ScalarEvolution, operands::SCEV...)
+    scev_minus(se::ScalarEvolution, a::SCEV, b::SCEV)
+
+Build the (simplified) expression for the sum of the `operands`, or for `a - b`. The
+operands must have the same type, where pointers count as integers of their index width,
+and only one of the operands of a sum can be a pointer. The difference of two pointers with
+different bases is a `SCEVCouldNotCompute`.
+"""
+function scev_add(se::ScalarEvolution, operands::SCEV...)
+    isempty(operands) && throw(ArgumentError("Cannot add zero expressions"))
+    refs = API.LLVMSCEVRef[s.ref for s in operands]
+    ref = API.LLVMExtraScalarEvolutionGetAddExpr(se, refs, length(refs))
+    ref == C_NULL && throw(ArgumentError("Cannot add expressions of incompatible types"))
+    return SCEV(ref)
+end
+
+@doc (@doc scev_add)
+function scev_minus(se::ScalarEvolution, a::SCEV, b::SCEV)
+    ref = API.LLVMExtraScalarEvolutionGetMinusSCEV(se, a, b)
+    ref == C_NULL &&
+        throw(ArgumentError("Cannot subtract expressions of incompatible types"))
+    return SCEV(ref)
+end
+
+"""
+    contains_scev(s::SCEV, T::Type{<:SCEV})
+
+Check whether the expression `s`, or one of its subexpressions, is of type `T`. For
+example, `contains_scev(s, SCEVAddRecExpr)` checks whether `s` varies with a loop.
+"""
+contains_scev(s::SCEV, T::Type{<:SCEV}) = API.LLVMExtraSCEVContains(s, scev_kind(T)) |> Bool
+
+"""
+    ConstantRange(se::ScalarEvolution, s::SCEV; signed=false)
+
+The range of the values of the expression `s`, as computed by scalar evolution, preferring
+a range that does not wrap in the unsigned domain or, with `signed=true`, in the signed
+domain.
+"""
+function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
+    s isa SCEVCouldNotCompute &&
+        throw(ArgumentError("A could-not-compute expression has no range"))
+    nbits = API.LLVMExtraScalarEvolutionGetRange(se, s, signed, C_NULL, C_NULL)
+    compute_range(Val(nwords(nbits)), nbits) do lo, hi
+        API.LLVMExtraScalarEvolutionGetRange(se, s, signed, lo, hi)
+    end
+end

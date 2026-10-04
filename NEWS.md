@@ -28,6 +28,12 @@ assumptions (`ac[v]` for those that affect a value), and new ones are registered
 the branches that lead there: `ConstantRange(lvi, v; at=inst)`, on an edge between two
 blocks (`from`, `to`), or at a use (LLVM 16+).
 
+`ScalarEvolution` represents values as symbolic expressions: `se[v]` returns a `SCEV`,
+with a concrete type per kind of expression (`SCEVAddRecExpr`, `SCEVConstant`, ...) and
+properties for its operands, value or loop. Expressions can be combined (`scev_add`,
+`scev_minus`), searched (`contains_scev(s, SCEVAddRecExpr)`), and bounded
+(`ConstantRange(se, s)`). `LoopInfo` returns the innermost `Loop` of a block (`li[bb]`).
+
 
 ## LLVM.jl v10.0
 

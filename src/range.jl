@@ -252,6 +252,16 @@ end
 # bounds of the resulting `nbits`-bit range (of `M` words). `f` returns `false` if it
 # failed, in which case `nothing` is returned. all words are kept in a single buffer, which
 # can be allocated on the stack.
+function compute_range(f::F, ::Val{M}, nbits::Integer) where {F,M}
+    out = ntuple(_ -> UInt64(0), Val(M))
+    buf = Ref((out, out))
+    success = GC.@preserve buf begin
+        p = Ptr{UInt64}(Base.unsafe_convert(Ptr{typeof(buf[])}, buf))
+        f(p, p + 8M)
+    end
+    success === false && return nothing
+    return unsafe_range(nbits, buf[][1], buf[][2])
+end
 function compute_range(f::F, ::Val{M}, nbits::Integer, a::ConstantRange{N}) where {F,M,N}
     out = ntuple(_ -> UInt64(0), Val(M))
     buf = Ref((getfield(a, :lower), getfield(a, :upper), out, out))

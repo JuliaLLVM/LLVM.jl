@@ -1,6 +1,7 @@
 #include "LLVMExtra.h"
 
 #include <llvm/Analysis/AliasAnalysis.h>
+#include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/TargetTransformInfoImpl.h>
@@ -412,6 +413,8 @@ void *LLVMExtraFunctionAnalysisManagerGetResult(LLVMFunctionAnalysisManagerRef A
     return &FAM.getResult<DominatorTreeAnalysis>(Fn);
   case LLVMExtraPostDominatorTreeAnalysis:
     return &FAM.getResult<PostDominatorTreeAnalysis>(Fn);
+  case LLVMExtraAssumptionAnalysis:
+    return &FAM.getResult<AssumptionAnalysis>(Fn);
   }
   llvm_unreachable("unknown function analysis");
 }
@@ -426,6 +429,8 @@ void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManage
     return FAM.getCachedResult<DominatorTreeAnalysis>(Fn);
   case LLVMExtraPostDominatorTreeAnalysis:
     return FAM.getCachedResult<PostDominatorTreeAnalysis>(Fn);
+  case LLVMExtraAssumptionAnalysis:
+    return FAM.getCachedResult<AssumptionAnalysis>(Fn);
   }
   llvm_unreachable("unknown function analysis");
 }
@@ -445,6 +450,9 @@ static PreservedAnalyses buildPreservedAnalyses(LLVMBool All, LLVMBool CFG,
       break;
     case LLVMExtraPostDominatorTreeAnalysis:
       PA.preserve<PostDominatorTreeAnalysis>();
+      break;
+    case LLVMExtraAssumptionAnalysis:
+      PA.preserve<AssumptionAnalysis>();
       break;
     }
   }

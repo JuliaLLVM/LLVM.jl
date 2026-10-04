@@ -245,7 +245,8 @@ function analyses, which it owns and caches:
 - [`invalidate!(am, preserved)`](@ref invalidate!): invalidate the results that are not
   preserved.
 
-The supported analyses are [`DomTree`](@ref) and [`PostDomTree`](@ref).
+The supported analyses are [`DomTree`](@ref), [`PostDomTree`](@ref) and
+[`AssumptionCache`](@ref).
 
 Analysis results borrowed from the manager must not be disposed of, and must not be used
 after the pass returns. They also become stale when the pass changes the IR in a way that
@@ -271,6 +272,7 @@ Base.show(io::IO, am::FunctionAnalysisManager) =
 analysis_id(T::Type) = throw(ArgumentError("$T is not a supported function analysis"))
 analysis_id(::Type{DomTree}) = API.LLVMExtraDominatorTreeAnalysis
 analysis_id(::Type{PostDomTree}) = API.LLVMExtraPostDominatorTreeAnalysis
+analysis_id(::Type{AssumptionCache}) = API.LLVMExtraAssumptionAnalysis
 
 # analysis results are owned by the analysis manager; stop tracking their wrappers, so that
 # memcheck doesn't mistake them for objects that were disposed of at the same address

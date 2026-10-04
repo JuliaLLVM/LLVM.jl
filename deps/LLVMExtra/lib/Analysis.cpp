@@ -1,14 +1,23 @@
 #include "LLVMExtra.h"
 
 #include <llvm/ADT/APInt.h>
+#include <llvm/Analysis/AssumptionCache.h>
+#include <llvm/Analysis/ValueTracking.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/ConstantRange.h>
+#include <llvm/IR/Dominators.h>
+#include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Module.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/Support/KnownBits.h>
 
 using namespace llvm;
+
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(AssumptionCache, LLVMAssumptionCacheRef)
+// defined in Core.cpp
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(DominatorTree, LLVMDominatorTreeRef)
 
 // APInt values are passed as an array of 64-bit words (least significant first), of which
 // there are as many as needed for the bit width
@@ -165,3 +174,143 @@ unsigned LLVMExtraGetConstantRangeAttributeValue(LLVMAttributeRef A, uint64_t *L
   return CR.getBitWidth();
 }
 #endif
+
+
+// AssumptionCache
+
+// the assumption of an element of the cache (LLVM 22 stores the handles directly)
+static Value *assumeOf(const AssumptionCache::ResultElem &Elem) { return Elem.Assume; }
+static Value *assumeOf(const WeakVH &Handle) { return Handle; }
+
+unsigned LLVMExtraAssumptionCacheGetAssumptions(LLVMAssumptionCacheRef AC,
+                                                LLVMValueRef *Assumes) {
+  unsigned N = 0;
+  for (auto &Elem : unwrap(AC)->assumptions()) {
+    Value *Assume = assumeOf(Elem);
+    if (!Assume)
+      continue;
+    if (Assumes)
+      Assumes[N] = wrap(Assume);
+    N++;
+  }
+  return N;
+}
+
+unsigned LLVMExtraAssumptionCacheGetAssumptionsFor(LLVMAssumptionCacheRef AC, LLVMValueRef V,
+                                                   LLVMValueRef *Assumes, int *Indices) {
+  unsigned N = 0;
+  for (auto &Elem : unwrap(AC)->assumptionsFor(unwrap(V))) {
+    Value *Assume = Elem.Assume;
+    if (!Assume)
+      continue;
+    if (Assumes) {
+      Assumes[N] = wrap(Assume);
+      Indices[N] = Elem.Index == AssumptionCache::ExprResultIdx ? -1 : (int)Elem.Index;
+    }
+    N++;
+  }
+  return N;
+}
+
+LLVMBool LLVMExtraAssumptionCacheRegisterAssumption(LLVMAssumptionCacheRef AC,
+                                                    LLVMValueRef Assume) {
+  auto *CI = dyn_cast<AssumeInst>(unwrap(Assume));
+  if (!CI)
+    return false;
+  unwrap(AC)->registerAssumption(CI);
+  return true;
+}
+
+void LLVMExtraAssumptionCacheClear(LLVMAssumptionCacheRef AC) { unwrap(AC)->clear(); }
+
+
+// ValueTracking
+
+// the data layout to use for a query: the given one, or that of the module containing the
+// context instruction or the value
+static const DataLayout *queryDataLayout(LLVMTargetDataRef DL, Value *V, Instruction *CxtI) {
+  if (DL)
+    return unwrap(DL);
+  for (Value *X : {static_cast<Value *>(CxtI), V}) {
+    if (!X)
+      continue;
+    const Module *M = nullptr;
+    if (auto *I = dyn_cast<Instruction>(X))
+      M = I->getModule();
+    else if (auto *A = dyn_cast<Argument>(X))
+      M = A->getParent() ? A->getParent()->getParent() : nullptr;
+    else if (auto *G = dyn_cast<GlobalValue>(X))
+      M = G->getParent();
+    if (M)
+      return &M->getDataLayout();
+  }
+  return nullptr;
+}
+
+LLVMBool LLVMExtraComputeConstantRange(LLVMValueRef V, LLVMBool ForSigned,
+                                       LLVMBool UseInstrInfo, LLVMAssumptionCacheRef AC,
+                                       LLVMValueRef CxtI, LLVMDominatorTreeRef DT,
+                                       LLVMTargetDataRef DL, uint64_t *Lower,
+                                       uint64_t *Upper) {
+  Value *Val = unwrap(V);
+  if (!Val->getType()->isIntOrIntVectorTy())
+    return false;
+  auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
+#if LLVM_VERSION_MAJOR >= 23
+  const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
+  if (!Layout)
+    return false;
+  SimplifyQuery Q(*Layout, DT ? unwrap(DT) : nullptr, AC ? unwrap(AC) : nullptr, Ctx,
+                  UseInstrInfo);
+  auto CR = computeConstantRange(Val, ForSigned, Q);
+#else
+  auto CR = computeConstantRange(Val, ForSigned, UseInstrInfo, AC ? unwrap(AC) : nullptr,
+                                 Ctx, DT ? unwrap(DT) : nullptr);
+#endif
+  writeRange(CR, Lower, Upper);
+  return true;
+}
+
+LLVMBool LLVMExtraComputeKnownBits(LLVMValueRef V, LLVMBool UseInstrInfo,
+                                   LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                                   LLVMDominatorTreeRef DT, LLVMTargetDataRef DL,
+                                   uint64_t *Zero, uint64_t *One) {
+  Value *Val = unwrap(V);
+  if (!Val->getType()->isIntOrIntVectorTy())
+    return false;
+  auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
+  const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
+  if (!Layout)
+    return false;
+#if LLVM_VERSION_MAJOR >= 21
+  KnownBits Known = computeKnownBits(Val, *Layout, AC ? unwrap(AC) : nullptr, Ctx,
+                                     DT ? unwrap(DT) : nullptr, UseInstrInfo);
+#elif LLVM_VERSION_MAJOR >= 17
+  KnownBits Known = computeKnownBits(Val, *Layout, /*Depth=*/0, AC ? unwrap(AC) : nullptr,
+                                     Ctx, DT ? unwrap(DT) : nullptr, UseInstrInfo);
+#else
+  KnownBits Known = computeKnownBits(Val, *Layout, /*Depth=*/0, AC ? unwrap(AC) : nullptr,
+                                     Ctx, DT ? unwrap(DT) : nullptr, /*ORE=*/nullptr,
+                                     UseInstrInfo);
+#endif
+  writeAPInt(Known.Zero, Zero);
+  writeAPInt(Known.One, One);
+  return true;
+}
+
+LLVMBool LLVMExtraIsValidAssumeForContext(LLVMValueRef Assume, LLVMValueRef CxtI,
+                                          LLVMDominatorTreeRef DT) {
+  return isValidAssumeForContext(unwrap<Instruction>(Assume), unwrap<Instruction>(CxtI),
+                                 DT ? unwrap(DT) : nullptr);
+}
+
+LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheRef AC,
+                                            LLVMValueRef CxtI, LLVMDominatorTreeRef DT) {
+  return isGuaranteedNotToBePoison(unwrap(V), AC ? unwrap(AC) : nullptr,
+                                   CxtI ? unwrap<Instruction>(CxtI) : nullptr,
+                                   DT ? unwrap(DT) : nullptr);
+}
+
+LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst) {
+  return programUndefinedIfPoison(unwrap<Instruction>(Inst));
+}

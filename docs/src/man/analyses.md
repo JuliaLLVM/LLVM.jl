@@ -125,3 +125,22 @@ ConstantRange(64, 50, 100)
 julia> ConstantRange(KnownBits(64, ~UInt64(0xff), 0))
 ConstantRange(64, 0, 256)
 ```
+
+The range and known bits of an integer value can be computed using LLVM's value tracking,
+by passing the value to the `ConstantRange` or `KnownBits` constructor. To also use the
+assumptions (`llvm.assume` calls) that hold at a certain point, pass the instruction at
+that point together with the function's assumption cache and dominator tree, which are
+typically obtained from the analysis manager of a custom pass:
+
+```julia
+function my_pass!(f::LLVM.Function, am)
+    ac, dt = am[AssumptionCache], am[DomTree]
+    for bb in f.blocks, inst in bb.instructions
+        inst isa GetElementPtrInst || continue
+        idx = last(inst.operands)
+        r = ConstantRange(idx; at=inst, assumptions=ac, domtree=dt)
+        # ...
+    end
+    return false
+end
+```

@@ -109,4 +109,122 @@ end
     end
 end
 
+
+# run `f(fn, am)` with the analysis manager of a pass that runs on function `name` of `mod`
+function with_analyses(f, mod::LLVM.Module, name::String)
+    result = Ref{Any}()
+    run!(FunctionPass("with-analyses", (fn, am) -> begin
+        fn.name == name && (result[] = f(fn, am))
+        return false
+    end; analyses=true), mod.functions[name])
+    return result[]
+end
+
+@testset "assumption cache" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        declare void @llvm.assume(i1)
+        define i64 @f(i64 %n, i64 %i) {
+        entry:
+          %c = icmp ult i64 %n, 1024
+          call void @llvm.assume(i1 %c)
+          call void @llvm.assume(i1 true) [ "align"(i64 %i, i64 8) ]
+          %s = add i64 %i, %n
+          ret i64 %s
+        }""") begin
+        with_analyses(mod, "f") do fn, am
+            ac = am[AssumptionCache]
+            n, i = fn.parameters
+            entry = only(fn.blocks)
+            insts = collect(entry.instructions)
+            cond_assume, bundle_assume = insts[2], insts[3]
+
+            @test collect(ac) == [cond_assume, bundle_assume]
+            @test eltype(ac) == CallInst
+            @test ac[n] == [AssumptionEntry(cond_assume, nothing)]
+            @test ac[i] == [AssumptionEntry(bundle_assume, 1)]
+            @test isempty(ac[insts[4]])
+
+            # new assumptions need to be registered
+            @dispose builder=IRBuilder() begin
+                position!(builder, LLVM.before(entry.terminator))
+                c = icmp!(builder, LLVM.API.LLVMIntSGE, i, ConstantInt(Int64(0)))
+                assume = call!(builder, mod.functions["llvm.assume"].function_type,
+                               mod.functions["llvm.assume"], [c])
+                @test length(ac[i]) == 1
+                @test push!(ac, assume) === ac
+                @test length(collect(ac)) == 3
+                @test any(e -> e.assume == assume && e.bundle_index === nothing, ac[i])
+                @test_throws ArgumentError push!(ac, c)
+            end
+
+            # deleted assumptions are dropped automatically
+            erase!(bundle_assume)
+            @test length(collect(ac)) == 2
+
+            # clearing the cache rescans the function
+            @test empty!(ac) === ac
+            @test length(collect(ac)) == 2
+        end
+    end
+end
+
+@testset "value tracking" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        declare void @llvm.assume(i1)
+        define i64 @f(i64 noundef %n, i64 %i, i1 %b) {
+        entry:
+          %m = and i64 %i, 255
+          %z = zext i32 0 to i64
+          br i1 %b, label %next, label %exit
+        next:
+          %c = icmp ult i64 %n, 1024
+          call void @llvm.assume(i1 %c)
+          %s = add nuw i64 %m, 1
+          %k = or i64 %i, 1
+          %d = udiv i64 %n, %k
+          ret i64 %s
+        exit:
+          ret i64 %n
+        }""") begin
+        with_analyses(mod, "f") do fn, am
+            ac = am[AssumptionCache]
+            dt = am[DomTree]
+            n, i, b = fn.parameters
+            entry, next, exit = fn.blocks
+            m = first(entry.instructions)
+            assume = collect(next.instructions)[2]
+            s = collect(next.instructions)[3]
+            k = collect(next.instructions)[4]
+            d = collect(next.instructions)[5]
+
+            # ranges, from instructions and from assumptions that hold at a context
+            @test ConstantRange(m) == ConstantRange(64, 0, 256)
+            @test ConstantRange(n) == ConstantRange(64)
+            @test ConstantRange(n; at=d, assumptions=ac, domtree=dt) ==
+                  ConstantRange(64, 0, 1024)
+            @test ConstantRange(n; at=exit.terminator, assumptions=ac, domtree=dt) ==
+                  ConstantRange(64)
+            @test ConstantRange(ConstantInt(Int32(-1)); signed=true) == ConstantRange(32, -1)
+            @test_throws ArgumentError ConstantRange(fn)
+
+            # known bits, which need a data layout
+            @test KnownBits(m) == KnownBits(64, ~UInt64(0xff), 0)
+            @test KnownBits(ConstantInt(Int8(5)); datalayout=LLVM.DataLayout("")) ==
+                  KnownBits(8, 0xfa, 0x05)
+            @test_throws ArgumentError KnownBits(ConstantInt(Int8(5)))
+            @test ConstantRange(KnownBits(n; at=d, assumptions=ac, domtree=dt)) ==
+                  ConstantRange(64, 0, 1024)
+
+            # assumptions and poison
+            @test is_valid_assume_for_context(assume, d; domtree=dt)
+            @test !is_valid_assume_for_context(assume, exit.terminator; domtree=dt)
+            @test is_guaranteed_not_to_be_poison(n)    # noundef
+            @test !is_guaranteed_not_to_be_poison(i)
+            # a poison divisor is undefined behavior, while an unused poison value isn't
+            @test program_undefined_if_poison(k)
+            @test !program_undefined_if_poison(s)
+        end
+    end
+end
+
 end

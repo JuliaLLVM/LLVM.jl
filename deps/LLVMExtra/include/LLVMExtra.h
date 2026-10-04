@@ -351,6 +351,7 @@ void LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(
 typedef enum {
   LLVMExtraDominatorTreeAnalysis,
   LLVMExtraPostDominatorTreeAnalysis,
+  LLVMExtraAssumptionAnalysis,
 } LLVMExtraFunctionAnalysis;
 // get the result of an analysis for a function, computing it if needed (the result type
 // depends on the analysis, e.g. a `DominatorTree *`)
@@ -720,6 +721,40 @@ void LLVMExtraConstantRangeToKnownBits(unsigned NumBits, const uint64_t *Lower,
 unsigned LLVMExtraGetConstantRangeAttributeValue(LLVMAttributeRef A, uint64_t *Lower,
                                                  uint64_t *Upper);
 #endif
+
+// AssumptionCache: the llvm.assume calls of a function, also indexed by the values they
+// affect. The getters write the assumptions to `Assumes` (if not NULL) and return their
+// number; for the assumptions affecting a value, `Indices` receives the index of the operand
+// bundle that affects the value, or -1 if it's the condition of the assumption.
+typedef struct LLVMOpaqueAssumptionCache *LLVMAssumptionCacheRef;
+unsigned LLVMExtraAssumptionCacheGetAssumptions(LLVMAssumptionCacheRef AC,
+                                                LLVMValueRef *Assumes);
+unsigned LLVMExtraAssumptionCacheGetAssumptionsFor(LLVMAssumptionCacheRef AC, LLVMValueRef V,
+                                                   LLVMValueRef *Assumes, int *Indices);
+// register a new llvm.assume call; returns false if it isn't one
+LLVMBool LLVMExtraAssumptionCacheRegisterAssumption(LLVMAssumptionCacheRef AC,
+                                                    LLVMValueRef Assume);
+void LLVMExtraAssumptionCacheClear(LLVMAssumptionCacheRef AC);
+
+// ValueTracking. The assumption cache, context instruction and dominator tree are optional
+// (NULL). The data layout defaults to that of the module containing the context instruction
+// or the value. The range and known bits are written as for constant ranges, with the bit
+// width of the (element type of the) value; the functions return false if the value is not
+// an integer (or vector of integers), or if there is no data layout when one is needed.
+LLVMBool LLVMExtraComputeConstantRange(LLVMValueRef V, LLVMBool ForSigned,
+                                       LLVMBool UseInstrInfo, LLVMAssumptionCacheRef AC,
+                                       LLVMValueRef CxtI, LLVMDominatorTreeRef DT,
+                                       LLVMTargetDataRef DL, uint64_t *Lower,
+                                       uint64_t *Upper);
+LLVMBool LLVMExtraComputeKnownBits(LLVMValueRef V, LLVMBool UseInstrInfo,
+                                   LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                                   LLVMDominatorTreeRef DT, LLVMTargetDataRef DL,
+                                   uint64_t *Zero, uint64_t *One);
+LLVMBool LLVMExtraIsValidAssumeForContext(LLVMValueRef Assume, LLVMValueRef CxtI,
+                                          LLVMDominatorTreeRef DT);
+LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheRef AC,
+                                            LLVMValueRef CxtI, LLVMDominatorTreeRef DT);
+LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst);
 
 LLVM_C_EXTERN_C_END
 #endif

@@ -498,6 +498,7 @@ end
 @cenum LLVMExtraFunctionAnalysis::UInt32 begin
     LLVMExtraDominatorTreeAnalysis = 0
     LLVMExtraPostDominatorTreeAnalysis = 1
+    LLVMExtraAssumptionAnalysis = 2
 end
 
 function LLVMExtraFunctionAnalysisManagerGetResult(AM, F, Analysis)
@@ -828,4 +829,44 @@ end
 
 function LLVMExtraConstantRangeToKnownBits(NumBits, Lower, Upper, ZeroOut, OneOut)
     ccall((:LLVMExtraConstantRangeToKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), NumBits, Lower, Upper, ZeroOut, OneOut)
+end
+
+mutable struct LLVMOpaqueAssumptionCache end
+
+const LLVMAssumptionCacheRef = Ptr{LLVMOpaqueAssumptionCache}
+
+function LLVMExtraAssumptionCacheGetAssumptions(AC, Assumes)
+    ccall((:LLVMExtraAssumptionCacheGetAssumptions, libLLVMExtra), Cuint, (LLVMAssumptionCacheRef, Ptr{LLVMValueRef}), AC, Assumes)
+end
+
+function LLVMExtraAssumptionCacheGetAssumptionsFor(AC, V, Assumes, Indices)
+    ccall((:LLVMExtraAssumptionCacheGetAssumptionsFor, libLLVMExtra), Cuint, (LLVMAssumptionCacheRef, LLVMValueRef, Ptr{LLVMValueRef}, Ptr{Cint}), AC, V, Assumes, Indices)
+end
+
+function LLVMExtraAssumptionCacheRegisterAssumption(AC, Assume)
+    ccall((:LLVMExtraAssumptionCacheRegisterAssumption, libLLVMExtra), LLVMBool, (LLVMAssumptionCacheRef, LLVMValueRef), AC, Assume)
+end
+
+function LLVMExtraAssumptionCacheClear(AC)
+    ccall((:LLVMExtraAssumptionCacheClear, libLLVMExtra), Cvoid, (LLVMAssumptionCacheRef,), AC)
+end
+
+function LLVMExtraComputeConstantRange(V, ForSigned, UseInstrInfo, AC, CxtI, DT, DL, Lower, Upper)
+    ccall((:LLVMExtraComputeConstantRange, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{UInt64}, Ptr{UInt64}), V, ForSigned, UseInstrInfo, AC, CxtI, DT, DL, Lower, Upper)
+end
+
+function LLVMExtraComputeKnownBits(V, UseInstrInfo, AC, CxtI, DT, DL, Zero, One)
+    ccall((:LLVMExtraComputeKnownBits, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{UInt64}, Ptr{UInt64}), V, UseInstrInfo, AC, CxtI, DT, DL, Zero, One)
+end
+
+function LLVMExtraIsValidAssumeForContext(Assume, CxtI, DT)
+    ccall((:LLVMExtraIsValidAssumeForContext, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMDominatorTreeRef), Assume, CxtI, DT)
+end
+
+function LLVMExtraIsGuaranteedNotToBePoison(V, AC, CxtI, DT)
+    ccall((:LLVMExtraIsGuaranteedNotToBePoison, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef), V, AC, CxtI, DT)
+end
+
+function LLVMExtraProgramUndefinedIfPoison(Inst)
+    ccall((:LLVMExtraProgramUndefinedIfPoison, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end

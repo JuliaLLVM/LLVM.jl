@@ -17,6 +17,13 @@ an integer, and use LLVM's implementation to compute with them (`r + s`,
 `intersect_with(r, s)`, `binary_op(LLVM.Opcode.Mul, r, s; nsw=true)`, ...). Range
 attributes can be created from, and read back as, a `ConstantRange` (`attr.value`).
 
+LLVM's value tracking computes the range or known bits of an integer value, optionally
+using the assumptions that hold at an instruction: `ConstantRange(v; at, assumptions,
+domtree)` and `KnownBits(v; ...)`. The `AssumptionCache` of a function lists its
+assumptions (`ac[v]` for those that affect a value), and new ones are registered with
+`push!`. `is_valid_assume_for_context`, `is_guaranteed_not_to_be_poison` and
+`program_undefined_if_poison` mirror the corresponding LLVM queries.
+
 
 ## LLVM.jl v10.0
 

@@ -30,3 +30,15 @@ allowed_icmp_region
 KnownBits
 ConstantRange(::KnownBits)
 ```
+
+## Assumptions and value tracking
+
+```@docs
+AssumptionCache
+AssumptionEntry
+ConstantRange(::LLVM.Value)
+KnownBits(::LLVM.Value)
+is_valid_assume_for_context
+is_guaranteed_not_to_be_poison
+program_undefined_if_poison
+```

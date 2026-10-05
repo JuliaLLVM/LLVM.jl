@@ -1,6 +1,44 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.1
+
+### Analyses
+
+Custom passes written in Julia can now use LLVM's analyses. A function pass created with
+`FunctionPass(name, callback; analyses=true)` receives the pipeline's
+`FunctionAnalysisManager`, which returns analysis results by type (`am[DomTree]`), and
+can return a `PreservedAnalyses` value (e.g. `PreservedAnalyses(CFGAnalyses)`) instead of
+a boolean.
+
+The new `LLVM.Analysis` vocabulary groups the analyses and the values they compute.
+`ConstantRange` and `KnownBits` are immutable values that represent the possible values of
+an integer, and use LLVM's implementation to compute with them (`r + s`,
+`intersect_with(r, s)`, `binary_op(LLVM.Opcode.Mul, r, s; nsw=true)`, ...). Range
+attributes can be created from, and read back as, a `ConstantRange` (`attr.value`).
+
+LLVM's value tracking computes the range or known bits of an integer value, optionally
+using the assumptions that hold at an instruction: `ConstantRange(v; at, assumptions,
+domtree)` and `KnownBits(v; ...)`. The `AssumptionCache` of a function lists its
+assumptions (`ac[v]` for those that affect a value), and new ones are registered with
+`push!`. `is_valid_assume_for_context`, `is_guaranteed_not_to_be_poison` and
+`program_undefined_if_poison` mirror the corresponding LLVM queries.
+
+`LazyValueInfo` computes ranges at a point of the function, also using the conditions of
+the branches that lead there: `ConstantRange(lvi, v; at=inst)`, on an edge between two
+blocks (`from`, `to`), or at a use (LLVM 16+).
+
+`ScalarEvolution` represents values as symbolic expressions: `se[v]` returns a `SCEV`,
+with a concrete type per kind of expression (`SCEVAddRecExpr`, `SCEVConstant`, ...) and
+properties for its operands, value or loop. Expressions can be combined (`scev_add`,
+`scev_minus`), searched (`contains_scev(s, SCEVAddRecExpr)`), and bounded
+(`ConstantRange(se, s)`). `LoopInfo` returns the innermost `Loop` of a block (`li[bb]`).
+
+`dominates(domtree, inst, use)` and `dominates(domtree, bb1, bb2)` check the dominance of
+uses and blocks, and `is_trivially_dead` / `erase_trivially_dead!` find and (recursively)
+erase unused instructions without side effects.
+
+
 ## LLVM.jl v10.0
 
 LLVM.jl 10 uses a smaller set of consistent names and explicit ownership rules. The

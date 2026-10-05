@@ -476,6 +476,46 @@ function LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(Options, Pass
     ccall((:LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
 end
 
+mutable struct LLVMOpaqueFunctionAnalysisManager end
+
+const LLVMFunctionAnalysisManagerRef = Ptr{LLVMOpaqueFunctionAnalysisManager}
+
+mutable struct LLVMOpaquePreservedAnalyses end
+
+const LLVMPreservedAnalysesRef = Ptr{LLVMOpaquePreservedAnalyses}
+
+# typedef void ( * LLVMJuliaFunctionPassWithAnalysesCallback ) ( LLVMValueRef F , LLVMFunctionAnalysisManagerRef AM , LLVMPreservedAnalysesRef PA , void * Thunk )
+const LLVMJuliaFunctionPassWithAnalysesCallback = Ptr{Cvoid}
+
+function LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(Extensions, PassName, Callback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassWithAnalysesCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, Thunk, Required)
+end
+
+@cenum LLVMExtraFunctionAnalysis::UInt32 begin
+    LLVMExtraDominatorTreeAnalysis = 0
+    LLVMExtraPostDominatorTreeAnalysis = 1
+    LLVMExtraAssumptionAnalysis = 2
+    LLVMExtraLazyValueAnalysis = 3
+    LLVMExtraScalarEvolutionAnalysis = 4
+    LLVMExtraLoopAnalysis = 5
+end
+
+function LLVMExtraFunctionAnalysisManagerGetResult(AM, F, Analysis)
+    ccall((:LLVMExtraFunctionAnalysisManagerGetResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
+end
+
+function LLVMExtraFunctionAnalysisManagerGetCachedResult(AM, F, Analysis)
+    ccall((:LLVMExtraFunctionAnalysisManagerGetCachedResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
+end
+
+function LLVMExtraSetPreservedAnalyses(PA, All, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraSetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, CFG, Analyses, NumAnalyses)
+end
+
+function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, CFG, Analyses, NumAnalyses)
+end
+
 function LLVMPassBuilderExtensionsRegisterModulePass(Options, PassName, Callback, Thunk)
     ccall((:LLVMPassBuilderExtensionsRegisterModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
 end
@@ -725,4 +765,220 @@ end
 
 function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
+end
+
+@cenum LLVMExtraNoWrapKind::UInt32 begin
+    LLVMExtraNoUnsignedWrap = 1
+    LLVMExtraNoSignedWrap = 2
+end
+
+@cenum LLVMExtraPreferredRangeType::UInt32 begin
+    LLVMExtraSmallestRange = 0
+    LLVMExtraUnsignedRange = 1
+    LLVMExtraSignedRange = 2
+end
+
+function LLVMExtraConstantRangeBinaryOp(Opcode, NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeBinaryOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), Opcode, NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeCastOp(Opcode, NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeCastOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Ptr{UInt64}, Ptr{UInt64}, Cuint, Ptr{UInt64}, Ptr{UInt64}), Opcode, NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeIntersectWith(NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeIntersectWith, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, LLVMExtraPreferredRangeType, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeUnionWith(NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeUnionWith, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, LLVMExtraPreferredRangeType, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeMakeICmpRegion(Predicate, Satisfying, NumBits, Lower, Upper, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeMakeICmpRegion, libLLVMExtra), Cvoid, (LLVMIntPredicate, LLVMBool, Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), Predicate, Satisfying, NumBits, Lower, Upper, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeFromKnownBits(NumBits, Zero, One, Signed, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeFromKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), NumBits, Zero, One, Signed, LowerOut, UpperOut)
+end
+
+function LLVMExtraConstantRangeToKnownBits(NumBits, Lower, Upper, ZeroOut, OneOut)
+    ccall((:LLVMExtraConstantRangeToKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), NumBits, Lower, Upper, ZeroOut, OneOut)
+end
+
+mutable struct LLVMOpaqueAssumptionCache end
+
+const LLVMAssumptionCacheRef = Ptr{LLVMOpaqueAssumptionCache}
+
+function LLVMExtraAssumptionCacheGetAssumptions(AC, Assumes)
+    ccall((:LLVMExtraAssumptionCacheGetAssumptions, libLLVMExtra), Cuint, (LLVMAssumptionCacheRef, Ptr{LLVMValueRef}), AC, Assumes)
+end
+
+function LLVMExtraAssumptionCacheGetAssumptionsFor(AC, V, Assumes, Indices)
+    ccall((:LLVMExtraAssumptionCacheGetAssumptionsFor, libLLVMExtra), Cuint, (LLVMAssumptionCacheRef, LLVMValueRef, Ptr{LLVMValueRef}, Ptr{Cint}), AC, V, Assumes, Indices)
+end
+
+function LLVMExtraAssumptionCacheRegisterAssumption(AC, Assume)
+    ccall((:LLVMExtraAssumptionCacheRegisterAssumption, libLLVMExtra), LLVMBool, (LLVMAssumptionCacheRef, LLVMValueRef), AC, Assume)
+end
+
+function LLVMExtraAssumptionCacheClear(AC)
+    ccall((:LLVMExtraAssumptionCacheClear, libLLVMExtra), Cvoid, (LLVMAssumptionCacheRef,), AC)
+end
+
+function LLVMExtraComputeConstantRange(V, ForSigned, UseInstrInfo, AC, CxtI, DT, DL, Lower, Upper)
+    ccall((:LLVMExtraComputeConstantRange, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{UInt64}, Ptr{UInt64}), V, ForSigned, UseInstrInfo, AC, CxtI, DT, DL, Lower, Upper)
+end
+
+function LLVMExtraComputeKnownBits(V, UseInstrInfo, AC, CxtI, DT, DL, Zero, One)
+    ccall((:LLVMExtraComputeKnownBits, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{UInt64}, Ptr{UInt64}), V, UseInstrInfo, AC, CxtI, DT, DL, Zero, One)
+end
+
+function LLVMExtraIsValidAssumeForContext(Assume, CxtI, DT)
+    ccall((:LLVMExtraIsValidAssumeForContext, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMDominatorTreeRef), Assume, CxtI, DT)
+end
+
+function LLVMExtraIsGuaranteedNotToBePoison(V, AC, CxtI, DT)
+    ccall((:LLVMExtraIsGuaranteedNotToBePoison, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef), V, AC, CxtI, DT)
+end
+
+function LLVMExtraProgramUndefinedIfPoison(Inst)
+    ccall((:LLVMExtraProgramUndefinedIfPoison, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+mutable struct LLVMOpaqueLazyValueInfo end
+
+const LLVMLazyValueInfoRef = Ptr{LLVMOpaqueLazyValueInfo}
+
+function LLVMExtraLazyValueInfoGetConstantRange(LVI, V, CxtI, UndefAllowed, Lower, Upper)
+    ccall((:LLVMExtraLazyValueInfoGetConstantRange, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMValueRef, LLVMValueRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), LVI, V, CxtI, UndefAllowed, Lower, Upper)
+end
+
+function LLVMExtraLazyValueInfoGetConstantRangeOnEdge(LVI, V, From, To, CxtI, Lower, Upper)
+    ccall((:LLVMExtraLazyValueInfoGetConstantRangeOnEdge, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMValueRef, LLVMBasicBlockRef, LLVMBasicBlockRef, LLVMValueRef, Ptr{UInt64}, Ptr{UInt64}), LVI, V, From, To, CxtI, Lower, Upper)
+end
+
+function LLVMExtraLazyValueInfoGetConstantRangeAtUse(LVI, U, UndefAllowed, Lower, Upper)
+    ccall((:LLVMExtraLazyValueInfoGetConstantRangeAtUse, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMUseRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), LVI, U, UndefAllowed, Lower, Upper)
+end
+
+mutable struct LLVMOpaqueScalarEvolution end
+
+const LLVMScalarEvolutionRef = Ptr{LLVMOpaqueScalarEvolution}
+
+mutable struct LLVMOpaqueSCEV end
+
+const LLVMSCEVRef = Ptr{LLVMOpaqueSCEV}
+
+mutable struct LLVMOpaqueLoop end
+
+const LLVMLoopRef = Ptr{LLVMOpaqueLoop}
+
+@cenum LLVMExtraSCEVKind::UInt32 begin
+    LLVMExtraSCEVConstantKind = 0
+    LLVMExtraSCEVTruncateKind = 1
+    LLVMExtraSCEVZeroExtendKind = 2
+    LLVMExtraSCEVSignExtendKind = 3
+    LLVMExtraSCEVAddKind = 4
+    LLVMExtraSCEVMulKind = 5
+    LLVMExtraSCEVUDivKind = 6
+    LLVMExtraSCEVAddRecKind = 7
+    LLVMExtraSCEVUMaxKind = 8
+    LLVMExtraSCEVSMaxKind = 9
+    LLVMExtraSCEVUMinKind = 10
+    LLVMExtraSCEVSMinKind = 11
+    LLVMExtraSCEVSequentialUMinKind = 12
+    LLVMExtraSCEVUnknownKind = 13
+    LLVMExtraSCEVCouldNotComputeKind = 14
+    LLVMExtraSCEVVScaleKind = 15
+    LLVMExtraSCEVPtrToIntKind = 16
+    LLVMExtraSCEVOtherKind = 17
+end
+
+function LLVMExtraScalarEvolutionIsSCEVable(SE, Ty)
+    ccall((:LLVMExtraScalarEvolutionIsSCEVable, libLLVMExtra), LLVMBool, (LLVMScalarEvolutionRef, LLVMTypeRef), SE, Ty)
+end
+
+function LLVMExtraScalarEvolutionGetSCEV(SE, V)
+    ccall((:LLVMExtraScalarEvolutionGetSCEV, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMValueRef), SE, V)
+end
+
+function LLVMExtraScalarEvolutionGetAddExpr(SE, Ops, NumOps)
+    ccall((:LLVMExtraScalarEvolutionGetAddExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, Ptr{LLVMSCEVRef}, Cuint), SE, Ops, NumOps)
+end
+
+function LLVMExtraScalarEvolutionGetMinusSCEV(SE, LHS, RHS)
+    ccall((:LLVMExtraScalarEvolutionGetMinusSCEV, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMSCEVRef), SE, LHS, RHS)
+end
+
+function LLVMExtraScalarEvolutionGetRange(SE, S, Signed, Lower, Upper)
+    ccall((:LLVMExtraScalarEvolutionGetRange, libLLVMExtra), Cuint, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), SE, S, Signed, Lower, Upper)
+end
+
+function LLVMExtraSCEVGetKind(S)
+    ccall((:LLVMExtraSCEVGetKind, libLLVMExtra), LLVMExtraSCEVKind, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVGetType(S)
+    ccall((:LLVMExtraSCEVGetType, libLLVMExtra), LLVMTypeRef, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVGetOperands(S, Ops)
+    ccall((:LLVMExtraSCEVGetOperands, libLLVMExtra), Cuint, (LLVMSCEVRef, Ptr{LLVMSCEVRef}), S, Ops)
+end
+
+function LLVMExtraSCEVGetValue(S)
+    ccall((:LLVMExtraSCEVGetValue, libLLVMExtra), LLVMValueRef, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVAddRecGetLoop(S)
+    ccall((:LLVMExtraSCEVAddRecGetLoop, libLLVMExtra), LLVMLoopRef, (LLVMSCEVRef,), S)
+end
+
+function LLVMExtraSCEVContains(S, Kind)
+    ccall((:LLVMExtraSCEVContains, libLLVMExtra), LLVMBool, (LLVMSCEVRef, LLVMExtraSCEVKind), S, Kind)
+end
+
+function LLVMExtraPrintSCEVToString(S)
+    ccall((:LLVMExtraPrintSCEVToString, libLLVMExtra), Cstring, (LLVMSCEVRef,), S)
+end
+
+mutable struct LLVMOpaqueLoopInfo end
+
+const LLVMLoopInfoRef = Ptr{LLVMOpaqueLoopInfo}
+
+function LLVMExtraLoopInfoGetLoopFor(LI, BB)
+    ccall((:LLVMExtraLoopInfoGetLoopFor, libLLVMExtra), LLVMLoopRef, (LLVMLoopInfoRef, LLVMBasicBlockRef), LI, BB)
+end
+
+function LLVMExtraLoopGetHeader(L)
+    ccall((:LLVMExtraLoopGetHeader, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopGetParent(L)
+    ccall((:LLVMExtraLoopGetParent, libLLVMExtra), LLVMLoopRef, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopGetDepth(L)
+    ccall((:LLVMExtraLoopGetDepth, libLLVMExtra), Cuint, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopContains(L, BB)
+    ccall((:LLVMExtraLoopContains, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMBasicBlockRef), L, BB)
+end
+
+function LLVMExtraDominatorTreeInstructionDominatesUse(Tree, Inst, U)
+    ccall((:LLVMExtraDominatorTreeInstructionDominatesUse, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMUseRef), Tree, Inst, U)
+end
+
+function LLVMExtraDominatorTreeBlockDominates(Tree, A, B)
+    ccall((:LLVMExtraDominatorTreeBlockDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef, LLVMBasicBlockRef), Tree, A, B)
+end
+
+function LLVMExtraIsInstructionTriviallyDead(Inst)
+    ccall((:LLVMExtraIsInstructionTriviallyDead, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(Inst)
+    ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructions, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end

@@ -2542,6 +2542,19 @@ end
                   ConstantRangeAttribute
             @test ConstantRangeAttribute("range", 128, UInt64[0, 0], UInt64[1, 0]) isa
                   ConstantRangeAttribute
+
+            # creating and reading back a range attribute as a ConstantRange
+            let r = ConstantRange(64, 0, 1 << 32)
+                attr = ConstantRangeAttribute(:range, r)
+                @test attr.value == r
+                @test ConstantRangeAttribute("range", 32, UInt64[0], UInt64[100]).value ==
+                      ConstantRange(32, 0, 100)
+                @test ConstantRangeAttribute("range", 128, UInt64[0, 0], UInt64[1, 1]).value ==
+                      ConstantRange(128, 0, UInt128(1) << 64 | 1)
+                @test sprint(show, attr) ==
+                      "ConstantRangeAttribute(:range, ConstantRange(64, 0, 4294967296))"
+                @test_throws ArgumentError ConstantRangeAttribute(:range, ConstantRange(64))
+            end
         end
     end
 

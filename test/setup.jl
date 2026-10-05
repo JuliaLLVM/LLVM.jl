@@ -1,4 +1,4 @@
-using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 using Test
 
 # run code in a fresh Julia process with LLVM loaded, e.g., to test global state

@@ -332,6 +332,49 @@ void LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(LLVMPassBuilderEx
                                                                const char *PassName,
                                                                LLVMJuliaFunctionPassCallback Callback,
                                                                void *Thunk, LLVMBool Required);
+
+// Custom function passes that use analyses. The callback receives the function analysis
+// manager of the pipeline, and an output object that it sets (with
+// `LLVMExtraSetPreservedAnalyses`) to the analyses that remain valid after the pass; it
+// starts out as preserving none. Analysis results obtained from the manager are owned by
+// it, and must not be used after the callback returns.
+typedef struct LLVMOpaqueFunctionAnalysisManager *LLVMFunctionAnalysisManagerRef;
+typedef struct LLVMOpaquePreservedAnalyses *LLVMPreservedAnalysesRef;
+typedef void (*LLVMJuliaFunctionPassWithAnalysesCallback)(LLVMValueRef F,
+                                                         LLVMFunctionAnalysisManagerRef AM,
+                                                         LLVMPreservedAnalysesRef PA,
+                                                         void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaFunctionPassWithAnalysesCallback Callback, void *Thunk, LLVMBool Required);
+// the function analyses that can be queried, preserved and invalidated
+typedef enum {
+  LLVMExtraDominatorTreeAnalysis,
+  LLVMExtraPostDominatorTreeAnalysis,
+  LLVMExtraAssumptionAnalysis,
+  LLVMExtraLazyValueAnalysis,
+  LLVMExtraScalarEvolutionAnalysis,
+  LLVMExtraLoopAnalysis,
+} LLVMExtraFunctionAnalysis;
+// get the result of an analysis for a function, computing it if needed (the result type
+// depends on the analysis, e.g. a `DominatorTree *`)
+void *LLVMExtraFunctionAnalysisManagerGetResult(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMValueRef F,
+                                                LLVMExtraFunctionAnalysis Analysis);
+// get the result of an analysis for a function if it has been computed, or NULL
+void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManagerRef AM,
+                                                      LLVMValueRef F,
+                                                      LLVMExtraFunctionAnalysis Analysis);
+// a set of preserved analyses is passed as: whether all analyses are preserved, whether
+// all CFG analyses are preserved, and a list of individual analyses that are preserved
+void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All, LLVMBool CFG,
+                                   const LLVMExtraFunctionAnalysis *Analyses,
+                                   unsigned NumAnalyses);
+// invalidate the analyses of a function that are not in the given set
+void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMValueRef F, LLVMBool All, LLVMBool CFG,
+                                                const LLVMExtraFunctionAnalysis *Analyses,
+                                                unsigned NumAnalyses);
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#102482
 void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensions,
                                             const char *AAPipeline);
@@ -620,6 +663,193 @@ void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
 // verify a function, returning true and the verifier's message (to be disposed of using
 // LLVMDisposeMessage) if it is broken
 LLVMBool LLVMExtraVerifyFunction(LLVMValueRef Fn, char **OutMessage);
+
+// Constant ranges
+//
+// A range of integers of `NumBits` bits is passed as its lower (inclusive) and upper
+// (exclusive) bound, as arrays of 64-bit words (least significant first); equal bounds
+// denote the empty range when they are zero, and the full range when they are the maximum
+// value. Results are written to output arrays of the same layout.
+typedef enum {
+  LLVMExtraNoUnsignedWrap = 1 << 0,
+  LLVMExtraNoSignedWrap = 1 << 1,
+} LLVMExtraNoWrapKind;
+typedef enum {
+  LLVMExtraSmallestRange,
+  LLVMExtraUnsignedRange,
+  LLVMExtraSignedRange,
+} LLVMExtraPreferredRangeType;
+// the range of the result of a binary operator applied to values of the given ranges,
+// assuming the operation does not wrap as specified by `NoWrapKind` (a combination of
+// `LLVMExtraNoWrapKind` flags). returns false if the opcode isn't a binary operator.
+LLVMBool LLVMExtraConstantRangeBinaryOp(LLVMOpcode Opcode, unsigned NoWrapKind,
+                                        unsigned NumBits, const uint64_t *LowerA,
+                                        const uint64_t *UpperA, const uint64_t *LowerB,
+                                        const uint64_t *UpperB, uint64_t *LowerOut,
+                                        uint64_t *UpperOut);
+// the range of the result of a trunc, zext or sext to `ResultBits` bits. returns false for
+// other opcodes, or if the result width isn't valid for the cast.
+LLVMBool LLVMExtraConstantRangeCastOp(LLVMOpcode Opcode, unsigned NumBits,
+                                      const uint64_t *Lower, const uint64_t *Upper,
+                                      unsigned ResultBits, uint64_t *LowerOut,
+                                      uint64_t *UpperOut);
+// a range that contains the intersection (or union) of the two ranges, preferring a
+// result of the given type when there are multiple candidates
+void LLVMExtraConstantRangeIntersectWith(unsigned NumBits, const uint64_t *LowerA,
+                                         const uint64_t *UpperA, const uint64_t *LowerB,
+                                         const uint64_t *UpperB,
+                                         LLVMExtraPreferredRangeType Type, uint64_t *LowerOut,
+                                         uint64_t *UpperOut);
+void LLVMExtraConstantRangeUnionWith(unsigned NumBits, const uint64_t *LowerA,
+                                     const uint64_t *UpperA, const uint64_t *LowerB,
+                                     const uint64_t *UpperB, LLVMExtraPreferredRangeType Type,
+                                     uint64_t *LowerOut, uint64_t *UpperOut);
+// the smallest range containing every value X for which `X pred Y` holds for some
+// (allowed) or for all (satisfying) Y in the given range
+void LLVMExtraConstantRangeMakeICmpRegion(LLVMIntPredicate Predicate, LLVMBool Satisfying,
+                                          unsigned NumBits, const uint64_t *Lower,
+                                          const uint64_t *Upper, uint64_t *LowerOut,
+                                          uint64_t *UpperOut);
+// conversions between known bits (as masks of the bits that are known to be zero and one)
+// and ranges
+void LLVMExtraConstantRangeFromKnownBits(unsigned NumBits, const uint64_t *Zero,
+                                         const uint64_t *One, LLVMBool Signed,
+                                         uint64_t *LowerOut, uint64_t *UpperOut);
+void LLVMExtraConstantRangeToKnownBits(unsigned NumBits, const uint64_t *Lower,
+                                       const uint64_t *Upper, uint64_t *ZeroOut,
+                                       uint64_t *OneOut);
+#if LLVM_VERSION_MAJOR >= 19
+// the value of a constant range attribute: its bit width, and if `Lower` and `Upper` are
+// not NULL, its bounds
+unsigned LLVMExtraGetConstantRangeAttributeValue(LLVMAttributeRef A, uint64_t *Lower,
+                                                 uint64_t *Upper);
+#endif
+
+// AssumptionCache: the llvm.assume calls of a function, also indexed by the values they
+// affect. The getters write the assumptions to `Assumes` (if not NULL) and return their
+// number; for the assumptions affecting a value, `Indices` receives the index of the operand
+// bundle that affects the value, or -1 if it's the condition of the assumption.
+typedef struct LLVMOpaqueAssumptionCache *LLVMAssumptionCacheRef;
+unsigned LLVMExtraAssumptionCacheGetAssumptions(LLVMAssumptionCacheRef AC,
+                                                LLVMValueRef *Assumes);
+unsigned LLVMExtraAssumptionCacheGetAssumptionsFor(LLVMAssumptionCacheRef AC, LLVMValueRef V,
+                                                   LLVMValueRef *Assumes, int *Indices);
+// register a new llvm.assume call; returns false if it isn't one
+LLVMBool LLVMExtraAssumptionCacheRegisterAssumption(LLVMAssumptionCacheRef AC,
+                                                    LLVMValueRef Assume);
+void LLVMExtraAssumptionCacheClear(LLVMAssumptionCacheRef AC);
+
+// ValueTracking. The assumption cache, context instruction and dominator tree are optional
+// (NULL). The data layout defaults to that of the module containing the context instruction
+// or the value. The range and known bits are written as for constant ranges, with the bit
+// width of the (element type of the) value; the functions return false if the value is not
+// an integer (or vector of integers), or if there is no data layout when one is needed.
+LLVMBool LLVMExtraComputeConstantRange(LLVMValueRef V, LLVMBool ForSigned,
+                                       LLVMBool UseInstrInfo, LLVMAssumptionCacheRef AC,
+                                       LLVMValueRef CxtI, LLVMDominatorTreeRef DT,
+                                       LLVMTargetDataRef DL, uint64_t *Lower,
+                                       uint64_t *Upper);
+LLVMBool LLVMExtraComputeKnownBits(LLVMValueRef V, LLVMBool UseInstrInfo,
+                                   LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                                   LLVMDominatorTreeRef DT, LLVMTargetDataRef DL,
+                                   uint64_t *Zero, uint64_t *One);
+LLVMBool LLVMExtraIsValidAssumeForContext(LLVMValueRef Assume, LLVMValueRef CxtI,
+                                          LLVMDominatorTreeRef DT);
+LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheRef AC,
+                                            LLVMValueRef CxtI, LLVMDominatorTreeRef DT);
+LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst);
+
+// LazyValueInfo: ranges of integer values at a context instruction, on an edge between two
+// blocks (optionally at a context instruction in the destination), or at a use (LLVM 17+).
+// The range is written as for constant ranges; the functions return false if the value is
+// not an integer (or vector of integers).
+typedef struct LLVMOpaqueLazyValueInfo *LLVMLazyValueInfoRef;
+LLVMBool LLVMExtraLazyValueInfoGetConstantRange(LLVMLazyValueInfoRef LVI, LLVMValueRef V,
+                                                LLVMValueRef CxtI, LLVMBool UndefAllowed,
+                                                uint64_t *Lower, uint64_t *Upper);
+LLVMBool LLVMExtraLazyValueInfoGetConstantRangeOnEdge(LLVMLazyValueInfoRef LVI,
+                                                      LLVMValueRef V, LLVMBasicBlockRef From,
+                                                      LLVMBasicBlockRef To,
+                                                      LLVMValueRef CxtI, uint64_t *Lower,
+                                                      uint64_t *Upper);
+#if LLVM_VERSION_MAJOR >= 16
+LLVMBool LLVMExtraLazyValueInfoGetConstantRangeAtUse(LLVMLazyValueInfoRef LVI, LLVMUseRef U,
+                                                     LLVMBool UndefAllowed, uint64_t *Lower,
+                                                     uint64_t *Upper);
+#endif
+
+// ScalarEvolution: symbolic expressions (SCEVs) for integer and pointer values, which are
+// owned by the analysis.
+typedef struct LLVMOpaqueScalarEvolution *LLVMScalarEvolutionRef;
+typedef struct LLVMOpaqueSCEV *LLVMSCEVRef;
+typedef struct LLVMOpaqueLoop *LLVMLoopRef;
+typedef enum {
+  LLVMExtraSCEVConstantKind,
+  LLVMExtraSCEVTruncateKind,
+  LLVMExtraSCEVZeroExtendKind,
+  LLVMExtraSCEVSignExtendKind,
+  LLVMExtraSCEVAddKind,
+  LLVMExtraSCEVMulKind,
+  LLVMExtraSCEVUDivKind,
+  LLVMExtraSCEVAddRecKind,
+  LLVMExtraSCEVUMaxKind,
+  LLVMExtraSCEVSMaxKind,
+  LLVMExtraSCEVUMinKind,
+  LLVMExtraSCEVSMinKind,
+  LLVMExtraSCEVSequentialUMinKind,
+  LLVMExtraSCEVUnknownKind,
+  LLVMExtraSCEVCouldNotComputeKind,
+  LLVMExtraSCEVVScaleKind,
+  LLVMExtraSCEVPtrToIntKind,
+  // kinds of expressions that are not known to LLVMExtra
+  LLVMExtraSCEVOtherKind,
+} LLVMExtraSCEVKind;
+LLVMBool LLVMExtraScalarEvolutionIsSCEVable(LLVMScalarEvolutionRef SE, LLVMTypeRef Ty);
+LLVMSCEVRef LLVMExtraScalarEvolutionGetSCEV(LLVMScalarEvolutionRef SE, LLVMValueRef V);
+// build expressions; returns NULL if the operands have incompatible types (or if one of
+// them is could-not-compute)
+LLVMSCEVRef LLVMExtraScalarEvolutionGetAddExpr(LLVMScalarEvolutionRef SE, LLVMSCEVRef *Ops,
+                                               unsigned NumOps);
+LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVMSCEVRef LHS,
+                                                 LLVMSCEVRef RHS);
+// the signed or unsigned range of an expression, written as for constant ranges if `Lower`
+// and `Upper` are not NULL; returns the bit width of the range, or 0 for could-not-compute
+unsigned LLVMExtraScalarEvolutionGetRange(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
+                                          LLVMBool Signed, uint64_t *Lower, uint64_t *Upper);
+LLVMExtraSCEVKind LLVMExtraSCEVGetKind(LLVMSCEVRef S);
+// the type of an expression, or NULL for could-not-compute
+LLVMTypeRef LLVMExtraSCEVGetType(LLVMSCEVRef S);
+// the operands of an expression, written to `Ops` if not NULL; returns their number
+unsigned LLVMExtraSCEVGetOperands(LLVMSCEVRef S, LLVMSCEVRef *Ops);
+// the value of a constant or unknown expression, or NULL for other expressions
+LLVMValueRef LLVMExtraSCEVGetValue(LLVMSCEVRef S);
+// the loop of an add recurrence, or NULL for other expressions
+LLVMLoopRef LLVMExtraSCEVAddRecGetLoop(LLVMSCEVRef S);
+// whether an expression contains a subexpression of the given kind (including itself)
+LLVMBool LLVMExtraSCEVContains(LLVMSCEVRef S, LLVMExtraSCEVKind Kind);
+char *LLVMExtraPrintSCEVToString(LLVMSCEVRef S);
+
+// LoopInfo: the natural loops of a function
+typedef struct LLVMOpaqueLoopInfo *LLVMLoopInfoRef;
+// the innermost loop containing a block, or NULL
+LLVMLoopRef LLVMExtraLoopInfoGetLoopFor(LLVMLoopInfoRef LI, LLVMBasicBlockRef BB);
+LLVMBasicBlockRef LLVMExtraLoopGetHeader(LLVMLoopRef L);
+// the loop containing a loop, or NULL for an outermost loop
+LLVMLoopRef LLVMExtraLoopGetParent(LLVMLoopRef L);
+unsigned LLVMExtraLoopGetDepth(LLVMLoopRef L);
+LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB);
+
+// dominance of uses and blocks
+LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,
+                                                       LLVMValueRef Inst, LLVMUseRef U);
+LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
+                                              LLVMBasicBlockRef B);
+
+// whether an instruction is unused and has no side effects, and delete such an instruction
+// together with the operands that become trivially dead (returns false if the instruction
+// is not trivially dead)
+LLVMBool LLVMExtraIsInstructionTriviallyDead(LLVMValueRef Inst);
+LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst);
 
 LLVM_C_EXTERN_C_END
 #endif

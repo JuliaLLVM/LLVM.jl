@@ -16,3 +16,47 @@ PostDomTree
 dispose(::PostDomTree)
 dominates
 ```
+
+## Constant ranges and known bits
+
+```@docs
+ConstantRange
+isfullset
+iswrappedset
+intersect_with
+binary_op
+cast_op
+allowed_icmp_region
+KnownBits
+ConstantRange(::KnownBits)
+```
+
+## Assumptions and value tracking
+
+```@docs
+AssumptionCache
+AssumptionEntry
+ConstantRange(::LLVM.Value)
+KnownBits(::LLVM.Value)
+is_valid_assume_for_context
+is_guaranteed_not_to_be_poison
+program_undefined_if_poison
+```
+
+## Lazy value info
+
+```@docs
+LazyValueInfo
+```
+
+## Loops and scalar evolution
+
+```@docs
+LoopInfo
+Loop
+ScalarEvolution
+SCEV
+scev_add
+contains_scev
+ConstantRange(::ScalarEvolution, ::SCEV)
+```

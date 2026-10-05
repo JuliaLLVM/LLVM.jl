@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 end
 ```
 
@@ -53,6 +53,7 @@ vocabularies:
 | `LLVM.IR`     | contexts, modules, values, types, metadata and debug info, and functions to inspect and modify them (`isdeclaration`, `erase!`, `replace_uses!`, `verify`, ...) |
 | `LLVM.Build`  | the `IRBuilder` and its instruction-building functions (`add!`, `load!`, `call!`, `ret!`, ...), constant expressions, and the `DIBuilder` |
 | `LLVM.Passes` | pass builders and managers, passes like `InstCombinePass`, and pipeline callbacks |
+| `LLVM.Analysis` | analyses like the dominator tree, and the constant ranges and known bits they compute |
 | `LLVM.ORC`    | the ORC just-in-time compiler: `LLJIT`, JIT dylibs, thread-safe modules, ... |
 
 Code that mainly works with LLVM, like a compiler, typically opts into the vocabularies it
@@ -90,7 +91,7 @@ The examples in this documentation assume all vocabularies have been imported.
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
     # XXX: clean-up previous contexts
     while context(; throw_error=false) !== nothing
@@ -147,7 +148,7 @@ ERROR: No LLVM context is active
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -409,7 +410,7 @@ needs to be untracked.
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()

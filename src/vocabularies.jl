@@ -10,7 +10,7 @@
 # The vocabularies re-export bindings that are defined in LLVM, so `LLVM.IR.verify` is
 # `LLVM.verify`. Names are added to them using `@vocabulary` where they are defined.
 
-@public IR, Build, Passes, ORC
+@public IR, Build, Passes, Analysis, ORC
 
 """
     LLVM.IR
@@ -71,6 +71,22 @@ like `InstCombinePass`, custom passes and pipeline callbacks.
 module Passes
     import ..LLVM
     LLVM.@reexport Passes
+end
+
+"""
+    LLVM.Analysis
+
+LLVM's analyses and the values they compute: dominator trees, and constant ranges and known
+bits of integers. Analyses can be used in custom passes through the analysis manager of a
+pass pipeline (see `FunctionPass` and `FunctionAnalysisManager`).
+
+    using LLVM, LLVM.IR, LLVM.Analysis
+
+    r = ConstantRange(64, 0, 100) + ConstantRange(64, 1)   # [1, 101)
+"""
+module Analysis
+    import ..LLVM
+    LLVM.@reexport Analysis DomTree PostDomTree dominates dispose
 end
 
 """

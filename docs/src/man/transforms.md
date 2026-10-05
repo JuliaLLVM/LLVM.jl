@@ -142,6 +142,41 @@ julia> run!(CustomModulePass(), mod)
 Hello, World!
 ```
 
+Function passes can use LLVM's analyses, which LLVM computes and caches for the pipeline.
+To do so, pass `analyses=true` when creating the pass: the function is then also given the
+pipeline's `FunctionAnalysisManager`, which provides analysis results by type. Instead of a
+boolean, such a pass may return the set of analyses that remain valid after it ran, so that
+LLVM does not need to recompute them:
+
+```jldoctest custom_pass
+julia> function check_dominance!(f::LLVM.Function, am)
+         domtree = am[DomTree]
+         entry, then, join = f.blocks
+         println("entry dominates join: ", dominates(domtree, entry.terminator, join.terminator))
+         println("then dominates join: ", dominates(domtree, then.terminator, join.terminator))
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia> diamond = parse(LLVM.Module, """
+         define void @diamond(i1 %c) {
+         entry:
+           br i1 %c, label %then, label %join
+         then:
+           br label %join
+         join:
+           ret void
+         }""");
+
+julia> run!(FunctionPass("check-dominance", check_dominance!; analyses=true), diamond)
+entry dominates join: true
+then dominates join: false
+```
+
+Analysis results are owned by the analysis manager: they must not be disposed of, or used
+after the pass has returned. They are also not updated when the pass changes the IR, so a
+pass that queries analyses after changing the IR needs to keep them up to date, or
+invalidate them using `invalidate!`.
+
 Passes that are implemented in C++ can be used as well, by registering a native callback
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:
 

@@ -1,9 +1,15 @@
 #include "LLVMExtra.h"
 
 #include <llvm/Analysis/AliasAnalysis.h>
+#include <llvm/Analysis/AssumptionCache.h>
+#include <llvm/Analysis/LazyValueInfo.h>
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/TargetTransformInfoImpl.h>
 #include <llvm/CodeGen/ExpandReductions.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
@@ -360,6 +366,137 @@ void LLVMPassBuilderExtensionsRegisterFunctionPass(LLVMPassBuilderExtensionsRef 
   LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(Extensions, PassName, Callback,
                                                             Thunk, false);
 }
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(FunctionAnalysisManager, LLVMFunctionAnalysisManagerRef)
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(PreservedAnalyses, LLVMPreservedAnalysesRef)
+
+template <bool Required>
+struct JuliaCustomFunctionPassWithAnalyses
+    : llvm::PassInfoMixin<JuliaCustomFunctionPassWithAnalyses<Required>> {
+  LLVMJuliaFunctionPassWithAnalysesCallback Callback;
+  void *Thunk;
+  JuliaCustomFunctionPassWithAnalyses(LLVMJuliaFunctionPassWithAnalysesCallback Callback,
+                                      void *Thunk)
+      : Callback(Callback), Thunk(Thunk) {}
+  static bool isRequired() { return Required; }
+  static StringRef name() { return "JuliaCustomFunctionPass"; }
+  llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
+    auto PA = llvm::PreservedAnalyses::none();
+    Callback(wrap(&F), wrap(&AM), wrap(&PA), Thunk);
+    return PA;
+  }
+};
+
+void LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaFunctionPassWithAnalysesCallback Callback, void *Thunk, LLVMBool Required) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->FunctionPipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, Thunk,
+       Required](StringRef Name, FunctionPassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        if (Name == PassName && Pipeline.empty()) {
+          if (Required)
+            PM.addPass(JuliaCustomFunctionPassWithAnalyses<true>(Callback, Thunk));
+          else
+            PM.addPass(JuliaCustomFunctionPassWithAnalyses<false>(Callback, Thunk));
+          return true;
+        }
+        return false;
+      });
+}
+
+void *LLVMExtraFunctionAnalysisManagerGetResult(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMValueRef F,
+                                                LLVMExtraFunctionAnalysis Analysis) {
+  FunctionAnalysisManager &FAM = *unwrap(AM);
+  Function &Fn = *unwrap<Function>(F);
+  switch (Analysis) {
+  case LLVMExtraDominatorTreeAnalysis:
+    return &FAM.getResult<DominatorTreeAnalysis>(Fn);
+  case LLVMExtraPostDominatorTreeAnalysis:
+    return &FAM.getResult<PostDominatorTreeAnalysis>(Fn);
+  case LLVMExtraAssumptionAnalysis:
+    return &FAM.getResult<AssumptionAnalysis>(Fn);
+  case LLVMExtraLazyValueAnalysis:
+    return &FAM.getResult<LazyValueAnalysis>(Fn);
+  case LLVMExtraScalarEvolutionAnalysis:
+    return &FAM.getResult<ScalarEvolutionAnalysis>(Fn);
+  case LLVMExtraLoopAnalysis:
+    return &FAM.getResult<LoopAnalysis>(Fn);
+  }
+  llvm_unreachable("unknown function analysis");
+}
+
+void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManagerRef AM,
+                                                      LLVMValueRef F,
+                                                      LLVMExtraFunctionAnalysis Analysis) {
+  FunctionAnalysisManager &FAM = *unwrap(AM);
+  Function &Fn = *unwrap<Function>(F);
+  switch (Analysis) {
+  case LLVMExtraDominatorTreeAnalysis:
+    return FAM.getCachedResult<DominatorTreeAnalysis>(Fn);
+  case LLVMExtraPostDominatorTreeAnalysis:
+    return FAM.getCachedResult<PostDominatorTreeAnalysis>(Fn);
+  case LLVMExtraAssumptionAnalysis:
+    return FAM.getCachedResult<AssumptionAnalysis>(Fn);
+  case LLVMExtraLazyValueAnalysis:
+    return FAM.getCachedResult<LazyValueAnalysis>(Fn);
+  case LLVMExtraScalarEvolutionAnalysis:
+    return FAM.getCachedResult<ScalarEvolutionAnalysis>(Fn);
+  case LLVMExtraLoopAnalysis:
+    return FAM.getCachedResult<LoopAnalysis>(Fn);
+  }
+  llvm_unreachable("unknown function analysis");
+}
+
+static PreservedAnalyses buildPreservedAnalyses(LLVMBool All, LLVMBool CFG,
+                                                const LLVMExtraFunctionAnalysis *Analyses,
+                                                unsigned NumAnalyses) {
+  if (All)
+    return PreservedAnalyses::all();
+  PreservedAnalyses PA;
+  if (CFG)
+    PA.preserveSet<CFGAnalyses>();
+  for (unsigned I = 0; I < NumAnalyses; ++I) {
+    switch (Analyses[I]) {
+    case LLVMExtraDominatorTreeAnalysis:
+      PA.preserve<DominatorTreeAnalysis>();
+      break;
+    case LLVMExtraPostDominatorTreeAnalysis:
+      PA.preserve<PostDominatorTreeAnalysis>();
+      break;
+    case LLVMExtraAssumptionAnalysis:
+      PA.preserve<AssumptionAnalysis>();
+      break;
+    case LLVMExtraLazyValueAnalysis:
+      PA.preserve<LazyValueAnalysis>();
+      break;
+    case LLVMExtraScalarEvolutionAnalysis:
+      PA.preserve<ScalarEvolutionAnalysis>();
+      break;
+    case LLVMExtraLoopAnalysis:
+      PA.preserve<LoopAnalysis>();
+      break;
+    }
+  }
+  return PA;
+}
+
+void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All, LLVMBool CFG,
+                                   const LLVMExtraFunctionAnalysis *Analyses,
+                                   unsigned NumAnalyses) {
+  *unwrap(PA) = buildPreservedAnalyses(All, CFG, Analyses, NumAnalyses);
+}
+
+void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMValueRef F, LLVMBool All, LLVMBool CFG,
+                                                const LLVMExtraFunctionAnalysis *Analyses,
+                                                unsigned NumAnalyses) {
+  unwrap(AM)->invalidate(*unwrap<Function>(F),
+                         buildPreservedAnalyses(All, CFG, Analyses, NumAnalyses));
+}
+
 
 // Alias analysis pipeline (back-port of llvm/llvm-project#102482)
 

@@ -650,6 +650,104 @@ end
     end
 end
 
+@testset "custom passes with analyses" begin
+    diamond = """
+        define i32 @f(i1 %c, i32 %x) {
+        entry:
+          br i1 %c, label %then, label %join
+        then:
+          %y = add i32 %x, 1
+          br label %join
+        join:
+          %r = phi i32 [ %y, %then ], [ %x, %entry ]
+          ret i32 %r
+        }"""
+
+    # querying analyses
+    @dispose ctx=Context() mod=parse(LLVM.Module, diamond) begin
+        results = Dict{Symbol,Any}()
+        function query!(f, am)
+            @test am isa FunctionAnalysisManager
+            entry, then, join = f.blocks
+            results[:cached_before] = get(am, DomTree, nothing)
+            domtree = am[DomTree]
+            results[:dominates] = dominates(domtree, entry.terminator, then.terminator)
+            results[:not_dominates] = dominates(domtree, then.terminator, join.terminator)
+            results[:cached_after] = get(am, DomTree, nothing) isa DomTree
+            postdomtree = am[PostDomTree]
+            results[:postdominates] = dominates(postdomtree, join.terminator, then.terminator)
+            invalidate!(am)
+            results[:cached_invalidated] = get(am, DomTree, nothing)
+            @test_throws ArgumentError am[Int]
+            return false
+        end
+        run!(FunctionPass("query", query!; analyses=true), mod)
+        @test results[:cached_before] === nothing
+        @test results[:dominates]
+        @test !results[:not_dominates]
+        @test results[:cached_after]
+        @test results[:postdominates]
+        @test results[:cached_invalidated] === nothing
+    end
+
+    # preserving analyses
+    @dispose ctx=Context() mod=parse(LLVM.Module, diamond) begin
+        for (preserved, expected) in [false => true, true => false,
+                                      PreservedAnalyses() => false,
+                                      PreservedAnalyses(AllAnalyses) => true,
+                                      PreservedAnalyses(CFGAnalyses) => true,
+                                      PreservedAnalyses(DomTree) => true,
+                                      PreservedAnalyses(PostDomTree) => false]
+            cached = Ref{Bool}()
+            @dispose pb=PassBuilder() begin
+                register!(pb, FunctionPass("compute", (f, am) -> (am[DomTree]; preserved);
+                                           analyses=true))
+                register!(pb, FunctionPass("check", (f, am) -> begin
+                    cached[] = get(am, DomTree, nothing) !== nothing
+                    return false
+                end; analyses=true))
+                add!(pb, "function(compute,check)")
+                run!(pb, mod)
+            end
+            @test cached[] == expected
+        end
+    end
+
+    # invalidating only what isn't preserved
+    @dispose ctx=Context() mod=parse(LLVM.Module, diamond) begin
+        cached = Bool[]
+        run!(FunctionPass("partial", (f, am) -> begin
+            am[DomTree]
+            am[PostDomTree]
+            invalidate!(am, PreservedAnalyses(DomTree))
+            push!(cached, get(am, DomTree, nothing) !== nothing)
+            push!(cached, get(am, PostDomTree, nothing) !== nothing)
+            return false
+        end; analyses=true), mod)
+        @test cached == [true, false]
+    end
+
+    # the description of preserved analyses
+    @test PreservedAnalyses() == PreservedAnalyses()
+    @test PreservedAnalyses(CFGAnalyses, DomTree) == PreservedAnalyses(DomTree, CFGAnalyses)
+    @test PreservedAnalyses(DomTree) != PreservedAnalyses(PostDomTree)
+    @test convert(PreservedAnalyses, false) == PreservedAnalyses(AllAnalyses)
+    @test convert(PreservedAnalyses, true) == PreservedAnalyses()
+    @test sprint(show, PreservedAnalyses(CFGAnalyses, DomTree)) ==
+          "PreservedAnalyses($(CFGAnalyses), $(DomTree))"
+    @test_throws ArgumentError PreservedAnalyses(Int)
+
+    # invalid results and exceptions are rethrown after LLVM returns
+    @dispose ctx=Context() mod=parse(LLVM.Module, diamond) begin
+        @test_throws LLVM.PassException run!(FunctionPass("bad", (f, am) -> 42;
+                                                          analyses=true), mod)
+        @test_throws LLVM.PassException run!(FunctionPass("throws", (f, am) -> error("oops");
+                                                          analyses=true), mod)
+        # a pass without analyses=true is called with only the function
+        @test_throws LLVM.PassException run!(FunctionPass("arity", (f, am) -> false), mod)
+    end
+end
+
 @testset "custom pass exceptions" begin
     # Module pass exceptions are rethrown after LLVM returns.
     @dispose ctx=Context() mod=test_module() begin

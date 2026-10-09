@@ -557,7 +557,7 @@ end
 # intrinsics
 
 @vocabulary IR isintrinsic, Intrinsic, isoverloaded
-@public overloaded_name
+@public overloaded_name, overload_types
 
 """
     LLVM.Intrinsic
@@ -712,6 +712,46 @@ declaration, and missing ones crash LLVM.
 function Function(mod::Module, intr::Intrinsic,
                   params::AbstractVector{<:LLVMType}=LLVMType[])
     check_overloaded_types(intr, params)
+    Value(API.LLVMGetIntrinsicDeclaration(mod, intr, as_vector(params), length(params)))
+end
+
+"""
+    LLVM.overload_types(intr::Intrinsic, ft::LLVM.FunctionType)
+
+Get the types of the overloaded parameters of the given intrinsic for which it has the
+given function type, e.g., `[double, i32]` for `llvm.powi` with type `double (double, i32)`,
+in the order that [`LLVM.Function(mod, intr, params)`](@ref LLVM.Function(::LLVM.Module,
+::Intrinsic, ::Vector{<:LLVMType})) and [`LLVM.overloaded_name`](@ref) expect them. For an
+intrinsic that isn't overloaded, this is an empty vector. Returns `nothing` if `ft` is not
+a valid signature of the intrinsic.
+
+This is useful to declare an intrinsic from its base name and the type of a call to it,
+which [`LLVM.Function(mod, intr, ft)`](@ref LLVM.Function(::LLVM.Module, ::Intrinsic,
+::LLVM.FunctionType)) does.
+"""
+function overload_types(intr::Intrinsic, ft::FunctionType)
+    count = Ref{Csize_t}(0)
+    Bool(API.LLVMExtraIntrinsicGetOverloadTypes(intr, ft, C_NULL, count)) || return nothing
+    refs = Vector{API.LLVMTypeRef}(undef, count[])
+    if !isempty(refs)
+        API.LLVMExtraIntrinsicGetOverloadTypes(intr, ft, refs, count)
+    end
+    return LLVMType[LLVMType(ref) for ref in refs]
+end
+
+"""
+    Function(mod::Module, intr::Intrinsic, ft::FunctionType)
+
+Get the declaration of the given intrinsic in the given module, with the given function
+type. For an overloaded intrinsic, this determines the overload from the function type,
+e.g., `llvm.powi.f64.i32` for `llvm.powi` with type `double (double, i32)`; see
+[`LLVM.overload_types`](@ref). Throws an `ArgumentError` if `ft` is not a valid signature
+of the intrinsic.
+"""
+function Function(mod::Module, intr::Intrinsic, ft::FunctionType)
+    params = overload_types(intr, ft)
+    params === nothing &&
+        throw(ArgumentError("Invalid signature for intrinsic $(name(intr)): $(strip(string(ft)))"))
     Value(API.LLVMGetIntrinsicDeclaration(mod, intr, as_vector(params), length(params)))
 end
 

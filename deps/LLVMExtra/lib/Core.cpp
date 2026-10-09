@@ -25,6 +25,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/IR/ReplaceConstant.h>
@@ -207,6 +208,35 @@ void LLVMExtraMoveGlobal(LLVMValueRef GlobalVar, LLVMModuleRef Mod, LLVMValueRef
   else
     M->getGlobalList().insert(Pos, GV);
 #endif
+}
+
+// mirrors LLVMIntrinsicGetOverloadTypes, proposed in llvm/llvm-project#230425
+LLVMBool LLVMExtraIntrinsicGetOverloadTypes(unsigned ID, LLVMTypeRef FunctionTy,
+                                            LLVMTypeRef *OverloadTypes,
+                                            size_t *OverloadCount) {
+  if (ID == Intrinsic::not_intrinsic || ID >= Intrinsic::num_intrinsics)
+    return false;
+  auto IID = static_cast<Intrinsic::ID>(ID);
+  auto *FTy = unwrap<FunctionType>(FunctionTy);
+  SmallVector<Type *, 4> OverloadTys;
+#if LLVM_VERSION_MAJOR >= 23
+  if (!Intrinsic::isSignatureValid(IID, FTy, OverloadTys))
+    return false;
+#else
+  // what Intrinsic::isSignatureValid (getIntrinsicSignature before LLVM 23) does
+  SmallVector<Intrinsic::IITDescriptor, 8> Table;
+  Intrinsic::getIntrinsicInfoTableEntries(IID, Table);
+  ArrayRef<Intrinsic::IITDescriptor> TableRef = Table;
+  if (Intrinsic::matchIntrinsicSignature(FTy, TableRef, OverloadTys) !=
+      Intrinsic::MatchIntrinsicTypes_Match)
+    return false;
+  if (Intrinsic::matchIntrinsicVarArg(FTy->isVarArg(), TableRef))
+    return false;
+#endif
+  *OverloadCount = OverloadTys.size();
+  if (OverloadTypes)
+    std::copy(OverloadTys.begin(), OverloadTys.end(), unwrap(OverloadTypes));
+  return true;
 }
 
 #if LLVM_VERSION_MAJOR >= 17

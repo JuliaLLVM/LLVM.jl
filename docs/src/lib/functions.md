@@ -46,5 +46,7 @@ isintrinsic
 isoverloaded
 LLVM.overloaded_name
 LLVM.Function(::LLVM.Module, ::Intrinsic, ::Vector{<:LLVMType})
+LLVM.overload_types
+LLVM.Function(::LLVM.Module, ::Intrinsic, ::LLVM.FunctionType)
 LLVM.FunctionType(::Intrinsic, ::Vector{<:LLVMType})
 ```

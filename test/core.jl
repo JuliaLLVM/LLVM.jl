@@ -2417,6 +2417,49 @@ end
     @test LLVM.verify(mod) === nothing
 end
 
+# declaring intrinsics from their function type
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    T_double = LLVM.DoubleType()
+    T_i32 = LLVM.Int32Type()
+    powi = Intrinsic("llvm.powi")
+
+    ft = LLVM.FunctionType(T_double, [T_double, T_i32])
+    @test LLVM.overload_types(powi, ft) == [T_double, T_i32]
+    fn = LLVM.Function(mod, powi, ft)
+    @test fn.name == "llvm.powi.f64.i32"
+    @test fn.function_type == ft
+    @test isintrinsic(fn, powi)
+    @test LLVM.Function(mod, powi, ft) == fn
+
+    # vector overload
+    T_vec = LLVM.VectorType(LLVM.FloatType(), 4)
+    ft = LLVM.FunctionType(T_vec, [T_vec, T_i32])
+    @test LLVM.overload_types(powi, ft) == [T_vec, T_i32]
+    fn = LLVM.Function(mod, powi, ft)
+    @test fn.name == "llvm.powi.v4f32.i32"
+    @test fn.function_type == ft
+
+    # invalid signatures
+    bad = LLVM.FunctionType(T_i32, [T_double, T_i32])
+    @test LLVM.overload_types(powi, bad) === nothing
+    @test_throws ArgumentError LLVM.Function(mod, powi, bad)
+    bad = LLVM.FunctionType(T_double, [T_double])
+    @test LLVM.overload_types(powi, bad) === nothing
+    bad = LLVM.FunctionType(T_double, [T_double, T_i32]; vararg=true)
+    @test LLVM.overload_types(powi, bad) === nothing
+
+    # non-overloaded intrinsic
+    trap = Intrinsic("llvm.trap")
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    @test LLVM.overload_types(trap, ft) == LLVMType[]
+    fn = LLVM.Function(mod, trap, ft)
+    @test fn.name == "llvm.trap"
+    @test LLVM.overload_types(trap, LLVM.FunctionType(T_i32)) === nothing
+    @test_throws ArgumentError LLVM.Function(mod, trap, LLVM.FunctionType(T_i32))
+
+    @test LLVM.verify(mod) === nothing
+end
+
 # identifying intrinsics
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     trap = Intrinsic("llvm.trap")

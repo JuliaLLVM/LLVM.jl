@@ -1,6 +1,16 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.2
+
+### Intrinsics
+
+Overloaded intrinsics can now be declared from their base name and the function type of a
+call to them: `LLVM.Function(mod, Intrinsic("llvm.powi"), ft)` declares `llvm.powi.f64.i32`
+for `ft = double (double, i32)`, and `LLVM.overload_types(intr, ft)` returns the overload
+types for a function type, or `nothing` if it isn't a valid signature of the intrinsic.
+
+
 ## LLVM.jl v10.1
 
 ### Analyses

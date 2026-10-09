@@ -47,6 +47,15 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 void LLVMExtraMoveFunction(LLVMValueRef Fn, LLVMModuleRef Mod, LLVMValueRef Before);
 void LLVMExtraMoveGlobal(LLVMValueRef GlobalVar, LLVMModuleRef Mod, LLVMValueRef Before);
 
+// Determine whether the given function type is a valid signature of the intrinsic with the
+// given ID, and if so, get the overload types of the intrinsic for that signature (none for
+// an intrinsic that is not overloaded). Returns true if the signature is valid, storing the
+// number of overload types in *OverloadCount, and the types themselves in OverloadTypes if
+// it is not NULL. Mirrors LLVMIntrinsicGetOverloadTypes (llvm/llvm-project#230425).
+LLVMBool LLVMExtraIntrinsicGetOverloadTypes(unsigned ID, LLVMTypeRef FunctionTy,
+                                            LLVMTypeRef *OverloadTypes,
+                                            size_t *OverloadCount);
+
 // Replace constant-expression/aggregate users of the given constants with
 // equivalent instructions at each point of use; phi operands are materialized
 // in their incoming block. Mirrors llvm::convertUsersOfConstantsToInstructions

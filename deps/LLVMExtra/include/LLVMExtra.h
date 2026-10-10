@@ -7,7 +7,9 @@
 #include <llvm-c/Target.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 #include <llvm-c/Types.h>
+#ifdef __cplusplus
 #include <llvm/Support/CBindingWrapping.h>
+#endif
 
 LLVM_C_EXTERN_C_BEGIN
 

@@ -3,6 +3,9 @@
 
 ## LLVM.jl v10.1
 
+LLVM 23 is supported. Its conditional and unconditional branch opcodes are exposed as
+`LLVM.Opcode.CondBr` and `LLVM.Opcode.UncondBr`; both use `BrInst`.
+
 ### Analyses
 
 Custom passes written in Julia can now use LLVM's analyses. A function pass created with

@@ -3057,7 +3057,8 @@ end
     position!(builder, LLVM.at_end(bb1))
     addinst = add!(builder, fn.parameters[1], fn.parameters[2])
     brinst = br!(builder, fn.parameters[1], bb2, bb3)
-    @test brinst.opcode == LLVM.API.LLVMBr
+    @test brinst.opcode == (LLVM.version() >= v"23" ? LLVM.Opcode.CondBr : LLVM.Opcode.Br)
+    @test LLVM.Value(brinst.ref) isa LLVM.BrInst
 
     @test addinst.prev === nothing
     @test addinst.next == brinst
@@ -3093,6 +3094,9 @@ end
         otherbb = BasicBlock(otherfn, "entry")
         position!(otherbuilder, LLVM.at_end(otherbb))
         unconditional = br!(otherbuilder, otherbb)
+        @test unconditional.opcode == (LLVM.version() >= v"23" ? LLVM.Opcode.UncondBr : LLVM.Opcode.Br)
+        @test LLVM.Value(unconditional.ref) isa LLVM.BrInst
+        @test !isconditional(unconditional)
         @test unconditional.condition === nothing
         @test_throws ArgumentError (unconditional.condition = fn.parameters[1])
     end

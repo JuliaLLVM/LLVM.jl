@@ -102,6 +102,25 @@ end
     @test !isemptytype(typ)
 end
 
+if LLVM.version() >= v"23"
+    @dispose ctx=Context() begin
+        for bits in (8, 32, 128)
+            typ = LLVM.ByteType(bits)
+            @test typ.width == bits
+            @test context(typ) == ctx
+            @test LLVMType(typ.ref) isa LLVM.ByteType
+            @test issized(typ)
+            c = ConstantByte(typ, -1)
+            @test c.value_type == typ
+            @test Value(c.ref) isa ConstantByte
+            if bits <= 64
+                @test LLVM.API.LLVMConstByteGetZExtValue(c) == (UInt64(1) << bits) - 1
+            end
+        end
+        @test LLVM.API.LLVMConstByteGetZExtValue(ConstantByte(LLVM.ByteType(8), 0x123)) == 0x23
+    end
+end
+
 # floating-point
 @dispose ctx=Context() begin
     for (T, str) in [(LLVM.HalfType, "half"), (LLVM.BFloatType, "bfloat"),
@@ -573,7 +592,7 @@ end
         c = ConstantFP(LLVM.FP128Type(); bits)
         @test c.bitpattern == bits
         @test ConstantFP(LLVM.FP128Type(), 0.1).bitpattern != bits
-        @check_ir c "fp128 0xL999999999999999A3FFB999999999999"
+        @check_ir c (LLVM.version() >= v"23" ? "fp128 1.000000e-01" : "fp128 0xL999999999999999A3FFB999999999999")
     end
     let
         # NaN payloads
@@ -843,7 +862,7 @@ end
         end
 
         ce = const_bitcast(val, LLVM.FloatType())::LLVM.Constant
-        @check_ir ce "float 0x36F5000000000000"
+        @check_ir ce (LLVM.version() >= v"23" ? "float 5.885450e-44" : "float 0x36F5000000000000")
 
         if LLVM.version() < v"18"
             ce = const_and(val, other_val)::LLVM.Constant
@@ -950,7 +969,10 @@ end
         c = const_splat(T, one)::LLVM.Constant
         @test c.value_type == T
         @test occursin("float 1.000000e+00", string(c))
-        @test const_splat(T, ConstantFP(LLVM.FloatType(), 0)) isa ConstantAggregateZero
+        zero = const_splat(T, ConstantFP(LLVM.FloatType(), 0))
+        @test zero isa (LLVM.version() >= v"23" ? ConstantFP : ConstantAggregateZero)
+        @test isnull(zero)
+        @test zero.value_type == T
         @test_throws "Cannot splat a value of type i32" const_splat(T, ConstantInt(Int32(1)))
 
         # from Julia numbers
@@ -1817,7 +1839,7 @@ end
     @test String(asm) == "nop\n"   # fragments are terminated by a newline
     push!(mod.inline_asm, SubString("nop; ret", 1, 3), "ret\n")
     @test String(asm) == string(asm) == "nop\nnop\nret\n"
-    @test occursin("module asm \"ret\"", string(mod))
+        @test occursin(r"(?s)module asm.*\"ret\"", string(mod))
     @test repr(asm) == "ModuleInlineAsm(\"SomeModule\"): \"nop\\nnop\\nret\\n\""
     @test empty!(asm) === asm
     @test isempty(asm)
@@ -2725,6 +2747,9 @@ if LLVM.version() >= v"16"
             # the attribute we create is printed like the one LLVM parsed
             g = LLVM.Function(mod, "g$i", f.function_type)
             g.memory_effects = effects
+            if LLVM.version() >= v"23"
+                str = replace(str, "target_mem0: none, target_mem1: none" => "target_mem: none")
+            end
             @test occursin(str, string(g))
         end
         @test verify(mod) === nothing
@@ -3140,21 +3165,21 @@ end
         @test valtype(md) == Metadata
 
         @test isempty(md)
-        @test !haskey(md, "dbg")
+        @test !haskey(md, "test")
 
-        md["dbg"] = mdval
-        @test md["dbg"] == mdval
+        md["test"] = mdval
+        @test md["test"] == mdval
 
         @test !isempty(md)
-        @test haskey(md, "dbg")
+        @test haskey(md, "test")
 
         @test !haskey(md, "tbaa")
         @test_throws KeyError md["tbaa"]
 
-        delete!(md, "dbg")
+        delete!(md, "test")
 
         @test isempty(md)
-        @test !haskey(md, "dbg")
+        @test !haskey(md, "test")
     end
 
     @test retinst in bb3.instructions

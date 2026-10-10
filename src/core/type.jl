@@ -148,6 +148,24 @@ width(inttyp::IntegerType) = Int(API.LLVMGetIntTypeWidth(inttyp))
 
 @property IntegerType width
 
+if version() >= v"23"
+    @checked struct ByteType <: LLVMType
+        ref::API.LLVMTypeRef
+    end
+    @doc """
+        LLVM.ByteType(bits::Integer)
+
+    An arbitrary-width byte type, which holds uninterpreted bits. Requires LLVM 23+.
+
+    Its `width` property gives the bit width.
+    """ ByteType
+    @vocabulary IR ByteType
+    register(ByteType, API.LLVMByteTypeKind)
+    ByteType(bits::Integer) = ByteType(API.LLVMByteTypeInContext(context(), bits))
+    width(typ::ByteType) = Int(API.LLVMGetByteTypeWidth(typ))
+    @property ByteType width
+end
+
 
 ## floating-point
 

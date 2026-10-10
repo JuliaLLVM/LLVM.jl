@@ -1073,7 +1073,9 @@ end
 @function_pass "mem2reg" PromotePass
 @function_pass "memcpyopt" MemCpyOptPass
 @function_pass "mergeicmps" MergeICmpsPass
-@function_pass "mergereturn" UnifyFunctionExitNodesPass
+@static if version() < v"23"
+    @function_pass "mergereturn" UnifyFunctionExitNodesPass
+end
 @function_pass "nary-reassociate" NaryReassociatePass
 @function_pass "newgvn" NewGVNPass
 @function_pass "jump-threading" JumpThreadingPass
@@ -1268,12 +1270,16 @@ end
     DefaultPipeline(; opt_level=0, options...) -> String
 
 LLVM's default optimization pipeline for the optimization level `opt_level` (0 to 3, or
-`"s"` and `"z"` to optimize for size), as a string for use with [`add!`](@ref) or
-[`run!`](@ref), e.g., `"default<O3>"`. Other keyword arguments become options of the
+`"s"` and `"z"` to optimize for size on LLVM versions before 23), as a string for use with
+[`add!`](@ref) or [`run!`](@ref), e.g., `"default<O3>"`. Other keyword arguments become options of the
 pipeline, but LLVM's default pipeline takes few: it is tuned using the keyword arguments of
 [`PassBuilder`](@ref) instead.
 """
 function DefaultPipeline(; opt_level=0, kwargs...)
+    if version() >= v"23" && string(opt_level) in ("s", "z")
+        throw(ArgumentError("LLVM 23 removed size optimization pipelines; use opt_level=2 " *
+                            "and optsize or minsize function attributes"))
+    end
     kwargs = Dict{Symbol, Any}(kwargs)
 
     # `opt_level` => `O` flag (which is mandatory)

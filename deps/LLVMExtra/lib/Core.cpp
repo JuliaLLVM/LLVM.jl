@@ -1332,7 +1332,7 @@ LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before
   BasicBlock::iterator It = B->getFirstInsertionPt();
   // the end of a terminated block is not a legal insertion point, which happens when the
   // terminator is an EH pad (e.g., a catchswitch)
-  if (It == B->end() && B->getTerminator())
+  if (It == B->end() && !B->empty() && B->back().isTerminator())
     return false;
   readInsertionPoint(B, It, Before, Head);
   return true;

@@ -195,8 +195,18 @@ register(ConstantInt, API.LLVMConstantIntValueKind)
 
 # NOTE: fixed set for dispatch, also because we can't rely on sizeof(T)==width(T)
 const WideInteger = Union{Int64, UInt64}
-ConstantInt(typ::IntegerType, val::WideInteger, signed=false) =
-    ConstantInt(API.LLVMConstInt(typ, reinterpret(Culonglong, val), signed))
+function ConstantInt(typ::IntegerType, val::WideInteger, signed=false)
+    word = reinterpret(Culonglong, val)
+    if version() >= v"23"
+        # LLVM 23's constant constructor no longer truncates implicitly.
+        bits = width(typ)
+        if bits < 64
+            word &= typemax(UInt64) >> (64 - bits)
+            signed = false
+        end
+    end
+    ConstantInt(API.LLVMConstInt(typ, word, signed))
+end
 const SmallInteger = Union{Bool, Int8, Int16, Int32, UInt8, UInt16, UInt32}
 ConstantInt(typ::IntegerType, val::SmallInteger, signed=false) =
     ConstantInt(typ, convert(Int64, val), signed)
@@ -266,6 +276,24 @@ end
 
 # Booleans aren't Signed or Unsigned
 Base.convert(::Type{Bool}, val::ConstantInt) = convert(Int, val) != 0
+
+if version() >= v"23"
+    @checked struct ConstantByte <: ConstantData
+        ref::API.LLVMValueRef
+    end
+    @doc """
+        ConstantByte(typ::LLVM.ByteType, val::Integer)
+
+    A constant of an arbitrary-width byte type. The value's bit pattern is truncated
+    to the type's width. Requires LLVM 23+.
+    """ ConstantByte
+    @vocabulary IR ConstantByte
+    register(ConstantByte, API.LLVMConstantByteValueKind)
+    function ConstantByte(typ::ByteType, val::Integer)
+        words = [(val >> (64 * (i - 1))) % UInt64 for i in 1:cld(width(typ), 64)]
+        ConstantByte(API.LLVMConstByteOfArbitraryPrecision(typ, length(words), words))
+    end
+end
 
 
 """

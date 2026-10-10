@@ -271,6 +271,10 @@ LLVMBool LLVMExtraComputeConstantRange(LLVMValueRef V, LLVMBool ForSigned,
     return false;
   auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
 #if LLVM_VERSION_MAJOR >= 23
+  if (auto *CI = dyn_cast<ConstantInt>(Val)) {
+    writeRange(ConstantRange(CI->getValue()), Lower, Upper);
+    return true;
+  }
   const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
   if (!Layout)
     return false;

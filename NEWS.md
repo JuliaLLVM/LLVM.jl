@@ -5,6 +5,9 @@
 
 LLVM 23 is supported. Its conditional and unconditional branch opcodes are exposed as
 `LLVM.Opcode.CondBr` and `LLVM.Opcode.UncondBr`; both use `BrInst`.
+Byte types and constants use `ByteType` and `ConstantByte`.
+Size optimization pipelines (`Os`, `Oz`) were removed in LLVM 23; use `O2` with
+`optsize` or `minsize` function attributes instead.
 
 ### Analyses
 

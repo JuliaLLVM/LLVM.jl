@@ -65,7 +65,12 @@ end
             @test run!(DefaultPipeline(), mod) === nothing
 
             # by object with options
-            @test run!(DefaultPipeline(opt_level='s'), mod) === nothing
+            if LLVM.version() >= v"23"
+                @test_throws ArgumentError DefaultPipeline(opt_level='s')
+                @test_throws ArgumentError DefaultPipeline(opt_level='z')
+            else
+                @test run!(DefaultPipeline(opt_level='s'), mod) === nothing
+            end
         end
 
         # custom pipelines

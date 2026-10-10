@@ -137,7 +137,16 @@ public:
   }
 #endif
 
-#if LLVM_VERSION_MAJOR >= 22
+#if LLVM_VERSION_MAJOR >= 23
+  ValueUniformity getValueUniformity(const Value *V) const override {
+    if (Opts.IsSourceOfDivergence &&
+        Opts.IsSourceOfDivergence(wrap(V), Opts.IsSourceOfDivergenceUD) != 0)
+      return ValueUniformity::NeverUniform;
+    if (Opts.IsAlwaysUniform && Opts.IsAlwaysUniform(wrap(V), Opts.IsAlwaysUniformUD) != 0)
+      return ValueUniformity::AlwaysUniform;
+    return BaseT::getValueUniformity(V);
+  }
+#elif LLVM_VERSION_MAJOR >= 22
   InstructionUniformity getInstructionUniformity(const Value *V) const override {
     if (Opts.IsSourceOfDivergence &&
         Opts.IsSourceOfDivergence(wrap(V), Opts.IsSourceOfDivergenceUD) != 0)

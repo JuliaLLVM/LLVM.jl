@@ -271,6 +271,10 @@ LLVMBool LLVMExtraComputeConstantRange(LLVMValueRef V, LLVMBool ForSigned,
     return false;
   auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
 #if LLVM_VERSION_MAJOR >= 23
+  if (auto *CI = dyn_cast<ConstantInt>(Val)) {
+    writeRange(ConstantRange(CI->getValue()), Lower, Upper);
+    return true;
+  }
   const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
   if (!Layout)
     return false;
@@ -406,7 +410,12 @@ LLVMSCEVRef LLVMExtraScalarEvolutionGetAddExpr(LLVMScalarEvolutionRef SE, LLVMSC
     Operands.push_back(unwrap(Ops[I]));
   if (Operands.empty() || !areCompatibleOperands(*unwrap(SE), Operands, 1))
     return nullptr;
+#if LLVM_VERSION_MAJOR >= 23
+  SmallVector<SCEVUse, 4> Uses(Operands.begin(), Operands.end());
+  return wrap(unwrap(SE)->getAddExpr(Uses));
+#else
   return wrap(unwrap(SE)->getAddExpr(Operands));
+#endif
 }
 
 LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVMSCEVRef LHS,

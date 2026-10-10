@@ -255,7 +255,8 @@ end
 
 for op in opcodes
     typename = Symbol(op, :Inst)
-    enum = Symbol(:LLVM, op)
+    enums = op === :Br && version() >= v"23" ?
+            (:LLVMUncondBr, :LLVMCondBr) : (Symbol(:LLVM, op),)
     # the instruction's name in textual IR
     irname = op === :VAArg ? "va_arg" : op === :AtomicCmpXchg ? "cmpxchg" :
              op === :AtomicRMW ? "atomicrmw" : lowercase(string(op))
@@ -276,8 +277,10 @@ for op in opcodes
         @checked struct $typename <: Instruction
             ref::API.LLVMValueRef
         end
-        register($typename, API.$enum)
         @doc $doc $typename
+    end
+    for enum in enums
+        @eval register($typename, API.$enum)
     end
 end
 @eval @vocabulary IR $(Expr(:tuple, (Symbol(op, :Inst) for op in opcodes)...))

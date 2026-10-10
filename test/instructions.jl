@@ -644,6 +644,8 @@
     ptrdiffinst = ptrdiff!(builder, LLVM.Int32Type(), ptr1, ptr2)
     if supports_typed_pointers(ctx)
         @check_ir ptrdiffinst r"sdiv exact i64 %.+, ptrtoint \(i32\* getelementptr \(i32, i32\* null, i32 1\) to i64\)"
+    elseif LLVM.version() >= v"23"
+        @check_ir ptrdiffinst r"sdiv exact i64 %.+, 4"
     else
         @check_ir ptrdiffinst r"sdiv exact i64 %.+, ptrtoint \(ptr getelementptr \(i32, ptr null, i32 1\) to i64\)"
     end

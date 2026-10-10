@@ -50,7 +50,7 @@ end
     position!(builder, LLVM.at_end(bb1))
     allocinst1 = alloca!(builder, LLVM.Int8Type())
     brinst = br!(builder, fn.parameters[1], bb2, bb3)
-    @test brinst.opcode == LLVM.API.LLVMBr
+    @test brinst.opcode == (LLVM.version() >= v"23" ? LLVM.Opcode.CondBr : LLVM.Opcode.Br)
 
     position!(builder, LLVM.at_end(bb2))
     retinst2 = ret!(builder)

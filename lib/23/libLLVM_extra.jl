@@ -857,4 +857,3 @@ end
 function LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(Inst)
     ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructions, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
-

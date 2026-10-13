@@ -706,6 +706,9 @@ LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst);
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);
 LLVMValueRef LLVMExtraStripPointerCasts(LLVMValueRef Val);
 LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val);
+
+// the (0-based) number of the operand of its user that a use is
+unsigned LLVMExtraGetOperandNo(LLVMUseRef U);
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 
 // functions and global variables

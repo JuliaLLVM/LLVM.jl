@@ -789,6 +789,10 @@ function LLVMExtraStripPointerCastsAndAliases(Val)
     ccall((:LLVMExtraStripPointerCastsAndAliases, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
 end
 
+function LLVMExtraGetOperandNo(U)
+    ccall((:LLVMExtraGetOperandNo, libLLVMExtra), Cuint, (LLVMUseRef,), U)
+end
+
 function LLVMExtraGetArgNo(Arg)
     ccall((:LLVMExtraGetArgNo, libLLVMExtra), Cuint, (LLVMValueRef,), Arg)
 end

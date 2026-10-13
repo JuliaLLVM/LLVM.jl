@@ -382,6 +382,43 @@ end
     @test collect(userinst.users) == [twice, twice]
 end
 
+# the position of uses in their user
+@dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "void (i32, i32)*" : "ptr"
+    @dispose mod=parse(LLVM.Module, """
+        declare void @callee(i32, i32)
+
+        define void @caller(i32 %x, $ptr %f) {
+          %y = add i32 %x, 1
+          call void %f(i32 %x, i32 %x) [ "deopt"(i32 %x) ]
+          invoke void %f(i32 %y, i32 %x) to label %cont unwind label %cont
+        cont:
+          ret void
+        }""") begin
+        f = mod.functions["caller"]
+        x, fptr = f.parameters
+        add, call, invoke = f.entry.instructions
+
+        # the operand index of every use
+        for v in (x, fptr), use in v.uses
+            @test use.user.operands[use.operand_index] == use.value
+        end
+
+        uses_in(v, inst) = filter(use -> use.user == inst, collect(v.uses))
+        # x is used twice as an argument and once in an operand bundle
+        @test sort([use.argument_index for use in uses_in(x, call)];
+                   by=i -> something(i, 0)) == [nothing, 1, 2]
+        @test count(iscallee, uses_in(x, call)) == 0
+        @test only(uses_in(fptr, call)).argument_index === nothing
+        @test iscallee(only(uses_in(fptr, call)))
+        @test only(uses_in(x, invoke)).argument_index == 2
+        @test iscallee(only(uses_in(fptr, invoke)))
+        @test only(uses_in(x, add)).argument_index === nothing
+        @test !iscallee(only(uses_in(x, add)))
+        @test only(uses_in(x, add)).operand_index == 1
+    end
+end
+
 # removing dead constant users
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")

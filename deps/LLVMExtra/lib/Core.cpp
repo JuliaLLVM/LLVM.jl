@@ -1482,6 +1482,8 @@ LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val) {
   return wrap(unwrap(Val)->stripPointerCastsAndAliases());
 }
 
+unsigned LLVMExtraGetOperandNo(LLVMUseRef U) { return unwrap(U)->getOperandNo(); }
+
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg) { return unwrap<Argument>(Arg)->getArgNo(); }
 
 

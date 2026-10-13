@@ -904,6 +904,102 @@ end
     end
 end
 
+@testset "custom passes with options" begin
+    # every occurrence of a pass gets its own options
+    @dispose ctx=Context() mod=test_module() begin
+        seen = Tuple{String,Any}[]
+        parsed = String[]
+        parse = str -> (push!(parsed, str); isempty(str) ? :default : Symbol(str))
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("fopts", (f, opts) -> begin
+                push!(seen, (f.name, opts))
+                return false
+            end; parse_options=parse))
+            register!(pb, ModulePass("mopts", (mod, am, opts) -> begin
+                @test am isa ModuleAnalysisManager
+                push!(seen, ("module", opts))
+                return false
+            end; analyses=true, parse_options=parse))
+            add!(pb, "mopts<first>,function(fopts<a;b=1>,fopts,fopts<>),mopts")
+            run!(pb, mod)
+        end
+        @test seen == [("module", :first),
+                       ("SomeFunction", Symbol("a;b=1")), ("SomeFunction", :default),
+                       ("SomeFunction", :default), ("module", :default)]
+        # the parser can be called more than once per occurrence
+        @test issubset(["first", "a;b=1", ""], parsed)
+    end
+
+    # options are kept alive while the pipeline runs
+    @dispose ctx=Context() mod=test_module() begin
+        values = Int[]
+        pass = FunctionPass("rooted", (f, opts) -> begin
+            GC.gc()
+            push!(values, opts.value[])
+            return false
+        end; parse_options=str -> (; value=Ref(parse(Int, str))))
+        @dispose pb=PassBuilder() begin
+            register!(pb, pass)
+            add!(pb, "function(rooted<1>,rooted<2>)")
+            GC.gc()
+            run!(pb, mod)
+        end
+        @test values == [1, 2]
+    end
+
+    # passes with options and analyses
+    @dispose ctx=Context() mod=test_module() begin
+        limits = Int[]
+        pass = FunctionPass("limited", (f, am, limit) -> begin
+            am[DomTree]
+            push!(limits, limit)
+            return PreservedAnalyses(AllAnalyses)
+        end; analyses=true, parse_options=str -> isempty(str) ? 10 : parse(Int, str))
+        @dispose pb=PassBuilder() begin
+            register!(pb, pass)
+            add!(pb, "function(limited<42>)")
+            run!(pb, mod)
+        end
+        run!(pass, mod)
+        @test limits == [42, 10]
+    end
+
+    # exceptions in the parser abort parsing, and take precedence over LLVM's error
+    @dispose ctx=Context() mod=test_module() begin
+        ran = Ref(0)
+        pass = FunctionPass("checked", (f, n) -> (ran[] += 1; false);
+                            parse_options=str -> parse(Int, str))
+        @dispose pb=PassBuilder() begin
+            register!(pb, pass)
+            add!(pb, "function(checked<1>,checked<oops>)")
+            err = try run!(pb, mod) catch err err end
+            @test err isa LLVM.PassException
+            @test err.ex isa ArgumentError
+        end
+        @test ran[] == 0
+
+        # the pass can be used again after a failure
+        @dispose pb=PassBuilder() begin
+            register!(pb, pass)
+            add!(pb, "function(checked<1>)")
+            run!(pb, mod)
+        end
+        @test ran[] == 1
+
+        # names that don't match, and options for passes that don't take them
+        @dispose pb=PassBuilder() begin
+            register!(pb, pass)
+            add!(pb, "function(checked<1)")
+            @test_throws LLVMException run!(pb, mod)
+        end
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("plain", f -> false))
+            add!(pb, "function(plain<1>)")
+            @test_throws LLVMException run!(pb, mod)
+        end
+    end
+end
+
 @testset "custom pass exceptions" begin
     # Module pass exceptions are rethrown after LLVM returns.
     @dispose ctx=Context() mod=test_module() begin

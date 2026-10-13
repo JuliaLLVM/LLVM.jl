@@ -413,6 +413,22 @@ void LLVMExtraSetModulePreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool A
                                          LLVMBool Functions, LLVMBool CFG,
                                          const LLVMExtraFunctionAnalysis *Analyses,
                                          unsigned NumAnalyses);
+// Custom passes that take parameters, which are written as `name<parameters>` in a
+// pipeline (or just `name` for empty parameters). When parsing a pipeline, the parameters
+// callback is called with the parameters of an occurrence of the pass and the thunk it was
+// registered with, and returns the thunk that the pass callback is called with when that
+// occurrence runs, or NULL if the parameters are invalid. It can be called more than once
+// for an occurrence, as LLVM also parses pass names to recognize their kind. The pass
+// callbacks are those of passes that use analyses.
+typedef void *(*LLVMJuliaPassParametersCallback)(const char *Parameters, void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaModulePassWithAnalysesCallback Callback,
+    LLVMJuliaPassParametersCallback ParametersCallback, void *Thunk, LLVMBool Required);
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaFunctionPassWithAnalysesCallback Callback,
+    LLVMJuliaPassParametersCallback ParametersCallback, void *Thunk, LLVMBool Required);
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#102482
 void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensions,
                                             const char *AAPipeline);

@@ -84,13 +84,11 @@ LoopPassManager(; use_memory_ssa=false) =
 
 ## custom passes
 
-# TODO: support for options
-
 @vocabulary Passes ModulePass, FunctionPass
 
 """
-    ModulePass(name, callback; required=false, analyses=false)
-    FunctionPass(name, callback; required=false, analyses=false)
+    ModulePass(name, callback; required=false, analyses=false, parse_options=nothing)
+    FunctionPass(name, callback; required=false, analyses=false, parse_options=nothing)
 
 Create a new custom pass. The `name` is a string that will be used to identify the pass
 in the pass manager. The `callback` is a function that will be called when the pass is
@@ -130,6 +128,32 @@ end
 ModulePass("my-module-pass", my_module_pass!; analyses=true)
 ```
 
+A pass can take options, which are written in a pipeline like those of LLVM's passes:
+`name<options>`. To support them, pass a function `parse_options` that takes the string
+between the angle brackets (an empty string if the pass is written as `name` or
+`name<>`), and returns the options. The callback is then called with those options as an
+extra, last argument. For example, a pass that is configured using `my-pass<limit=N>`:
+
+```julia
+function parse_my_options(str)
+    limit = 10
+    for opt in split(str, ';'; keepempty=false)
+        key, value = split(opt, '=')
+        key == "limit" || throw(ArgumentError("unknown option \$key"))
+        limit = parse(Int, value)
+    end
+    return (; limit)
+end
+my_pass!(f::LLVM.Function, am, options) = ...
+FunctionPass("my-pass", my_pass!; analyses=true, parse_options=parse_my_options)
+```
+
+Each occurrence of the pass in a pipeline has its own options, which are used for every
+function or module that occurrence runs on, so they should not be mutated by the pass.
+The parser may be called more than once for an occurrence, so it should not have side
+effects. Options cannot contain the characters `,`, `(` and `)`, which separate passes in
+a pipeline. Exceptions thrown by the parser are rethrown as `PassException` by `run!`.
+
 Before using a custom pass, it must be registered with a pass builder using `register!`.
 LLVM.jl catches exceptions from these callbacks and rethrows them as `PassException`
 after control has returned from LLVM. Callbacks registered directly through the
@@ -145,27 +169,42 @@ struct CustomPass
   callback::Any
   required::Bool
   analyses::Bool
+  parse_options::Any
 end
 @vocabulary Passes CustomPass
 
-CustomPass(type, name, callback, required) =
-    CustomPass(type, name, callback, required, false)
+CustomPass(type, name, callback, required, analyses=false) =
+    CustomPass(type, name, callback, required, analyses, nothing)
 
 Base.string(pass::CustomPass) = pass.name
 
 @doc (@doc CustomPass)
-ModulePass(name, callback; required::Bool=false, analyses::Bool=false) =
-    CustomPass(:module, name, callback, required, analyses)
+ModulePass(name, callback; required::Bool=false, analyses::Bool=false,
+           parse_options=nothing) =
+    CustomPass(:module, name, callback, required, analyses, parse_options)
 
 @doc (@doc CustomPass)
-FunctionPass(name, callback; required::Bool=false, analyses::Bool=false) =
-    CustomPass(:function, name, callback, required, analyses)
+FunctionPass(name, callback; required::Bool=false, analyses::Bool=false,
+             parse_options=nothing) =
+    CustomPass(:function, name, callback, required, analyses, parse_options)
 
 # State struct to store callback and any caught exception
 mutable struct CustomPassState
     callback::Any
     exception::Union{Nothing, Tuple{Any, Vector}}  # (exception, backtrace)
-    CustomPassState(callback) = new(callback, nothing)
+
+    # for passes with options: the parser, and the occurrences of the pass in the pipeline
+    pass::Union{Nothing,CustomPass}
+    occurrences::Vector{Any}
+
+    CustomPassState(callback) = new(callback, nothing, nothing, [])
+    CustomPassState(pass::CustomPass) = new(pass.callback, nothing, pass, [])
+end
+
+# an occurrence of a pass with options in a pipeline
+mutable struct CustomPassOccurrence
+    state::CustomPassState
+    options::Any
 end
 
 # Exception type to preserve original error and backtrace
@@ -252,6 +291,61 @@ function module_callback_with_analyses(ref::API.LLVMModuleRef,
         mod = LLVM.Module(ref)
         preserved = state.callback(mod, ModuleAnalysisManager(am, mod))
         set_module_preserved!(pa, preserved)
+    catch err
+        _capture_callback_exception!(state, err)
+    end
+    return
+end
+
+function parse_options_callback(params::Cstring, thunk::Ptr{Cvoid})
+    state = Base.unsafe_pointer_to_objref(thunk)::CustomPassState
+    state.exception === nothing || return C_NULL
+    try
+        options = state.pass.parse_options(unsafe_string(params))
+        occurrence = CustomPassOccurrence(state, options)
+        # keep the occurrence alive for as long as the pipeline, which refers to it
+        push!(state.occurrences, occurrence)
+        return pointer_from_objref(occurrence)
+    catch err
+        _capture_callback_exception!(state, err)
+        return C_NULL
+    end
+end
+
+function module_callback_with_options(ref::API.LLVMModuleRef,
+                                      am::API.LLVMModuleAnalysisManagerRef,
+                                      pa::API.LLVMPreservedAnalysesRef, thunk::Ptr{Cvoid})
+    occurrence = Base.unsafe_pointer_to_objref(thunk)::CustomPassOccurrence
+    state = occurrence.state
+    state.exception === nothing || return
+    try
+        mod = LLVM.Module(ref)
+        preserved = if state.pass.analyses
+            state.callback(mod, ModuleAnalysisManager(am, mod), occurrence.options)
+        else
+            state.callback(mod, occurrence.options)::Bool
+        end
+        set_module_preserved!(pa, preserved)
+    catch err
+        _capture_callback_exception!(state, err)
+    end
+    return
+end
+
+function function_callback_with_options(ref::API.LLVMValueRef,
+                                        am::API.LLVMFunctionAnalysisManagerRef,
+                                        pa::API.LLVMPreservedAnalysesRef, thunk::Ptr{Cvoid})
+    occurrence = Base.unsafe_pointer_to_objref(thunk)::CustomPassOccurrence
+    state = occurrence.state
+    state.exception === nothing || return
+    try
+        fun = LLVM.Function(ref)
+        preserved = if state.pass.analyses
+            state.callback(fun, FunctionAnalysisManager(am, fun), occurrence.options)
+        else
+            state.callback(fun, occurrence.options)::Bool
+        end
+        set_preserved!(pa, preserved)
     catch err
         _capture_callback_exception!(state, err)
     end
@@ -724,7 +818,7 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                      target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
                      pipeline::String, aa_pipeline::String)
     # Create state objects to hold callbacks and any caught exceptions
-    states = [CustomPassState(pass.callback) for pass in pb.custom_passes]
+    states = [CustomPassState(pass) for pass in pb.custom_passes]
     tti_state = pb.custom_tti === nothing ? nothing :
                 install_custom_tti!(exts, pb.custom_tti)
     ctx = context(target)
@@ -732,7 +826,25 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
     GC.@preserve states tti_state aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)
-            if pass.type === :module && pass.analyses
+            if pass.parse_options !== nothing
+                parse_cb = @cfunction(parse_options_callback, Ptr{Cvoid},
+                                      (Cstring, Ptr{Cvoid}))
+                if pass.type === :module
+                    cb = @cfunction(module_callback_with_options, Cvoid,
+                                    (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
+                                     API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+                    api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass
+                elseif pass.type === :function
+                    cb = @cfunction(function_callback_with_options, Cvoid,
+                                    (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
+                                     API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+                    api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass
+                else
+                    throw(ArgumentError("invalid pass type $(pass.type)"))
+                end
+                api(exts, pass.name, cb, parse_cb, Ref(states, i), pass.required)
+                continue
+            elseif pass.type === :module && pass.analyses
                 cb = @cfunction(module_callback_with_analyses, Cvoid,
                                 (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
                                  API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
@@ -772,13 +884,12 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
             end
         end
 
-        try
+        err = try
             if target isa Module
-                @check API.LLVMRunJuliaPasses(target, pipeline, something(tm, C_NULL),
-                                              pb, exts)
+                API.LLVMRunJuliaPasses(target, pipeline, something(tm, C_NULL), pb, exts)
             elseif target isa Function
-                @check API.LLVMRunJuliaPassesOnFunction(target, pipeline,
-                                                        something(tm, C_NULL), pb, exts)
+                API.LLVMRunJuliaPassesOnFunction(target, pipeline, something(tm, C_NULL),
+                                                 pb, exts)
             end
         finally
             # the options keep a pointer to the AA pipeline, which is only valid during the run
@@ -787,17 +898,23 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
             end
         end
 
-        # Check for any exceptions caught in custom pass callbacks
+        # exceptions caught in custom pass callbacks take precedence over LLVM's errors,
+        # e.g., the failure to parse the pipeline when parsing the options of a pass threw
+        exception = nothing
         for state in states
             if state.exception !== nothing
-                (err, bt) = state.exception
-                throw(PassException(err, bt))
+                exception = state.exception
+                break
             end
         end
-        if tti_state !== nothing && tti_state.exception !== nothing
-            (err, bt) = tti_state.exception
-            throw(PassException(err, bt))
+        if exception === nothing && tti_state !== nothing
+            exception = tti_state.exception
         end
+        if exception !== nothing
+            err == C_NULL || API.LLVMConsumeError(err)
+            throw(PassException(exception...))
+        end
+        @check err
         check_diagnostic(ctx)
     end
 end

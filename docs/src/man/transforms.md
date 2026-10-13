@@ -230,6 +230,24 @@ functions it changed itself, and return `PreservedAnalyses(FunctionAnalyses)`. B
 module pass deletes a function, it needs to remove all of its analyses using
 `empty!(am[f])`, as some of them (like the assumption cache) survive invalidation.
 
+Custom passes can also take options, which are written in a pipeline like those of LLVM's
+passes, e.g., `my-pass<limit=10>`. To support them, pass a function that parses the text
+between the angle brackets using the `parse_options` keyword argument; the pass callback
+is then called with the parsed options as an extra argument:
+
+```jldoctest custom_pass
+julia> pass = FunctionPass("print-limit", (f, limit) -> (println(f.name, ": ", limit); false);
+                           parse_options = str -> isempty(str) ? 10 : parse(Int, str));
+
+julia> @dispose pb=PassBuilder() begin
+         register!(pb, pass)
+         add!(pb, "function(print-limit<42>,print-limit)")
+         run!(pb, diamond)
+       end
+diamond: 42
+diamond: 10
+```
+
 Passes that are implemented in C++ can be used as well, by registering a native callback
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:
 

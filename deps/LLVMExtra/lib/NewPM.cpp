@@ -580,6 +580,69 @@ void LLVMExtraSetModulePreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool A
   *unwrap(PA) = std::move(Result);
 }
 
+// Match `Name` against a pass that takes parameters, i.e., `PassName` or
+// `PassName<Parameters>`. Like PassBuilder::checkParametrizedPassName, which is only public
+// since LLVM 19.
+static bool matchParametrizedPassName(StringRef Name, StringRef PassName,
+                                      StringRef &Parameters) {
+  if (!Name.consume_front(PassName))
+    return false;
+  if (Name.empty()) {
+    Parameters = Name;
+    return true;
+  }
+  if (!Name.consume_front("<") || !Name.consume_back(">"))
+    return false;
+  Parameters = Name;
+  return true;
+}
+
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaModulePassWithAnalysesCallback Callback,
+    LLVMJuliaPassParametersCallback ParametersCallback, void *Thunk, LLVMBool Required) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->ModulePipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, ParametersCallback, Thunk,
+       Required](StringRef Name, ModulePassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        StringRef Parameters;
+        if (!Pipeline.empty() || !matchParametrizedPassName(Name, PassName, Parameters))
+          return false;
+        void *PassThunk = ParametersCallback(Parameters.str().c_str(), Thunk);
+        if (!PassThunk)
+          return false;
+        if (Required)
+          PM.addPass(JuliaCustomModulePassWithAnalyses<true>(Callback, PassThunk));
+        else
+          PM.addPass(JuliaCustomModulePassWithAnalyses<false>(Callback, PassThunk));
+        return true;
+      });
+}
+
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaFunctionPassWithAnalysesCallback Callback,
+    LLVMJuliaPassParametersCallback ParametersCallback, void *Thunk, LLVMBool Required) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->FunctionPipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, ParametersCallback, Thunk,
+       Required](StringRef Name, FunctionPassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        StringRef Parameters;
+        if (!Pipeline.empty() || !matchParametrizedPassName(Name, PassName, Parameters))
+          return false;
+        void *PassThunk = ParametersCallback(Parameters.str().c_str(), Thunk);
+        if (!PassThunk)
+          return false;
+        if (Required)
+          PM.addPass(JuliaCustomFunctionPassWithAnalyses<true>(Callback, PassThunk));
+        else
+          PM.addPass(JuliaCustomFunctionPassWithAnalyses<false>(Callback, PassThunk));
+        return true;
+      });
+}
+
 
 // Alias analysis pipeline (back-port of llvm/llvm-project#102482)
 

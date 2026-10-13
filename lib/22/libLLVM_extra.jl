@@ -406,6 +406,17 @@ function LLVMExtraSetModulePreservedAnalyses(PA, All, Functions, CFG, Analyses, 
     ccall((:LLVMExtraSetModulePreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, Functions, CFG, Analyses, NumAnalyses)
 end
 
+# typedef void * ( * LLVMJuliaPassParametersCallback ) ( const char * Parameters , void * Thunk )
+const LLVMJuliaPassParametersCallback = Ptr{Cvoid}
+
+function LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassWithAnalysesCallback, LLVMJuliaPassParametersCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+end
+
+function LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassWithAnalysesCallback, LLVMJuliaPassParametersCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+end
+
 function LLVMPassBuilderExtensionsRegisterModulePass(Options, PassName, Callback, Thunk)
     ccall((:LLVMPassBuilderExtensionsRegisterModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
 end

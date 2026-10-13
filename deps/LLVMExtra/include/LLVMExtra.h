@@ -714,6 +714,13 @@ LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val);
 
 // the (0-based) number of the operand of its user that a use is
 unsigned LLVMExtraGetOperandNo(LLVMUseRef U);
+
+// whether a call site, function or argument only reads memory, or does not capture a
+// pointer. For a call site, ArgNo is the (0-based) number of an argument, or -1 for the
+// call itself. Queries on call sites take the attributes of the called function into
+// account.
+LLVMBool LLVMExtraOnlyReadsMemory(LLVMValueRef V, int ArgNo);
+LLVMBool LLVMExtraDoesNotCapture(LLVMValueRef V, int ArgNo);
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 
 // functions and global variables

@@ -208,6 +208,8 @@ insert_masked_value!
 
 ```@docs
 LLVM.CallBase
+only_reads_memory
+does_not_capture
 ```
 
 ### Operand Bundles

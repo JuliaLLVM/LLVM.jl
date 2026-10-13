@@ -719,6 +719,14 @@ function LLVMExtraGetOperandNo(U)
     ccall((:LLVMExtraGetOperandNo, libLLVMExtra), Cuint, (LLVMUseRef,), U)
 end
 
+function LLVMExtraOnlyReadsMemory(V, ArgNo)
+    ccall((:LLVMExtraOnlyReadsMemory, libLLVMExtra), LLVMBool, (LLVMValueRef, Cint), V, ArgNo)
+end
+
+function LLVMExtraDoesNotCapture(V, ArgNo)
+    ccall((:LLVMExtraDoesNotCapture, libLLVMExtra), LLVMBool, (LLVMValueRef, Cint), V, ArgNo)
+end
+
 function LLVMExtraGetArgNo(Arg)
     ccall((:LLVMExtraGetArgNo, libLLVMExtra), Cuint, (LLVMValueRef,), Arg)
 end

@@ -1524,6 +1524,22 @@ LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val) {
 
 unsigned LLVMExtraGetOperandNo(LLVMUseRef U) { return unwrap(U)->getOperandNo(); }
 
+LLVMBool LLVMExtraOnlyReadsMemory(LLVMValueRef V, int ArgNo) {
+  Value *Val = unwrap(V);
+  if (auto *CB = dyn_cast<CallBase>(Val))
+    return ArgNo < 0 ? CB->onlyReadsMemory() : CB->onlyReadsMemory(ArgNo);
+  if (auto *F = dyn_cast<Function>(Val))
+    return F->onlyReadsMemory();
+  return cast<Argument>(Val)->onlyReadsMemory();
+}
+
+LLVMBool LLVMExtraDoesNotCapture(LLVMValueRef V, int ArgNo) {
+  Value *Val = unwrap(V);
+  if (auto *CB = dyn_cast<CallBase>(Val))
+    return CB->doesNotCapture(ArgNo);
+  return cast<Argument>(Val)->hasNoCaptureAttr();
+}
+
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg) { return unwrap<Argument>(Arg)->getArgNo(); }
 
 

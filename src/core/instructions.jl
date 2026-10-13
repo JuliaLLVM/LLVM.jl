@@ -1131,6 +1131,52 @@ memory_effects!(call::CallBase, effects::AnyMemoryEffects) =
 
 @property CallBase memory_effects memory_effects!
 
+@vocabulary IR only_reads_memory, does_not_capture
+
+function check_argument_index(call::CallBase, i::Integer)
+    1 <= i <= API.LLVMGetNumArgOperands(call) ||
+        throw(BoundsError(arguments(call), i))
+    return Cint(i - 1)
+end
+
+"""
+    only_reads_memory(call::CallBase)
+    only_reads_memory(call::CallBase, i::Integer)
+    only_reads_memory(f::LLVM.Function)
+    only_reads_memory(arg::Argument)
+
+Check whether a call, or a function, only reads memory (or doesn't access memory at all),
+or whether the (1-based) `i`-th argument of a call or the argument `arg` of a function is
+a pointer that is only used to read memory.
+
+These use LLVM's own queries, which for a call also take the attributes of the called
+function into account (e.g., the ones inferred by the `function-attrs` pass), as well as
+the operand bundles of the call. For an argument of a function, only the attributes of
+that argument are used, not the memory effects of the function.
+"""
+only_reads_memory(call::CallBase) = API.LLVMExtraOnlyReadsMemory(call, -1) |> Bool
+only_reads_memory(call::CallBase, i::Integer) =
+    API.LLVMExtraOnlyReadsMemory(call, check_argument_index(call, i)) |> Bool
+only_reads_memory(f::Function) = API.LLVMExtraOnlyReadsMemory(f, -1) |> Bool
+only_reads_memory(arg::Argument) = API.LLVMExtraOnlyReadsMemory(arg, -1) |> Bool
+
+"""
+    does_not_capture(call::CallBase, i::Integer)
+    does_not_capture(arg::Argument)
+
+Check whether the (1-based) `i`-th argument of a call, or the argument `arg` of a function,
+is a pointer that is not captured, i.e., no copy of it outlives the call. For a call, the
+attributes of the called function are taken into account.
+
+Before LLVM 21, this means that the argument has the `nocapture` attribute. Since LLVM 21,
+it means that the `captures` attribute of the argument does not allow any capture (e.g.,
+`captures(none)`): a pointer that is only captured partially, e.g., `captures(address)`,
+or only through the return value, is considered captured.
+"""
+does_not_capture(call::CallBase, i::Integer) =
+    API.LLVMExtraDoesNotCapture(call, check_argument_index(call, i)) |> Bool
+does_not_capture(arg::Argument) = API.LLVMExtraDoesNotCapture(arg, -1) |> Bool
+
 # operand bundles
 
 @vocabulary IR OperandBundle

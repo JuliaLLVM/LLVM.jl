@@ -91,6 +91,10 @@ function LLVMExtraMoveGlobal(GlobalVar, Mod, Before)
     ccall((:LLVMExtraMoveGlobal, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMModuleRef, LLVMValueRef), GlobalVar, Mod, Before)
 end
 
+function LLVMExtraIntrinsicGetOverloadTypes(ID, FunctionTy, OverloadTypes, OverloadCount)
+    ccall((:LLVMExtraIntrinsicGetOverloadTypes, libLLVMExtra), LLVMBool, (Cuint, LLVMTypeRef, Ptr{LLVMTypeRef}, Ptr{Csize_t}), ID, FunctionTy, OverloadTypes, OverloadCount)
+end
+
 function LLVMConvertUsersOfConstantsToInstructions(Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
     ccall((:LLVMConvertUsersOfConstantsToInstructions, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Csize_t, LLVMValueRef, LLVMBool, LLVMBool), Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
 end

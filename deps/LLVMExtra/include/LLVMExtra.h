@@ -386,6 +386,33 @@ void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef A
                                                 LLVMValueRef F, LLVMBool All, LLVMBool CFG,
                                                 const LLVMExtraFunctionAnalysis *Analyses,
                                                 unsigned NumAnalyses);
+// forcibly remove all cached analysis results of a function, including those that survive
+// invalidation, e.g., before the function is deleted
+void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM, LLVMValueRef F);
+
+// Custom module passes that use analyses. The callback receives the module analysis manager
+// of the pipeline, from which the function analysis manager can be obtained, and an output
+// object that it sets (with `LLVMExtraSetModulePreservedAnalyses`) like for function passes.
+typedef struct LLVMOpaqueModuleAnalysisManager *LLVMModuleAnalysisManagerRef;
+typedef void (*LLVMJuliaModulePassWithAnalysesCallback)(LLVMModuleRef M,
+                                                       LLVMModuleAnalysisManagerRef AM,
+                                                       LLVMPreservedAnalysesRef PA,
+                                                       void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaModulePassWithAnalysesCallback Callback, void *Thunk, LLVMBool Required);
+// the function analysis manager of a module, through the module analysis manager's proxy
+LLVMFunctionAnalysisManagerRef
+LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager(LLVMModuleAnalysisManagerRef AM,
+                                                         LLVMModuleRef M);
+// set the analyses preserved by a module pass: everything (`All`), nothing (if no other
+// argument is set), or the given function analyses on every function of the module, where
+// `Functions` preserves all function analyses (the pass invalidated the functions it
+// changed itself)
+void LLVMExtraSetModulePreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                         LLVMBool Functions, LLVMBool CFG,
+                                         const LLVMExtraFunctionAnalysis *Analyses,
+                                         unsigned NumAnalyses);
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#102482
 void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensions,
                                             const char *AAPipeline);

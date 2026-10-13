@@ -89,7 +89,7 @@ LoopPassManager(; use_memory_ssa=false) =
 @vocabulary Passes ModulePass, FunctionPass
 
 """
-    ModulePass(name, callback; required=false)
+    ModulePass(name, callback; required=false, analyses=false)
     FunctionPass(name, callback; required=false, analyses=false)
 
 Create a new custom pass. The `name` is a string that will be used to identify the pass
@@ -99,10 +99,11 @@ and return a boolean indicating whether the pass made any changes.
 Set `required=true` for a pass needed for correctness; LLVM then does not skip it on
 `optnone` functions or under `-opt-bisect-limit`.
 
-With `analyses=true`, a function pass can use LLVM's analyses: the callback is then called
-with two arguments, the function and its [`FunctionAnalysisManager`](@ref), and may also
-return a [`PreservedAnalyses`](@ref) value describing the analyses that remain valid
-after the pass, instead of a boolean:
+With `analyses=true`, a pass can use LLVM's analyses: the callback is then called with two
+arguments, the function and its [`FunctionAnalysisManager`](@ref) (for a function pass),
+or the module and its [`ModuleAnalysisManager`](@ref) (for a module pass). Instead of a
+boolean, it may return a [`PreservedAnalyses`](@ref) value describing the analyses that
+remain valid after the pass:
 
 ```julia
 function my_pass!(f::LLVM.Function, am::LLVM.FunctionAnalysisManager)
@@ -112,6 +113,21 @@ function my_pass!(f::LLVM.Function, am::LLVM.FunctionAnalysisManager)
     return changed ? PreservedAnalyses(CFGAnalyses) : PreservedAnalyses(AllAnalyses)
 end
 FunctionPass("my-pass", my_pass!; analyses=true)
+```
+
+A module pass gets the analyses of each of its functions by indexing its manager with the
+function:
+
+```julia
+function my_module_pass!(mod::LLVM.Module, am::LLVM.ModuleAnalysisManager)
+    for f in mod.functions
+        isdeclaration(f) && continue
+        domtree = am[f][DomTree]
+        ...
+    end
+    return false
+end
+ModulePass("my-module-pass", my_module_pass!; analyses=true)
 ```
 
 Before using a custom pass, it must be registered with a pass builder using `register!`.
@@ -138,8 +154,8 @@ CustomPass(type, name, callback, required) =
 Base.string(pass::CustomPass) = pass.name
 
 @doc (@doc CustomPass)
-ModulePass(name, callback; required::Bool=false) =
-    CustomPass(:module, name, callback, required)
+ModulePass(name, callback; required::Bool=false, analyses::Bool=false) =
+    CustomPass(:module, name, callback, required, analyses)
 
 @doc (@doc CustomPass)
 FunctionPass(name, callback; required::Bool=false, analyses::Bool=false) =
@@ -227,11 +243,26 @@ function function_callback_with_analyses(ref::API.LLVMValueRef,
     return
 end
 
+function module_callback_with_analyses(ref::API.LLVMModuleRef,
+                                       am::API.LLVMModuleAnalysisManagerRef,
+                                       pa::API.LLVMPreservedAnalysesRef, thunk::Ptr{Cvoid})
+    state = Base.unsafe_pointer_to_objref(thunk)::CustomPassState
+    state.exception === nothing || return
+    try
+        mod = LLVM.Module(ref)
+        preserved = state.callback(mod, ModuleAnalysisManager(am, mod))
+        set_module_preserved!(pa, preserved)
+    catch err
+        _capture_callback_exception!(state, err)
+    end
+    return
+end
+
 
 ## analysis managers
 
-@vocabulary Passes FunctionAnalysisManager, PreservedAnalyses, AllAnalyses, CFGAnalyses,
-                   invalidate!
+@vocabulary Passes FunctionAnalysisManager, ModuleAnalysisManager, PreservedAnalyses,
+                   AllAnalyses, CFGAnalyses, FunctionAnalyses, invalidate!
 
 """
     FunctionAnalysisManager
@@ -243,19 +274,26 @@ function analyses, which it owns and caches:
 - `am[T]`: get the result of the analysis `T` (e.g., a `DomTree`), computing it if needed;
 - `get(am, T, nothing)`: get the result of `T` only if it has been computed already;
 - [`invalidate!(am, preserved)`](@ref invalidate!): invalidate the results that are not
-  preserved.
+  preserved;
+- `empty!(am)`: remove all of the function's results, including the ones that survive
+  invalidation. This is required before a module pass deletes the function.
 
 The supported analyses are [`DomTree`](@ref), [`PostDomTree`](@ref),
 [`AssumptionCache`](@ref), [`LazyValueInfo`](@ref), [`ScalarEvolution`](@ref) and
 [`LoopInfo`](@ref).
 
-Analysis results borrowed from the manager must not be disposed of, and must not be used
-after the pass returns. They also become stale when the pass changes the IR in a way that
-affects them, as LLVM does not update them automatically: a pass that changes the IR and
-then queries an analysis again needs to update that analysis itself, or invalidate it
-first. What the pass returns only determines which analyses remain valid after the pass.
+Analysis results are borrowed from the manager, which owns them:
 
-See also: [`PreservedAnalyses`](@ref)
+- they must not be disposed of, and must not be used after the pass returns;
+- they must not be used after they were invalidated, using `invalidate!` or `empty!`;
+- they are not updated when the pass changes the IR, so they become stale when it changes
+  what they describe. A pass that changes the IR and then queries an analysis again needs
+  to update that analysis itself (e.g., register new assumptions with the
+  [`AssumptionCache`](@ref)), or invalidate it first.
+
+What the pass returns only determines which analyses remain valid after the pass.
+
+See also: [`PreservedAnalyses`](@ref), [`ModuleAnalysisManager`](@ref)
 """
 struct FunctionAnalysisManager
     ref::API.LLVMFunctionAnalysisManagerRef
@@ -284,6 +322,9 @@ borrow_analysis(T::Type, ptr::Ptr{Cvoid}) =
     mark_untracked(T(convert(fieldtype(T, :ref), ptr)))
 
 function Base.getindex(am::FunctionAnalysisManager, T::Type)
+    # LLVM's analyses expect a function body
+    isdeclaration(am.fun) &&
+        throw(ArgumentError("Cannot compute analyses of declaration $(am.fun.name)"))
     ptr = API.LLVMExtraFunctionAnalysisManagerGetResult(am, am.fun, analysis_id(T))
     return borrow_analysis(T, ptr)
 end
@@ -293,44 +334,113 @@ function Base.get(am::FunctionAnalysisManager, T::Type, default)
     return ptr == C_NULL ? default : borrow_analysis(T, ptr)
 end
 
+function Base.empty!(am::FunctionAnalysisManager)
+    API.LLVMExtraFunctionAnalysisManagerClear(am, am.fun)
+    return am
+end
+
+"""
+    ModuleAnalysisManager
+
+The analysis manager of a pass pipeline, for the module that a custom pass (created using
+`ModulePass(...; analyses=true)`) runs on. Indexing it with a function of the module,
+`am[f]`, returns the [`FunctionAnalysisManager`](@ref) for that function, which provides
+LLVM's function analyses for it:
+
+```julia
+domtree = am[f][DomTree]
+lvi = am[f][LazyValueInfo]
+```
+
+Analyses can only be computed for functions that have a body, not for declarations.
+The function analyses of all functions are cached by the pipeline, and remain valid
+until they are invalidated: when a module pass changes a function and then queries its
+analyses again, it needs to invalidate them first using `invalidate!(am[f])`, and before
+a module pass deletes a function, it needs to remove its results using `empty!(am[f])`.
+The rules for borrowed results are the same as for function passes (see
+[`FunctionAnalysisManager`](@ref)).
+
+What the pass returns determines which analyses remain valid afterwards, on all functions
+of the module (see [`PreservedAnalyses`](@ref)). A pass that only changed some functions
+can invalidate their analyses itself, and return `PreservedAnalyses(FunctionAnalyses)` to
+keep the cached results of the other functions.
+"""
+struct ModuleAnalysisManager
+    ref::API.LLVMModuleAnalysisManagerRef
+    mod::Module
+end
+
+Base.unsafe_convert(::Type{API.LLVMModuleAnalysisManagerRef}, am::ModuleAnalysisManager) =
+    am.ref
+
+Base.show(io::IO, am::ModuleAnalysisManager) =
+    print(io, "ModuleAnalysisManager(", repr(am.mod.name), ")")
+
+function Base.getindex(am::ModuleAnalysisManager, f::Function)
+    parent(f) == am.mod ||
+        throw(ArgumentError("Function $(f.name) is not part of module $(am.mod.name)"))
+    fam = API.LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager(am, am.mod)
+    return FunctionAnalysisManager(fam, f)
+end
+
+# module analyses are not supported yet; reserve the syntax for them
+Base.getindex(am::ModuleAnalysisManager, T::Type) =
+    throw(ArgumentError("$T is not a supported module analysis"))
+
 """
     AllAnalyses
     CFGAnalyses
+    FunctionAnalyses
 
 Markers for sets of analyses, used with [`PreservedAnalyses`](@ref): `AllAnalyses` for every
-analysis, and `CFGAnalyses` for the analyses that only depend on the control-flow graph of
-a function (like `DomTree` and `PostDomTree`), i.e., on its blocks and their terminators.
+analysis, `CFGAnalyses` for the analyses that only depend on the control-flow graph of
+a function (like `DomTree` and `PostDomTree`), i.e., on its blocks and their terminators,
+and `FunctionAnalyses` (only for module passes) for the function analyses of every
+function of the module.
 """
 struct AllAnalyses end
 
 @doc (@doc AllAnalyses)
 struct CFGAnalyses end
 
+@doc (@doc AllAnalyses)
+struct FunctionAnalyses end
+
 """
     PreservedAnalyses(analyses...)
 
 The set of analyses that remain valid after a custom pass, returned by a pass created using
-`FunctionPass(...; analyses=true)`. Each argument is either an analysis (e.g. `DomTree`),
-or a marker for a set of analyses ([`AllAnalyses`](@ref) or [`CFGAnalyses`](@ref)):
+`FunctionPass(...; analyses=true)` or `ModulePass(...; analyses=true)`. Each argument is
+either an analysis (e.g. `DomTree`), or a marker for a set of analyses
+([`AllAnalyses`](@ref), [`CFGAnalyses`](@ref) or [`FunctionAnalyses`](@ref)):
 
 - `PreservedAnalyses()`: no analysis is preserved (like returning `true`);
 - `PreservedAnalyses(AllAnalyses)`: every analysis is preserved (like returning `false`);
 - `PreservedAnalyses(CFGAnalyses)`: the pass did not change the control-flow graph;
 - `PreservedAnalyses(DomTree)`: the pass kept the dominator tree up to date.
 
+For a module pass, the function analyses that are listed are preserved for every function
+of the module, while all other analyses of the module are invalidated. A module pass that
+invalidated the analyses of the functions it changed itself (using
+`invalidate!(am[f])`) can return `PreservedAnalyses(FunctionAnalyses)`, which keeps the
+cached function analyses of all other functions.
+
 See also: [`FunctionAnalysisManager`](@ref), [`invalidate!`](@ref)
 """
 struct PreservedAnalyses
     all::Bool
+    functions::Bool
     cfg::Bool
     analyses::Vector{Type}
 
     function PreservedAnalyses(analyses::Type...)
-        all = cfg = false
+        all = functions = cfg = false
         individual = Type[]
         for T in analyses
             if T === AllAnalyses
                 all = true
+            elseif T === FunctionAnalyses
+                functions = true
             elseif T === CFGAnalyses
                 cfg = true
             else
@@ -338,7 +448,7 @@ struct PreservedAnalyses
                 T in individual || push!(individual, T)
             end
         end
-        return new(all, cfg, individual)
+        return new(all, functions, cfg, individual)
     end
 end
 
@@ -346,19 +456,23 @@ function Base.show(io::IO, pa::PreservedAnalyses)
     print(io, "PreservedAnalyses(")
     names = Any[pa.analyses...]
     pa.cfg && pushfirst!(names, CFGAnalyses)
+    pa.functions && pushfirst!(names, FunctionAnalyses)
     pa.all && pushfirst!(names, AllAnalyses)
     join(io, names, ", ")
     print(io, ")")
 end
 
 Base.:(==)(a::PreservedAnalyses, b::PreservedAnalyses) =
-    a.all == b.all && a.cfg == b.cfg && issetequal(a.analyses, b.analyses)
+    a.all == b.all && a.functions == b.functions && a.cfg == b.cfg &&
+    issetequal(a.analyses, b.analyses)
 
 Base.convert(::Type{PreservedAnalyses}, changed::Bool) =
     changed ? PreservedAnalyses() : PreservedAnalyses(AllAnalyses)
 
-# pass a set of preserved analyses to a C function `f(args..., all, cfg, ids, nids)`
+# pass a set of preserved function analyses to a C function `f(args..., all, cfg, ids, nids)`
 function with_preserved(f, pa::PreservedAnalyses, args...)
+    pa.functions &&
+        throw(ArgumentError("FunctionAnalyses can only be preserved by a module pass"))
     ids = API.LLVMExtraFunctionAnalysis[analysis_id(T) for T in pa.analyses]
     f(args..., pa.all, pa.cfg, ids, length(ids))
 end
@@ -366,6 +480,13 @@ end
 set_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved) =
     with_preserved(API.LLVMExtraSetPreservedAnalyses,
                    convert(PreservedAnalyses, preserved)::PreservedAnalyses, ref)
+
+function set_module_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved)
+    pa = convert(PreservedAnalyses, preserved)::PreservedAnalyses
+    ids = API.LLVMExtraFunctionAnalysis[analysis_id(T) for T in pa.analyses]
+    API.LLVMExtraSetModulePreservedAnalyses(ref, pa.all, pa.functions, pa.cfg, ids,
+                                            length(ids))
+end
 
 """
     invalidate!(am::FunctionAnalysisManager, preserved=PreservedAnalyses())
@@ -611,7 +732,12 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
     GC.@preserve states tti_state aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)
-            if pass.type === :module
+            if pass.type === :module && pass.analyses
+                cb = @cfunction(module_callback_with_analyses, Cvoid,
+                                (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
+                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+                api = API.LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses
+            elseif pass.type === :module
                 cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Cvoid}))
                 api = API.LLVMPassBuilderExtensionsRegisterModulePassWithRequired
             elseif pass.type === :function && pass.analyses

@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -172,10 +172,63 @@ entry dominates join: true
 then dominates join: false
 ```
 
-Analysis results are owned by the analysis manager: they must not be disposed of, or used
-after the pass has returned. They are also not updated when the pass changes the IR, so a
-pass that queries analyses after changing the IR needs to keep them up to date, or
-invalidate them using `invalidate!`.
+Module passes can use analyses too. With `analyses=true`, a module pass is given the
+pipeline's `ModuleAnalysisManager`, which provides the analyses of each function of the
+module by indexing it with that function. For example, a pass that looks at the
+dominator trees and value ranges (see the `LLVM.Analysis` vocabulary) of several functions:
+
+```jldoctest custom_pass
+julia> function check_ranges!(mod::LLVM.Module, am)
+         for f in mod.functions
+           x = only(f.parameters)
+           entry, then, exit = f.blocks
+           @assert dominates(am[f][DomTree], entry.terminator, then.terminator)
+           range = ConstantRange(am[f][LazyValueInfo], x; at=then.terminator)
+           println(f.name, ": ", range)
+         end
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia> bounds = parse(LLVM.Module, """
+         define void @small(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 10
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }
+         define void @large(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 1000
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }""");
+
+julia> run!(ModulePass("check-ranges", check_ranges!; analyses=true), bounds)
+small: ConstantRange(32, 0, 10)
+large: ConstantRange(32, 0, 1000)
+```
+
+Analysis results are owned by the analysis manager, and borrowed by the pass:
+
+- they must not be disposed of, or used after the pass has returned;
+- they must not be used after they were invalidated, e.g., using `invalidate!`;
+- they are not updated when the pass changes the IR. A pass that queries analyses after
+  changing the IR needs to keep them up to date itself, or invalidate them using
+  `invalidate!` (e.g., `invalidate!(am)` in a function pass, or `invalidate!(am[f])` for
+  a function `f` in a module pass).
+
+What a pass returns only determines which analyses remain valid after it ran. A module pass
+that returns `true` (or `PreservedAnalyses()`) invalidates the analyses of all functions.
+To keep those of the functions it did not change, it can invalidate the analyses of the
+functions it changed itself, and return `PreservedAnalyses(FunctionAnalyses)`. Before a
+module pass deletes a function, it needs to remove all of its analyses using
+`empty!(am[f])`, as some of them (like the assumption cache) survive invalidation.
 
 Passes that are implemented in C++ can be used as well, by registering a native callback
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:

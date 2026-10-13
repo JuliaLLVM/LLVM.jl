@@ -391,6 +391,29 @@ function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, CFG, Analyses, N
     ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, CFG, Analyses, NumAnalyses)
 end
 
+function LLVMExtraFunctionAnalysisManagerClear(AM, F)
+    ccall((:LLVMExtraFunctionAnalysisManagerClear, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef), AM, F)
+end
+
+mutable struct LLVMOpaqueModuleAnalysisManager end
+
+const LLVMModuleAnalysisManagerRef = Ptr{LLVMOpaqueModuleAnalysisManager}
+
+# typedef void ( * LLVMJuliaModulePassWithAnalysesCallback ) ( LLVMModuleRef M , LLVMModuleAnalysisManagerRef AM , LLVMPreservedAnalysesRef PA , void * Thunk )
+const LLVMJuliaModulePassWithAnalysesCallback = Ptr{Cvoid}
+
+function LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses(Extensions, PassName, Callback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassWithAnalysesCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, Thunk, Required)
+end
+
+function LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager(AM, M)
+    ccall((:LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager, libLLVMExtra), LLVMFunctionAnalysisManagerRef, (LLVMModuleAnalysisManagerRef, LLVMModuleRef), AM, M)
+end
+
+function LLVMExtraSetModulePreservedAnalyses(PA, All, Functions, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraSetModulePreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, Functions, CFG, Analyses, NumAnalyses)
+end
+
 function LLVMRunJuliaPasses(M, Passes, TM, Options, Extensions)
     ccall((:LLVMRunJuliaPasses, libLLVMExtra), LLVMErrorRef, (LLVMModuleRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef), M, Passes, TM, Options, Extensions)
 end

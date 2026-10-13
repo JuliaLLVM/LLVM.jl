@@ -37,6 +37,7 @@ register_callbacks!
 
 ```@docs
 FunctionAnalysisManager
+ModuleAnalysisManager
 PreservedAnalyses
 AllAnalyses
 invalidate!

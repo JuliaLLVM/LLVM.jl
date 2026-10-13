@@ -507,6 +507,80 @@ void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef A
 }
 
 
+void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM,
+                                           LLVMValueRef F) {
+  Function &Fn = *unwrap<Function>(F);
+  unwrap(AM)->clear(Fn, Fn.getName());
+}
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ModuleAnalysisManager, LLVMModuleAnalysisManagerRef)
+
+template <bool Required>
+struct JuliaCustomModulePassWithAnalyses
+    : llvm::PassInfoMixin<JuliaCustomModulePassWithAnalyses<Required>> {
+  LLVMJuliaModulePassWithAnalysesCallback Callback;
+  void *Thunk;
+  JuliaCustomModulePassWithAnalyses(LLVMJuliaModulePassWithAnalysesCallback Callback,
+                                    void *Thunk)
+      : Callback(Callback), Thunk(Thunk) {}
+  static bool isRequired() { return Required; }
+  static StringRef name() { return "JuliaCustomModulePass"; }
+  llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &AM) {
+    auto PA = llvm::PreservedAnalyses::none();
+    Callback(wrap(&M), wrap(&AM), wrap(&PA), Thunk);
+    return PA;
+  }
+};
+
+void LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaModulePassWithAnalysesCallback Callback, void *Thunk, LLVMBool Required) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->ModulePipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, Thunk,
+       Required](StringRef Name, ModulePassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        if (Name == PassName && Pipeline.empty()) {
+          if (Required)
+            PM.addPass(JuliaCustomModulePassWithAnalyses<true>(Callback, Thunk));
+          else
+            PM.addPass(JuliaCustomModulePassWithAnalyses<false>(Callback, Thunk));
+          return true;
+        }
+        return false;
+      });
+}
+
+LLVMFunctionAnalysisManagerRef
+LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager(LLVMModuleAnalysisManagerRef AM,
+                                                         LLVMModuleRef M) {
+  ModuleAnalysisManager &MAM = *unwrap(AM);
+  return wrap(&MAM.getResult<FunctionAnalysisManagerModuleProxy>(*unwrap(M)).getManager());
+}
+
+void LLVMExtraSetModulePreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                         LLVMBool Functions, LLVMBool CFG,
+                                         const LLVMExtraFunctionAnalysis *Analyses,
+                                         unsigned NumAnalyses) {
+  if (All) {
+    *unwrap(PA) = PreservedAnalyses::all();
+    return;
+  }
+  if (!Functions && !CFG && NumAnalyses == 0) {
+    // without the proxy, every cached function analysis is cleared
+    *unwrap(PA) = PreservedAnalyses::none();
+    return;
+  }
+  // preserving the proxy makes the module pass manager invalidate each function's results
+  // with this set, instead of clearing all of them
+  PreservedAnalyses Result = buildPreservedAnalyses(false, CFG, Analyses, NumAnalyses);
+  Result.preserve<FunctionAnalysisManagerModuleProxy>();
+  if (Functions)
+    Result.preserveSet<AllAnalysesOn<Function>>();
+  *unwrap(PA) = std::move(Result);
+}
+
+
 // Alias analysis pipeline (back-port of llvm/llvm-project#102482)
 
 #if LLVM_VERSION_MAJOR < 20

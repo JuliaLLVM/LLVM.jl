@@ -753,6 +753,157 @@ end
     end
 end
 
+@testset "custom module passes with analyses" begin
+    two_functions = """
+        define i32 @f(i32 %x) {
+        entry:
+          %c = icmp ult i32 %x, 10
+          br i1 %c, label %then, label %exit
+        then:
+          %y = add i32 %x, 1
+          ret i32 %y
+        exit:
+          ret i32 0
+        }
+
+        define i32 @g(i32 %x) {
+        entry:
+          %c = icmp ult i32 %x, 100
+          br i1 %c, label %then, label %exit
+        then:
+          %y = add i32 %x, 1
+          ret i32 %y
+        exit:
+          ret i32 0
+        }"""
+
+    # x's range in the `then` block, according to LVI
+    function then_range(am, f)
+        entry, then, exit = f.blocks
+        x = f.parameters[1]
+        return ConstantRange(am[f][LazyValueInfo], x; at=then.terminator)
+    end
+
+    # querying the analyses of two functions, changing one, and invalidating its results
+    @dispose ctx=Context() mod=parse(LLVM.Module, two_functions) begin
+        results = Dict{Symbol,Any}()
+        function ipo!(mod, am)
+            @test am isa ModuleAnalysisManager
+            f, g = mod.functions["f"], mod.functions["g"]
+            for fun in (f, g)
+                entry, then, exit = fun.blocks
+                @test dominates(am[fun][DomTree], entry.terminator, then.terminator)
+            end
+            results[:f_before] = then_range(am, f)
+            results[:g_before] = then_range(am, g)
+
+            # change f's condition, which LVI doesn't notice until f is invalidated
+            cmp = first(f.entry.instructions)
+            cmp.operands[2] = ConstantInt(Int32(5))
+            results[:f_stale] = then_range(am, f)
+            invalidate!(am[f])
+            results[:f_domtree] = get(am[f], DomTree, nothing)
+            results[:g_domtree] = get(am[g], DomTree, nothing) !== nothing
+            results[:f_after] = then_range(am, f)
+            return PreservedAnalyses(FunctionAnalyses)
+        end
+        cached = Dict{String,Bool}()
+        @dispose pb=PassBuilder() begin
+            register!(pb, ModulePass("ipo", ipo!; analyses=true))
+            register!(pb, FunctionPass("check", (f, am) -> begin
+                cached[f.name] = get(am, DomTree, nothing) !== nothing
+                return false
+            end; analyses=true))
+            add!(pb, "ipo,function(check)")
+            run!(pb, mod)
+        end
+        @test results[:f_before] == ConstantRange(32, 0, 10)
+        @test results[:g_before] == ConstantRange(32, 0, 100)
+        @test results[:f_stale] == ConstantRange(32, 0, 10)
+        @test results[:f_domtree] === nothing
+        @test results[:g_domtree]
+        @test results[:f_after] == ConstantRange(32, 0, 5)
+        # g's dominator tree was kept, f's wasn't recomputed
+        @test cached == Dict("f" => false, "g" => true)
+    end
+
+    # preserving analyses
+    @dispose ctx=Context() mod=parse(LLVM.Module, two_functions) begin
+        for (preserved, expected) in [false => true, true => false,
+                                      PreservedAnalyses() => false,
+                                      PreservedAnalyses(AllAnalyses) => true,
+                                      PreservedAnalyses(FunctionAnalyses) => true,
+                                      PreservedAnalyses(CFGAnalyses) => true,
+                                      PreservedAnalyses(DomTree) => true,
+                                      PreservedAnalyses(PostDomTree) => false]
+            cached = Bool[]
+            @dispose pb=PassBuilder() begin
+                register!(pb, ModulePass("compute", (mod, am) -> begin
+                    foreach(f -> am[f][DomTree], mod.functions)
+                    return preserved
+                end; analyses=true))
+                register!(pb, FunctionPass("check", (f, am) -> begin
+                    push!(cached, get(am, DomTree, nothing) !== nothing)
+                    return false
+                end; analyses=true))
+                add!(pb, "compute,function(check)")
+                run!(pb, mod)
+            end
+            @test cached == [expected, expected]
+        end
+    end
+
+    # clearing results, e.g., before deleting a function
+    @dispose ctx=Context() mod=parse(LLVM.Module, two_functions) begin
+        cached = Bool[]
+        run!(ModulePass("delete", (mod, am) -> begin
+            f = mod.functions["f"]
+            am[f][DomTree]
+            am[f][AssumptionCache]
+            # the assumption cache survives invalidation
+            invalidate!(am[f])
+            push!(cached, get(am[f], DomTree, nothing) !== nothing)
+            push!(cached, get(am[f], AssumptionCache, nothing) !== nothing)
+            empty!(am[f])
+            push!(cached, get(am[f], AssumptionCache, nothing) !== nothing)
+            erase!(f)
+            return PreservedAnalyses(FunctionAnalyses)
+        end; analyses=true), mod)
+        @test cached == [false, true, false]
+        @test !haskey(mod.functions, "f")
+    end
+
+    # invalid uses
+    @dispose ctx=Context() mod=parse(LLVM.Module, two_functions) other=parse(LLVM.Module, two_functions) begin
+        decl = LLVM.Function(mod, "decl", LLVM.FunctionType(LLVM.VoidType()))
+        errors = Any[]
+        run!(ModulePass("invalid", (mod, am) -> begin
+            push!(errors, try am[other.functions["f"]] catch err err end)
+            push!(errors, try am[DomTree] catch err err end)
+            # declarations have no analyses
+            push!(errors, try am[decl][DomTree] catch err err end)
+            push!(errors, get(am[decl], DomTree, nothing))
+            invalidate!(am[decl])
+            empty!(am[decl])
+            return false
+        end; analyses=true), mod)
+        @test errors[1] isa ArgumentError
+        @test errors[2] isa ArgumentError
+        @test errors[3] isa ArgumentError
+        @test errors[4] === nothing
+        @test sprint(show, PreservedAnalyses(FunctionAnalyses, DomTree)) ==
+              "PreservedAnalyses($(FunctionAnalyses), $(DomTree))"
+
+        # only module passes can preserve all function analyses
+        @test_throws LLVM.PassException run!(FunctionPass("bad",
+            (f, am) -> PreservedAnalyses(FunctionAnalyses); analyses=true), mod)
+        @test_throws LLVM.PassException run!(ModulePass("bad", (mod, am) -> 42;
+                                                        analyses=true), mod)
+        @test_throws LLVM.PassException run!(ModulePass("throws", (mod, am) -> error("oops");
+                                                        analyses=true), mod)
+    end
+end
+
 @testset "custom pass exceptions" begin
     # Module pass exceptions are rethrown after LLVM returns.
     @dispose ctx=Context() mod=test_module() begin

@@ -153,6 +153,7 @@ FunctionPass
 
 ```@docs
 CFGAnalyses
+FunctionAnalyses
 ```
 
 ```@docs

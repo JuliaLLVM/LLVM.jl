@@ -419,6 +419,39 @@ end
     end
 end
 
+# stripping constant offsets
+@dispose ctx=Context() begin
+    ptr, ptr1 = supports_typed_pointers(ctx) ? ("i8*", "i8 addrspace(1)*") :
+                                               ("ptr", "ptr addrspace(1)")
+    @dispose mod=parse(LLVM.Module, """
+        target datalayout = "e-i64:64-p1:64:64:64:32"
+        define void @f($ptr %p, $ptr1 %q, i64 %i) {
+          %a = getelementptr inbounds i8, $ptr %p, i64 16
+          %b = getelementptr inbounds i8, $ptr %a, i64 -8
+          %c = getelementptr i8, $ptr %b, i64 4
+          %d = getelementptr inbounds i8, $ptr %c, i64 %i
+          %e = getelementptr inbounds i8, $ptr1 %q, i64 4294967295
+          ret void
+        }""") begin
+        dl = mod.datalayout
+        f = mod.functions["f"]
+        p, q, i = f.parameters
+        a, b, c, d, e = collect(f.entry.instructions)[1:5]
+        @test LLVM.strip_and_accumulate_constant_offsets(b, dl) == (p, 8)
+        @test LLVM.strip_and_accumulate_constant_offsets(b, dl)[2] isa BigInt
+        @test LLVM.strip_and_accumulate_constant_offsets(Int8, b, dl) === (p, Int8(8))
+        # only inbounds GEPs are stripped by default
+        @test LLVM.strip_and_accumulate_constant_offsets(c, dl) == (c, 0)
+        @test LLVM.strip_and_accumulate_constant_offsets(c, dl;
+                                                         allow_non_inbounds=true) == (p, 12)
+        @test LLVM.strip_and_accumulate_constant_offsets(d, dl) == (d, 0)
+        @test LLVM.strip_and_accumulate_constant_offsets(p, dl) == (p, 0)
+        # the offset has the index width of the address space
+        @test LLVM.strip_and_accumulate_constant_offsets(e, dl) == (q, -1)
+        @test_throws ArgumentError LLVM.strip_and_accumulate_constant_offsets(i, dl)
+    end
+end
+
 # removing dead constant users
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")

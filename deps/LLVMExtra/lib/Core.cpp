@@ -1257,6 +1257,17 @@ LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRe
   return true;
 }
 
+LLVMValueRef LLVMExtraStripAndAccumulateConstantOffsets(LLVMValueRef V, LLVMTargetDataRef TD,
+                                                        LLVMBool AllowNonInbounds,
+                                                        uint64_t *Words) {
+  Value *Val = unwrap(V);
+  const DataLayout &DL = *unwrap(TD);
+  APInt Offset(DL.getIndexTypeSizeInBits(Val->getType()), 0);
+  Value *Base = Val->stripAndAccumulateConstantOffsets(DL, Offset, AllowNonInbounds);
+  std::copy_n(Offset.getRawData(), Offset.getNumWords(), Words);
+  return wrap(Base);
+}
+
 
 //
 // instructions

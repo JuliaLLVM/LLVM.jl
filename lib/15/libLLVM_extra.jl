@@ -753,6 +753,10 @@ function LLVMExtraGEPAccumulateConstantOffset(GEP, TD, Words)
     ccall((:LLVMExtraGEPAccumulateConstantOffset, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMTargetDataRef, Ptr{UInt64}), GEP, TD, Words)
 end
 
+function LLVMExtraStripAndAccumulateConstantOffsets(V, TD, AllowNonInbounds, Words)
+    ccall((:LLVMExtraStripAndAccumulateConstantOffsets, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMTargetDataRef, LLVMBool, Ptr{UInt64}), V, TD, AllowNonInbounds, Words)
+end
+
 function LLVMExtraMoveInstruction(Inst, BB, Before, Head)
     ccall((:LLVMExtraMoveInstruction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
 end

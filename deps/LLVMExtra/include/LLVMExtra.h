@@ -654,6 +654,12 @@ LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned Add
 unsigned LLVMExtraGetIndexSizeInBits(LLVMTargetDataRef TD, unsigned AddrSpace);
 LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRef TD,
                                               uint64_t *Words);
+// strip the constant offsets of a pointer (GEPs with constant indices, and casts that don't
+// change the address), returning the base pointer, and writing the accumulated byte offset
+// to `Words` like LLVMExtraGEPAccumulateConstantOffset.
+LLVMValueRef LLVMExtraStripAndAccumulateConstantOffsets(LLVMValueRef V, LLVMTargetDataRef TD,
+                                                        LLVMBool AllowNonInbounds,
+                                                        uint64_t *Words);
 
 // insertion points: a block, the instruction to insert before (NULL for the end of the
 // block), and whether to insert before the debug records at that position (the head bit

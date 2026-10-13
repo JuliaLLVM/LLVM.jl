@@ -1881,15 +1881,57 @@ function constant_offset(gep::Union{GetElementPtrInst,ConstantExpr}, dl::DataLay
     bits = Int(API.LLVMExtraGetIndexSizeInBits(dl, addrspace(T)))
     words = zeros(UInt64, cld(bits, 64))
     Bool(API.LLVMExtraGEPAccumulateConstantOffset(gep, dl, words)) || return nothing
+    return signed_offset(words, bits)
+end
+
+# the offset in `words`, as a signed integer of `bits` bits
+function signed_offset(words::Vector{UInt64}, bits::Int)
     offset = BigInt(0)
     for (i, word) in enumerate(words)
         offset |= BigInt(word) << (64 * (i - 1))
     end
-    # the offset is a signed integer of `bits` bits
     if bits > 0 && isodd(offset >> (bits - 1))
         offset -= BigInt(1) << bits
     end
     return offset
+end
+
+@public strip_and_accumulate_constant_offsets
+
+"""
+    LLVM.strip_and_accumulate_constant_offsets(ptr::Value, dl::DataLayout;
+                                               allow_non_inbounds=false)
+
+Strip the constant offsets from the pointer `ptr`: `getelementptr` instructions and
+constant expressions with constant indices, as well as casts that don't change the
+address, like LLVM's `Value::stripAndAccumulateConstantOffsets`. Returns the base pointer
+and the accumulated offset in bytes, as a `BigInt`, which is computed as a signed integer
+of the index width of the pointer's address space. If nothing can be stripped, the result
+is `(ptr, 0)`.
+
+By default, only `inbounds` GEPs are stripped. With `allow_non_inbounds=true`, other GEPs
+are stripped as well, in which case the offset does not imply that the pointer is within
+the bounds of the object the base points to.
+
+    LLVM.strip_and_accumulate_constant_offsets(T::Type{<:Integer}, ptr, dl; kwargs...)
+
+Strip the offsets in the same way, but return the offset as an integer of type `T` (e.g.,
+`Int`), throwing an `InexactError` if it doesn't fit.
+"""
+function strip_and_accumulate_constant_offsets(ptr::Value, dl::DataLayout;
+                                               allow_non_inbounds::Bool=false)
+    T = value_type(ptr)
+    T isa PointerType ||
+        throw(ArgumentError("Cannot strip the constant offsets of a non-pointer value"))
+    bits = Int(API.LLVMExtraGetIndexSizeInBits(dl, addrspace(T)))
+    words = zeros(UInt64, cld(bits, 64))
+    base = API.LLVMExtraStripAndAccumulateConstantOffsets(ptr, dl, allow_non_inbounds, words)
+    return Value(base), signed_offset(words, bits)
+end
+function strip_and_accumulate_constant_offsets(::Type{T}, ptr::Value, dl::DataLayout;
+                                               kwargs...) where {T<:Integer}
+    base, offset = strip_and_accumulate_constant_offsets(ptr, dl; kwargs...)
+    return base, convert(T, offset)
 end
 
 indices(inst::GetElementPtrInst) = @view operands(inst)[2:end]

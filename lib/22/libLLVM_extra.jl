@@ -1008,6 +1008,14 @@ function LLVMExtraDominatorTreeBlockDominates(Tree, A, B)
     ccall((:LLVMExtraDominatorTreeBlockDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef, LLVMBasicBlockRef), Tree, A, B)
 end
 
+function LLVMExtraDominatorTreeRecalculate(Tree, F)
+    ccall((:LLVMExtraDominatorTreeRecalculate, libLLVMExtra), Cvoid, (LLVMDominatorTreeRef, LLVMValueRef), Tree, F)
+end
+
+function LLVMExtraSplitBlockAndInsertIfThen(Cond, SplitBefore, Unreachable, Tree)
+    ccall((:LLVMExtraSplitBlockAndInsertIfThen, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMBool, LLVMDominatorTreeRef), Cond, SplitBefore, Unreachable, Tree)
+end
+
 function LLVMExtraIsInstructionTriviallyDead(Inst)
     ccall((:LLVMExtraIsInstructionTriviallyDead, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end

@@ -535,6 +535,146 @@ end
     end
 end
 
+@testset "control flow changes" begin
+    @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %a, i32 %b) {
+        entry:
+          %c = icmp ne i32 %b, 0
+          br i1 %c, label %body, label %exit
+        body:
+          %d = udiv i32 %a, %b
+          br label %exit
+        exit:
+          %r = phi i32 [ %d, %body ], [ 0, %entry ]
+          ret i32 %r
+        }""") begin
+        f = mod.functions["f"]
+        entry, body, exit = f.blocks
+        d = first(body.instructions)
+        @dispose domtree=DomTree(f) begin
+            # guard the division by a check that the dividend is at least the divisor
+            position!(builder, LLVM.before(d))
+            cond = icmp!(builder, LLVM.IntPredicate.UGE, f.parameters[1], f.parameters[2])
+            term = split_block_and_insert_if_then!(cond, d; domtree)
+            then = term.parent
+            tail = d.parent
+            @test term isa LLVM.BrInst
+            @test only(term.successors) == tail
+            @test collect(body.terminator.successors) == [then, tail]
+            @test length(collect(f.blocks)) == 5
+
+            # the domtree was updated
+            @test dominates(domtree, body, then)
+            @test dominates(domtree, body, tail)
+            @test !dominates(domtree, then, tail)
+            @dispose fresh=DomTree(f) begin
+                for x in f.blocks, y in f.blocks
+                    @test dominates(domtree, x, y) == dominates(fresh, x, y)
+                end
+            end
+
+            # finish the bypass, and verify
+            move!(d, LLVM.before(term))
+            position!(builder, LLVM.at_begin(tail))
+            q = phi!(builder, LLVM.Int32Type())
+            replace_uses!(d, q)
+            push!(q.incoming, (d, then))
+            push!(q.incoming, (ConstantInt(Int32(0)), body))
+            verify(f)
+
+            # without a domtree, the tree needs to be recalculated
+            e = collect(tail.instructions)[2]
+            term2 = split_block_and_insert_if_then!(cond, e; unreachable=true)
+            @test term2 isa LLVM.UnreachableInst
+            @test recalculate!(domtree, f) === domtree
+            @test dominates(domtree, tail, e.parent)
+            @dispose fresh=DomTree(f) begin
+                for x in f.blocks, y in f.blocks
+                    @test dominates(domtree, x, y) == dominates(fresh, x, y)
+                end
+            end
+        end
+
+        @test_throws ArgumentError split_block_and_insert_if_then!(f.parameters[1], d)
+        @test_throws ArgumentError split_block_and_insert_if_then!(
+            ConstantInt(true), first(exit.instructions))
+    end
+
+    # the dominator tree must be one of the function that is changed
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i1 %c) {
+          ret void
+        }
+        define void @g() {
+          ret void
+        }""") begin
+        f, g = mod.functions["f"], mod.functions["g"]
+        @dispose domtree=DomTree(g) begin
+            @test_throws ArgumentError split_block_and_insert_if_then!(
+                f.parameters[1], f.entry.terminator; domtree)
+            @test length(collect(f.blocks)) == 1
+        end
+    end
+
+    # recalculating a tree after the entry block it was computed for was replaced
+    @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, """
+        define void @f() {
+        entry:
+          br label %exit
+        exit:
+          ret void
+        }""") begin
+        f = mod.functions["f"]
+        old_entry, exit = f.blocks
+        @dispose domtree=DomTree(f) begin
+            new_entry = BasicBlock(LLVM.before(old_entry), "new_entry")
+            position!(builder, LLVM.at_end(new_entry))
+            br!(builder, exit)
+            erase!(old_entry)
+            recalculate!(domtree, f)
+            @test dominates(domtree, new_entry, exit)
+            @test !dominates(domtree, exit, new_entry)
+        end
+    end
+end
+
+@testset "preserving the dominator tree across control flow changes" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %a, i32 %b) {
+        entry:
+          %d = udiv i32 %a, %b
+          ret i32 %d
+        }""") begin
+        consistent = Ref(false)
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("split", (f, am) -> begin
+                domtree = am[DomTree]
+                d = first(f.entry.instructions)
+                @dispose builder=IRBuilder() begin
+                    position!(builder, LLVM.before(d))
+                    cond = icmp!(builder, LLVM.IntPredicate.NE, f.parameters[2],
+                                 ConstantInt(Int32(0)))
+                    split_block_and_insert_if_then!(cond, d; unreachable=true, domtree)
+                end
+                return PreservedAnalyses(DomTree)
+            end; analyses=true))
+            register!(pb, FunctionPass("check", (f, am) -> begin
+                domtree = get(am, DomTree, nothing)
+                domtree === nothing && return false
+                @dispose fresh=DomTree(f) begin
+                    consistent[] = all(dominates(domtree, x, y) == dominates(fresh, x, y)
+                                       for x in f.blocks, y in f.blocks)
+                end
+                return false
+            end; analyses=true))
+            add!(pb, "function(split,check)")
+            run!(pb, mod)
+        end
+        @test length(collect(mod.functions["f"].blocks)) == 3
+        @test consistent[]
+    end
+end
+
 @testset "dead code" begin
     @dispose ctx=Context() mod=parse(LLVM.Module, """
         declare void @g(i64)

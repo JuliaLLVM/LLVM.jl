@@ -990,6 +990,16 @@ LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree
                                                        LLVMValueRef Inst, LLVMUseRef U);
 LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
                                               LLVMBasicBlockRef B);
+// recompute a dominator tree for the current CFG of a function
+void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F);
+// split the block containing `SplitBefore` before it, and insert a conditional branch on
+// `Cond` to a new block that ends with a branch to the tail of the split block (or with an
+// unreachable). Returns the terminator of the new block. If `Tree` is not NULL, it is
+// updated for the changes to the CFG; returns NULL (without changing anything) if it is
+// not a tree for the current entry block of the function containing `SplitBefore`.
+LLVMValueRef LLVMExtraSplitBlockAndInsertIfThen(LLVMValueRef Cond, LLVMValueRef SplitBefore,
+                                                LLVMBool Unreachable,
+                                                LLVMDominatorTreeRef Tree);
 
 // whether an instruction is unused and has no side effects, and delete such an instruction
 // together with the operands that become trivially dead (returns false if the instruction

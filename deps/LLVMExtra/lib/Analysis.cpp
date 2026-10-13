@@ -3,6 +3,7 @@
 #include <llvm/ADT/APInt.h>
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/ConstantFolding.h>
+#include <llvm/Analysis/DomTreeUpdater.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/ScalarEvolution.h>
@@ -22,7 +23,10 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/Support/KnownBits.h>
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include <llvm/Transforms/Utils/Local.h>
+
+#include <optional>
 
 using namespace llvm;
 
@@ -795,6 +799,29 @@ LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree
 LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
                                               LLVMBasicBlockRef B) {
   return unwrap(Tree)->dominates(unwrap(A), unwrap(B));
+}
+
+void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F) {
+  // the root of the tree can't be used to find the function, as it may have been deleted
+  unwrap(Tree)->recalculate(*unwrap<Function>(F));
+}
+
+LLVMValueRef LLVMExtraSplitBlockAndInsertIfThen(LLVMValueRef Cond, LLVMValueRef SplitBefore,
+                                                LLVMBool Unreachable,
+                                                LLVMDominatorTreeRef Tree) {
+  Instruction *I = unwrap<Instruction>(SplitBefore);
+  std::optional<DomTreeUpdater> DTU;
+  if (Tree) {
+    // the root of a tree is the entry block of its function (compared without dereferencing
+    // it, as the tree may be stale), and LLVM asserts that blocks are of that function
+    if (unwrap(Tree)->getRoot() != &I->getFunction()->getEntryBlock())
+      return nullptr;
+    DTU.emplace(*unwrap(Tree), DomTreeUpdater::UpdateStrategy::Eager);
+  }
+  // the overload taking an instruction and a DomTreeUpdater exists in every version
+  DomTreeUpdater *Updater = DTU ? &*DTU : nullptr;
+  return wrap(SplitBlockAndInsertIfThen(unwrap(Cond), I, Unreachable,
+                                        /*BranchWeights=*/nullptr, Updater));
 }
 
 

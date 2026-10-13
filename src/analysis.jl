@@ -108,6 +108,73 @@ dominates(domtree::DomTree, A::Instruction, use::Use) =
 dominates(domtree::DomTree, A::BasicBlock, B::BasicBlock) =
     API.LLVMExtraDominatorTreeBlockDominates(domtree, A, B) |> Bool
 
+@vocabulary Analysis recalculate!
+
+"""
+    recalculate!(tree::DomTree, f::Function)
+
+Recompute the dominator tree for the current control-flow graph of the function `f`, e.g.,
+after a pass changed it, and return it. For a tree borrowed from an analysis manager, `f`
+must be the function it was computed for; this makes it valid again, so that a pass can
+preserve it.
+"""
+function recalculate!(domtree::DomTree, f::Function)
+    isdeclaration(f) &&
+        throw(ArgumentError("Cannot compute the dominator tree of a declaration"))
+    API.LLVMExtraDominatorTreeRecalculate(domtree, f)
+    return domtree
+end
+
+
+## control flow
+
+@vocabulary IR split_block_and_insert_if_then!
+
+"""
+    split_block_and_insert_if_then!(cond::Value, at::Instruction; unreachable=false,
+                                    domtree=nothing)
+
+Split the block containing the instruction `at` before it, and make the first part branch
+on the `i1` value `cond` to a new block, which branches to the second part, the tail (or,
+with `unreachable=true`, ends with an `unreachable` instruction):
+
+```
+head:                            ; the original block, up to `at`
+  br i1 %cond, label %then, label %tail
+then:
+  br label %tail                 ; the returned terminator
+tail:                            ; `at` and the rest of the original block
+  ...
+```
+
+Returns the terminator of the new block, before which instructions can be inserted. The
+instruction `at` must not be a PHI node or an exception-handling pad.
+
+If a dominator tree of the function containing `at` is passed as `domtree`, it is updated
+for the new control flow, so that a pass can preserve it (e.g., with
+`PreservedAnalyses(DomTree)`).
+Other analyses, like [`LoopInfo`](@ref), are not updated, and the control-flow graph has
+changed, so `CFGAnalyses` are not preserved.
+"""
+function split_block_and_insert_if_then!(cond::Value, at::Instruction;
+                                         unreachable::Bool=false,
+                                         domtree::Union{Nothing,DomTree}=nothing)
+    ty = value_type(cond)
+    ty isa IntegerType && width(ty) == 1 ||
+        throw(ArgumentError("The condition must be an i1 value"))
+    bb = parent(at)
+    bb === nothing && throw(ArgumentError("Instruction is not part of a basic block"))
+    terminator(bb) === nothing &&
+        throw(ArgumentError("Cannot split a basic block without a terminator"))
+    at isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,CatchSwitchInst} &&
+        throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
+    term = API.LLVMExtraSplitBlockAndInsertIfThen(cond, at, unreachable,
+                                                  something(domtree, C_NULL))
+    term == C_NULL &&
+        throw(ArgumentError("The dominator tree is not one of the function containing the instruction, or it is out of date"))
+    return Instruction(term)
+end
+
 
 ## post-dominance
 

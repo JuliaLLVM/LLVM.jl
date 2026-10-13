@@ -230,6 +230,21 @@ functions it changed itself, and return `PreservedAnalyses(FunctionAnalyses)`. B
 module pass deletes a function, it needs to remove all of its analyses using
 `empty!(am[f])`, as some of them (like the assumption cache) survive invalidation.
 
+Passes with analyses can report what they did, or why they didn't, using optimization
+remarks, like LLVM's passes do. These can be collected using the `remarks` keyword argument
+of the pass builder (or of `run!`):
+
+```jldoctest custom_pass
+julia> function report!(f::LLVM.Function, am)
+         remark!(am, :missed, "report", "NoChange", f.entry.terminator, "nothing to do")
+         return false
+       end;
+
+julia> run!(FunctionPass("report", report!; analyses=true), diamond;
+            remarks = r -> println(r.function_name, ": ", r.message))
+diamond: nothing to do
+```
+
 Custom passes can also take options, which are written in a pipeline like those of LLVM's
 passes, e.g., `my-pass<limit=10>`. To support them, pass a function that parses the text
 between the angle brackets using the `parse_options` keyword argument; the pass callback

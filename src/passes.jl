@@ -600,6 +600,90 @@ function invalidate!(am::FunctionAnalysisManager,
 end
 
 
+## optimization remarks
+
+@vocabulary Passes remark!, Remark
+
+"""
+    remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name, remark_name,
+            inst::Instruction, message)
+
+Emit an optimization remark about the instruction `inst` of the function of `am`, like
+LLVM's passes do using an `OptimizationRemarkEmitter`: with `kind=:passed` for an
+optimization that the pass performed, `kind=:missed` for one that it could not perform,
+or `kind=:analysis` for a fact that explains a decision. The `pass_name` and the
+`remark_name` identify the remark, and `message` describes it.
+
+Remarks are passed to the diagnostic handler of the context, where they can be collected
+using the `remarks` keyword argument of [`PassBuilder`](@ref) (also accepted by `run!`), or
+written to a file using LLVM's `-pass-remarks-output` option. Otherwise, they are logged
+as debug messages.
+"""
+function remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name::AbstractString,
+                 remark_name::AbstractString, inst::Instruction, message::AbstractString)
+    api_kind = if kind === :passed
+        API.LLVMExtraRemarkPassed
+    elseif kind === :missed
+        API.LLVMExtraRemarkMissed
+    elseif kind === :analysis
+        API.LLVMExtraRemarkAnalysis
+    else
+        throw(ArgumentError("Invalid kind of remark :$kind; expected :passed, :missed or :analysis"))
+    end
+    bb = parent(inst)
+    bb !== nothing && parent(bb) == am.fun ||
+        throw(ArgumentError("Instruction is not part of function $(am.fun.name)"))
+    API.LLVMExtraFunctionAnalysisManagerEmitRemark(am, api_kind, pass_name, remark_name,
+                                                   inst, message)
+    return
+end
+
+"""
+    Remark
+
+An optimization remark, as collected by a pass builder with a `remarks` callback (see
+[`PassBuilder`](@ref)) and emitted by a custom pass using [`remark!`](@ref) or by one of
+LLVM's passes. Its fields are:
+
+- `kind`: `:passed`, `:missed` or `:analysis`;
+- `pass_name`, `name`: the names of the pass and of the remark;
+- `function_name`: the name of the function the remark is about;
+- `message`: the message of the remark;
+- `file`, `line`, `column`: the source location of the remark, from debug information,
+  or an empty file name if it is unknown.
+"""
+struct Remark
+    kind::Symbol
+    pass_name::String
+    name::String
+    function_name::String
+    message::String
+    file::String
+    line::Int
+    column::Int
+end
+
+# the remark of a diagnostic, or nothing if it isn't an optimization remark
+function Remark(di::DiagnosticInfo)
+    kind = Ref{API.LLVMExtraRemarkKind}()
+    strs = [Ref{Cstring}() for _ in 1:5]
+    line = Ref{Cuint}()
+    column = Ref{Cuint}()
+    Bool(API.LLVMExtraGetRemarkInfo(di, kind, strs..., line, column)) || return nothing
+    pass_name, name, function_name, message, file = map(ref -> unsafe_message(ref[]), strs)
+    kind_sym = kind[] == API.LLVMExtraRemarkPassed ? :passed :
+               kind[] == API.LLVMExtraRemarkMissed ? :missed : :analysis
+    return Remark(kind_sym, pass_name, name, function_name, message, file, line[],
+                  column[])
+end
+
+function Base.show(io::IO, remark::Remark)
+    print(io, "Remark(:", remark.kind, ", ", repr(remark.pass_name), ", ",
+          repr(remark.name), ", ", repr(remark.function_name), ", ", repr(remark.message),
+          ")")
+end
+
+
 ## pass builder
 
 @vocabulary Passes PassBuilder, register!, add!, run!
@@ -627,6 +711,13 @@ like `default<O3>`:
 - `licm_mssa_no_acc_for_promotion_cap::Int`: LICM MSSA no access for promotion cap.
 - `call_graph_profile::Bool`: Enable call graph profiling.
 - `merge_functions::Bool`: Enable function merging.
+
+To collect the optimization remarks that passes emit, e.g., using [`remark!`](@ref), pass a
+function as the `remarks` keyword argument. It is called with each [`Remark`](@ref) while
+the passes run, instead of the remark being logged as a debug message. LLVM's own passes
+only emit remarks when they are enabled using LLVM's `-pass-remarks`, `-pass-remarks-missed`
+or `-pass-remarks-analysis` command-line options. Exceptions thrown by the function are
+rethrown as `PassException` by `run!`. This requires a context created by LLVM.jl.
 
 After a pass builder is constructed, custom passes can be registered with `register!`,
 passes or nested pass managers can be added with `add!`, and finally the passes can be run
@@ -659,6 +750,7 @@ mutable struct PassBuilder <: AbstractPassManager
     custom_passes::Vector{CustomPass}
     custom_tti::Union{AbstractTargetTransformInfo,Nothing}
     registration_callbacks::Vector{Ptr{Cvoid}}
+    remarks::Any
 end
 
 Base.string(pm::PassBuilder) = join(pm.passes, ",")
@@ -668,7 +760,7 @@ Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::PassBuilder) =
 
 function PassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
-    obj = mark_alloc(PassBuilder(opts, [], [], [], nothing, []))
+    obj = mark_alloc(PassBuilder(opts, [], [], [], nothing, [], nothing))
 
     # dispose of the options if a keyword argument is invalid
     try
@@ -695,6 +787,8 @@ function PassBuilder(; kwargs...)
                 API.LLVMPassBuilderOptionsSetCallGraphProfile(obj, value)
             elseif name == :merge_functions
                 API.LLVMPassBuilderOptionsSetMergeFunctions(obj, value)
+            elseif name == :remarks
+                obj.remarks = value
             else
                 throw(ArgumentError("invalid keyword argument $name"))
             end
@@ -823,6 +917,30 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                 install_custom_tti!(exts, pb.custom_tti)
     ctx = context(target)
     prepare_diagnostic(ctx)
+    diag_state = diagnostic_state(ctx)
+    if pb.remarks !== nothing
+        diag_state === nothing &&
+            throw(ArgumentError("Remarks can only be collected in a context created by LLVM.jl"))
+        # support nested runs, e.g., by a custom pass
+        previous_remarks = (diag_state.remark_callback, diag_state.remark_exception)
+        diag_state.remark_callback = pb.remarks
+        diag_state.remark_exception = nothing
+    end
+    try
+        run_pipeline!(pb, exts, target, tm, pipeline, aa_pipeline, states, tti_state, ctx)
+        if pb.remarks !== nothing && diag_state.remark_exception !== nothing
+            throw(PassException(diag_state.remark_exception...))
+        end
+    finally
+        if pb.remarks !== nothing
+            diag_state.remark_callback, diag_state.remark_exception = previous_remarks
+        end
+    end
+end
+
+function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
+                       target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
+                       pipeline::String, aa_pipeline::String, states, tti_state, ctx)
     GC.@preserve states tti_state aa_pipeline begin
         # register custom passes
         for (i,pass) in enumerate(pb.custom_passes)

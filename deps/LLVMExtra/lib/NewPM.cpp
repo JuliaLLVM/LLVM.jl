@@ -4,6 +4,7 @@
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/OptimizationRemarkEmitter.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -511,6 +512,37 @@ void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM,
                                            LLVMValueRef F) {
   Function &Fn = *unwrap<Function>(F);
   unwrap(AM)->clear(Fn, Fn.getName());
+}
+
+void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMExtraRemarkKind Kind,
+                                                const char *PassName,
+                                                const char *RemarkName, LLVMValueRef Inst,
+                                                const char *Message) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  auto &ORE = unwrap(AM)->getResult<OptimizationRemarkEmitterAnalysis>(*I->getFunction());
+  // remarks keep a pointer to the pass name, and are passed to the diagnostic handler
+  // before `emit` returns
+  switch (Kind) {
+  case LLVMExtraRemarkPassed: {
+    OptimizationRemark R(PassName, RemarkName, I);
+    R << Message;
+    ORE.emit(R);
+    break;
+  }
+  case LLVMExtraRemarkMissed: {
+    OptimizationRemarkMissed R(PassName, RemarkName, I);
+    R << Message;
+    ORE.emit(R);
+    break;
+  }
+  case LLVMExtraRemarkAnalysis: {
+    OptimizationRemarkAnalysis R(PassName, RemarkName, I);
+    R << Message;
+    ORE.emit(R);
+    break;
+  }
+  }
 }
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ModuleAnalysisManager, LLVMModuleAnalysisManagerRef)

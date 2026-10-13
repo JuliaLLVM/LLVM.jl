@@ -1000,6 +1000,102 @@ end
     end
 end
 
+@testset "optimization remarks" begin
+    ir = """
+        define i32 @f(i32 %x) {
+          %y = add i32 %x, 1
+          ret i32 %y
+        }
+
+        define i32 @g(i32 %x) {
+          ret i32 %x
+        }"""
+
+    # remarks from function and module passes are collected
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+        remarks = Remark[]
+        @dispose pb=PassBuilder(; remarks=r -> push!(remarks, r)) begin
+            register!(pb, FunctionPass("remarking", (f, am) -> begin
+                inst = first(f.entry.instructions)
+                remark!(am, :passed, "remarking", "Visited", inst, "visited $(f.name)")
+                return false
+            end; analyses=true))
+            register!(pb, ModulePass("module-remarking", (mod, am) -> begin
+                f = mod.functions["f"]
+                remark!(am[f], :missed, "module-remarking", "Skipped",
+                        first(f.entry.instructions), "skipped the add")
+                remark!(am[f], :analysis, "module-remarking", "Range", f.entry.terminator,
+                        "returns a value")
+                return false
+            end; analyses=true))
+            add!(pb, "module-remarking,function(remarking)")
+            run!(pb, mod)
+        end
+        @test length(remarks) == 4
+        @test remarks[1].kind === :missed
+        @test remarks[1].pass_name == "module-remarking"
+        @test remarks[1].name == "Skipped"
+        @test remarks[1].function_name == "f"
+        @test remarks[1].message == "skipped the add"
+        @test remarks[1].file == ""
+        @test remarks[2].kind === :analysis
+        @test [(r.kind, r.function_name, r.message) for r in remarks[3:4]] ==
+              [(:passed, "f", "visited f"), (:passed, "g", "visited g")]
+        @test occursin("skipped the add", sprint(show, remarks[1]))
+
+        # without a callback, remarks are logged as debug messages
+        pass = FunctionPass("remarking", (f, am) -> begin
+            remark!(am, :passed, "remarking", "Visited", f.entry.terminator, "visited")
+            return false
+        end; analyses=true)
+        run!(pass, mod)
+
+        # the callback is only used during the run
+        remarks = Remark[]
+        run!(pass, mod; remarks=r -> push!(remarks, r))
+        @test length(remarks) == 2
+        run!(pass, mod)
+        @test length(remarks) == 2
+
+        # nested runs collect their own remarks, and restore those of the outer run
+        outer = Remark[]
+        inner_error = Ref{Any}(nothing)
+        nesting = FunctionPass("nesting", (f, am) -> begin
+            remark!(am, :passed, "nesting", "Before", f.entry.terminator, "before")
+            @dispose inner_mod=parse(LLVM.Module, ir) begin
+                inner_error[] = try
+                    run!(pass, inner_mod; remarks=r -> error("inner"))
+                catch err
+                    err
+                end
+            end
+            remark!(am, :passed, "nesting", "After", f.entry.terminator, "after")
+            return false
+        end; analyses=true)
+        run!(nesting, mod.functions["f"]; remarks=r -> push!(outer, r))
+        @test [r.name for r in outer] == ["Before", "After"]
+        @test inner_error[] isa LLVM.PassException
+
+        # exceptions are rethrown after LLVM returns
+        err = try
+            run!(pass, mod; remarks=r -> error("oops"))
+        catch err
+            err
+        end
+        @test err isa LLVM.PassException
+        @test err.ex isa ErrorException
+        @test_throws LLVM.PassException run!(FunctionPass("bad-kind", (f, am) -> begin
+            remark!(am, :bogus, "bad-kind", "Bad", f.entry.terminator, "")
+            return false
+        end; analyses=true), mod)
+        @test_throws LLVM.PassException run!(FunctionPass("other-function", (f, am) -> begin
+            other = mod.functions[f.name == "f" ? "g" : "f"]
+            remark!(am, :passed, "other-function", "Bad", other.entry.terminator, "")
+            return false
+        end; analyses=true), mod)
+    end
+end
+
 @testset "custom pass exceptions" begin
     # Module pass exceptions are rethrown after LLVM returns.
     @dispose ctx=Context() mod=test_module() begin

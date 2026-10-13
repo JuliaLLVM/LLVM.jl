@@ -316,6 +316,21 @@ LLVMBool LLVMExtraExpandPartwordCmpXchg(LLVMValueRef CXI, unsigned MinWordSize);
 // the name of a synchronization scope, or NULL if the context does not know it
 const char *LLVMExtraGetSyncScopeName(LLVMContextRef C, unsigned SSID, size_t *Len);
 
+// optimization remarks: those of passes that performed an optimization, that missed one,
+// or that describe an analysis
+typedef enum {
+  LLVMExtraRemarkPassed,
+  LLVMExtraRemarkMissed,
+  LLVMExtraRemarkAnalysis,
+} LLVMExtraRemarkKind;
+// the details of a diagnostic that is an optimization remark; returns false for other
+// diagnostics. The strings are copies, to be disposed of with LLVMDisposeMessage, and the
+// file is empty (and the line and column 0) if the remark has no debug location.
+LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *Kind,
+                                char **PassName, char **RemarkName, char **FunctionName,
+                                char **Message, char **File, unsigned *Line,
+                                unsigned *Column);
+
 // NewPM extensions
 typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
 LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
@@ -389,6 +404,13 @@ void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef A
 // forcibly remove all cached analysis results of a function, including those that survive
 // invalidation, e.g., before the function is deleted
 void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM, LLVMValueRef F);
+// emit an optimization remark about an instruction of the function, through the function's
+// OptimizationRemarkEmitter. It is passed to the diagnostic handler of the context.
+void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMExtraRemarkKind Kind,
+                                                const char *PassName,
+                                                const char *RemarkName, LLVMValueRef Inst,
+                                                const char *Message);
 
 // Custom module passes that use analyses. The callback receives the module analysis manager
 // of the pipeline, from which the function analysis manager can be obtained, and an output

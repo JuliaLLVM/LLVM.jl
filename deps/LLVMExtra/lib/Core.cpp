@@ -16,6 +16,7 @@
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
+#include <llvm/IR/DiagnosticInfo.h>
 #if LLVM_VERSION_MAJOR >= 19
 #include <llvm/IR/DebugProgramInstruction.h>
 #endif
@@ -1597,4 +1598,39 @@ LLVMBool LLVMExtraVerifyFunction(LLVMValueRef Fn, char **OutMessage) {
   OS.flush();
   *OutMessage = Broken ? strdup(Message.c_str()) : nullptr;
   return Broken;
+}
+
+
+//
+// diagnostics
+//
+
+LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *Kind,
+                                char **PassName, char **RemarkName, char **FunctionName,
+                                char **Message, char **File, unsigned *Line,
+                                unsigned *Column) {
+  auto *Remark = dyn_cast<DiagnosticInfoOptimizationBase>(unwrap(DI));
+  if (!Remark)
+    return false;
+  if (Remark->isPassed())
+    *Kind = LLVMExtraRemarkPassed;
+  else if (Remark->isMissed())
+    *Kind = LLVMExtraRemarkMissed;
+  else
+    *Kind = LLVMExtraRemarkAnalysis;
+  *PassName = strdup(Remark->getPassName().str().c_str());
+  *RemarkName = strdup(Remark->getRemarkName().str().c_str());
+  *FunctionName = strdup(Remark->getFunction().getName().str().c_str());
+  *Message = strdup(Remark->getMsg().c_str());
+  if (Remark->isLocationAvailable()) {
+    DiagnosticLocation Loc = Remark->getLocation();
+    *File = strdup(Loc.getAbsolutePath().c_str());
+    *Line = Loc.getLine();
+    *Column = Loc.getColumn();
+  } else {
+    *File = strdup("");
+    *Line = 0;
+    *Column = 0;
+  }
+  return true;
 }

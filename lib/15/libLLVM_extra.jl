@@ -442,6 +442,16 @@ function LLVMExtraGetSyncScopeName(C, SSID, Len)
     ccall((:LLVMExtraGetSyncScopeName, libLLVMExtra), Cstring, (LLVMContextRef, Cuint, Ptr{Csize_t}), C, SSID, Len)
 end
 
+@cenum LLVMExtraRemarkKind::UInt32 begin
+    LLVMExtraRemarkPassed = 0
+    LLVMExtraRemarkMissed = 1
+    LLVMExtraRemarkAnalysis = 2
+end
+
+function LLVMExtraGetRemarkInfo(DI, Kind, PassName, RemarkName, FunctionName, Message, File, Line, Column)
+    ccall((:LLVMExtraGetRemarkInfo, libLLVMExtra), LLVMBool, (LLVMDiagnosticInfoRef, Ptr{LLVMExtraRemarkKind}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cuint}, Ptr{Cuint}), DI, Kind, PassName, RemarkName, FunctionName, Message, File, Line, Column)
+end
+
 mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
@@ -514,6 +524,10 @@ end
 
 function LLVMExtraFunctionAnalysisManagerClear(AM, F)
     ccall((:LLVMExtraFunctionAnalysisManagerClear, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef), AM, F)
+end
+
+function LLVMExtraFunctionAnalysisManagerEmitRemark(AM, Kind, PassName, RemarkName, Inst, Message)
+    ccall((:LLVMExtraFunctionAnalysisManagerEmitRemark, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef, Cstring), AM, Kind, PassName, RemarkName, Inst, Message)
 end
 
 mutable struct LLVMOpaqueModuleAnalysisManager end

@@ -93,8 +93,16 @@ The bounds and extrema of a range are integers of a type that depends on the bit
   interpreted as unsigned integers.
 - `r.signed_min`, `r.signed_max`: the smallest and largest value in the range when
   interpreted as signed integers.
+- `r.all_nonnegative`: whether all values in the range are non-negative when interpreted
+  as signed integers (which is the case for the empty range).
 
 The extrema are not defined for the empty range.
+
+Use `x in r` to check whether the integer `x` is in the range (where negative integers are
+interpreted as two's complement integers, and integers that don't fit in the bit width are
+never in the range), and `issubset(a, b)` to check whether all values in range `a` are in
+range `b`. Ranges can also be read from, and converted to `!range` metadata, using
+`ConstantRange(md::MDNode)` and `MDNode(r)`.
 
 See also: [`isfullset`](@ref), [`iswrappedset`](@ref)
 """
@@ -228,10 +236,36 @@ function signed_max(r::ConstantRange)
     return hi - one(T)
 end
 
+function all_nonnegative(r::ConstantRange)
+    # like LLVM, which also includes the empty range
+    issignwrappedset(r) && return false
+    T = signed_type(r)
+    return signed_value(T, bitwidth(r), getfield(r, :lower)) >= 0
+end
+
 @property ConstantRange unsigned_min
 @property ConstantRange unsigned_max
 @property ConstantRange signed_min
 @property ConstantRange signed_max
+@property ConstantRange all_nonnegative
+
+function Base.issubset(a::ConstantRange{N}, b::ConstantRange{N}) where {N}
+    check_same_width(a, b)
+    buf = Ref((getfield(a, :lower), getfield(a, :upper), getfield(b, :lower),
+               getfield(b, :upper)))
+    GC.@preserve buf begin
+        p = Ptr{UInt64}(Base.unsafe_convert(Ptr{typeof(buf[])}, buf))
+        # LLVM checks whether the range contains another one
+        API.LLVMExtraConstantRangeContains(bitwidth(a), p + 16N, p + 24N, p, p + 8N) |> Bool
+    end
+end
+Base.issubset(a::ConstantRange, b::ConstantRange) = check_same_width(a, b)
+
+function Base.in(x::Integer, r::ConstantRange)
+    nbits = bitwidth(r)
+    -(big(1) << (nbits - 1)) <= x < big(1) << nbits || return false
+    return issubset(ConstantRange(nbits, x), r)
+end
 
 function Base.show(io::IO, r::ConstantRange)
     if isfullset(r)

@@ -2,21 +2,31 @@
 
 #include <llvm/ADT/APInt.h>
 #include <llvm/Analysis/AssumptionCache.h>
+#include <llvm/Analysis/ConstantFolding.h>
+#include <llvm/Analysis/DomTreeUpdater.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Analysis/ValueTracking.h>
+#if LLVM_VERSION_MAJOR >= 18
+#include <llvm/Analysis/SimplifyQuery.h>
+#endif
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/ConstantRange.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/MDBuilder.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/Support/KnownBits.h>
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include <llvm/Transforms/Utils/Local.h>
+
+#include <optional>
 
 using namespace llvm;
 
@@ -179,6 +189,41 @@ void LLVMExtraConstantRangeToKnownBits(unsigned NumBits, const uint64_t *Lower,
   writeAPInt(Known.One, OneOut);
 }
 
+LLVMBool LLVMExtraConstantRangeContains(unsigned NumBits, const uint64_t *LowerA,
+                                        const uint64_t *UpperA, const uint64_t *LowerB,
+                                        const uint64_t *UpperB) {
+  return readRange(NumBits, LowerA, UpperA).contains(readRange(NumBits, LowerB, UpperB));
+}
+
+unsigned LLVMExtraGetConstantRangeFromMetadata(LLVMMetadataRef MD, uint64_t *Lower,
+                                               uint64_t *Upper) {
+  // getConstantRangeFromMetadata asserts that the metadata is valid, so check it first
+  auto *Node = dyn_cast<MDNode>(unwrap(MD));
+  if (!Node || Node->getNumOperands() == 0 || Node->getNumOperands() % 2 != 0)
+    return 0;
+  unsigned NumBits = 0;
+  for (unsigned I = 0; I < Node->getNumOperands(); I += 2) {
+    auto *Lo = mdconst::dyn_extract_or_null<ConstantInt>(Node->getOperand(I));
+    auto *Hi = mdconst::dyn_extract_or_null<ConstantInt>(Node->getOperand(I + 1));
+    if (!Lo || !Hi || Lo->getBitWidth() != Hi->getBitWidth() ||
+        (NumBits && Lo->getBitWidth() != NumBits))
+      return 0;
+    NumBits = Lo->getBitWidth();
+    if (Lo->getValue() == Hi->getValue() && !Lo->getValue().isMaxValue() &&
+        !Lo->getValue().isMinValue())
+      return 0;
+  }
+  if (Lower && Upper)
+    writeRange(getConstantRangeFromMetadata(*Node), Lower, Upper);
+  return NumBits;
+}
+
+LLVMMetadataRef LLVMExtraCreateRangeMetadata(LLVMContextRef C, unsigned NumBits,
+                                             const uint64_t *Lower, const uint64_t *Upper) {
+  MDBuilder Builder(*unwrap(C));
+  return wrap(Builder.createRange(readAPInt(NumBits, Lower), readAPInt(NumBits, Upper)));
+}
+
 #if LLVM_VERSION_MAJOR >= 19
 unsigned LLVMExtraGetConstantRangeAttributeValue(LLVMAttributeRef A, uint64_t *Lower,
                                                  uint64_t *Upper) {
@@ -333,6 +378,73 @@ LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst) {
   return programUndefinedIfPoison(unwrap<Instruction>(Inst));
 }
 
+LLVMBool LLVMExtraIsGuaranteedNotToBeUndefOrPoison(LLVMValueRef V,
+                                                   LLVMAssumptionCacheRef AC,
+                                                   LLVMValueRef CxtI,
+                                                   LLVMDominatorTreeRef DT) {
+  return isGuaranteedNotToBeUndefOrPoison(unwrap(V), AC ? unwrap(AC) : nullptr,
+                                          CxtI ? unwrap<Instruction>(CxtI) : nullptr,
+                                          DT ? unwrap(DT) : nullptr);
+}
+
+LLVMBool LLVMExtraIsKnown(LLVMExtraKnownFact Fact, LLVMValueRef V, LLVMBool UseInstrInfo,
+                          LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                          LLVMDominatorTreeRef DT, LLVMTargetDataRef DL, LLVMBool *Known) {
+  Value *Val = unwrap(V);
+  auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
+  const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
+  if (!Layout)
+    return false;
+  AssumptionCache *Cache = AC ? unwrap(AC) : nullptr;
+  DominatorTree *Tree = DT ? unwrap(DT) : nullptr;
+#if LLVM_VERSION_MAJOR >= 18
+  SimplifyQuery Q(*Layout, Tree, Cache, Ctx, UseInstrInfo);
+#endif
+  bool Result = false;
+  switch (Fact) {
+  case LLVMExtraKnownNonNegative:
+#if LLVM_VERSION_MAJOR >= 18
+    Result = isKnownNonNegative(Val, Q);
+#else
+    Result = isKnownNonNegative(Val, *Layout, /*Depth=*/0, Cache, Ctx, Tree, UseInstrInfo);
+#endif
+    break;
+  case LLVMExtraKnownPositive:
+#if LLVM_VERSION_MAJOR >= 18
+    Result = isKnownPositive(Val, Q);
+#else
+    Result = isKnownPositive(Val, *Layout, /*Depth=*/0, Cache, Ctx, Tree, UseInstrInfo);
+#endif
+    break;
+  case LLVMExtraKnownNonZero:
+#if LLVM_VERSION_MAJOR >= 19
+    Result = isKnownNonZero(Val, Q);
+#else
+    Result = isKnownNonZero(Val, *Layout, /*Depth=*/0, Cache, Ctx, Tree, UseInstrInfo);
+#endif
+    break;
+  }
+  *Known = Result;
+  return true;
+}
+
+unsigned LLVMExtraComputeNumSignBits(LLVMValueRef V, LLVMBool UseInstrInfo,
+                                     LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                                     LLVMDominatorTreeRef DT, LLVMTargetDataRef DL) {
+  Value *Val = unwrap(V);
+  auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
+  const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
+  if (!Layout)
+    return 0;
+  // the depth argument moved to the end in LLVM 21
+  return ComputeNumSignBits(Val, *Layout,
+#if LLVM_VERSION_MAJOR < 21
+                            /*Depth=*/0,
+#endif
+                            AC ? unwrap(AC) : nullptr, Ctx, DT ? unwrap(DT) : nullptr,
+                            UseInstrInfo);
+}
+
 
 // LazyValueInfo
 
@@ -425,6 +537,82 @@ LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVM
   if (!areCompatibleOperands(*unwrap(SE), {unwrap(LHS), unwrap(RHS)}, 2))
     return nullptr;
   return wrap(unwrap(SE)->getMinusSCEV(unwrap(LHS), unwrap(RHS)));
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetMulExpr(LLVMScalarEvolutionRef SE, LLVMSCEVRef *Ops,
+                                               unsigned NumOps) {
+  SmallVector<const SCEV *, 4> Operands;
+  for (unsigned I = 0; I < NumOps; ++I)
+    Operands.push_back(unwrap(Ops[I]));
+  // pointers cannot be multiplied
+  if (Operands.empty() || !areCompatibleOperands(*unwrap(SE), Operands, 0))
+    return nullptr;
+#if LLVM_VERSION_MAJOR >= 23
+  SmallVector<SCEVUse, 4> Uses(Operands.begin(), Operands.end());
+  return wrap(unwrap(SE)->getMulExpr(Uses));
+#else
+  return wrap(unwrap(SE)->getMulExpr(Operands));
+#endif
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetCastExpr(LLVMScalarEvolutionRef SE, LLVMOpcode Opcode,
+                                                LLVMSCEVRef S, LLVMTypeRef Ty) {
+  ScalarEvolution &Evolution = *unwrap(SE);
+  const SCEV *Op = unwrap(S);
+  Type *DestTy = unwrap(Ty);
+  // the builders assert that the types are valid for the cast
+  if (isa<SCEVCouldNotCompute>(Op) || !Op->getType()->isIntegerTy() ||
+      !DestTy->isIntegerTy())
+    return nullptr;
+  unsigned SrcBits = Op->getType()->getIntegerBitWidth();
+  unsigned DestBits = DestTy->getIntegerBitWidth();
+  switch (Opcode) {
+  case LLVMTrunc:
+    return SrcBits > DestBits ? wrap(Evolution.getTruncateExpr(Op, DestTy)) : nullptr;
+  case LLVMZExt:
+    return SrcBits < DestBits ? wrap(Evolution.getZeroExtendExpr(Op, DestTy)) : nullptr;
+  case LLVMSExt:
+    return SrcBits < DestBits ? wrap(Evolution.getSignExtendExpr(Op, DestTy)) : nullptr;
+  default:
+    return nullptr;
+  }
+}
+
+LLVMBool LLVMExtraScalarEvolutionIsLoopInvariant(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
+                                                 LLVMLoopRef L) {
+  return unwrap(SE)->isLoopInvariant(unwrap(S), unwrap(L));
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetBackedgeTakenCount(LLVMScalarEvolutionRef SE,
+                                                          LLVMLoopRef L,
+                                                          LLVMExtraBackedgeTakenCountKind Kind) {
+  ScalarEvolution::ExitCountKind CountKind;
+  switch (Kind) {
+  case LLVMExtraExactBackedgeTakenCount:
+    CountKind = ScalarEvolution::Exact;
+    break;
+  case LLVMExtraConstantMaxBackedgeTakenCount:
+    CountKind = ScalarEvolution::ConstantMaximum;
+    break;
+  case LLVMExtraSymbolicMaxBackedgeTakenCount:
+    CountKind = ScalarEvolution::SymbolicMaximum;
+    break;
+  default:
+    llvm_unreachable("unknown backedge-taken count kind");
+  }
+  return wrap(unwrap(SE)->getBackedgeTakenCount(unwrap(L), CountKind));
+}
+
+LLVMSCEVRef LLVMExtraSCEVAddRecGetStepRecurrence(LLVMScalarEvolutionRef SE, LLVMSCEVRef S) {
+  if (auto *AR = dyn_cast<SCEVAddRecExpr>(unwrap(S)))
+    return wrap(AR->getStepRecurrence(*unwrap(SE)));
+  return nullptr;
+}
+
+unsigned LLVMExtraSCEVGetNoWrapFlags(LLVMSCEVRef S) {
+  if (auto *NAry = dyn_cast<SCEVNAryExpr>(unwrap(S)))
+    return static_cast<unsigned>(NAry->getNoWrapFlags());
+  return 0;
 }
 
 unsigned LLVMExtraScalarEvolutionGetRange(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
@@ -555,6 +743,51 @@ LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB) {
   return unwrap(L)->contains(unwrap(BB));
 }
 
+// copy a list of objects to an array of their references, if it is not NULL
+template <typename Ref, typename Range> static unsigned writeRefs(const Range &R, Ref *Out) {
+  unsigned N = 0;
+  for (auto *X : R) {
+    if (Out)
+      Out[N] = wrap(X);
+    N++;
+  }
+  return N;
+}
+
+unsigned LLVMExtraLoopGetNumBlocks(LLVMLoopRef L) { return unwrap(L)->getNumBlocks(); }
+
+LLVMBasicBlockRef LLVMExtraLoopGetBlock(LLVMLoopRef L, unsigned Index) {
+  return wrap(unwrap(L)->getBlocks()[Index]);
+}
+
+unsigned LLVMExtraLoopGetNumSubLoops(LLVMLoopRef L) { return unwrap(L)->getSubLoops().size(); }
+
+LLVMLoopRef LLVMExtraLoopGetSubLoop(LLVMLoopRef L, unsigned Index) {
+  return wrap(unwrap(L)->getSubLoops()[Index]);
+}
+
+unsigned LLVMExtraLoopGetUniqueExitBlocks(LLVMLoopRef L, LLVMBasicBlockRef *Blocks) {
+  SmallVector<BasicBlock *, 4> Exits;
+  unwrap(L)->getUniqueExitBlocks(Exits);
+  return writeRefs(Exits, Blocks);
+}
+
+unsigned LLVMExtraLoopInfoGetTopLevelLoops(LLVMLoopInfoRef LI, LLVMLoopRef *Loops) {
+  return writeRefs(unwrap(LI)->getTopLevelLoops(), Loops);
+}
+
+LLVMBasicBlockRef LLVMExtraLoopGetLatch(LLVMLoopRef L) {
+  return wrap(unwrap(L)->getLoopLatch());
+}
+
+LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L) {
+  return wrap(unwrap(L)->getLoopPreheader());
+}
+
+LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V) {
+  return unwrap(L)->isLoopInvariant(unwrap(V));
+}
+
 
 // Dominance
 
@@ -568,6 +801,29 @@ LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBas
   return unwrap(Tree)->dominates(unwrap(A), unwrap(B));
 }
 
+void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F) {
+  // the root of the tree can't be used to find the function, as it may have been deleted
+  unwrap(Tree)->recalculate(*unwrap<Function>(F));
+}
+
+LLVMValueRef LLVMExtraSplitBlockAndInsertIfThen(LLVMValueRef Cond, LLVMValueRef SplitBefore,
+                                                LLVMBool Unreachable,
+                                                LLVMDominatorTreeRef Tree) {
+  Instruction *I = unwrap<Instruction>(SplitBefore);
+  std::optional<DomTreeUpdater> DTU;
+  if (Tree) {
+    // the root of a tree is the entry block of its function (compared without dereferencing
+    // it, as the tree may be stale), and LLVM asserts that blocks are of that function
+    if (unwrap(Tree)->getRoot() != &I->getFunction()->getEntryBlock())
+      return nullptr;
+    DTU.emplace(*unwrap(Tree), DomTreeUpdater::UpdateStrategy::Eager);
+  }
+  // the overload taking an instruction and a DomTreeUpdater exists in every version
+  DomTreeUpdater *Updater = DTU ? &*DTU : nullptr;
+  return wrap(SplitBlockAndInsertIfThen(unwrap(Cond), I, Unreachable,
+                                        /*BranchWeights=*/nullptr, Updater));
+}
+
 
 // Dead code
 
@@ -577,4 +833,38 @@ LLVMBool LLVMExtraIsInstructionTriviallyDead(LLVMValueRef Inst) {
 
 LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst) {
   return RecursivelyDeleteTriviallyDeadInstructions(unwrap(Inst));
+}
+
+LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(LLVMValueRef *Insts,
+                                                                       unsigned NumInsts) {
+  // the handles become null when their instruction is deleted, which happens when an
+  // instruction is also the operand of another one that is deleted first
+  SmallVector<WeakTrackingVH, 16> DeadInsts;
+  for (unsigned I = 0; I < NumInsts; ++I)
+    DeadInsts.emplace_back(unwrap(Insts[I]));
+  return RecursivelyDeleteTriviallyDeadInstructionsPermissive(DeadInsts);
+}
+
+LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
+                                          LLVMTypeRef DestTy, LLVMTargetDataRef TD,
+                                          LLVMValueRef *Result) {
+  Instruction::CastOps Op;
+  switch (Opcode) {
+#define CAST(Name)                                                                         \
+  case LLVM##Name:                                                                         \
+    Op = Instruction::Name;                                                                \
+    break;
+    CAST(Trunc) CAST(ZExt) CAST(SExt) CAST(FPToUI) CAST(FPToSI) CAST(UIToFP) CAST(SIToFP)
+    CAST(FPTrunc) CAST(FPExt) CAST(PtrToInt) CAST(IntToPtr) CAST(BitCast) CAST(AddrSpaceCast)
+#undef CAST
+  default:
+    return false;
+  }
+  Constant *Const = unwrap<Constant>(C);
+  Type *Ty = unwrap(DestTy);
+  // the constant folder asserts that the cast is valid
+  if (!CastInst::castIsValid(Op, Const, Ty))
+    return false;
+  *Result = wrap(ConstantFoldCastOperand(Op, Const, Ty, *unwrap(TD)));
+  return true;
 }

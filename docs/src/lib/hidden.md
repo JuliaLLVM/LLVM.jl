@@ -153,6 +153,12 @@ FunctionPass
 
 ```@docs
 CFGAnalyses
+FunctionAnalyses
+```
+
+```@docs
+is_known_positive
+is_known_non_zero
 ```
 
 ```@docs

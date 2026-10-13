@@ -267,6 +267,17 @@ The user of the use, i.e., the value that has the used value as an operand.
     use.value
 
 The used value of the use.
+
+    use.operand_index
+
+The (1-based) index of the use in the operands of its user, i.e., `use.user.operands[i]`
+is `use.value`.
+
+    use.argument_index
+
+If the user is a call, the (1-based) index of the call argument that is the use, or
+`nothing` if the use is not an argument (e.g., because it is the called function, or an
+operand of an operand bundle). See also [`iscallee`](@ref).
 """
 @checked struct Use
     ref::API.LLVMUseRef
@@ -279,8 +290,33 @@ user(use::Use) =  Value(API.LLVMGetUser(     use))
 
 value(use::Use) = Value(API.LLVMGetUsedValue(use))
 
+operand_index(use::Use) = Int(API.LLVMExtraGetOperandNo(use)) + 1
+
+function argument_index(use::Use)
+    call = user(use)
+    call isa CallBase || return nothing
+    i = operand_index(use)
+    return i <= API.LLVMGetNumArgOperands(call) ? i : nothing
+end
+
 @property Use user
 @property Use value
+@property Use operand_index
+@property Use argument_index
+
+@vocabulary IR iscallee
+
+"""
+    iscallee(use::Use)
+
+Check whether the use is the called operand of a call, `invoke` or `callbr` instruction.
+The same value can also be used as an argument of the call, which is a different use.
+"""
+function iscallee(use::Use)
+    call = user(use)
+    # the called operand is the last operand of a call
+    return call isa CallBase && operand_index(use) == API.LLVMGetNumOperands(call)
+end
 
 # use iteration
 

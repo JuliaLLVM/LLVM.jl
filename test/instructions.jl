@@ -795,6 +795,117 @@ end
 end
 end
 
+@testset "freeze and assume" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
+    x = f.parameters[1]
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    fr = freeze!(builder, x, "fr")
+    @test fr isa LLVM.FreezeInst
+    @test fr.name == "fr"
+    @test fr.operands[1] == x
+    cond = icmp!(builder, LLVM.IntPredicate.ULT, fr, ConstantInt(Int32(10)))
+    assume = assume!(builder, cond)
+    @test assume isa LLVM.CallInst
+    @test assume.called_function.name == "llvm.assume"
+    @test assume.arguments[1] == cond
+    @test_throws ArgumentError assume!(builder, x)
+    ret!(builder)
+    verify(mod)
+end
+end
+
+@testset "predicates" begin
+    @test swapped_predicate(LLVM.IntPredicate.ULT) == LLVM.IntPredicate.UGT
+    @test swapped_predicate(LLVM.IntPredicate.SGE) == LLVM.IntPredicate.SLE
+    @test swapped_predicate(LLVM.IntPredicate.EQ) == LLVM.IntPredicate.EQ
+    @test swapped_predicate(LLVM.RealPredicate.OLT) == LLVM.RealPredicate.OGT
+    @test swapped_predicate(LLVM.RealPredicate.UNE) == LLVM.RealPredicate.UNE
+    for p in instances(LLVM.API.LLVMIntPredicate)
+        @test swapped_predicate(swapped_predicate(p)) == p
+    end
+    @test is_signed_predicate(LLVM.IntPredicate.SLT)
+    @test !is_signed_predicate(LLVM.IntPredicate.ULT)
+    @test !is_signed_predicate(LLVM.IntPredicate.EQ)
+end
+
+@testset "memory and capture queries" begin
+@dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i32*" : "ptr"
+    @dispose mod=parse(LLVM.Module, """
+        declare void @reader($ptr nocapture readonly) readonly
+        declare void @writer($ptr)
+
+        define i32 @load($ptr %x) {
+          %v = load i32, $ptr %x
+          ret i32 %v
+        }
+
+        define void @f($ptr %p, $ptr readonly %q) {
+          call void @reader($ptr %p)
+          call void @writer($ptr %p)
+          call void @writer($ptr nocapture readonly %p)
+          call i32 @load($ptr %p)
+          ret void
+        }""") begin
+        reader, writer, load, f = mod.functions["reader"], mod.functions["writer"],
+                                  mod.functions["load"], mod.functions["f"]
+        read_call, write_call, annotated_call, load_call = f.entry.instructions
+
+        # the attributes of the called function are used
+        @test only_reads_memory(read_call)
+        @test only_reads_memory(read_call, 1)
+        @test does_not_capture(read_call, 1)
+        @test !only_reads_memory(write_call)
+        @test !only_reads_memory(write_call, 1)
+        @test !does_not_capture(write_call, 1)
+        # as well as those of the call site
+        @test !only_reads_memory(annotated_call)
+        @test only_reads_memory(annotated_call, 1)
+        @test does_not_capture(annotated_call, 1)
+        @test_throws BoundsError only_reads_memory(read_call, 2)
+        @test_throws BoundsError does_not_capture(read_call, 0)
+
+        @test only_reads_memory(reader)
+        @test !only_reads_memory(writer)
+        @test only_reads_memory(reader.parameters[1])
+        @test does_not_capture(reader.parameters[1])
+        @test !only_reads_memory(f.parameters[1])
+        @test only_reads_memory(f.parameters[2])
+        @test !does_not_capture(f.parameters[2])
+
+        # including inferred attributes
+        @test !only_reads_memory(load_call)
+        @test !does_not_capture(load_call, 1)
+        run!("cgscc(function-attrs)", mod)
+        @test only_reads_memory(load)
+        @test only_reads_memory(load_call)
+        @test only_reads_memory(load_call, 1)
+        @test does_not_capture(load_call, 1)
+    end
+
+    # since LLVM 21, pointers can be captured partially, which counts as captured
+    if LLVM.version() >= v"21"
+        @dispose mod=parse(LLVM.Module, """
+            declare void @none(ptr captures(none))
+            declare void @address(ptr captures(address))
+            declare ptr @returned(ptr captures(ret: address, provenance))
+
+            define void @f(ptr %p) {
+              call void @none(ptr %p)
+              call void @address(ptr %p)
+              call ptr @returned(ptr %p)
+              ret void
+            }""") begin
+            none_call, address_call, returned_call = mod.functions["f"].entry.instructions
+            @test does_not_capture(none_call, 1)
+            @test !does_not_capture(address_call, 1)
+            @test !does_not_capture(returned_call, 1)
+        end
+    end
+end
+end
+
 @testset "aggregates" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     inner = LLVM.StructType([LLVM.Int8Type(), LLVM.Int16Type()])

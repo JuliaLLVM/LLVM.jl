@@ -105,4 +105,5 @@ erase!(::GlobalIFunc)
 replace_uses!
 replace_metadata_uses!
 Use
+iscallee
 ```

@@ -382,6 +382,76 @@ end
     @test collect(userinst.users) == [twice, twice]
 end
 
+# the position of uses in their user
+@dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "void (i32, i32)*" : "ptr"
+    @dispose mod=parse(LLVM.Module, """
+        declare void @callee(i32, i32)
+
+        define void @caller(i32 %x, $ptr %f) {
+          %y = add i32 %x, 1
+          call void %f(i32 %x, i32 %x) [ "deopt"(i32 %x) ]
+          invoke void %f(i32 %y, i32 %x) to label %cont unwind label %cont
+        cont:
+          ret void
+        }""") begin
+        f = mod.functions["caller"]
+        x, fptr = f.parameters
+        add, call, invoke = f.entry.instructions
+
+        # the operand index of every use
+        for v in (x, fptr), use in v.uses
+            @test use.user.operands[use.operand_index] == use.value
+        end
+
+        uses_in(v, inst) = filter(use -> use.user == inst, collect(v.uses))
+        # x is used twice as an argument and once in an operand bundle
+        @test sort([use.argument_index for use in uses_in(x, call)];
+                   by=i -> something(i, 0)) == [nothing, 1, 2]
+        @test count(iscallee, uses_in(x, call)) == 0
+        @test only(uses_in(fptr, call)).argument_index === nothing
+        @test iscallee(only(uses_in(fptr, call)))
+        @test only(uses_in(x, invoke)).argument_index == 2
+        @test iscallee(only(uses_in(fptr, invoke)))
+        @test only(uses_in(x, add)).argument_index === nothing
+        @test !iscallee(only(uses_in(x, add)))
+        @test only(uses_in(x, add)).operand_index == 1
+    end
+end
+
+# stripping constant offsets
+@dispose ctx=Context() begin
+    ptr, ptr1 = supports_typed_pointers(ctx) ? ("i8*", "i8 addrspace(1)*") :
+                                               ("ptr", "ptr addrspace(1)")
+    @dispose mod=parse(LLVM.Module, """
+        target datalayout = "e-i64:64-p1:64:64:64:32"
+        define void @f($ptr %p, $ptr1 %q, i64 %i) {
+          %a = getelementptr inbounds i8, $ptr %p, i64 16
+          %b = getelementptr inbounds i8, $ptr %a, i64 -8
+          %c = getelementptr i8, $ptr %b, i64 4
+          %d = getelementptr inbounds i8, $ptr %c, i64 %i
+          %e = getelementptr inbounds i8, $ptr1 %q, i64 4294967295
+          ret void
+        }""") begin
+        dl = mod.datalayout
+        f = mod.functions["f"]
+        p, q, i = f.parameters
+        a, b, c, d, e = collect(f.entry.instructions)[1:5]
+        @test LLVM.strip_and_accumulate_constant_offsets(b, dl) == (p, 8)
+        @test LLVM.strip_and_accumulate_constant_offsets(b, dl)[2] isa BigInt
+        @test LLVM.strip_and_accumulate_constant_offsets(Int8, b, dl) === (p, Int8(8))
+        # only inbounds GEPs are stripped by default
+        @test LLVM.strip_and_accumulate_constant_offsets(c, dl) == (c, 0)
+        @test LLVM.strip_and_accumulate_constant_offsets(c, dl;
+                                                         allow_non_inbounds=true) == (p, 12)
+        @test LLVM.strip_and_accumulate_constant_offsets(d, dl) == (d, 0)
+        @test LLVM.strip_and_accumulate_constant_offsets(p, dl) == (p, 0)
+        # the offset has the index width of the address space
+        @test LLVM.strip_and_accumulate_constant_offsets(e, dl) == (q, -1)
+        @test_throws ArgumentError LLVM.strip_and_accumulate_constant_offsets(i, dl)
+    end
+end
+
 # removing dead constant users
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")

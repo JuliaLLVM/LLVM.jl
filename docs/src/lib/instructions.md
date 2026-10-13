@@ -90,10 +90,14 @@ cast!
 ```@docs
 icmp!
 fcmp!
+swapped_predicate
+is_signed_predicate
 select!
 phi!
 isnull!
 isnotnull!
+freeze!
+assume!
 ```
 
 ### Memory
@@ -147,6 +151,7 @@ LLVM.after
 LLVM.at_begin
 LLVM.at_end
 LLVM.after_phis
+LLVM.after_def
 move!
 ```
 
@@ -207,6 +212,8 @@ insert_masked_value!
 
 ```@docs
 LLVM.CallBase
+only_reads_memory
+does_not_capture
 ```
 
 ### Operand Bundles

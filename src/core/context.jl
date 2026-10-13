@@ -207,6 +207,17 @@ function handle_diagnostic(diag_ref::API.LLVMDiagnosticInfoRef, args::Ptr{Cvoid}
             state.error === nothing && (state.error = msg)
         elseif sev == API.LLVMDSWarning
             @warn msg
+        elseif sev == API.LLVMDSRemark && state.remark_callback !== nothing
+            remark = Remark(di)
+            if remark === nothing
+                @debug msg
+            elseif state.remark_exception === nothing
+                try
+                    state.remark_callback(remark)
+                catch err
+                    state.remark_exception = (err, catch_backtrace())
+                end
+            end
         elseif sev == API.LLVMDSRemark || sev == API.LLVMDSNote
             @debug msg
         else
@@ -223,7 +234,13 @@ end
 
 mutable struct DiagnosticState
     error::Union{Nothing,String}
-    DiagnosticState() = new(nothing)
+
+    # a callback for optimization remarks, while a pass builder that collects them runs,
+    # and the exception that it threw
+    remark_callback::Any
+    remark_exception::Union{Nothing,Tuple{Any,Vector}}
+
+    DiagnosticState() = new(nothing, nothing, nothing)
 end
 
 # contexts are created and disposed concurrently, e.g., by generated functions that build

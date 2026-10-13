@@ -175,6 +175,7 @@ end
         entry:
           %m = and i64 %i, 255
           %z = zext i32 0 to i64
+          %fr = freeze i64 %i
           br i1 %b, label %next, label %exit
         next:
           %c = icmp ult i64 %n, 1024
@@ -223,6 +224,38 @@ end
             # a poison divisor is undefined behavior, while an unused poison value isn't
             @test program_undefined_if_poison(k)
             @test !program_undefined_if_poison(s)
+
+            # undef, which is a different value at each use, unlike a frozen value
+            fr = collect(entry.instructions)[3]
+            @test is_guaranteed_not_to_be_undef_or_poison(n)
+            @test is_guaranteed_not_to_be_undef_or_poison(fr)
+            @test !is_guaranteed_not_to_be_undef_or_poison(i)
+            @test is_guaranteed_not_to_be_undef_or_poison(ConstantInt(Int64(1)))
+            @test !is_guaranteed_not_to_be_undef_or_poison(UndefValue(LLVM.Int64Type()))
+            @test is_guaranteed_not_to_be_poison(UndefValue(LLVM.Int64Type()))
+
+            # known facts
+            @test is_known_non_negative(m)
+            @test !is_known_positive(m)
+            @test is_known_positive(s)
+            @test is_known_non_zero(s)
+            @test is_known_non_zero(k)
+            @test !is_known_non_negative(i)
+            @test !is_known_non_zero(i)
+            @test !is_known_non_negative(n; use_instruction_info=false)
+            @test is_known_non_negative(n; at=d, assumptions=ac, domtree=dt)
+            @test !is_known_non_negative(n; at=exit.terminator, assumptions=ac, domtree=dt)
+            @test_throws ArgumentError is_known_non_negative(fn)
+            @test_throws ArgumentError is_known_positive(ConstantInt(Int8(5)))
+            @test is_known_positive(ConstantInt(Int8(5)); datalayout=LLVM.DataLayout(""))
+
+            # sign bits
+            @test num_sign_bits(m) == 56
+            @test num_sign_bits(i) == 1
+            @test num_sign_bits(n; at=d, assumptions=ac, domtree=dt) == 54
+            @test num_sign_bits(ConstantInt(Int8(5)); datalayout=LLVM.DataLayout("")) == 5
+            @test num_sign_bits(ConstantInt(Int8(-1)); datalayout=LLVM.DataLayout("")) == 8
+            @test_throws ArgumentError num_sign_bits(ConstantInt(Int8(5)))
         end
     end
 end
@@ -287,7 +320,9 @@ end
           br label %inner
         inner:
           %i = phi i64 [ 0, %outer ], [ %i.next, %inner ]
+          %s = phi i64 [ 0, %outer ], [ %s.next, %inner ]
           %i.next = add nuw nsw i64 %i, 1
+          %s.next = add i64 %s, %i
           %ci = icmp ult i64 %i.next, 10
           br i1 %ci, label %inner, label %outer.latch
         outer.latch:
@@ -326,6 +361,30 @@ end
             @test !(exit in outer_loop)
             @test sprint(show, inner_loop) == "Loop(header=\"inner\", depth=2)"
 
+            # the structure of loops
+            @test collect(li) == [outer_loop]
+            @test outer_loop.subloops == [inner_loop]
+            @test isempty(inner_loop.subloops)
+            @test outer_loop.blocks == [outer, inner, latch]
+            @test inner_loop.blocks == [inner]
+            @test_throws BoundsError outer_loop.blocks[4]
+            @test_throws Exception outer_loop.blocks[1] = entry
+            @test collect(outer_loop.exit_blocks) == [exit]
+            @test collect(inner_loop.exit_blocks) == [latch]
+            @test outer_loop.latch == latch
+            @test inner_loop.latch == inner
+            @test outer_loop.preheader == entry
+            @test inner_loop.preheader == outer
+            @test i in inner_loop
+            @test j in outer_loop
+            @test !(j in inner_loop)
+            @test !(b in outer_loop)
+            @test is_loop_invariant(inner_loop, j)
+            @test is_loop_invariant(inner_loop, a)
+            @test !is_loop_invariant(inner_loop, i)
+            @test !is_loop_invariant(outer_loop, i)
+            @test is_loop_invariant(outer_loop, ConstantInt(Int64(1)))
+
             # expressions
             sa = se[a]
             @test sa isa SCEVUnknown
@@ -362,6 +421,52 @@ end
             s32 = se[ConstantInt(Int32(1))]
             @test_throws ArgumentError scev_add(se, sa, s32)
             @test_throws ArgumentError scev_minus(se, sa, s32)
+
+            @test is_scevable(se, a)
+            @test is_scevable(se, LLVM.Int32Type())
+            @test !is_scevable(se, LLVM.FloatType())
+
+            # multiplication and casts
+            @test scev_mul(se, sa, seven) isa SCEVMulExpr
+            @test scev_mul(se, seven, seven) == se[ConstantInt(Int64(49))]
+            @test_throws ArgumentError scev_mul(se)
+            @test_throws ArgumentError scev_mul(se, sa, s32)
+            t = scev_cast(se, LLVM.Opcode.Trunc, sa, LLVM.Int32Type())
+            @test t isa SCEVTruncateExpr
+            @test t.type == LLVM.Int32Type()
+            @test scev_cast(se, LLVM.Opcode.ZExt, t, LLVM.Int64Type()) isa SCEVZeroExtendExpr
+            @test scev_cast(se, LLVM.Opcode.SExt, s32, LLVM.Int64Type()) ==
+                  se[ConstantInt(Int64(1))]
+            @test_throws ArgumentError scev_cast(se, LLVM.Opcode.ZExt, sa, LLVM.Int32Type())
+            @test_throws ArgumentError scev_cast(se, LLVM.Opcode.Trunc, sa, LLVM.Int64Type())
+            @test_throws ArgumentError scev_cast(se, LLVM.Opcode.Add, sa, LLVM.Int32Type())
+
+            # add recurrences: {0,+,1} for i, and {0,+,0,+,1} for s
+            @test si.start == se[ConstantInt(Int64(0))]
+            @test si.affine
+            @test step_recurrence(se, si) == se[ConstantInt(Int64(1))]
+            @test si.nuw && si.nsw && si.nw
+            @test !sb.nuw && !sb.nsw
+            ss = se[collect(inner.instructions)[2]]
+            @test ss isa SCEVAddRecExpr
+            @test !ss.affine
+            step = step_recurrence(se, ss)
+            @test step isa SCEVAddRecExpr && step.affine && step.loop == inner_loop
+
+            # loop invariance and trip counts
+            sj = se[j]
+            @test is_loop_invariant(se, inner_loop, sa)
+            @test is_loop_invariant(se, inner_loop, sj)
+            @test !is_loop_invariant(se, inner_loop, si)
+            @test !is_loop_invariant(se, outer_loop, sj)
+            @test backedge_taken_count(se, inner_loop) == se[ConstantInt(Int64(9))]
+            @test backedge_taken_count(se, inner_loop; kind=:constant_max) ==
+                  se[ConstantInt(Int64(9))]
+            outer_count = backedge_taken_count(se, outer_loop)
+            @test !(outer_count isa SCEVCouldNotCompute)
+            @test contains_scev(outer_count, SCEVUnknown)       # depends on %n
+            @test backedge_taken_count(se, outer_loop; kind=:symbolic_max) isa SCEV
+            @test_throws ArgumentError backedge_taken_count(se, outer_loop; kind=:bogus)
         end
     end
 end
@@ -430,6 +535,146 @@ end
     end
 end
 
+@testset "control flow changes" begin
+    @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %a, i32 %b) {
+        entry:
+          %c = icmp ne i32 %b, 0
+          br i1 %c, label %body, label %exit
+        body:
+          %d = udiv i32 %a, %b
+          br label %exit
+        exit:
+          %r = phi i32 [ %d, %body ], [ 0, %entry ]
+          ret i32 %r
+        }""") begin
+        f = mod.functions["f"]
+        entry, body, exit = f.blocks
+        d = first(body.instructions)
+        @dispose domtree=DomTree(f) begin
+            # guard the division by a check that the dividend is at least the divisor
+            position!(builder, LLVM.before(d))
+            cond = icmp!(builder, LLVM.IntPredicate.UGE, f.parameters[1], f.parameters[2])
+            term = split_block_and_insert_if_then!(cond, d; domtree)
+            then = term.parent
+            tail = d.parent
+            @test term isa LLVM.BrInst
+            @test only(term.successors) == tail
+            @test collect(body.terminator.successors) == [then, tail]
+            @test length(collect(f.blocks)) == 5
+
+            # the domtree was updated
+            @test dominates(domtree, body, then)
+            @test dominates(domtree, body, tail)
+            @test !dominates(domtree, then, tail)
+            @dispose fresh=DomTree(f) begin
+                for x in f.blocks, y in f.blocks
+                    @test dominates(domtree, x, y) == dominates(fresh, x, y)
+                end
+            end
+
+            # finish the bypass, and verify
+            move!(d, LLVM.before(term))
+            position!(builder, LLVM.at_begin(tail))
+            q = phi!(builder, LLVM.Int32Type())
+            replace_uses!(d, q)
+            push!(q.incoming, (d, then))
+            push!(q.incoming, (ConstantInt(Int32(0)), body))
+            verify(f)
+
+            # without a domtree, the tree needs to be recalculated
+            e = collect(tail.instructions)[2]
+            term2 = split_block_and_insert_if_then!(cond, e; unreachable=true)
+            @test term2 isa LLVM.UnreachableInst
+            @test recalculate!(domtree, f) === domtree
+            @test dominates(domtree, tail, e.parent)
+            @dispose fresh=DomTree(f) begin
+                for x in f.blocks, y in f.blocks
+                    @test dominates(domtree, x, y) == dominates(fresh, x, y)
+                end
+            end
+        end
+
+        @test_throws ArgumentError split_block_and_insert_if_then!(f.parameters[1], d)
+        @test_throws ArgumentError split_block_and_insert_if_then!(
+            ConstantInt(true), first(exit.instructions))
+    end
+
+    # the dominator tree must be one of the function that is changed
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i1 %c) {
+          ret void
+        }
+        define void @g() {
+          ret void
+        }""") begin
+        f, g = mod.functions["f"], mod.functions["g"]
+        @dispose domtree=DomTree(g) begin
+            @test_throws ArgumentError split_block_and_insert_if_then!(
+                f.parameters[1], f.entry.terminator; domtree)
+            @test length(collect(f.blocks)) == 1
+        end
+    end
+
+    # recalculating a tree after the entry block it was computed for was replaced
+    @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, """
+        define void @f() {
+        entry:
+          br label %exit
+        exit:
+          ret void
+        }""") begin
+        f = mod.functions["f"]
+        old_entry, exit = f.blocks
+        @dispose domtree=DomTree(f) begin
+            new_entry = BasicBlock(LLVM.before(old_entry), "new_entry")
+            position!(builder, LLVM.at_end(new_entry))
+            br!(builder, exit)
+            erase!(old_entry)
+            recalculate!(domtree, f)
+            @test dominates(domtree, new_entry, exit)
+            @test !dominates(domtree, exit, new_entry)
+        end
+    end
+end
+
+@testset "preserving the dominator tree across control flow changes" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %a, i32 %b) {
+        entry:
+          %d = udiv i32 %a, %b
+          ret i32 %d
+        }""") begin
+        consistent = Ref(false)
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("split", (f, am) -> begin
+                domtree = am[DomTree]
+                d = first(f.entry.instructions)
+                @dispose builder=IRBuilder() begin
+                    position!(builder, LLVM.before(d))
+                    cond = icmp!(builder, LLVM.IntPredicate.NE, f.parameters[2],
+                                 ConstantInt(Int32(0)))
+                    split_block_and_insert_if_then!(cond, d; unreachable=true, domtree)
+                end
+                return PreservedAnalyses(DomTree)
+            end; analyses=true))
+            register!(pb, FunctionPass("check", (f, am) -> begin
+                domtree = get(am, DomTree, nothing)
+                domtree === nothing && return false
+                @dispose fresh=DomTree(f) begin
+                    consistent[] = all(dominates(domtree, x, y) == dominates(fresh, x, y)
+                                       for x in f.blocks, y in f.blocks)
+                end
+                return false
+            end; analyses=true))
+            add!(pb, "function(split,check)")
+            run!(pb, mod)
+        end
+        @test length(collect(mod.functions["f"].blocks)) == 3
+        @test consistent[]
+    end
+end
+
 @testset "dead code" begin
     @dispose ctx=Context() mod=parse(LLVM.Module, """
         declare void @g(i64)
@@ -467,6 +712,56 @@ end
         b = collect(only(fn.blocks).instructions)[2]
         @test erase_trivially_dead!(b)
         @test length(collect(only(fn.blocks).instructions)) == 1
+    end
+
+    # erasing several instructions, some of which are erased as an operand of another one
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        declare void @g(i64)
+        define void @f(i64 %x) {
+          %a = add i64 %x, 1
+          %b = mul i64 %a, 2
+          %c = add i64 %x, 3
+          call void @g(i64 %c)
+          ret void
+        }""") begin
+        fn = mod.functions["f"]
+        a, b, c, call = collect(only(fn.blocks).instructions)
+        # %c is used, and %a is erased when erasing %b
+        @test erase_trivially_dead!([b, c, a])
+        @test collect(only(fn.blocks).instructions)[1:2] == [c, call]
+        @test !erase_trivially_dead!([c])
+        @test !erase_trivially_dead!(Instruction[])
+        @test verify(fn) === nothing
+    end
+end
+
+@testset "constant folding" begin
+    @dispose ctx=Context() dl=LLVM.DataLayout("e-p:64:64") begin
+        c = ConstantInt(Int64(0x1_0000_0005))
+        @test constant_fold_cast(LLVM.Opcode.Trunc, c, LLVM.Int32Type(), dl) ==
+              ConstantInt(Int32(5))
+        @test constant_fold_cast(LLVM.Opcode.SExt, ConstantInt(Int8(-1)), LLVM.Int32Type(),
+                                 dl) == ConstantInt(Int32(-1))
+        @test constant_fold_cast(LLVM.Opcode.ZExt, ConstantInt(Int8(-1)), LLVM.Int32Type(),
+                                 dl) == ConstantInt(Int32(255))
+        @test constant_fold_cast(LLVM.Opcode.SIToFP, ConstantInt(Int32(2)), LLVM.DoubleType(),
+                                 dl) == ConstantFP(2.0)
+        @test_throws ArgumentError constant_fold_cast(LLVM.Opcode.Trunc, c,
+                                                      LLVM.Int128Type(), dl)
+        @test_throws ArgumentError constant_fold_cast(LLVM.Opcode.Add, c,
+                                                      LLVM.Int32Type(), dl)
+
+        # extensions of constant expressions can't be folded since LLVM 18
+        @dispose mod=LLVM.Module("constants") begin
+            gv = GlobalVariable(mod, LLVM.Int8Type(), "gv")
+            p2i = const_ptrtoint(gv, LLVM.Int32Type())
+            folded = constant_fold_cast(LLVM.Opcode.ZExt, p2i, LLVM.Int64Type(), dl)
+            if LLVM.version() >= v"18"
+                @test folded === nothing
+            else
+                @test folded isa ConstantExpr
+            end
+        end
     end
 end
 

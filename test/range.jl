@@ -128,6 +128,75 @@ end
     @test (@allocated f(r, one)) <= (VERSION >= v"1.12" ? 0 : 64)
 end
 
+@testset "containment" begin
+    r = ConstantRange(8, 10, 20)
+    @test 10 in r
+    @test 19 in r
+    @test !(20 in r)
+    @test !(9 in r)
+    # negative integers are two's complement, and integers that don't fit are never in it
+    wrapped = ConstantRange(8, -2, 2)
+    @test -1 in wrapped
+    @test 0xff in wrapped
+    @test 1 in wrapped
+    @test !(2 in wrapped)
+    @test !(256 in ConstantRange(8))
+    @test !(-129 in ConstantRange(8))
+    @test 255 in ConstantRange(8)
+    @test !(0 in ConstantRange(8; empty=true))
+    @test 2^100 in ConstantRange(128, 0, big(2)^101)
+
+    @test issubset(ConstantRange(8, 12, 15), r)
+    @test !issubset(ConstantRange(8, 5, 15), r)
+    @test issubset(ConstantRange(8; empty=true), r)
+    @test issubset(r, ConstantRange(8))
+    @test issubset(ConstantRange(8, -1, 1), wrapped)
+    @test_throws ArgumentError issubset(r, ConstantRange(16, 10, 20))
+
+    @test r.all_nonnegative
+    @test ConstantRange(8, 0, 128).all_nonnegative
+    @test !ConstantRange(8, 0, 129).all_nonnegative
+    @test !wrapped.all_nonnegative
+    @test ConstantRange(8; empty=true).all_nonnegative
+    @test !ConstantRange(8).all_nonnegative
+end
+
+@testset "range metadata" begin
+@dispose ctx=Context() begin
+    r = ConstantRange(32, -5, 100)
+    md = MDNode(r)
+    @test md isa MDTuple
+    @test ConstantRange(md) == r
+    @test_throws ArgumentError MDNode(ConstantRange(32))
+    @test_throws ArgumentError MDNode(ConstantRange(32; empty=true))
+    @test ConstantRange(MDNode(ConstantRange(128, 1, big(2)^100))) ==
+          ConstantRange(128, 1, big(2)^100)
+
+    # multiple ranges are merged, and attached to instructions
+    @dispose mod=parse(LLVM.Module, """
+        define i64 @f(i64 %x) {
+          %a = add i64 %x, 1, !range !0
+          %b = add i64 %x, 2, !range !1
+          ret i64 %a
+        }
+        !0 = !{i64 0, i64 10, i64 20, i64 30}
+        !1 = !{i64 0, i64 10, i32 20, i32 30}""") begin
+        a, b, ret = mod.functions["f"].entry.instructions
+        @test ConstantRange(a.metadata[LLVM.MD_range]) == ConstantRange(64, 0, 30)
+        # invalid metadata isn't accepted
+        @test_throws ArgumentError ConstantRange(b.metadata[LLVM.MD_range])
+        @test_throws ArgumentError ConstantRange(MDNode([MDString("x")]))
+        @test_throws ArgumentError ConstantRange(MDNode(Metadata[]))
+
+        ret.operands[1].metadata[LLVM.MD_range] = MDNode(ConstantRange(64, 1, 11))
+        @test ConstantRange(a.metadata[LLVM.MD_range]) == ConstantRange(64, 1, 11)
+        a.metadata[LLVM.MD_noundef] = MDNode(Metadata[])
+        @test haskey(a.metadata, LLVM.MD_noundef)
+        @test occursin("!noundef", string(a))
+    end
+end
+end
+
 @testset "known bits" begin
     kb = KnownBits(64, ~UInt64(0xff), 0x1)
     @test kb.nbits == 64

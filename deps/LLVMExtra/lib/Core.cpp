@@ -16,6 +16,7 @@
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
+#include <llvm/IR/DiagnosticInfo.h>
 #if LLVM_VERSION_MAJOR >= 19
 #include <llvm/IR/DebugProgramInstruction.h>
 #endif
@@ -1226,6 +1227,10 @@ LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                            ArrayRef<unsigned>(Idxs, NumIdxs), Name));
 }
 
+LLVMValueRef LLVMExtraBuildAssumption(LLVMBuilderRef B, LLVMValueRef Cond) {
+  return wrap(unwrap(B)->CreateAssumption(unwrap(Cond)));
+}
+
 LLVMValueRef LLVMExtraConstVectorSplat(LLVMTypeRef VecTy, LLVMValueRef Elt) {
   return wrap(ConstantVector::getSplat(cast<VectorType>(unwrap(VecTy))->getElementCount(),
                                        unwrap<Constant>(Elt)));
@@ -1255,6 +1260,17 @@ LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRe
     return false;
   std::copy_n(Offset.getRawData(), Offset.getNumWords(), Words);
   return true;
+}
+
+LLVMValueRef LLVMExtraStripAndAccumulateConstantOffsets(LLVMValueRef V, LLVMTargetDataRef TD,
+                                                        LLVMBool AllowNonInbounds,
+                                                        uint64_t *Words) {
+  Value *Val = unwrap(V);
+  const DataLayout &DL = *unwrap(TD);
+  APInt Offset(DL.getIndexTypeSizeInBits(Val->getType()), 0);
+  Value *Base = Val->stripAndAccumulateConstantOffsets(DL, Offset, AllowNonInbounds);
+  std::copy_n(Offset.getRawData(), Offset.getNumWords(), Words);
+  return wrap(Base);
 }
 
 
@@ -1365,6 +1381,46 @@ LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before
   if (It == B->end() && !B->empty() && B->back().isTerminator())
     return false;
   readInsertionPoint(B, It, Before, Head);
+  return true;
+}
+
+LLVMBool LLVMExtraGetInsertionPointAfterDef(LLVMValueRef Inst, LLVMBasicBlockRef *BB,
+                                            LLVMValueRef *Before, LLVMBool *Head) {
+  Instruction *I = unwrap<Instruction>(Inst);
+#if LLVM_VERSION_MAJOR >= 18
+  std::optional<BasicBlock::iterator> It = I->getInsertionPointAfterDef();
+  if (!It)
+    return false;
+  BasicBlock *B = (*It)->getParent();
+  BasicBlock::iterator Pos = *It;
+#elif LLVM_VERSION_MAJOR >= 17
+  Instruction *Next = I->getInsertionPointAfterDef();
+  if (!Next)
+    return false;
+  BasicBlock *B = Next->getParent();
+  BasicBlock::iterator Pos = Next->getIterator();
+#else
+  // back-port of LLVM 17, which unlike LLVM 16 doesn't use the default destination of a
+  // callbr, as it does not dominate the other destinations
+  BasicBlock *B;
+  BasicBlock::iterator Pos;
+  if (auto *PN = dyn_cast<PHINode>(I)) {
+    B = PN->getParent();
+    Pos = B->getFirstInsertionPt();
+  } else if (auto *II = dyn_cast<InvokeInst>(I)) {
+    B = II->getNormalDest();
+    Pos = B->getFirstInsertionPt();
+  } else if (isa<CallBrInst>(I)) {
+    return false;
+  } else {
+    B = I->getParent();
+    Pos = std::next(I->getIterator());
+  }
+  if (Pos == B->end())
+    return false;
+#endif
+  *BB = wrap(B);
+  readInsertionPoint(B, Pos, Before, Head);
   return true;
 }
 
@@ -1482,6 +1538,24 @@ LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val) {
   return wrap(unwrap(Val)->stripPointerCastsAndAliases());
 }
 
+unsigned LLVMExtraGetOperandNo(LLVMUseRef U) { return unwrap(U)->getOperandNo(); }
+
+LLVMBool LLVMExtraOnlyReadsMemory(LLVMValueRef V, int ArgNo) {
+  Value *Val = unwrap(V);
+  if (auto *CB = dyn_cast<CallBase>(Val))
+    return ArgNo < 0 ? CB->onlyReadsMemory() : CB->onlyReadsMemory(ArgNo);
+  if (auto *F = dyn_cast<Function>(Val))
+    return F->onlyReadsMemory();
+  return cast<Argument>(Val)->onlyReadsMemory();
+}
+
+LLVMBool LLVMExtraDoesNotCapture(LLVMValueRef V, int ArgNo) {
+  Value *Val = unwrap(V);
+  if (auto *CB = dyn_cast<CallBase>(Val))
+    return CB->doesNotCapture(ArgNo);
+  return cast<Argument>(Val)->hasNoCaptureAttr();
+}
+
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg) { return unwrap<Argument>(Arg)->getArgNo(); }
 
 
@@ -1524,4 +1598,39 @@ LLVMBool LLVMExtraVerifyFunction(LLVMValueRef Fn, char **OutMessage) {
   OS.flush();
   *OutMessage = Broken ? strdup(Message.c_str()) : nullptr;
   return Broken;
+}
+
+
+//
+// diagnostics
+//
+
+LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *Kind,
+                                char **PassName, char **RemarkName, char **FunctionName,
+                                char **Message, char **File, unsigned *Line,
+                                unsigned *Column) {
+  auto *Remark = dyn_cast<DiagnosticInfoOptimizationBase>(unwrap(DI));
+  if (!Remark)
+    return false;
+  if (Remark->isPassed())
+    *Kind = LLVMExtraRemarkPassed;
+  else if (Remark->isMissed())
+    *Kind = LLVMExtraRemarkMissed;
+  else
+    *Kind = LLVMExtraRemarkAnalysis;
+  *PassName = strdup(Remark->getPassName().str().c_str());
+  *RemarkName = strdup(Remark->getRemarkName().str().c_str());
+  *FunctionName = strdup(Remark->getFunction().getName().str().c_str());
+  *Message = strdup(Remark->getMsg().c_str());
+  if (Remark->isLocationAvailable()) {
+    DiagnosticLocation Loc = Remark->getLocation();
+    *File = strdup(Loc.getAbsolutePath().c_str());
+    *Line = Loc.getLine();
+    *Column = Loc.getColumn();
+  } else {
+    *File = strdup("");
+    *Line = 0;
+    *Column = 0;
+  }
+  return true;
 }

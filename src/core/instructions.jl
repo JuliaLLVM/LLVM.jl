@@ -293,6 +293,49 @@ predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
 
 @property Union{ICmpInst,FCmpInst} predicate
 
+@vocabulary IR swapped_predicate, is_signed_predicate
+
+"""
+    swapped_predicate(predicate)
+
+The predicate of the comparison with swapped operands: `icmp p a, b` is equivalent to
+`icmp swapped_predicate(p) b, a`, e.g., `LLVM.IntPredicate.ULT` becomes
+`LLVM.IntPredicate.UGT`. Works for integer and floating-point predicates.
+"""
+function swapped_predicate(predicate::API.LLVMIntPredicate)
+    predicate in (API.LLVMIntEQ, API.LLVMIntNE) && return predicate
+    predicate == API.LLVMIntUGT && return API.LLVMIntULT
+    predicate == API.LLVMIntUGE && return API.LLVMIntULE
+    predicate == API.LLVMIntULT && return API.LLVMIntUGT
+    predicate == API.LLVMIntULE && return API.LLVMIntUGE
+    predicate == API.LLVMIntSGT && return API.LLVMIntSLT
+    predicate == API.LLVMIntSGE && return API.LLVMIntSLE
+    predicate == API.LLVMIntSLT && return API.LLVMIntSGT
+    predicate == API.LLVMIntSLE && return API.LLVMIntSGE
+    throw(ArgumentError("Invalid integer predicate $predicate"))
+end
+function swapped_predicate(predicate::API.LLVMRealPredicate)
+    predicate == API.LLVMRealOGT && return API.LLVMRealOLT
+    predicate == API.LLVMRealOGE && return API.LLVMRealOLE
+    predicate == API.LLVMRealOLT && return API.LLVMRealOGT
+    predicate == API.LLVMRealOLE && return API.LLVMRealOGE
+    predicate == API.LLVMRealUGT && return API.LLVMRealULT
+    predicate == API.LLVMRealUGE && return API.LLVMRealULE
+    predicate == API.LLVMRealULT && return API.LLVMRealUGT
+    predicate == API.LLVMRealULE && return API.LLVMRealUGE
+    # the other predicates are symmetric
+    return predicate
+end
+
+"""
+    is_signed_predicate(predicate::LLVM.IntPredicate.T)
+
+Check whether an integer predicate compares its operands as signed integers, like
+`LLVM.IntPredicate.SLT`. Equality predicates are neither signed nor unsigned.
+"""
+is_signed_predicate(predicate::API.LLVMIntPredicate) =
+    predicate in (API.LLVMIntSGT, API.LLVMIntSGE, API.LLVMIntSLT, API.LLVMIntSLE)
+
 
 ## atomics
 
@@ -1131,6 +1174,52 @@ memory_effects!(call::CallBase, effects::AnyMemoryEffects) =
 
 @property CallBase memory_effects memory_effects!
 
+@vocabulary IR only_reads_memory, does_not_capture
+
+function check_argument_index(call::CallBase, i::Integer)
+    1 <= i <= API.LLVMGetNumArgOperands(call) ||
+        throw(BoundsError(arguments(call), i))
+    return Cint(i - 1)
+end
+
+"""
+    only_reads_memory(call::CallBase)
+    only_reads_memory(call::CallBase, i::Integer)
+    only_reads_memory(f::LLVM.Function)
+    only_reads_memory(arg::Argument)
+
+Check whether a call, or a function, only reads memory (or doesn't access memory at all),
+or whether the (1-based) `i`-th argument of a call or the argument `arg` of a function is
+a pointer that is only used to read memory.
+
+These use LLVM's own queries, which for a call also take the attributes of the called
+function into account (e.g., the ones inferred by the `function-attrs` pass), as well as
+the operand bundles of the call. For an argument of a function, only the attributes of
+that argument are used, not the memory effects of the function.
+"""
+only_reads_memory(call::CallBase) = API.LLVMExtraOnlyReadsMemory(call, -1) |> Bool
+only_reads_memory(call::CallBase, i::Integer) =
+    API.LLVMExtraOnlyReadsMemory(call, check_argument_index(call, i)) |> Bool
+only_reads_memory(f::Function) = API.LLVMExtraOnlyReadsMemory(f, -1) |> Bool
+only_reads_memory(arg::Argument) = API.LLVMExtraOnlyReadsMemory(arg, -1) |> Bool
+
+"""
+    does_not_capture(call::CallBase, i::Integer)
+    does_not_capture(arg::Argument)
+
+Check whether the (1-based) `i`-th argument of a call, or the argument `arg` of a function,
+is a pointer that is not captured, i.e., no copy of it outlives the call. For a call, the
+attributes of the called function are taken into account.
+
+Before LLVM 21, this means that the argument has the `nocapture` attribute. Since LLVM 21,
+it means that the `captures` attribute of the argument does not allow any capture (e.g.,
+`captures(none)`): a pointer that is only captured partially, e.g., `captures(address)`,
+or only through the return value, is considered captured.
+"""
+does_not_capture(call::CallBase, i::Integer) =
+    API.LLVMExtraDoesNotCapture(call, check_argument_index(call, i)) |> Bool
+does_not_capture(arg::Argument) = API.LLVMExtraDoesNotCapture(arg, -1) |> Bool
+
 # operand bundles
 
 @vocabulary IR OperandBundle
@@ -1835,15 +1924,57 @@ function constant_offset(gep::Union{GetElementPtrInst,ConstantExpr}, dl::DataLay
     bits = Int(API.LLVMExtraGetIndexSizeInBits(dl, addrspace(T)))
     words = zeros(UInt64, cld(bits, 64))
     Bool(API.LLVMExtraGEPAccumulateConstantOffset(gep, dl, words)) || return nothing
+    return signed_offset(words, bits)
+end
+
+# the offset in `words`, as a signed integer of `bits` bits
+function signed_offset(words::Vector{UInt64}, bits::Int)
     offset = BigInt(0)
     for (i, word) in enumerate(words)
         offset |= BigInt(word) << (64 * (i - 1))
     end
-    # the offset is a signed integer of `bits` bits
     if bits > 0 && isodd(offset >> (bits - 1))
         offset -= BigInt(1) << bits
     end
     return offset
+end
+
+@public strip_and_accumulate_constant_offsets
+
+"""
+    LLVM.strip_and_accumulate_constant_offsets(ptr::Value, dl::DataLayout;
+                                               allow_non_inbounds=false)
+
+Strip the constant offsets from the pointer `ptr`: `getelementptr` instructions and
+constant expressions with constant indices, as well as casts that don't change the
+address, like LLVM's `Value::stripAndAccumulateConstantOffsets`. Returns the base pointer
+and the accumulated offset in bytes, as a `BigInt`, which is computed as a signed integer
+of the index width of the pointer's address space. If nothing can be stripped, the result
+is `(ptr, 0)`.
+
+By default, only `inbounds` GEPs are stripped. With `allow_non_inbounds=true`, other GEPs
+are stripped as well, in which case the offset does not imply that the pointer is within
+the bounds of the object the base points to.
+
+    LLVM.strip_and_accumulate_constant_offsets(T::Type{<:Integer}, ptr, dl; kwargs...)
+
+Strip the offsets in the same way, but return the offset as an integer of type `T` (e.g.,
+`Int`), throwing an `InexactError` if it doesn't fit.
+"""
+function strip_and_accumulate_constant_offsets(ptr::Value, dl::DataLayout;
+                                               allow_non_inbounds::Bool=false)
+    T = value_type(ptr)
+    T isa PointerType ||
+        throw(ArgumentError("Cannot strip the constant offsets of a non-pointer value"))
+    bits = Int(API.LLVMExtraGetIndexSizeInBits(dl, addrspace(T)))
+    words = zeros(UInt64, cld(bits, 64))
+    base = API.LLVMExtraStripAndAccumulateConstantOffsets(ptr, dl, allow_non_inbounds, words)
+    return Value(base), signed_offset(words, bits)
+end
+function strip_and_accumulate_constant_offsets(::Type{T}, ptr::Value, dl::DataLayout;
+                                               kwargs...) where {T<:Integer}
+    base, offset = strip_and_accumulate_constant_offsets(ptr, dl; kwargs...)
+    return base, convert(T, offset)
 end
 
 indices(inst::GetElementPtrInst) = @view operands(inst)[2:end]

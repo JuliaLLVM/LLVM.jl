@@ -6,7 +6,7 @@
 @nospecialize
 
 @vocabulary IR InsertionPoint, move!
-@public before, after, at_begin, at_end, after_phis
+@public before, after, at_begin, at_end, after_phis, after_def
 
 """
     InsertionPoint{T}
@@ -17,7 +17,8 @@ or the functions or global variables of a module (`InsertionPoint{Function}` and
 `InsertionPoint{GlobalVariable}`).
 
 Insertion points are created with [`LLVM.before`](@ref), [`LLVM.after`](@ref),
-[`LLVM.at_begin`](@ref), [`LLVM.at_end`](@ref) and [`LLVM.after_phis`](@ref), and are
+[`LLVM.at_begin`](@ref), [`LLVM.at_end`](@ref), [`LLVM.after_phis`](@ref) and
+[`LLVM.after_def`](@ref), and are
 used to position an instruction builder ([`position!`](@ref)), to move objects
 ([`move!`](@ref)), to create basic blocks ([`BasicBlock`](@ref)), and to insert debug
 records ([`dbg_value!`](@ref) and friends):
@@ -194,6 +195,34 @@ function after_phis(bb::BasicBlock)
     head = Ref{API.LLVMBool}()
     Bool(API.LLVMExtraGetFirstInsertionPt(bb, anchor, head)) || return nothing
     InsertionPoint{Instruction}(propref(bb), anchor[], Bool(head[]))
+end
+
+"""
+    LLVM.after_def(inst::Instruction)
+
+The first [`InsertionPoint`](@ref) where the value that the instruction defines is
+available, i.e., where instructions that use it can be inserted. This is the position after
+the instruction, except for a `phi` instruction, where it is after the PHI nodes (and
+exception-handling pad) of its block, and for an `invoke` instruction, where it is at the
+beginning of its normal destination (after its PHI nodes). In the latter case the position
+does not necessarily dominate all uses of the value.
+
+Returns `nothing` if there is no such position, e.g., for a `callbr` instruction, whose
+value is available in several destinations, or if the position would be in a block that
+only contains a `catchswitch`.
+"""
+function after_def(inst::Instruction)
+    check_attached(inst)
+    value_type(inst) isa VoidType &&
+        throw(ArgumentError("Instruction does not define a value"))
+    # terminators other than invokes and callbrs (e.g., a catchswitch) have no position
+    # after them in their block
+    isterminator(inst) && !(inst isa Union{InvokeInst,CallBrInst}) && return nothing
+    bb = Ref{API.LLVMBasicBlockRef}()
+    anchor = Ref{API.LLVMValueRef}()
+    head = Ref{API.LLVMBool}()
+    Bool(API.LLVMExtraGetInsertionPointAfterDef(inst, bb, anchor, head)) || return nothing
+    InsertionPoint{Instruction}(API.LLVMBasicBlockAsValue(bb[]), anchor[], Bool(head[]))
 end
 
 """

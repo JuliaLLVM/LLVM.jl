@@ -263,6 +263,40 @@ MDTuple(::AbstractVector)).
 """
 MDNode(elements::AbstractVector) = MDTuple(elements)
 
+"""
+    MDNode(r::ConstantRange) -> MDTuple
+
+Create `!range` metadata for the range `r`, in the task-local [`context`](@ref). The range
+must not be empty or full, which `!range` metadata can't represent. Attach it to an
+instruction using `inst.metadata[LLVM.MD_range] = MDNode(r)`.
+"""
+function MDNode(r::ConstantRange{N}) where {N}
+    (isempty(r) || isfullset(r)) &&
+        throw(ArgumentError("Range metadata cannot represent an empty or full range"))
+    lo = Ref(getfield(r, :lower))
+    hi = Ref(getfield(r, :upper))
+    ref = GC.@preserve lo hi begin
+        API.LLVMExtraCreateRangeMetadata(context(), bitwidth(r), words_pointer(lo),
+                                         words_pointer(hi))
+    end
+    return MDTuple(ref)
+end
+
+"""
+    ConstantRange(md::MDNode)
+
+The range of values described by `!range` metadata. Metadata with multiple ranges is
+converted to the smallest range containing all of them, which may contain values that
+are not in any of them.
+"""
+function ConstantRange(md::MDNode)
+    nbits = API.LLVMExtraGetConstantRangeFromMetadata(md, C_NULL, C_NULL)
+    nbits == 0 && throw(ArgumentError("Metadata is not a valid list of ranges"))
+    compute_range(Val(nwords(nbits)), nbits) do lo, hi
+        API.LLVMExtraGetConstantRangeFromMetadata(md, lo, hi)
+    end
+end
+
 # we support passing `nothing`, but convert it to a non-exported `MDNull` instance
 # so that we can keep everything as a subtype of `Metadata`
 struct MDNull <: Metadata end
@@ -390,7 +424,7 @@ end
                MD_mem_parallel_loop_access, MD_nonnull, MD_dereferenceable,
                MD_dereferenceable_or_null, MD_make_implicit, MD_unpredictable,
                MD_invariant_group, MD_align, MD_loop, MD_type, MD_section_prefix,
-               MD_absolute_symbol, MD_associated
+               MD_absolute_symbol, MD_associated, MD_noundef
 
 @cenum(MDKind, MD_dbg = 0,
                MD_tbaa = 1,
@@ -414,7 +448,8 @@ end
                MD_type = 19,
                MD_section_prefix = 20,
                MD_absolute_symbol = 21,
-               MD_associated = 22)
+               MD_associated = 22,
+               MD_noundef = 29)
 
 """
     MDKind
@@ -449,7 +484,8 @@ const fixed_md_kind_names = (
     :MD_make_implicit => "make.implicit", :MD_unpredictable => "unpredictable",
     :MD_invariant_group => "invariant.group", :MD_align => "align",
     :MD_loop => "llvm.loop", :MD_type => "type", :MD_section_prefix => "section_prefix",
-    :MD_absolute_symbol => "absolute_symbol", :MD_associated => "associated")
+    :MD_absolute_symbol => "absolute_symbol", :MD_associated => "associated",
+    :MD_noundef => "noundef")
 
 for (sym, name) in fixed_md_kind_names
     doc = """

@@ -207,7 +207,9 @@ debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
 
                   icmp!, fcmp!, phi!, select!, call!, va_arg!, landingpad!,
 
-                  globalstring!, globalstring_ptr!, isnull!, isnotnull!, ptrdiff!
+                  globalstring!, globalstring_ptr!, isnull!, isnotnull!, ptrdiff!,
+
+                  freeze!, assume!
 
 
 # terminator instructions
@@ -940,6 +942,16 @@ function ptrdiff!(builder::IRBuilder, Ty::LLVMType, LHS::Value, RHS::Value,
     Value(API.LLVMBuildPtrDiff2(builder, Ty, LHS, RHS, Name))
 end
 
+freeze!(builder::IRBuilder, Val::Value, Name::AbstractString="") =
+    Instruction(API.LLVMBuildFreeze(builder, Val, Name))
+
+function assume!(builder::IRBuilder, Cond::Value)
+    ty = value_type(Cond)
+    ty isa IntegerType && width(ty) == 1 ||
+        throw(ArgumentError("The condition of an assumption must be an i1 value"))
+    Instruction(API.LLVMExtraBuildAssumption(builder, Cond))
+end
+
 @specialize
 
 
@@ -1291,3 +1303,23 @@ Build the computation of the number of elements of `type` between the pointers `
 `rhs`, i.e., their difference in bytes divided by the size of `type`. $_build_note
 """
 ptrdiff!
+
+"""
+    freeze!(builder::IRBuilder, val::Value, [name::AbstractString]) -> Instruction
+
+Build a `freeze` instruction, which returns `val` if it is not undef or poison, and an
+arbitrary but fixed value of its type otherwise.
+"""
+freeze!
+
+"""
+    assume!(builder::IRBuilder, cond::Value) -> Instruction
+
+Build a call to `llvm.assume`, which tells the optimizer that the `i1` value `cond` is
+true (it is undefined behavior if it isn't). The intrinsic is declared in the module of the
+builder's insertion point if needed.
+
+When building an assumption in a custom pass, register it with the function's
+[`AssumptionCache`](@ref) using `push!(ac, assume)`, so that other analyses can use it.
+"""
+assume!

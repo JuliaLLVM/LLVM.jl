@@ -316,6 +316,21 @@ LLVMBool LLVMExtraExpandPartwordCmpXchg(LLVMValueRef CXI, unsigned MinWordSize);
 // the name of a synchronization scope, or NULL if the context does not know it
 const char *LLVMExtraGetSyncScopeName(LLVMContextRef C, unsigned SSID, size_t *Len);
 
+// optimization remarks: those of passes that performed an optimization, that missed one,
+// or that describe an analysis
+typedef enum {
+  LLVMExtraRemarkPassed,
+  LLVMExtraRemarkMissed,
+  LLVMExtraRemarkAnalysis,
+} LLVMExtraRemarkKind;
+// the details of a diagnostic that is an optimization remark; returns false for other
+// diagnostics. The strings are copies, to be disposed of with LLVMDisposeMessage, and the
+// file is empty (and the line and column 0) if the remark has no debug location.
+LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *Kind,
+                                char **PassName, char **RemarkName, char **FunctionName,
+                                char **Message, char **File, unsigned *Line,
+                                unsigned *Column);
+
 // NewPM extensions
 typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
 LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
@@ -386,6 +401,56 @@ void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef A
                                                 LLVMValueRef F, LLVMBool All, LLVMBool CFG,
                                                 const LLVMExtraFunctionAnalysis *Analyses,
                                                 unsigned NumAnalyses);
+// forcibly remove all cached analysis results of a function, including those that survive
+// invalidation, e.g., before the function is deleted
+void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM, LLVMValueRef F);
+// emit an optimization remark about an instruction of the function, through the function's
+// OptimizationRemarkEmitter. It is passed to the diagnostic handler of the context.
+void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMExtraRemarkKind Kind,
+                                                const char *PassName,
+                                                const char *RemarkName, LLVMValueRef Inst,
+                                                const char *Message);
+
+// Custom module passes that use analyses. The callback receives the module analysis manager
+// of the pipeline, from which the function analysis manager can be obtained, and an output
+// object that it sets (with `LLVMExtraSetModulePreservedAnalyses`) like for function passes.
+typedef struct LLVMOpaqueModuleAnalysisManager *LLVMModuleAnalysisManagerRef;
+typedef void (*LLVMJuliaModulePassWithAnalysesCallback)(LLVMModuleRef M,
+                                                       LLVMModuleAnalysisManagerRef AM,
+                                                       LLVMPreservedAnalysesRef PA,
+                                                       void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaModulePassWithAnalysesCallback Callback, void *Thunk, LLVMBool Required);
+// the function analysis manager of a module, through the module analysis manager's proxy
+LLVMFunctionAnalysisManagerRef
+LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager(LLVMModuleAnalysisManagerRef AM,
+                                                         LLVMModuleRef M);
+// set the analyses preserved by a module pass: everything (`All`), nothing (if no other
+// argument is set), or the given function analyses on every function of the module, where
+// `Functions` preserves all function analyses (the pass invalidated the functions it
+// changed itself)
+void LLVMExtraSetModulePreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                         LLVMBool Functions, LLVMBool CFG,
+                                         const LLVMExtraFunctionAnalysis *Analyses,
+                                         unsigned NumAnalyses);
+// Custom passes that take parameters, which are written as `name<parameters>` in a
+// pipeline (or just `name` for empty parameters). When parsing a pipeline, the parameters
+// callback is called with the parameters of an occurrence of the pass and the thunk it was
+// registered with, and returns the thunk that the pass callback is called with when that
+// occurrence runs, or NULL if the parameters are invalid. It can be called more than once
+// for an occurrence, as LLVM also parses pass names to recognize their kind. The pass
+// callbacks are those of passes that use analyses.
+typedef void *(*LLVMJuliaPassParametersCallback)(const char *Parameters, void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaModulePassWithAnalysesCallback Callback,
+    LLVMJuliaPassParametersCallback ParametersCallback, void *Thunk, LLVMBool Required);
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaFunctionPassWithAnalysesCallback Callback,
+    LLVMJuliaPassParametersCallback ParametersCallback, void *Thunk, LLVMBool Required);
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#102482
 void LLVMPassBuilderExtensionsSetAAPipeline(LLVMPassBuilderExtensionsRef Extensions,
                                             const char *AAPipeline);
@@ -597,6 +662,8 @@ LLVMValueRef LLVMExtraBuildExtractValue(LLVMBuilderRef B, LLVMValueRef AggVal,
 LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        LLVMValueRef EltVal, const unsigned *Idxs,
                                        unsigned NumIdxs, const char *Name);
+// a call to llvm.assume with the given condition
+LLVMValueRef LLVMExtraBuildAssumption(LLVMBuilderRef B, LLVMValueRef Cond);
 
 // a vector constant with all elements equal to `Elt`, for fixed and scalable vector types
 LLVMValueRef LLVMExtraConstVectorSplat(LLVMTypeRef VecTy, LLVMValueRef Elt);
@@ -611,6 +678,12 @@ LLVMValueRef LLVMExtraBuildAlloca(LLVMBuilderRef B, LLVMTypeRef Ty, unsigned Add
 unsigned LLVMExtraGetIndexSizeInBits(LLVMTargetDataRef TD, unsigned AddrSpace);
 LLVMBool LLVMExtraGEPAccumulateConstantOffset(LLVMValueRef GEP, LLVMTargetDataRef TD,
                                               uint64_t *Words);
+// strip the constant offsets of a pointer (GEPs with constant indices, and casts that don't
+// change the address), returning the base pointer, and writing the accumulated byte offset
+// to `Words` like LLVMExtraGEPAccumulateConstantOffset.
+LLVMValueRef LLVMExtraStripAndAccumulateConstantOffsets(LLVMValueRef V, LLVMTargetDataRef TD,
+                                                        LLVMBool AllowNonInbounds,
+                                                        uint64_t *Words);
 
 // insertion points: a block, the instruction to insert before (NULL for the end of the
 // block), and whether to insert before the debug records at that position (the head bit
@@ -634,6 +707,11 @@ LLVMBasicBlockRef LLVMExtraGetInsertPoint(LLVMBuilderRef Builder, LLVMValueRef *
 // there is none (e.g., in a block that is terminated by a catchswitch)
 LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before,
                                       LLVMBool *Head);
+// the insertion point right after the definition of an instruction, where its value can be
+// used (after the PHI nodes of its block for a PHI node, or in the normal destination of an
+// invoke), storing its block; returns false if there is none (e.g., for a callbr)
+LLVMBool LLVMExtraGetInsertionPointAfterDef(LLVMValueRef Inst, LLVMBasicBlockRef *BB,
+                                            LLVMValueRef *Before, LLVMBool *Head);
 #if LLVM_VERSION_MAJOR >= 19
 // insert a debug record at an insertion point, which must not be the end of a terminated
 // block; requires the new debug info format
@@ -663,6 +741,16 @@ LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst);
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);
 LLVMValueRef LLVMExtraStripPointerCasts(LLVMValueRef Val);
 LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val);
+
+// the (0-based) number of the operand of its user that a use is
+unsigned LLVMExtraGetOperandNo(LLVMUseRef U);
+
+// whether a call site, function or argument only reads memory, or does not capture a
+// pointer. For a call site, ArgNo is the (0-based) number of an argument, or -1 for the
+// call itself. Queries on call sites take the attributes of the called function into
+// account.
+LLVMBool LLVMExtraOnlyReadsMemory(LLVMValueRef V, int ArgNo);
+LLVMBool LLVMExtraDoesNotCapture(LLVMValueRef V, int ArgNo);
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 
 // functions and global variables
@@ -729,6 +817,18 @@ void LLVMExtraConstantRangeFromKnownBits(unsigned NumBits, const uint64_t *Zero,
 void LLVMExtraConstantRangeToKnownBits(unsigned NumBits, const uint64_t *Lower,
                                        const uint64_t *Upper, uint64_t *ZeroOut,
                                        uint64_t *OneOut);
+// whether range A contains all values of range B
+LLVMBool LLVMExtraConstantRangeContains(unsigned NumBits, const uint64_t *LowerA,
+                                        const uint64_t *UpperA, const uint64_t *LowerB,
+                                        const uint64_t *UpperB);
+// the range of `!range` metadata (the union of its ranges): returns its bit width, and if
+// `Lower` and `Upper` are not NULL, writes its bounds. Returns 0 if the metadata is not a
+// valid list of ranges.
+unsigned LLVMExtraGetConstantRangeFromMetadata(LLVMMetadataRef MD, uint64_t *Lower,
+                                               uint64_t *Upper);
+// `!range` metadata for a range, which must not be empty or full
+LLVMMetadataRef LLVMExtraCreateRangeMetadata(LLVMContextRef C, unsigned NumBits,
+                                             const uint64_t *Lower, const uint64_t *Upper);
 #if LLVM_VERSION_MAJOR >= 19
 // the value of a constant range attribute: its bit width, and if `Lower` and `Upper` are
 // not NULL, its bounds
@@ -769,6 +869,26 @@ LLVMBool LLVMExtraIsValidAssumeForContext(LLVMValueRef Assume, LLVMValueRef CxtI
 LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheRef AC,
                                             LLVMValueRef CxtI, LLVMDominatorTreeRef DT);
 LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst);
+LLVMBool LLVMExtraIsGuaranteedNotToBeUndefOrPoison(LLVMValueRef V,
+                                                   LLVMAssumptionCacheRef AC,
+                                                   LLVMValueRef CxtI,
+                                                   LLVMDominatorTreeRef DT);
+// facts about a value that value tracking can prove
+typedef enum {
+  LLVMExtraKnownNonNegative,
+  LLVMExtraKnownPositive,
+  LLVMExtraKnownNonZero,
+} LLVMExtraKnownFact;
+// check whether a fact is known for a value, storing the result in *Known. Returns false
+// if no data layout is available (given, or of the module containing CxtI or V).
+LLVMBool LLVMExtraIsKnown(LLVMExtraKnownFact Fact, LLVMValueRef V, LLVMBool UseInstrInfo,
+                          LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                          LLVMDominatorTreeRef DT, LLVMTargetDataRef DL, LLVMBool *Known);
+// the number of bits that are known to be equal to the sign bit (including it), or 0 if
+// no data layout is available
+unsigned LLVMExtraComputeNumSignBits(LLVMValueRef V, LLVMBool UseInstrInfo,
+                                     LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                                     LLVMDominatorTreeRef DT, LLVMTargetDataRef DL);
 
 // LazyValueInfo: ranges of integer values at a context instruction, on an edge between two
 // blocks (optionally at a context instruction in the destination), or at a use (LLVM 17+).
@@ -823,6 +943,29 @@ LLVMSCEVRef LLVMExtraScalarEvolutionGetAddExpr(LLVMScalarEvolutionRef SE, LLVMSC
                                                unsigned NumOps);
 LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVMSCEVRef LHS,
                                                  LLVMSCEVRef RHS);
+LLVMSCEVRef LLVMExtraScalarEvolutionGetMulExpr(LLVMScalarEvolutionRef SE, LLVMSCEVRef *Ops,
+                                               unsigned NumOps);
+// a truncation, zero or sign extension of an integer expression to an integer type, which
+// needs to be narrower or wider respectively; returns NULL otherwise
+LLVMSCEVRef LLVMExtraScalarEvolutionGetCastExpr(LLVMScalarEvolutionRef SE, LLVMOpcode Opcode,
+                                                LLVMSCEVRef S, LLVMTypeRef Ty);
+LLVMBool LLVMExtraScalarEvolutionIsLoopInvariant(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
+                                                 LLVMLoopRef L);
+// the number of times the backedge of a loop is taken: exactly, at most (as a constant), or
+// at most (as an expression); could-not-compute if unknown
+typedef enum {
+  LLVMExtraExactBackedgeTakenCount,
+  LLVMExtraConstantMaxBackedgeTakenCount,
+  LLVMExtraSymbolicMaxBackedgeTakenCount,
+} LLVMExtraBackedgeTakenCountKind;
+LLVMSCEVRef LLVMExtraScalarEvolutionGetBackedgeTakenCount(LLVMScalarEvolutionRef SE,
+                                                          LLVMLoopRef L,
+                                                          LLVMExtraBackedgeTakenCountKind Kind);
+// the step of an add recurrence, or NULL for other expressions
+LLVMSCEVRef LLVMExtraSCEVAddRecGetStepRecurrence(LLVMScalarEvolutionRef SE, LLVMSCEVRef S);
+// the no-wrap flags of an n-ary expression (SCEV::NoWrapFlags: 1 for no self-wrap, 2 for
+// no unsigned wrap, 4 for no signed wrap), or 0 for other expressions
+unsigned LLVMExtraSCEVGetNoWrapFlags(LLVMSCEVRef S);
 // the signed or unsigned range of an expression, written as for constant ranges if `Lower`
 // and `Upper` are not NULL; returns the bit width of the range, or 0 for could-not-compute
 unsigned LLVMExtraScalarEvolutionGetRange(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
@@ -849,18 +992,52 @@ LLVMBasicBlockRef LLVMExtraLoopGetHeader(LLVMLoopRef L);
 LLVMLoopRef LLVMExtraLoopGetParent(LLVMLoopRef L);
 unsigned LLVMExtraLoopGetDepth(LLVMLoopRef L);
 LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB);
+// the blocks of a loop (including those of nested loops), and its immediate subloops
+unsigned LLVMExtraLoopGetNumBlocks(LLVMLoopRef L);
+LLVMBasicBlockRef LLVMExtraLoopGetBlock(LLVMLoopRef L, unsigned Index);
+unsigned LLVMExtraLoopGetNumSubLoops(LLVMLoopRef L);
+LLVMLoopRef LLVMExtraLoopGetSubLoop(LLVMLoopRef L, unsigned Index);
+// lists of a loop's unique exit blocks (outside of the loop), or of the outermost loops of
+// a function: written to the array if it is not NULL, returning their number
+unsigned LLVMExtraLoopGetUniqueExitBlocks(LLVMLoopRef L, LLVMBasicBlockRef *Blocks);
+unsigned LLVMExtraLoopInfoGetTopLevelLoops(LLVMLoopInfoRef LI, LLVMLoopRef *Loops);
+// the latch and preheader of a loop, or NULL if there is no single one
+LLVMBasicBlockRef LLVMExtraLoopGetLatch(LLVMLoopRef L);
+LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L);
+// whether a value is defined outside of a loop
+LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V);
 
 // dominance of uses and blocks
 LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,
                                                        LLVMValueRef Inst, LLVMUseRef U);
 LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
                                               LLVMBasicBlockRef B);
+// recompute a dominator tree for the current CFG of a function
+void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F);
+// split the block containing `SplitBefore` before it, and insert a conditional branch on
+// `Cond` to a new block that ends with a branch to the tail of the split block (or with an
+// unreachable). Returns the terminator of the new block. If `Tree` is not NULL, it is
+// updated for the changes to the CFG; returns NULL (without changing anything) if it is
+// not a tree for the current entry block of the function containing `SplitBefore`.
+LLVMValueRef LLVMExtraSplitBlockAndInsertIfThen(LLVMValueRef Cond, LLVMValueRef SplitBefore,
+                                                LLVMBool Unreachable,
+                                                LLVMDominatorTreeRef Tree);
 
 // whether an instruction is unused and has no side effects, and delete such an instruction
 // together with the operands that become trivially dead (returns false if the instruction
 // is not trivially dead)
 LLVMBool LLVMExtraIsInstructionTriviallyDead(LLVMValueRef Inst);
 LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst);
+// delete the instructions that are trivially dead, and their operands that become trivially
+// dead as a result, recursively. Instructions that are not trivially dead, or that are
+// deleted while processing others, are skipped. Returns whether any were deleted.
+LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(LLVMValueRef *Insts,
+                                                                       unsigned NumInsts);
+// fold a cast of a constant, storing the result in *Result, or NULL if it cannot be
+// folded. Returns false if the cast is invalid.
+LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
+                                          LLVMTypeRef DestTy, LLVMTargetDataRef TD,
+                                          LLVMValueRef *Result);
 
 LLVM_C_EXTERN_C_END
 #endif

@@ -15,6 +15,14 @@ dispose(::DomTree)
 PostDomTree
 dispose(::PostDomTree)
 dominates
+recalculate!
+split_block_and_insert_if_then!
+```
+
+## Constant folding
+
+```@docs
+constant_fold_cast
 ```
 
 ## Constant ranges and known bits
@@ -29,6 +37,7 @@ cast_op
 allowed_icmp_region
 KnownBits
 ConstantRange(::KnownBits)
+ConstantRange(::MDNode)
 ```
 
 ## Assumptions and value tracking
@@ -40,7 +49,10 @@ ConstantRange(::LLVM.Value)
 KnownBits(::LLVM.Value)
 is_valid_assume_for_context
 is_guaranteed_not_to_be_poison
+is_guaranteed_not_to_be_undef_or_poison
 program_undefined_if_poison
+is_known_non_negative
+num_sign_bits
 ```
 
 ## Lazy value info
@@ -56,7 +68,13 @@ LoopInfo
 Loop
 ScalarEvolution
 SCEV
+is_scevable
 scev_add
+scev_mul
+scev_cast
 contains_scev
 ConstantRange(::ScalarEvolution, ::SCEV)
+is_loop_invariant
+backedge_taken_count
+step_recurrence
 ```

@@ -2,7 +2,7 @@
 
 ```@meta
 DocTestSetup = quote
-    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.ORC
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
     if context(; throw_error=false) === nothing
         Context()
@@ -172,10 +172,96 @@ entry dominates join: true
 then dominates join: false
 ```
 
-Analysis results are owned by the analysis manager: they must not be disposed of, or used
-after the pass has returned. They are also not updated when the pass changes the IR, so a
-pass that queries analyses after changing the IR needs to keep them up to date, or
-invalidate them using `invalidate!`.
+Module passes can use analyses too. With `analyses=true`, a module pass is given the
+pipeline's `ModuleAnalysisManager`, which provides the analyses of each function of the
+module by indexing it with that function. For example, a pass that looks at the
+dominator trees and value ranges (see the `LLVM.Analysis` vocabulary) of several functions:
+
+```jldoctest custom_pass
+julia> function check_ranges!(mod::LLVM.Module, am)
+         for f in mod.functions
+           x = only(f.parameters)
+           entry, then, exit = f.blocks
+           @assert dominates(am[f][DomTree], entry.terminator, then.terminator)
+           range = ConstantRange(am[f][LazyValueInfo], x; at=then.terminator)
+           println(f.name, ": ", range)
+         end
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia> bounds = parse(LLVM.Module, """
+         define void @small(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 10
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }
+         define void @large(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 1000
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }""");
+
+julia> run!(ModulePass("check-ranges", check_ranges!; analyses=true), bounds)
+small: ConstantRange(32, 0, 10)
+large: ConstantRange(32, 0, 1000)
+```
+
+Analysis results are owned by the analysis manager, and borrowed by the pass:
+
+- they must not be disposed of, or used after the pass has returned;
+- they must not be used after they were invalidated, e.g., using `invalidate!`;
+- they are not updated when the pass changes the IR. A pass that queries analyses after
+  changing the IR needs to keep them up to date itself, or invalidate them using
+  `invalidate!` (e.g., `invalidate!(am)` in a function pass, or `invalidate!(am[f])` for
+  a function `f` in a module pass).
+
+What a pass returns only determines which analyses remain valid after it ran. A module pass
+that returns `true` (or `PreservedAnalyses()`) invalidates the analyses of all functions.
+To keep those of the functions it did not change, it can invalidate the analyses of the
+functions it changed itself, and return `PreservedAnalyses(FunctionAnalyses)`. Before a
+module pass deletes a function, it needs to remove all of its analyses using
+`empty!(am[f])`, as some of them (like the assumption cache) survive invalidation.
+
+Passes with analyses can report what they did, or why they didn't, using optimization
+remarks, like LLVM's passes do. These can be collected using the `remarks` keyword argument
+of the pass builder (or of `run!`):
+
+```jldoctest custom_pass
+julia> function report!(f::LLVM.Function, am)
+         remark!(am, :missed, "report", "NoChange", f.entry.terminator, "nothing to do")
+         return false
+       end;
+
+julia> run!(FunctionPass("report", report!; analyses=true), diamond;
+            remarks = r -> println(r.function_name, ": ", r.message))
+diamond: nothing to do
+```
+
+Custom passes can also take options, which are written in a pipeline like those of LLVM's
+passes, e.g., `my-pass<limit=10>`. To support them, pass a function that parses the text
+between the angle brackets using the `parse_options` keyword argument; the pass callback
+is then called with the parsed options as an extra argument:
+
+```jldoctest custom_pass
+julia> pass = FunctionPass("print-limit", (f, limit) -> (println(f.name, ": ", limit); false);
+                           parse_options = str -> isempty(str) ? 10 : parse(Int, str));
+
+julia> @dispose pb=PassBuilder() begin
+         register!(pb, pass)
+         add!(pb, "function(print-limit<42>,print-limit)")
+         run!(pb, diamond)
+       end
+diamond: 42
+diamond: 10
+```
 
 Passes that are implemented in C++ can be used as well, by registering a native callback
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:

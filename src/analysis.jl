@@ -108,6 +108,73 @@ dominates(domtree::DomTree, A::Instruction, use::Use) =
 dominates(domtree::DomTree, A::BasicBlock, B::BasicBlock) =
     API.LLVMExtraDominatorTreeBlockDominates(domtree, A, B) |> Bool
 
+@vocabulary Analysis recalculate!
+
+"""
+    recalculate!(tree::DomTree, f::Function)
+
+Recompute the dominator tree for the current control-flow graph of the function `f`, e.g.,
+after a pass changed it, and return it. For a tree borrowed from an analysis manager, `f`
+must be the function it was computed for; this makes it valid again, so that a pass can
+preserve it.
+"""
+function recalculate!(domtree::DomTree, f::Function)
+    isdeclaration(f) &&
+        throw(ArgumentError("Cannot compute the dominator tree of a declaration"))
+    API.LLVMExtraDominatorTreeRecalculate(domtree, f)
+    return domtree
+end
+
+
+## control flow
+
+@vocabulary IR split_block_and_insert_if_then!
+
+"""
+    split_block_and_insert_if_then!(cond::Value, at::Instruction; unreachable=false,
+                                    domtree=nothing)
+
+Split the block containing the instruction `at` before it, and make the first part branch
+on the `i1` value `cond` to a new block, which branches to the second part, the tail (or,
+with `unreachable=true`, ends with an `unreachable` instruction):
+
+```
+head:                            ; the original block, up to `at`
+  br i1 %cond, label %then, label %tail
+then:
+  br label %tail                 ; the returned terminator
+tail:                            ; `at` and the rest of the original block
+  ...
+```
+
+Returns the terminator of the new block, before which instructions can be inserted. The
+instruction `at` must not be a PHI node or an exception-handling pad.
+
+If a dominator tree of the function containing `at` is passed as `domtree`, it is updated
+for the new control flow, so that a pass can preserve it (e.g., with
+`PreservedAnalyses(DomTree)`).
+Other analyses, like [`LoopInfo`](@ref), are not updated, and the control-flow graph has
+changed, so `CFGAnalyses` are not preserved.
+"""
+function split_block_and_insert_if_then!(cond::Value, at::Instruction;
+                                         unreachable::Bool=false,
+                                         domtree::Union{Nothing,DomTree}=nothing)
+    ty = value_type(cond)
+    ty isa IntegerType && width(ty) == 1 ||
+        throw(ArgumentError("The condition must be an i1 value"))
+    bb = parent(at)
+    bb === nothing && throw(ArgumentError("Instruction is not part of a basic block"))
+    terminator(bb) === nothing &&
+        throw(ArgumentError("Cannot split a basic block without a terminator"))
+    at isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,CatchSwitchInst} &&
+        throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
+    term = API.LLVMExtraSplitBlockAndInsertIfThen(cond, at, unreachable,
+                                                  something(domtree, C_NULL))
+    term == C_NULL &&
+        throw(ArgumentError("The dominator tree is not one of the function containing the instruction, or it is out of date"))
+    return Instruction(term)
+end
+
 
 ## post-dominance
 
@@ -230,7 +297,9 @@ end
 ## value tracking
 
 @vocabulary Analysis is_valid_assume_for_context, is_guaranteed_not_to_be_poison,
-                     program_undefined_if_poison
+                     is_guaranteed_not_to_be_undef_or_poison, program_undefined_if_poison,
+                     is_known_non_negative, is_known_positive, is_known_non_zero,
+                     num_sign_bits
 
 # the bit width of the integers in a value, or `nothing` if it isn't one
 function integer_width(v::Value)
@@ -330,6 +399,106 @@ is_guaranteed_not_to_be_poison(v::Value; at::Union{Nothing,Instruction}=nothing,
                                            something(domtree, C_NULL)) |> Bool
 
 """
+    is_guaranteed_not_to_be_undef_or_poison(v::Value; at=nothing, assumptions=nothing,
+                                            domtree=nothing)
+
+Check whether `v` is known to be neither undef nor poison (i.e., each use of it observes
+the same, well-defined value), optionally at instruction `at`. A value that is `noundef`
+(e.g., a `noundef` argument, or a `freeze` instruction) is.
+"""
+is_guaranteed_not_to_be_undef_or_poison(v::Value; at::Union{Nothing,Instruction}=nothing,
+                                        assumptions::Union{Nothing,AssumptionCache}=nothing,
+                                        domtree::Union{Nothing,DomTree}=nothing) =
+    API.LLVMExtraIsGuaranteedNotToBeUndefOrPoison(v, something(assumptions, C_NULL),
+                                                  something(at, C_NULL),
+                                                  something(domtree, C_NULL)) |> Bool
+
+function is_known(fact::API.LLVMExtraKnownFact, v::Value, at, assumptions, domtree,
+                  datalayout, use_instruction_info)
+    known = Ref{API.LLVMBool}()
+    API.LLVMExtraIsKnown(fact, v, use_instruction_info, something(assumptions, C_NULL),
+                         something(at, C_NULL), something(domtree, C_NULL),
+                         something(datalayout, C_NULL), known) |> Bool ||
+        throw(ArgumentError("No data layout available for $v"))
+    return Bool(known[])
+end
+
+"""
+    is_known_non_negative(v::Value; at=nothing, assumptions=nothing, domtree=nothing,
+                          datalayout=nothing, use_instruction_info=true)
+    is_known_positive(v::Value; ...)
+    is_known_non_zero(v::Value; ...)
+
+Check whether the integer (or vector of integers) `v` is known to be non-negative, or
+strictly positive, when interpreted as a signed integer, or whether the integer or pointer
+(or vector of them) `v` is known to be non-zero, using LLVM's value tracking. For vectors,
+the fact needs to hold for every element. The keyword arguments are the same as for
+[`ConstantRange(::Value)`](@ref).
+
+Like other value tracking queries, these are facts about `v` if it is not poison: they do
+not prove that `v` is not poison (see [`is_guaranteed_not_to_be_poison`](@ref)). A result
+of `false` means that the fact could not be proven.
+"""
+function is_known_non_negative(v::Value; at::Union{Nothing,Instruction}=nothing,
+                               assumptions::Union{Nothing,AssumptionCache}=nothing,
+                               domtree::Union{Nothing,DomTree}=nothing,
+                               datalayout::Union{Nothing,DataLayout}=nothing,
+                               use_instruction_info::Bool=true)
+    checked_integer_width(v)
+    return is_known(API.LLVMExtraKnownNonNegative, v, at, assumptions, domtree, datalayout,
+                    use_instruction_info)
+end
+
+@doc (@doc is_known_non_negative)
+function is_known_positive(v::Value; at::Union{Nothing,Instruction}=nothing,
+                           assumptions::Union{Nothing,AssumptionCache}=nothing,
+                           domtree::Union{Nothing,DomTree}=nothing,
+                           datalayout::Union{Nothing,DataLayout}=nothing,
+                           use_instruction_info::Bool=true)
+    checked_integer_width(v)
+    return is_known(API.LLVMExtraKnownPositive, v, at, assumptions, domtree, datalayout,
+                    use_instruction_info)
+end
+
+@doc (@doc is_known_non_negative)
+function is_known_non_zero(v::Value; at::Union{Nothing,Instruction}=nothing,
+                           assumptions::Union{Nothing,AssumptionCache}=nothing,
+                           domtree::Union{Nothing,DomTree}=nothing,
+                           datalayout::Union{Nothing,DataLayout}=nothing,
+                           use_instruction_info::Bool=true)
+    ty = value_type(v)
+    ty isa VectorType && (ty = eltype(ty))
+    ty isa Union{IntegerType,PointerType} ||
+        throw(ArgumentError("Value is not an integer or a pointer, or a vector of them"))
+    return is_known(API.LLVMExtraKnownNonZero, v, at, assumptions, domtree, datalayout,
+                    use_instruction_info)
+end
+
+"""
+    num_sign_bits(v::Value; at=nothing, assumptions=nothing, domtree=nothing,
+                  datalayout=nothing, use_instruction_info=true)
+
+Compute the number of high bits of the integer (or vector of integers) `v` that are known
+to be equal to its sign bit, including the sign bit itself, using LLVM's value tracking.
+This is a lower bound, at least 1, which holds for every element of a vector. For example,
+an `i32` value with 17 sign bits fits in a signed 16-bit integer. The keyword arguments
+are the same as for [`ConstantRange(::Value)`](@ref).
+"""
+function num_sign_bits(v::Value; at::Union{Nothing,Instruction}=nothing,
+                       assumptions::Union{Nothing,AssumptionCache}=nothing,
+                       domtree::Union{Nothing,DomTree}=nothing,
+                       datalayout::Union{Nothing,DataLayout}=nothing,
+                       use_instruction_info::Bool=true)
+    checked_integer_width(v)
+    n = API.LLVMExtraComputeNumSignBits(v, use_instruction_info,
+                                        something(assumptions, C_NULL),
+                                        something(at, C_NULL), something(domtree, C_NULL),
+                                        something(datalayout, C_NULL))
+    n == 0 && throw(ArgumentError("No data layout available for $v"))
+    return Int(n)
+end
+
+"""
     program_undefined_if_poison(inst::Instruction)
 
 Check whether the program has undefined behavior if `inst` evaluates to poison, e.g.,
@@ -415,7 +584,7 @@ end
 The natural loops of a function, as computed by LLVM's loop analysis. It is obtained from
 the analysis manager of a custom pass (`am[LoopInfo]`). Indexing it with a basic block,
 `li[bb]`, returns the innermost [`Loop`](@ref) containing the block, or `nothing` if the
-block is not part of a loop.
+block is not part of a loop. Iterating it yields the outermost loops of the function.
 """
 @checked struct LoopInfo
     ref::API.LLVMLoopInfoRef
@@ -427,8 +596,9 @@ Base.unsafe_convert(::Type{API.LLVMLoopInfoRef}, li::LoopInfo) = li.ref
     Loop
 
 A natural loop, as identified by [`LoopInfo`](@ref). Loops are owned by the loop analysis.
-Use `bb in loop` to check whether a basic block is part of the loop (or of one of its
-nested loops).
+Use `bb in loop` or `inst in loop` to check whether a basic block or instruction is part
+of the loop (or of one of its nested loops), and [`is_loop_invariant`](@ref) to check
+whether a value is defined outside of it.
 
 Like the loop analysis itself, loops must not be used after the pass that obtained them
 returns, or after the analysis was invalidated.
@@ -438,6 +608,16 @@ returns, or after the analysis was invalidated.
 - `loop.header`: the header block of the loop, which dominates all of its blocks.
 - `loop.parent`: the loop containing this loop, or `nothing` for an outermost loop.
 - `loop.depth`: the nesting depth of the loop (1 for an outermost loop).
+- `loop.blocks`: the blocks of the loop, including those of nested loops, starting with
+  the header (a read-only vector).
+- `loop.subloops`: the loops that are directly nested in this loop (a read-only vector).
+- `loop.exit_blocks`: the blocks outside of the loop that it branches to, without
+  duplicates (an iterable that finds them when it is iterated).
+- `loop.latch`: the block that branches back to the header, or `nothing` if there are
+  several.
+- `loop.preheader`: the only predecessor of the header that is outside of the loop, if it
+  only branches to the header, or `nothing` otherwise (e.g., because the loop is not in
+  the simplified form that the `loop-simplify` pass creates).
 """
 @checked struct Loop
     ref::API.LLVMLoopRef
@@ -455,11 +635,79 @@ header(loop::Loop) = BasicBlock(API.LLVMExtraLoopGetHeader(loop))
 parent(loop::Loop) = loop_or_nothing(API.LLVMExtraLoopGetParent(loop))
 depth(loop::Loop) = Int(API.LLVMExtraLoopGetDepth(loop))
 
+# read a list of references, using a C function that returns their number, and writes them
+# to an array if it is not NULL
+function read_refs(f, ::Type{T}, args...) where {T}
+    n = f(args..., C_NULL)
+    refs = Vector{T}(undef, n)
+    f(args..., refs)
+    return refs
+end
+
+struct LoopBlockSet <: AbstractVector{BasicBlock}
+    loop::Loop
+end
+
+Base.size(iter::LoopBlockSet) = (Int(API.LLVMExtraLoopGetNumBlocks(iter.loop)),)
+function Base.getindex(iter::LoopBlockSet, i::Int)
+    @boundscheck checkbounds(iter, i)
+    return BasicBlock(API.LLVMExtraLoopGetBlock(iter.loop, i - 1))
+end
+
+struct LoopSubLoopSet <: AbstractVector{Loop}
+    loop::Loop
+end
+
+Base.size(iter::LoopSubLoopSet) = (Int(API.LLVMExtraLoopGetNumSubLoops(iter.loop)),)
+function Base.getindex(iter::LoopSubLoopSet, i::Int)
+    @boundscheck checkbounds(iter, i)
+    return Loop(API.LLVMExtraLoopGetSubLoop(iter.loop, i - 1))
+end
+
+# the exit blocks are found by looking at the successors of the blocks of the loop
+struct LoopExitBlockSet
+    loop::Loop
+end
+
+Base.IteratorSize(::Type{LoopExitBlockSet}) = Base.SizeUnknown()
+Base.eltype(::Type{LoopExitBlockSet}) = BasicBlock
+function Base.iterate(iter::LoopExitBlockSet,
+                      state=(read_refs(API.LLVMExtraLoopGetUniqueExitBlocks,
+                                       API.LLVMBasicBlockRef, iter.loop), 1))
+    refs, i = state
+    return i > length(refs) ? nothing : (BasicBlock(refs[i]), (refs, i + 1))
+end
+
+blocks(loop::Loop) = LoopBlockSet(loop)
+subloops(loop::Loop) = LoopSubLoopSet(loop)
+exit_blocks(loop::Loop) = LoopExitBlockSet(loop)
+block_or_nothing(ref::API.LLVMBasicBlockRef) = ref == C_NULL ? nothing : BasicBlock(ref)
+latch(loop::Loop) = block_or_nothing(API.LLVMExtraLoopGetLatch(loop))
+preheader(loop::Loop) = block_or_nothing(API.LLVMExtraLoopGetPreheader(loop))
+
 @property Loop header
 @property Loop parent
 @property Loop depth
+@property Loop blocks
+@property Loop subloops
+@property Loop exit_blocks
+@property Loop latch
+@property Loop preheader
 
 Base.in(bb::BasicBlock, loop::Loop) = API.LLVMExtraLoopContains(loop, bb) |> Bool
+function Base.in(inst::Instruction, loop::Loop)
+    bb = parent(inst)
+    return bb !== nothing && bb in loop
+end
+
+Base.IteratorSize(::Type{LoopInfo}) = Base.SizeUnknown()
+Base.eltype(::Type{LoopInfo}) = Loop
+function Base.iterate(li::LoopInfo,
+                      state=(read_refs(API.LLVMExtraLoopInfoGetTopLevelLoops,
+                                       API.LLVMLoopRef, li), 1))
+    refs, i = state
+    return i > length(refs) ? nothing : (Loop(refs[i]), (refs, i + 1))
+end
 
 Base.show(io::IO, loop::Loop) =
     print(io, "Loop(header=", repr(header(loop).name), ", depth=", depth(loop), ")")
@@ -471,7 +719,9 @@ Base.show(io::IO, loop::Loop) =
                      SCEVZeroExtendExpr, SCEVSignExtendExpr, SCEVPtrToIntExpr, SCEVAddExpr,
                      SCEVMulExpr, SCEVUDivExpr, SCEVAddRecExpr, SCEVUMaxExpr, SCEVSMaxExpr,
                      SCEVUMinExpr, SCEVSMinExpr, SCEVSequentialUMinExpr, SCEVUnknown,
-                     SCEVCouldNotCompute, scev_add, scev_minus, contains_scev
+                     SCEVCouldNotCompute, scev_add, scev_minus, scev_mul, scev_cast,
+                     contains_scev, is_scevable, is_loop_invariant, backedge_taken_count,
+                     step_recurrence
 
 """
     ScalarEvolution
@@ -480,9 +730,13 @@ LLVM's scalar evolution analysis, which represents integer and pointer values as
 expressions ([`SCEV`](@ref)s), e.g., to recognize induction variables of loops. It is
 obtained from the analysis manager of a custom pass (`am[ScalarEvolution]`).
 
-- `se[v]`: the expression for the integer or pointer value `v`;
-- [`scev_add`](@ref), [`scev_minus`](@ref): build new expressions;
-- `ConstantRange(se, s; signed=false)`: the range of the values of an expression.
+- `se[v]`: the expression for the integer or pointer value `v` (see
+  [`is_scevable`](@ref));
+- [`scev_add`](@ref), [`scev_minus`](@ref), [`scev_mul`](@ref), [`scev_cast`](@ref):
+  build new expressions;
+- `ConstantRange(se, s; signed=false)`: the range of the values of an expression;
+- [`is_loop_invariant`](@ref), [`backedge_taken_count`](@ref),
+  [`step_recurrence`](@ref): loop-related queries.
 
 Expressions are owned by the analysis and uniqued, so that expressions that are equal are
 also identical (`==`). The analysis caches its results, which become stale when the
@@ -514,6 +768,14 @@ that obtained them returns, or after the analysis was invalidated.
 - `s.operands`: the operands of the expression (a vector of `SCEV`s).
 - `s.value`: the `ConstantInt` of a `SCEVConstant`, or the value of a `SCEVUnknown`.
 - `s.loop`: the [`Loop`](@ref) of a `SCEVAddRecExpr`.
+- `s.start`: the start value of a `SCEVAddRecExpr` (its first operand).
+- `s.affine`: whether a `SCEVAddRecExpr` is affine, i.e., has a step that is invariant in
+  its loop (when it has two operands: `{start,+,step}`).
+- `s.nuw`, `s.nsw`, `s.nw`: the no-wrap flags of an n-ary expression (`SCEVAddExpr`,
+  `SCEVMulExpr`, `SCEVAddRecExpr`, and the minima and maxima): whether it is known not to
+  wrap in the unsigned or signed sense, and (for an add recurrence) whether it is known to
+  never wrap back to its start value (no self-wrap). These are facts that scalar evolution
+  proved or derived from the IR, which hold in the context of the expression.
 """
 abstract type SCEV end
 @properties SCEV
@@ -574,18 +836,45 @@ value(s::SCEVUnknown) = Value(API.LLVMExtraSCEVGetValue(s))
 
 loop(s::SCEVAddRecExpr) = Loop(API.LLVMExtraSCEVAddRecGetLoop(s))
 
+start(s::SCEVAddRecExpr) = first(operands(s))
+affine(s::SCEVAddRecExpr) = API.LLVMExtraSCEVGetOperands(s, C_NULL) == 2
+
+const SCEVNAryExpr = Union{SCEVAddExpr,SCEVMulExpr,SCEVAddRecExpr,SCEVUMaxExpr,SCEVSMaxExpr,
+                           SCEVUMinExpr,SCEVSMinExpr,SCEVSequentialUMinExpr}
+
+# the values of SCEV::NoWrapFlags
+nw(s::SCEVNAryExpr) = API.LLVMExtraSCEVGetNoWrapFlags(s) & 1 != 0
+nuw(s::SCEVNAryExpr) = API.LLVMExtraSCEVGetNoWrapFlags(s) & 2 != 0
+nsw(s::SCEVNAryExpr) = API.LLVMExtraSCEVGetNoWrapFlags(s) & 4 != 0
+
 @property SCEV type
 @property SCEV operands
 @property Union{SCEVConstant,SCEVUnknown} value
 @property SCEVAddRecExpr loop
+@property SCEVAddRecExpr start
+@property SCEVAddRecExpr affine
+@property SCEVNAryExpr nw
+@property SCEVNAryExpr nuw
+@property SCEVNAryExpr nsw
 
 function Base.show(io::IO, s::SCEV)
     str = unsafe_message(API.LLVMExtraPrintSCEVToString(s))
     print(io, nameof(typeof(s)), "(", str, ")")
 end
 
+"""
+    is_scevable(se::ScalarEvolution, T::LLVMType)
+    is_scevable(se::ScalarEvolution, v::Value)
+
+Check whether scalar evolution can analyze values of type `T`, or the value `v`, i.e.,
+whether `se[v]` is supported: integers and pointers are.
+"""
+is_scevable(se::ScalarEvolution, T::LLVMType) =
+    API.LLVMExtraScalarEvolutionIsSCEVable(se, T) |> Bool
+is_scevable(se::ScalarEvolution, v::Value) = is_scevable(se, value_type(v))
+
 function Base.getindex(se::ScalarEvolution, v::Value)
-    API.LLVMExtraScalarEvolutionIsSCEVable(se, value_type(v)) |> Bool ||
+    is_scevable(se, v) ||
         throw(ArgumentError("Scalar evolution only supports integer and pointer values"))
     return SCEV(API.LLVMExtraScalarEvolutionGetSCEV(se, v))
 end
@@ -616,6 +905,84 @@ function scev_minus(se::ScalarEvolution, a::SCEV, b::SCEV)
 end
 
 """
+    scev_mul(se::ScalarEvolution, operands::SCEV...)
+
+Build the (simplified) expression for the product of the `operands`, which must be integer
+expressions of the same type.
+"""
+function scev_mul(se::ScalarEvolution, operands::SCEV...)
+    isempty(operands) && throw(ArgumentError("Cannot multiply zero expressions"))
+    refs = API.LLVMSCEVRef[s.ref for s in operands]
+    ref = API.LLVMExtraScalarEvolutionGetMulExpr(se, refs, length(refs))
+    ref == C_NULL && throw(ArgumentError("Cannot multiply expressions of incompatible types"))
+    return SCEV(ref)
+end
+
+"""
+    scev_cast(se::ScalarEvolution, opcode, s::SCEV, T::IntegerType)
+
+Build the (simplified) expression for the cast `opcode` of the integer expression `s` to
+the integer type `T`: `LLVM.Opcode.Trunc` to a narrower type, or `LLVM.Opcode.ZExt` or
+`LLVM.Opcode.SExt` to a wider one.
+"""
+function scev_cast(se::ScalarEvolution, opcode::API.LLVMOpcode, s::SCEV, T::IntegerType)
+    ref = API.LLVMExtraScalarEvolutionGetCastExpr(se, opcode, s, T)
+    ref == C_NULL &&
+        throw(ArgumentError("Invalid $opcode of $s to $T"))
+    return SCEV(ref)
+end
+
+"""
+    is_loop_invariant(loop::Loop, v::Value)
+    is_loop_invariant(se::ScalarEvolution, loop::Loop, s::SCEV)
+
+Check whether the value `v` is defined outside of `loop` (a constant, an argument, or an
+instruction in a block that is not part of the loop), or whether the value of the
+expression `s` does not change during the execution of `loop`. The former does not imply
+that an instruction using `v` can be moved out of the loop, which may not be safe.
+"""
+is_loop_invariant(loop::Loop, v::Value) = API.LLVMExtraLoopIsLoopInvariant(loop, v) |> Bool
+
+@doc (@doc is_loop_invariant)
+is_loop_invariant(se::ScalarEvolution, loop::Loop, s::SCEV) =
+    API.LLVMExtraScalarEvolutionIsLoopInvariant(se, s, loop) |> Bool
+
+"""
+    backedge_taken_count(se::ScalarEvolution, loop::Loop; kind=:exact)
+
+The number of times that the backedge of `loop` is taken before the loop exits, which is
+the number of iterations minus one, as an expression that is evaluated before the loop is
+entered. It is a `SCEVCouldNotCompute` if it is not known. Use `kind=:constant_max` for
+an upper bound that is a constant (as a `SCEVConstant`), or `kind=:symbolic_max` for an
+upper bound that is an expression.
+
+The count only describes the iterations of the loop when it is entered, and not exited
+abnormally (e.g., by throwing an exception).
+"""
+function backedge_taken_count(se::ScalarEvolution, loop::Loop; kind::Symbol=:exact)
+    api_kind = if kind === :exact
+        API.LLVMExtraExactBackedgeTakenCount
+    elseif kind === :constant_max
+        API.LLVMExtraConstantMaxBackedgeTakenCount
+    elseif kind === :symbolic_max
+        API.LLVMExtraSymbolicMaxBackedgeTakenCount
+    else
+        throw(ArgumentError("Invalid kind :$kind; expected :exact, :constant_max or :symbolic_max"))
+    end
+    return SCEV(API.LLVMExtraScalarEvolutionGetBackedgeTakenCount(se, loop, api_kind))
+end
+
+"""
+    step_recurrence(se::ScalarEvolution, s::SCEVAddRecExpr)
+
+The step of the add recurrence `s`, i.e., the value that is added to it in each iteration
+of its loop. For an affine recurrence `{start,+,step}` this is `step`, while for other
+recurrences it is itself an add recurrence (e.g., `{a,+,b,+,c}` has the step `{b,+,c}`).
+"""
+step_recurrence(se::ScalarEvolution, s::SCEVAddRecExpr) =
+    SCEV(API.LLVMExtraSCEVAddRecGetStepRecurrence(se, s))
+
+"""
     contains_scev(s::SCEV, T::Type{<:SCEV})
 
 Check whether the expression `s`, or one of its subexpressions, is of type `T`. For
@@ -640,6 +1007,28 @@ function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
 end
 
 
+## constant folding
+
+@vocabulary IR constant_fold_cast
+
+"""
+    constant_fold_cast(opcode, c::Constant, T::LLVMType, dl::DataLayout)
+
+Fold the cast `opcode` (e.g., `LLVM.Opcode.Trunc`) of the constant `c` to type `T`, using
+LLVM's constant folder and the data layout `dl`. Returns the resulting constant, which can
+be a constant expression, or `nothing` if the cast cannot be folded (e.g., since LLVM 18,
+for some casts that would need to be constant expressions, which LLVM no longer supports).
+Throws an `ArgumentError` if the cast is invalid.
+"""
+function constant_fold_cast(opcode::API.LLVMOpcode, c::Constant, T::LLVMType,
+                            dl::DataLayout)
+    result = Ref{API.LLVMValueRef}()
+    API.LLVMExtraConstantFoldCastOperand(opcode, c, T, dl, result) |> Bool ||
+        throw(ArgumentError("Invalid cast $opcode of $c to $T"))
+    return result[] == C_NULL ? nothing : Value(result[])
+end
+
+
 ## dead code
 
 @vocabulary IR is_trivially_dead, erase_trivially_dead!
@@ -654,13 +1043,24 @@ is_trivially_dead(inst::Instruction) = API.LLVMExtraIsInstructionTriviallyDead(i
 
 """
     erase_trivially_dead!(inst::Instruction)
+    erase_trivially_dead!(insts::AbstractVector{<:Instruction})
 
 If the instruction is trivially dead (see [`is_trivially_dead`](@ref)), erase it, together
 with its operands that become trivially dead as a result, recursively. Returns whether the
 instruction was erased.
+
+Given a vector of instructions, erase those that are trivially dead in the same way,
+skipping the others, and returns whether any instruction was erased. Unlike erasing them
+one by one, this handles instructions that are erased because they are an operand of
+another instruction in the vector.
 
 Other wrappers of the erased instructions (e.g., of the operands of `inst`) must not be used
 anymore.
 """
 erase_trivially_dead!(inst::Instruction) =
     API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(inst) |> Bool
+function erase_trivially_dead!(insts::AbstractVector{<:Instruction})
+    refs = API.LLVMValueRef[propref(inst) for inst in insts]
+    return API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(
+        refs, length(refs)) |> Bool
+end

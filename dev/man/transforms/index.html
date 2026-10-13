@@ -56,7 +56,56 @@ julia&gt; diamond = parse(LLVM.Module, &quot;&quot;&quot;
 
 julia&gt; run!(FunctionPass(&quot;check-dominance&quot;, check_dominance!; analyses=true), diamond)
 entry dominates join: true
-then dominates join: false</code></pre><p>Analysis results are owned by the analysis manager: they must not be disposed of, or used after the pass has returned. They are also not updated when the pass changes the IR, so a pass that queries analyses after changing the IR needs to keep them up to date, or invalidate them using <code>invalidate!</code>.</p><p>Passes that are implemented in C++ can be used as well, by registering a native callback that is called with LLVM&#39;s <code>PassBuilder</code>, like the ones pass plugins provide:</p><pre><code class="language-julia hljs">@dispose pb=PassBuilder() begin
+then dominates join: false</code></pre><p>Module passes can use analyses too. With <code>analyses=true</code>, a module pass is given the pipeline&#39;s <code>ModuleAnalysisManager</code>, which provides the analyses of each function of the module by indexing it with that function. For example, a pass that looks at the dominator trees and value ranges (see the <code>LLVM.Analysis</code> vocabulary) of several functions:</p><pre><code class="language-julia-repl hljs">julia&gt; function check_ranges!(mod::LLVM.Module, am)
+         for f in mod.functions
+           x = only(f.parameters)
+           entry, then, exit = f.blocks
+           @assert dominates(am[f][DomTree], entry.terminator, then.terminator)
+           range = ConstantRange(am[f][LazyValueInfo], x; at=then.terminator)
+           println(f.name, &quot;: &quot;, range)
+         end
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia&gt; bounds = parse(LLVM.Module, &quot;&quot;&quot;
+         define void @small(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 10
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }
+         define void @large(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 1000
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }&quot;&quot;&quot;);
+
+julia&gt; run!(ModulePass(&quot;check-ranges&quot;, check_ranges!; analyses=true), bounds)
+small: ConstantRange(32, 0, 10)
+large: ConstantRange(32, 0, 1000)</code></pre><p>Analysis results are owned by the analysis manager, and borrowed by the pass:</p><ul><li>they must not be disposed of, or used after the pass has returned;</li><li>they must not be used after they were invalidated, e.g., using <code>invalidate!</code>;</li><li>they are not updated when the pass changes the IR. A pass that queries analyses after changing the IR needs to keep them up to date itself, or invalidate them using <code>invalidate!</code> (e.g., <code>invalidate!(am)</code> in a function pass, or <code>invalidate!(am[f])</code> for a function <code>f</code> in a module pass).</li></ul><p>What a pass returns only determines which analyses remain valid after it ran. A module pass that returns <code>true</code> (or <code>PreservedAnalyses()</code>) invalidates the analyses of all functions. To keep those of the functions it did not change, it can invalidate the analyses of the functions it changed itself, and return <code>PreservedAnalyses(FunctionAnalyses)</code>. Before a module pass deletes a function, it needs to remove all of its analyses using <code>empty!(am[f])</code>, as some of them (like the assumption cache) survive invalidation.</p><p>Passes with analyses can report what they did, or why they didn&#39;t, using optimization remarks, like LLVM&#39;s passes do. These can be collected using the <code>remarks</code> keyword argument of the pass builder (or of <code>run!</code>):</p><pre><code class="language-julia-repl hljs">julia&gt; function report!(f::LLVM.Function, am)
+         remark!(am, :missed, &quot;report&quot;, &quot;NoChange&quot;, f.entry.terminator, &quot;nothing to do&quot;)
+         return false
+       end;
+
+julia&gt; run!(FunctionPass(&quot;report&quot;, report!; analyses=true), diamond;
+            remarks = r -&gt; println(r.function_name, &quot;: &quot;, r.message))
+diamond: nothing to do</code></pre><p>Custom passes can also take options, which are written in a pipeline like those of LLVM&#39;s passes, e.g., <code>my-pass&lt;limit=10&gt;</code>. To support them, pass a function that parses the text between the angle brackets using the <code>parse_options</code> keyword argument; the pass callback is then called with the parsed options as an extra argument:</p><pre><code class="language-julia-repl hljs">julia&gt; pass = FunctionPass(&quot;print-limit&quot;, (f, limit) -&gt; (println(f.name, &quot;: &quot;, limit); false);
+                           parse_options = str -&gt; isempty(str) ? 10 : parse(Int, str));
+
+julia&gt; @dispose pb=PassBuilder() begin
+         register!(pb, pass)
+         add!(pb, &quot;function(print-limit&lt;42&gt;,print-limit)&quot;)
+         run!(pb, diamond)
+       end
+diamond: 42
+diamond: 10</code></pre><p>Passes that are implemented in C++ can be used as well, by registering a native callback that is called with LLVM&#39;s <code>PassBuilder</code>, like the ones pass plugins provide:</p><pre><code class="language-julia hljs">@dispose pb=PassBuilder() begin
     register_callbacks!(pb, cglobal((:registerCallbacks, libfoo)))
     add!(pb, &quot;foo-pass&quot;)
     run!(pb, mod)
@@ -137,4 +186,4 @@ top:
 top1:                                             ; No predecessors!
   %3 = add i64 %1, 42
   ret i64 %3
-}</code></pre><p>This of course isn&#39;t very useful by itself, but can be a useful starting point for more complex transformations.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../analyses/">« Analyses</a><a class="docs-footer-nextpage" href="../codegen/">Code generation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 13 October 2026 12:48">Tuesday 13 October 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+}</code></pre><p>This of course isn&#39;t very useful by itself, but can be a useful starting point for more complex transformations.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../analyses/">« Analyses</a><a class="docs-footer-nextpage" href="../codegen/">Code generation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 13 October 2026 15:48">Tuesday 13 October 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

@@ -815,6 +815,26 @@ LLVMBool LLVMExtraIsValidAssumeForContext(LLVMValueRef Assume, LLVMValueRef CxtI
 LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheRef AC,
                                             LLVMValueRef CxtI, LLVMDominatorTreeRef DT);
 LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst);
+LLVMBool LLVMExtraIsGuaranteedNotToBeUndefOrPoison(LLVMValueRef V,
+                                                   LLVMAssumptionCacheRef AC,
+                                                   LLVMValueRef CxtI,
+                                                   LLVMDominatorTreeRef DT);
+// facts about a value that value tracking can prove
+typedef enum {
+  LLVMExtraKnownNonNegative,
+  LLVMExtraKnownPositive,
+  LLVMExtraKnownNonZero,
+} LLVMExtraKnownFact;
+// check whether a fact is known for a value, storing the result in *Known. Returns false
+// if no data layout is available (given, or of the module containing CxtI or V).
+LLVMBool LLVMExtraIsKnown(LLVMExtraKnownFact Fact, LLVMValueRef V, LLVMBool UseInstrInfo,
+                          LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                          LLVMDominatorTreeRef DT, LLVMTargetDataRef DL, LLVMBool *Known);
+// the number of bits that are known to be equal to the sign bit (including it), or 0 if
+// no data layout is available
+unsigned LLVMExtraComputeNumSignBits(LLVMValueRef V, LLVMBool UseInstrInfo,
+                                     LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                                     LLVMDominatorTreeRef DT, LLVMTargetDataRef DL);
 
 // LazyValueInfo: ranges of integer values at a context instruction, on an edge between two
 // blocks (optionally at a context instruction in the destination), or at a use (LLVM 17+).

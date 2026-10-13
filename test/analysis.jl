@@ -175,6 +175,7 @@ end
         entry:
           %m = and i64 %i, 255
           %z = zext i32 0 to i64
+          %fr = freeze i64 %i
           br i1 %b, label %next, label %exit
         next:
           %c = icmp ult i64 %n, 1024
@@ -223,6 +224,38 @@ end
             # a poison divisor is undefined behavior, while an unused poison value isn't
             @test program_undefined_if_poison(k)
             @test !program_undefined_if_poison(s)
+
+            # undef, which is a different value at each use, unlike a frozen value
+            fr = collect(entry.instructions)[3]
+            @test is_guaranteed_not_to_be_undef_or_poison(n)
+            @test is_guaranteed_not_to_be_undef_or_poison(fr)
+            @test !is_guaranteed_not_to_be_undef_or_poison(i)
+            @test is_guaranteed_not_to_be_undef_or_poison(ConstantInt(Int64(1)))
+            @test !is_guaranteed_not_to_be_undef_or_poison(UndefValue(LLVM.Int64Type()))
+            @test is_guaranteed_not_to_be_poison(UndefValue(LLVM.Int64Type()))
+
+            # known facts
+            @test is_known_non_negative(m)
+            @test !is_known_positive(m)
+            @test is_known_positive(s)
+            @test is_known_non_zero(s)
+            @test is_known_non_zero(k)
+            @test !is_known_non_negative(i)
+            @test !is_known_non_zero(i)
+            @test !is_known_non_negative(n; use_instruction_info=false)
+            @test is_known_non_negative(n; at=d, assumptions=ac, domtree=dt)
+            @test !is_known_non_negative(n; at=exit.terminator, assumptions=ac, domtree=dt)
+            @test_throws ArgumentError is_known_non_negative(fn)
+            @test_throws ArgumentError is_known_positive(ConstantInt(Int8(5)))
+            @test is_known_positive(ConstantInt(Int8(5)); datalayout=LLVM.DataLayout(""))
+
+            # sign bits
+            @test num_sign_bits(m) == 56
+            @test num_sign_bits(i) == 1
+            @test num_sign_bits(n; at=d, assumptions=ac, domtree=dt) == 54
+            @test num_sign_bits(ConstantInt(Int8(5)); datalayout=LLVM.DataLayout("")) == 5
+            @test num_sign_bits(ConstantInt(Int8(-1)); datalayout=LLVM.DataLayout("")) == 8
+            @test_throws ArgumentError num_sign_bits(ConstantInt(Int8(5)))
         end
     end
 end

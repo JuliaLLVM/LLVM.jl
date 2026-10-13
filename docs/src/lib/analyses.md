@@ -40,7 +40,10 @@ ConstantRange(::LLVM.Value)
 KnownBits(::LLVM.Value)
 is_valid_assume_for_context
 is_guaranteed_not_to_be_poison
+is_guaranteed_not_to_be_undef_or_poison
 program_undefined_if_poison
+is_known_non_negative
+num_sign_bits
 ```
 
 ## Lazy value info

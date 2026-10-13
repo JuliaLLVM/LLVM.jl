@@ -157,6 +157,11 @@ FunctionAnalyses
 ```
 
 ```@docs
+is_known_positive
+is_known_non_zero
+```
+
+```@docs
 issignwrappedset
 union_with
 satisfying_icmp_region

@@ -814,6 +814,24 @@ function LLVMExtraProgramUndefinedIfPoison(Inst)
     ccall((:LLVMExtraProgramUndefinedIfPoison, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
+function LLVMExtraIsGuaranteedNotToBeUndefOrPoison(V, AC, CxtI, DT)
+    ccall((:LLVMExtraIsGuaranteedNotToBeUndefOrPoison, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef), V, AC, CxtI, DT)
+end
+
+@cenum LLVMExtraKnownFact::UInt32 begin
+    LLVMExtraKnownNonNegative = 0
+    LLVMExtraKnownPositive = 1
+    LLVMExtraKnownNonZero = 2
+end
+
+function LLVMExtraIsKnown(Fact, V, UseInstrInfo, AC, CxtI, DT, DL, Known)
+    ccall((:LLVMExtraIsKnown, libLLVMExtra), LLVMBool, (LLVMExtraKnownFact, LLVMValueRef, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{LLVMBool}), Fact, V, UseInstrInfo, AC, CxtI, DT, DL, Known)
+end
+
+function LLVMExtraComputeNumSignBits(V, UseInstrInfo, AC, CxtI, DT, DL)
+    ccall((:LLVMExtraComputeNumSignBits, libLLVMExtra), Cuint, (LLVMValueRef, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef), V, UseInstrInfo, AC, CxtI, DT, DL)
+end
+
 mutable struct LLVMOpaqueLazyValueInfo end
 
 const LLVMLazyValueInfoRef = Ptr{LLVMOpaqueLazyValueInfo}

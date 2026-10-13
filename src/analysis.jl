@@ -230,7 +230,9 @@ end
 ## value tracking
 
 @vocabulary Analysis is_valid_assume_for_context, is_guaranteed_not_to_be_poison,
-                     program_undefined_if_poison
+                     is_guaranteed_not_to_be_undef_or_poison, program_undefined_if_poison,
+                     is_known_non_negative, is_known_positive, is_known_non_zero,
+                     num_sign_bits
 
 # the bit width of the integers in a value, or `nothing` if it isn't one
 function integer_width(v::Value)
@@ -328,6 +330,106 @@ is_guaranteed_not_to_be_poison(v::Value; at::Union{Nothing,Instruction}=nothing,
     API.LLVMExtraIsGuaranteedNotToBePoison(v, something(assumptions, C_NULL),
                                            something(at, C_NULL),
                                            something(domtree, C_NULL)) |> Bool
+
+"""
+    is_guaranteed_not_to_be_undef_or_poison(v::Value; at=nothing, assumptions=nothing,
+                                            domtree=nothing)
+
+Check whether `v` is known to be neither undef nor poison (i.e., each use of it observes
+the same, well-defined value), optionally at instruction `at`. A value that is `noundef`
+(e.g., a `noundef` argument, or a `freeze` instruction) is.
+"""
+is_guaranteed_not_to_be_undef_or_poison(v::Value; at::Union{Nothing,Instruction}=nothing,
+                                        assumptions::Union{Nothing,AssumptionCache}=nothing,
+                                        domtree::Union{Nothing,DomTree}=nothing) =
+    API.LLVMExtraIsGuaranteedNotToBeUndefOrPoison(v, something(assumptions, C_NULL),
+                                                  something(at, C_NULL),
+                                                  something(domtree, C_NULL)) |> Bool
+
+function is_known(fact::API.LLVMExtraKnownFact, v::Value, at, assumptions, domtree,
+                  datalayout, use_instruction_info)
+    known = Ref{API.LLVMBool}()
+    API.LLVMExtraIsKnown(fact, v, use_instruction_info, something(assumptions, C_NULL),
+                         something(at, C_NULL), something(domtree, C_NULL),
+                         something(datalayout, C_NULL), known) |> Bool ||
+        throw(ArgumentError("No data layout available for $v"))
+    return Bool(known[])
+end
+
+"""
+    is_known_non_negative(v::Value; at=nothing, assumptions=nothing, domtree=nothing,
+                          datalayout=nothing, use_instruction_info=true)
+    is_known_positive(v::Value; ...)
+    is_known_non_zero(v::Value; ...)
+
+Check whether the integer (or vector of integers) `v` is known to be non-negative, or
+strictly positive, when interpreted as a signed integer, or whether the integer or pointer
+(or vector of them) `v` is known to be non-zero, using LLVM's value tracking. For vectors,
+the fact needs to hold for every element. The keyword arguments are the same as for
+[`ConstantRange(::Value)`](@ref).
+
+Like other value tracking queries, these are facts about `v` if it is not poison: they do
+not prove that `v` is not poison (see [`is_guaranteed_not_to_be_poison`](@ref)). A result
+of `false` means that the fact could not be proven.
+"""
+function is_known_non_negative(v::Value; at::Union{Nothing,Instruction}=nothing,
+                               assumptions::Union{Nothing,AssumptionCache}=nothing,
+                               domtree::Union{Nothing,DomTree}=nothing,
+                               datalayout::Union{Nothing,DataLayout}=nothing,
+                               use_instruction_info::Bool=true)
+    checked_integer_width(v)
+    return is_known(API.LLVMExtraKnownNonNegative, v, at, assumptions, domtree, datalayout,
+                    use_instruction_info)
+end
+
+@doc (@doc is_known_non_negative)
+function is_known_positive(v::Value; at::Union{Nothing,Instruction}=nothing,
+                           assumptions::Union{Nothing,AssumptionCache}=nothing,
+                           domtree::Union{Nothing,DomTree}=nothing,
+                           datalayout::Union{Nothing,DataLayout}=nothing,
+                           use_instruction_info::Bool=true)
+    checked_integer_width(v)
+    return is_known(API.LLVMExtraKnownPositive, v, at, assumptions, domtree, datalayout,
+                    use_instruction_info)
+end
+
+@doc (@doc is_known_non_negative)
+function is_known_non_zero(v::Value; at::Union{Nothing,Instruction}=nothing,
+                           assumptions::Union{Nothing,AssumptionCache}=nothing,
+                           domtree::Union{Nothing,DomTree}=nothing,
+                           datalayout::Union{Nothing,DataLayout}=nothing,
+                           use_instruction_info::Bool=true)
+    ty = value_type(v)
+    ty isa VectorType && (ty = eltype(ty))
+    ty isa Union{IntegerType,PointerType} ||
+        throw(ArgumentError("Value is not an integer or a pointer, or a vector of them"))
+    return is_known(API.LLVMExtraKnownNonZero, v, at, assumptions, domtree, datalayout,
+                    use_instruction_info)
+end
+
+"""
+    num_sign_bits(v::Value; at=nothing, assumptions=nothing, domtree=nothing,
+                  datalayout=nothing, use_instruction_info=true)
+
+Compute the number of high bits of the integer (or vector of integers) `v` that are known
+to be equal to its sign bit, including the sign bit itself, using LLVM's value tracking.
+This is a lower bound, at least 1, which holds for every element of a vector. For example,
+an `i32` value with 17 sign bits fits in a signed 16-bit integer. The keyword arguments
+are the same as for [`ConstantRange(::Value)`](@ref).
+"""
+function num_sign_bits(v::Value; at::Union{Nothing,Instruction}=nothing,
+                       assumptions::Union{Nothing,AssumptionCache}=nothing,
+                       domtree::Union{Nothing,DomTree}=nothing,
+                       datalayout::Union{Nothing,DataLayout}=nothing,
+                       use_instruction_info::Bool=true)
+    checked_integer_width(v)
+    n = API.LLVMExtraComputeNumSignBits(v, use_instruction_info,
+                                        something(assumptions, C_NULL),
+                                        something(at, C_NULL), something(domtree, C_NULL),
+                                        something(datalayout, C_NULL))
+    n == 0 && throw(ArgumentError("No data layout available for $v"))
+    return Int(n)
+end
 
 """
     program_undefined_if_poison(inst::Instruction)

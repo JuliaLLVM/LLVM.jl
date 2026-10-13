@@ -7,6 +7,9 @@
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Analysis/ValueTracking.h>
+#if LLVM_VERSION_MAJOR >= 18
+#include <llvm/Analysis/SimplifyQuery.h>
+#endif
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/ConstantRange.h>
 #include <llvm/IR/Dominators.h>
@@ -331,6 +334,73 @@ LLVMBool LLVMExtraIsGuaranteedNotToBePoison(LLVMValueRef V, LLVMAssumptionCacheR
 
 LLVMBool LLVMExtraProgramUndefinedIfPoison(LLVMValueRef Inst) {
   return programUndefinedIfPoison(unwrap<Instruction>(Inst));
+}
+
+LLVMBool LLVMExtraIsGuaranteedNotToBeUndefOrPoison(LLVMValueRef V,
+                                                   LLVMAssumptionCacheRef AC,
+                                                   LLVMValueRef CxtI,
+                                                   LLVMDominatorTreeRef DT) {
+  return isGuaranteedNotToBeUndefOrPoison(unwrap(V), AC ? unwrap(AC) : nullptr,
+                                          CxtI ? unwrap<Instruction>(CxtI) : nullptr,
+                                          DT ? unwrap(DT) : nullptr);
+}
+
+LLVMBool LLVMExtraIsKnown(LLVMExtraKnownFact Fact, LLVMValueRef V, LLVMBool UseInstrInfo,
+                          LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                          LLVMDominatorTreeRef DT, LLVMTargetDataRef DL, LLVMBool *Known) {
+  Value *Val = unwrap(V);
+  auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
+  const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
+  if (!Layout)
+    return false;
+  AssumptionCache *Cache = AC ? unwrap(AC) : nullptr;
+  DominatorTree *Tree = DT ? unwrap(DT) : nullptr;
+#if LLVM_VERSION_MAJOR >= 18
+  SimplifyQuery Q(*Layout, Tree, Cache, Ctx, UseInstrInfo);
+#endif
+  bool Result = false;
+  switch (Fact) {
+  case LLVMExtraKnownNonNegative:
+#if LLVM_VERSION_MAJOR >= 18
+    Result = isKnownNonNegative(Val, Q);
+#else
+    Result = isKnownNonNegative(Val, *Layout, /*Depth=*/0, Cache, Ctx, Tree, UseInstrInfo);
+#endif
+    break;
+  case LLVMExtraKnownPositive:
+#if LLVM_VERSION_MAJOR >= 18
+    Result = isKnownPositive(Val, Q);
+#else
+    Result = isKnownPositive(Val, *Layout, /*Depth=*/0, Cache, Ctx, Tree, UseInstrInfo);
+#endif
+    break;
+  case LLVMExtraKnownNonZero:
+#if LLVM_VERSION_MAJOR >= 19
+    Result = isKnownNonZero(Val, Q);
+#else
+    Result = isKnownNonZero(Val, *Layout, /*Depth=*/0, Cache, Ctx, Tree, UseInstrInfo);
+#endif
+    break;
+  }
+  *Known = Result;
+  return true;
+}
+
+unsigned LLVMExtraComputeNumSignBits(LLVMValueRef V, LLVMBool UseInstrInfo,
+                                     LLVMAssumptionCacheRef AC, LLVMValueRef CxtI,
+                                     LLVMDominatorTreeRef DT, LLVMTargetDataRef DL) {
+  Value *Val = unwrap(V);
+  auto *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
+  const DataLayout *Layout = queryDataLayout(DL, Val, Ctx);
+  if (!Layout)
+    return 0;
+  // the depth argument moved to the end in LLVM 21
+  return ComputeNumSignBits(Val, *Layout,
+#if LLVM_VERSION_MAJOR < 21
+                            /*Depth=*/0,
+#endif
+                            AC ? unwrap(AC) : nullptr, Ctx, DT ? unwrap(DT) : nullptr,
+                            UseInstrInfo);
 }
 
 

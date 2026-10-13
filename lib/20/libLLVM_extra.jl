@@ -631,6 +631,10 @@ function LLVMExtraBuildInsertValue(B, AggVal, EltVal, Idxs, NumIdxs, Name)
     ccall((:LLVMExtraBuildInsertValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, EltVal, Idxs, NumIdxs, Name)
 end
 
+function LLVMExtraBuildAssumption(B, Cond)
+    ccall((:LLVMExtraBuildAssumption, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef), B, Cond)
+end
+
 function LLVMExtraConstVectorSplat(VecTy, Elt)
     ccall((:LLVMExtraConstVectorSplat, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, LLVMValueRef), VecTy, Elt)
 end
@@ -1061,4 +1065,12 @@ end
 
 function LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(Inst)
     ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructions, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(Insts, NumInsts)
+    ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Cuint), Insts, NumInsts)
+end
+
+function LLVMExtraConstantFoldCastOperand(Opcode, C, DestTy, TD, Result)
+    ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), Opcode, C, DestTy, TD, Result)
 end

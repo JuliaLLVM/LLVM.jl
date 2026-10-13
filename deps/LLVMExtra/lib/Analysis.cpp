@@ -2,6 +2,7 @@
 
 #include <llvm/ADT/APInt.h>
 #include <llvm/Analysis/AssumptionCache.h>
+#include <llvm/Analysis/ConstantFolding.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/ScalarEvolution.h>
@@ -805,4 +806,38 @@ LLVMBool LLVMExtraIsInstructionTriviallyDead(LLVMValueRef Inst) {
 
 LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst) {
   return RecursivelyDeleteTriviallyDeadInstructions(unwrap(Inst));
+}
+
+LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(LLVMValueRef *Insts,
+                                                                       unsigned NumInsts) {
+  // the handles become null when their instruction is deleted, which happens when an
+  // instruction is also the operand of another one that is deleted first
+  SmallVector<WeakTrackingVH, 16> DeadInsts;
+  for (unsigned I = 0; I < NumInsts; ++I)
+    DeadInsts.emplace_back(unwrap(Insts[I]));
+  return RecursivelyDeleteTriviallyDeadInstructionsPermissive(DeadInsts);
+}
+
+LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
+                                          LLVMTypeRef DestTy, LLVMTargetDataRef TD,
+                                          LLVMValueRef *Result) {
+  Instruction::CastOps Op;
+  switch (Opcode) {
+#define CAST(Name)                                                                         \
+  case LLVM##Name:                                                                         \
+    Op = Instruction::Name;                                                                \
+    break;
+    CAST(Trunc) CAST(ZExt) CAST(SExt) CAST(FPToUI) CAST(FPToSI) CAST(UIToFP) CAST(SIToFP)
+    CAST(FPTrunc) CAST(FPExt) CAST(PtrToInt) CAST(IntToPtr) CAST(BitCast) CAST(AddrSpaceCast)
+#undef CAST
+  default:
+    return false;
+  }
+  Constant *Const = unwrap<Constant>(C);
+  Type *Ty = unwrap(DestTy);
+  // the constant folder asserts that the cast is valid
+  if (!CastInst::castIsValid(Op, Const, Ty))
+    return false;
+  *Result = wrap(ConstantFoldCastOperand(Op, Const, Ty, *unwrap(TD)));
+  return true;
 }

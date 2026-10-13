@@ -90,10 +90,14 @@ cast!
 ```@docs
 icmp!
 fcmp!
+swapped_predicate
+is_signed_predicate
 select!
 phi!
 isnull!
 isnotnull!
+freeze!
+assume!
 ```
 
 ### Memory

@@ -940,6 +940,28 @@ function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
 end
 
 
+## constant folding
+
+@vocabulary IR constant_fold_cast
+
+"""
+    constant_fold_cast(opcode, c::Constant, T::LLVMType, dl::DataLayout)
+
+Fold the cast `opcode` (e.g., `LLVM.Opcode.Trunc`) of the constant `c` to type `T`, using
+LLVM's constant folder and the data layout `dl`. Returns the resulting constant, which can
+be a constant expression, or `nothing` if the cast cannot be folded (e.g., since LLVM 18,
+for some casts that would need to be constant expressions, which LLVM no longer supports).
+Throws an `ArgumentError` if the cast is invalid.
+"""
+function constant_fold_cast(opcode::API.LLVMOpcode, c::Constant, T::LLVMType,
+                            dl::DataLayout)
+    result = Ref{API.LLVMValueRef}()
+    API.LLVMExtraConstantFoldCastOperand(opcode, c, T, dl, result) |> Bool ||
+        throw(ArgumentError("Invalid cast $opcode of $c to $T"))
+    return result[] == C_NULL ? nothing : Value(result[])
+end
+
+
 ## dead code
 
 @vocabulary IR is_trivially_dead, erase_trivially_dead!
@@ -954,13 +976,24 @@ is_trivially_dead(inst::Instruction) = API.LLVMExtraIsInstructionTriviallyDead(i
 
 """
     erase_trivially_dead!(inst::Instruction)
+    erase_trivially_dead!(insts::AbstractVector{<:Instruction})
 
 If the instruction is trivially dead (see [`is_trivially_dead`](@ref)), erase it, together
 with its operands that become trivially dead as a result, recursively. Returns whether the
 instruction was erased.
+
+Given a vector of instructions, erase those that are trivially dead in the same way,
+skipping the others, and returns whether any instruction was erased. Unlike erasing them
+one by one, this handles instructions that are erased because they are an operand of
+another instruction in the vector.
 
 Other wrappers of the erased instructions (e.g., of the operands of `inst`) must not be used
 anymore.
 """
 erase_trivially_dead!(inst::Instruction) =
     API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(inst) |> Bool
+function erase_trivially_dead!(insts::AbstractVector{<:Instruction})
+    refs = API.LLVMValueRef[propref(inst) for inst in insts]
+    return API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(
+        refs, length(refs)) |> Bool
+end

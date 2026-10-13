@@ -573,6 +573,56 @@ end
         @test erase_trivially_dead!(b)
         @test length(collect(only(fn.blocks).instructions)) == 1
     end
+
+    # erasing several instructions, some of which are erased as an operand of another one
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        declare void @g(i64)
+        define void @f(i64 %x) {
+          %a = add i64 %x, 1
+          %b = mul i64 %a, 2
+          %c = add i64 %x, 3
+          call void @g(i64 %c)
+          ret void
+        }""") begin
+        fn = mod.functions["f"]
+        a, b, c, call = collect(only(fn.blocks).instructions)
+        # %c is used, and %a is erased when erasing %b
+        @test erase_trivially_dead!([b, c, a])
+        @test collect(only(fn.blocks).instructions)[1:2] == [c, call]
+        @test !erase_trivially_dead!([c])
+        @test !erase_trivially_dead!(Instruction[])
+        @test verify(fn) === nothing
+    end
+end
+
+@testset "constant folding" begin
+    @dispose ctx=Context() dl=LLVM.DataLayout("e-p:64:64") begin
+        c = ConstantInt(Int64(0x1_0000_0005))
+        @test constant_fold_cast(LLVM.Opcode.Trunc, c, LLVM.Int32Type(), dl) ==
+              ConstantInt(Int32(5))
+        @test constant_fold_cast(LLVM.Opcode.SExt, ConstantInt(Int8(-1)), LLVM.Int32Type(),
+                                 dl) == ConstantInt(Int32(-1))
+        @test constant_fold_cast(LLVM.Opcode.ZExt, ConstantInt(Int8(-1)), LLVM.Int32Type(),
+                                 dl) == ConstantInt(Int32(255))
+        @test constant_fold_cast(LLVM.Opcode.SIToFP, ConstantInt(Int32(2)), LLVM.DoubleType(),
+                                 dl) == ConstantFP(2.0)
+        @test_throws ArgumentError constant_fold_cast(LLVM.Opcode.Trunc, c,
+                                                      LLVM.Int128Type(), dl)
+        @test_throws ArgumentError constant_fold_cast(LLVM.Opcode.Add, c,
+                                                      LLVM.Int32Type(), dl)
+
+        # extensions of constant expressions can't be folded since LLVM 18
+        @dispose mod=LLVM.Module("constants") begin
+            gv = GlobalVariable(mod, LLVM.Int8Type(), "gv")
+            p2i = const_ptrtoint(gv, LLVM.Int32Type())
+            folded = constant_fold_cast(LLVM.Opcode.ZExt, p2i, LLVM.Int64Type(), dl)
+            if LLVM.version() >= v"18"
+                @test folded === nothing
+            else
+                @test folded isa ConstantExpr
+            end
+        end
+    end
 end
 
 end

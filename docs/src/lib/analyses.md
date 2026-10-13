@@ -17,6 +17,12 @@ dispose(::PostDomTree)
 dominates
 ```
 
+## Constant folding
+
+```@docs
+constant_fold_cast
+```
+
 ## Constant ranges and known bits
 
 ```@docs

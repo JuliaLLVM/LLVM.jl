@@ -795,6 +795,40 @@ end
 end
 end
 
+@testset "freeze and assume" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()]))
+    x = f.parameters[1]
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    fr = freeze!(builder, x, "fr")
+    @test fr isa LLVM.FreezeInst
+    @test fr.name == "fr"
+    @test fr.operands[1] == x
+    cond = icmp!(builder, LLVM.IntPredicate.ULT, fr, ConstantInt(Int32(10)))
+    assume = assume!(builder, cond)
+    @test assume isa LLVM.CallInst
+    @test assume.called_function.name == "llvm.assume"
+    @test assume.arguments[1] == cond
+    @test_throws ArgumentError assume!(builder, x)
+    ret!(builder)
+    verify(mod)
+end
+end
+
+@testset "predicates" begin
+    @test swapped_predicate(LLVM.IntPredicate.ULT) == LLVM.IntPredicate.UGT
+    @test swapped_predicate(LLVM.IntPredicate.SGE) == LLVM.IntPredicate.SLE
+    @test swapped_predicate(LLVM.IntPredicate.EQ) == LLVM.IntPredicate.EQ
+    @test swapped_predicate(LLVM.RealPredicate.OLT) == LLVM.RealPredicate.OGT
+    @test swapped_predicate(LLVM.RealPredicate.UNE) == LLVM.RealPredicate.UNE
+    for p in instances(LLVM.API.LLVMIntPredicate)
+        @test swapped_predicate(swapped_predicate(p)) == p
+    end
+    @test is_signed_predicate(LLVM.IntPredicate.SLT)
+    @test !is_signed_predicate(LLVM.IntPredicate.ULT)
+    @test !is_signed_predicate(LLVM.IntPredicate.EQ)
+end
+
 @testset "memory and capture queries" begin
 @dispose ctx=Context() begin
     ptr = supports_typed_pointers(ctx) ? "i32*" : "ptr"

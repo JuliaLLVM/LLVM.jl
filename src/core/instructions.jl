@@ -293,6 +293,49 @@ predicate(inst::FCmpInst) = API.LLVMGetFCmpPredicate(inst)
 
 @property Union{ICmpInst,FCmpInst} predicate
 
+@vocabulary IR swapped_predicate, is_signed_predicate
+
+"""
+    swapped_predicate(predicate)
+
+The predicate of the comparison with swapped operands: `icmp p a, b` is equivalent to
+`icmp swapped_predicate(p) b, a`, e.g., `LLVM.IntPredicate.ULT` becomes
+`LLVM.IntPredicate.UGT`. Works for integer and floating-point predicates.
+"""
+function swapped_predicate(predicate::API.LLVMIntPredicate)
+    predicate in (API.LLVMIntEQ, API.LLVMIntNE) && return predicate
+    predicate == API.LLVMIntUGT && return API.LLVMIntULT
+    predicate == API.LLVMIntUGE && return API.LLVMIntULE
+    predicate == API.LLVMIntULT && return API.LLVMIntUGT
+    predicate == API.LLVMIntULE && return API.LLVMIntUGE
+    predicate == API.LLVMIntSGT && return API.LLVMIntSLT
+    predicate == API.LLVMIntSGE && return API.LLVMIntSLE
+    predicate == API.LLVMIntSLT && return API.LLVMIntSGT
+    predicate == API.LLVMIntSLE && return API.LLVMIntSGE
+    throw(ArgumentError("Invalid integer predicate $predicate"))
+end
+function swapped_predicate(predicate::API.LLVMRealPredicate)
+    predicate == API.LLVMRealOGT && return API.LLVMRealOLT
+    predicate == API.LLVMRealOGE && return API.LLVMRealOLE
+    predicate == API.LLVMRealOLT && return API.LLVMRealOGT
+    predicate == API.LLVMRealOLE && return API.LLVMRealOGE
+    predicate == API.LLVMRealUGT && return API.LLVMRealULT
+    predicate == API.LLVMRealUGE && return API.LLVMRealULE
+    predicate == API.LLVMRealULT && return API.LLVMRealUGT
+    predicate == API.LLVMRealULE && return API.LLVMRealUGE
+    # the other predicates are symmetric
+    return predicate
+end
+
+"""
+    is_signed_predicate(predicate::LLVM.IntPredicate.T)
+
+Check whether an integer predicate compares its operands as signed integers, like
+`LLVM.IntPredicate.SLT`. Equality predicates are neither signed nor unsigned.
+"""
+is_signed_predicate(predicate::API.LLVMIntPredicate) =
+    predicate in (API.LLVMIntSGT, API.LLVMIntSGE, API.LLVMIntSLT, API.LLVMIntSLE)
+
 
 ## atomics
 

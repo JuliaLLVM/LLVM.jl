@@ -640,6 +640,8 @@ LLVMValueRef LLVMExtraBuildExtractValue(LLVMBuilderRef B, LLVMValueRef AggVal,
 LLVMValueRef LLVMExtraBuildInsertValue(LLVMBuilderRef B, LLVMValueRef AggVal,
                                        LLVMValueRef EltVal, const unsigned *Idxs,
                                        unsigned NumIdxs, const char *Name);
+// a call to llvm.assume with the given condition
+LLVMValueRef LLVMExtraBuildAssumption(LLVMBuilderRef B, LLVMValueRef Cond);
 
 // a vector constant with all elements equal to `Elt`, for fixed and scalable vector types
 LLVMValueRef LLVMExtraConstVectorSplat(LLVMTypeRef VecTy, LLVMValueRef Elt);
@@ -994,6 +996,16 @@ LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBas
 // is not trivially dead)
 LLVMBool LLVMExtraIsInstructionTriviallyDead(LLVMValueRef Inst);
 LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst);
+// delete the instructions that are trivially dead, and their operands that become trivially
+// dead as a result, recursively. Instructions that are not trivially dead, or that are
+// deleted while processing others, are skipped. Returns whether any were deleted.
+LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(LLVMValueRef *Insts,
+                                                                       unsigned NumInsts);
+// fold a cast of a constant, storing the result in *Result, or NULL if it cannot be
+// folded. Returns false if the cast is invalid.
+LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
+                                          LLVMTypeRef DestTy, LLVMTargetDataRef TD,
+                                          LLVMValueRef *Result);
 
 LLVM_C_EXTERN_C_END
 #endif

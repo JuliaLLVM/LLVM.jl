@@ -9,6 +9,7 @@ MDNode
 MDTuple
 MDTuple(::AbstractVector)
 MDNode(::AbstractVector)
+MDNode(::ConstantRange)
 ```
 
 ## Temporary nodes
@@ -60,6 +61,7 @@ MD_type
 MD_section_prefix
 MD_absolute_symbol
 MD_associated
+MD_noundef
 ```
 
 ## Debug information

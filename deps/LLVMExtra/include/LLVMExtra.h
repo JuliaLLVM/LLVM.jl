@@ -793,6 +793,18 @@ void LLVMExtraConstantRangeFromKnownBits(unsigned NumBits, const uint64_t *Zero,
 void LLVMExtraConstantRangeToKnownBits(unsigned NumBits, const uint64_t *Lower,
                                        const uint64_t *Upper, uint64_t *ZeroOut,
                                        uint64_t *OneOut);
+// whether range A contains all values of range B
+LLVMBool LLVMExtraConstantRangeContains(unsigned NumBits, const uint64_t *LowerA,
+                                        const uint64_t *UpperA, const uint64_t *LowerB,
+                                        const uint64_t *UpperB);
+// the range of `!range` metadata (the union of its ranges): returns its bit width, and if
+// `Lower` and `Upper` are not NULL, writes its bounds. Returns 0 if the metadata is not a
+// valid list of ranges.
+unsigned LLVMExtraGetConstantRangeFromMetadata(LLVMMetadataRef MD, uint64_t *Lower,
+                                               uint64_t *Upper);
+// `!range` metadata for a range, which must not be empty or full
+LLVMMetadataRef LLVMExtraCreateRangeMetadata(LLVMContextRef C, unsigned NumBits,
+                                             const uint64_t *Lower, const uint64_t *Upper);
 #if LLVM_VERSION_MAJOR >= 19
 // the value of a constant range attribute: its bit width, and if `Lower` and `Upper` are
 // not NULL, its bounds

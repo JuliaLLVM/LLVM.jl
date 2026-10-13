@@ -14,6 +14,8 @@
 #include <llvm/IR/ConstantRange.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/MDBuilder.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instruction.h>
@@ -180,6 +182,41 @@ void LLVMExtraConstantRangeToKnownBits(unsigned NumBits, const uint64_t *Lower,
   KnownBits Known = readRange(NumBits, Lower, Upper).toKnownBits();
   writeAPInt(Known.Zero, ZeroOut);
   writeAPInt(Known.One, OneOut);
+}
+
+LLVMBool LLVMExtraConstantRangeContains(unsigned NumBits, const uint64_t *LowerA,
+                                        const uint64_t *UpperA, const uint64_t *LowerB,
+                                        const uint64_t *UpperB) {
+  return readRange(NumBits, LowerA, UpperA).contains(readRange(NumBits, LowerB, UpperB));
+}
+
+unsigned LLVMExtraGetConstantRangeFromMetadata(LLVMMetadataRef MD, uint64_t *Lower,
+                                               uint64_t *Upper) {
+  // getConstantRangeFromMetadata asserts that the metadata is valid, so check it first
+  auto *Node = dyn_cast<MDNode>(unwrap(MD));
+  if (!Node || Node->getNumOperands() == 0 || Node->getNumOperands() % 2 != 0)
+    return 0;
+  unsigned NumBits = 0;
+  for (unsigned I = 0; I < Node->getNumOperands(); I += 2) {
+    auto *Lo = mdconst::dyn_extract_or_null<ConstantInt>(Node->getOperand(I));
+    auto *Hi = mdconst::dyn_extract_or_null<ConstantInt>(Node->getOperand(I + 1));
+    if (!Lo || !Hi || Lo->getBitWidth() != Hi->getBitWidth() ||
+        (NumBits && Lo->getBitWidth() != NumBits))
+      return 0;
+    NumBits = Lo->getBitWidth();
+    if (Lo->getValue() == Hi->getValue() && !Lo->getValue().isMaxValue() &&
+        !Lo->getValue().isMinValue())
+      return 0;
+  }
+  if (Lower && Upper)
+    writeRange(getConstantRangeFromMetadata(*Node), Lower, Upper);
+  return NumBits;
+}
+
+LLVMMetadataRef LLVMExtraCreateRangeMetadata(LLVMContextRef C, unsigned NumBits,
+                                             const uint64_t *Lower, const uint64_t *Upper) {
+  MDBuilder Builder(*unwrap(C));
+  return wrap(Builder.createRange(readAPInt(NumBits, Lower), readAPInt(NumBits, Upper)));
 }
 
 #if LLVM_VERSION_MAJOR >= 19

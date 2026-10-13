@@ -29,6 +29,7 @@ cast_op
 allowed_icmp_region
 KnownBits
 ConstantRange(::KnownBits)
+ConstantRange(::MDNode)
 ```
 
 ## Assumptions and value tracking

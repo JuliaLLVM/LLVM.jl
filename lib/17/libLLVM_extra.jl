@@ -864,6 +864,18 @@ function LLVMExtraConstantRangeToKnownBits(NumBits, Lower, Upper, ZeroOut, OneOu
     ccall((:LLVMExtraConstantRangeToKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), NumBits, Lower, Upper, ZeroOut, OneOut)
 end
 
+function LLVMExtraConstantRangeContains(NumBits, LowerA, UpperA, LowerB, UpperB)
+    ccall((:LLVMExtraConstantRangeContains, libLLVMExtra), LLVMBool, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB)
+end
+
+function LLVMExtraGetConstantRangeFromMetadata(MD, Lower, Upper)
+    ccall((:LLVMExtraGetConstantRangeFromMetadata, libLLVMExtra), Cuint, (LLVMMetadataRef, Ptr{UInt64}, Ptr{UInt64}), MD, Lower, Upper)
+end
+
+function LLVMExtraCreateRangeMetadata(C, NumBits, Lower, Upper)
+    ccall((:LLVMExtraCreateRangeMetadata, libLLVMExtra), LLVMMetadataRef, (LLVMContextRef, Cuint, Ptr{UInt64}, Ptr{UInt64}), C, NumBits, Lower, Upper)
+end
+
 mutable struct LLVMOpaqueAssumptionCache end
 
 const LLVMAssumptionCacheRef = Ptr{LLVMOpaqueAssumptionCache}

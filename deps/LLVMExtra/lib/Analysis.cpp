@@ -738,6 +738,51 @@ LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB) {
   return unwrap(L)->contains(unwrap(BB));
 }
 
+// copy a list of objects to an array of their references, if it is not NULL
+template <typename Ref, typename Range> static unsigned writeRefs(const Range &R, Ref *Out) {
+  unsigned N = 0;
+  for (auto *X : R) {
+    if (Out)
+      Out[N] = wrap(X);
+    N++;
+  }
+  return N;
+}
+
+unsigned LLVMExtraLoopGetNumBlocks(LLVMLoopRef L) { return unwrap(L)->getNumBlocks(); }
+
+LLVMBasicBlockRef LLVMExtraLoopGetBlock(LLVMLoopRef L, unsigned Index) {
+  return wrap(unwrap(L)->getBlocks()[Index]);
+}
+
+unsigned LLVMExtraLoopGetNumSubLoops(LLVMLoopRef L) { return unwrap(L)->getSubLoops().size(); }
+
+LLVMLoopRef LLVMExtraLoopGetSubLoop(LLVMLoopRef L, unsigned Index) {
+  return wrap(unwrap(L)->getSubLoops()[Index]);
+}
+
+unsigned LLVMExtraLoopGetUniqueExitBlocks(LLVMLoopRef L, LLVMBasicBlockRef *Blocks) {
+  SmallVector<BasicBlock *, 4> Exits;
+  unwrap(L)->getUniqueExitBlocks(Exits);
+  return writeRefs(Exits, Blocks);
+}
+
+unsigned LLVMExtraLoopInfoGetTopLevelLoops(LLVMLoopInfoRef LI, LLVMLoopRef *Loops) {
+  return writeRefs(unwrap(LI)->getTopLevelLoops(), Loops);
+}
+
+LLVMBasicBlockRef LLVMExtraLoopGetLatch(LLVMLoopRef L) {
+  return wrap(unwrap(L)->getLoopLatch());
+}
+
+LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L) {
+  return wrap(unwrap(L)->getLoopPreheader());
+}
+
+LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V) {
+  return unwrap(L)->isLoopInvariant(unwrap(V));
+}
+
 
 // Dominance
 

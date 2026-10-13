@@ -968,6 +968,20 @@ LLVMBasicBlockRef LLVMExtraLoopGetHeader(LLVMLoopRef L);
 LLVMLoopRef LLVMExtraLoopGetParent(LLVMLoopRef L);
 unsigned LLVMExtraLoopGetDepth(LLVMLoopRef L);
 LLVMBool LLVMExtraLoopContains(LLVMLoopRef L, LLVMBasicBlockRef BB);
+// the blocks of a loop (including those of nested loops), and its immediate subloops
+unsigned LLVMExtraLoopGetNumBlocks(LLVMLoopRef L);
+LLVMBasicBlockRef LLVMExtraLoopGetBlock(LLVMLoopRef L, unsigned Index);
+unsigned LLVMExtraLoopGetNumSubLoops(LLVMLoopRef L);
+LLVMLoopRef LLVMExtraLoopGetSubLoop(LLVMLoopRef L, unsigned Index);
+// lists of a loop's unique exit blocks (outside of the loop), or of the outermost loops of
+// a function: written to the array if it is not NULL, returning their number
+unsigned LLVMExtraLoopGetUniqueExitBlocks(LLVMLoopRef L, LLVMBasicBlockRef *Blocks);
+unsigned LLVMExtraLoopInfoGetTopLevelLoops(LLVMLoopInfoRef LI, LLVMLoopRef *Loops);
+// the latch and preheader of a loop, or NULL if there is no single one
+LLVMBasicBlockRef LLVMExtraLoopGetLatch(LLVMLoopRef L);
+LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L);
+// whether a value is defined outside of a loop
+LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V);
 
 // dominance of uses and blocks
 LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,

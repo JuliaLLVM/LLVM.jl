@@ -517,7 +517,7 @@ end
 The natural loops of a function, as computed by LLVM's loop analysis. It is obtained from
 the analysis manager of a custom pass (`am[LoopInfo]`). Indexing it with a basic block,
 `li[bb]`, returns the innermost [`Loop`](@ref) containing the block, or `nothing` if the
-block is not part of a loop.
+block is not part of a loop. Iterating it yields the outermost loops of the function.
 """
 @checked struct LoopInfo
     ref::API.LLVMLoopInfoRef
@@ -529,8 +529,9 @@ Base.unsafe_convert(::Type{API.LLVMLoopInfoRef}, li::LoopInfo) = li.ref
     Loop
 
 A natural loop, as identified by [`LoopInfo`](@ref). Loops are owned by the loop analysis.
-Use `bb in loop` to check whether a basic block is part of the loop (or of one of its
-nested loops).
+Use `bb in loop` or `inst in loop` to check whether a basic block or instruction is part
+of the loop (or of one of its nested loops), and [`is_loop_invariant`](@ref) to check
+whether a value is defined outside of it.
 
 Like the loop analysis itself, loops must not be used after the pass that obtained them
 returns, or after the analysis was invalidated.
@@ -540,6 +541,16 @@ returns, or after the analysis was invalidated.
 - `loop.header`: the header block of the loop, which dominates all of its blocks.
 - `loop.parent`: the loop containing this loop, or `nothing` for an outermost loop.
 - `loop.depth`: the nesting depth of the loop (1 for an outermost loop).
+- `loop.blocks`: the blocks of the loop, including those of nested loops, starting with
+  the header (a read-only vector).
+- `loop.subloops`: the loops that are directly nested in this loop (a read-only vector).
+- `loop.exit_blocks`: the blocks outside of the loop that it branches to, without
+  duplicates (an iterable that finds them when it is iterated).
+- `loop.latch`: the block that branches back to the header, or `nothing` if there are
+  several.
+- `loop.preheader`: the only predecessor of the header that is outside of the loop, if it
+  only branches to the header, or `nothing` otherwise (e.g., because the loop is not in
+  the simplified form that the `loop-simplify` pass creates).
 """
 @checked struct Loop
     ref::API.LLVMLoopRef
@@ -557,11 +568,79 @@ header(loop::Loop) = BasicBlock(API.LLVMExtraLoopGetHeader(loop))
 parent(loop::Loop) = loop_or_nothing(API.LLVMExtraLoopGetParent(loop))
 depth(loop::Loop) = Int(API.LLVMExtraLoopGetDepth(loop))
 
+# read a list of references, using a C function that returns their number, and writes them
+# to an array if it is not NULL
+function read_refs(f, ::Type{T}, args...) where {T}
+    n = f(args..., C_NULL)
+    refs = Vector{T}(undef, n)
+    f(args..., refs)
+    return refs
+end
+
+struct LoopBlockSet <: AbstractVector{BasicBlock}
+    loop::Loop
+end
+
+Base.size(iter::LoopBlockSet) = (Int(API.LLVMExtraLoopGetNumBlocks(iter.loop)),)
+function Base.getindex(iter::LoopBlockSet, i::Int)
+    @boundscheck checkbounds(iter, i)
+    return BasicBlock(API.LLVMExtraLoopGetBlock(iter.loop, i - 1))
+end
+
+struct LoopSubLoopSet <: AbstractVector{Loop}
+    loop::Loop
+end
+
+Base.size(iter::LoopSubLoopSet) = (Int(API.LLVMExtraLoopGetNumSubLoops(iter.loop)),)
+function Base.getindex(iter::LoopSubLoopSet, i::Int)
+    @boundscheck checkbounds(iter, i)
+    return Loop(API.LLVMExtraLoopGetSubLoop(iter.loop, i - 1))
+end
+
+# the exit blocks are found by looking at the successors of the blocks of the loop
+struct LoopExitBlockSet
+    loop::Loop
+end
+
+Base.IteratorSize(::Type{LoopExitBlockSet}) = Base.SizeUnknown()
+Base.eltype(::Type{LoopExitBlockSet}) = BasicBlock
+function Base.iterate(iter::LoopExitBlockSet,
+                      state=(read_refs(API.LLVMExtraLoopGetUniqueExitBlocks,
+                                       API.LLVMBasicBlockRef, iter.loop), 1))
+    refs, i = state
+    return i > length(refs) ? nothing : (BasicBlock(refs[i]), (refs, i + 1))
+end
+
+blocks(loop::Loop) = LoopBlockSet(loop)
+subloops(loop::Loop) = LoopSubLoopSet(loop)
+exit_blocks(loop::Loop) = LoopExitBlockSet(loop)
+block_or_nothing(ref::API.LLVMBasicBlockRef) = ref == C_NULL ? nothing : BasicBlock(ref)
+latch(loop::Loop) = block_or_nothing(API.LLVMExtraLoopGetLatch(loop))
+preheader(loop::Loop) = block_or_nothing(API.LLVMExtraLoopGetPreheader(loop))
+
 @property Loop header
 @property Loop parent
 @property Loop depth
+@property Loop blocks
+@property Loop subloops
+@property Loop exit_blocks
+@property Loop latch
+@property Loop preheader
 
 Base.in(bb::BasicBlock, loop::Loop) = API.LLVMExtraLoopContains(loop, bb) |> Bool
+function Base.in(inst::Instruction, loop::Loop)
+    bb = parent(inst)
+    return bb !== nothing && bb in loop
+end
+
+Base.IteratorSize(::Type{LoopInfo}) = Base.SizeUnknown()
+Base.eltype(::Type{LoopInfo}) = Loop
+function Base.iterate(li::LoopInfo,
+                      state=(read_refs(API.LLVMExtraLoopInfoGetTopLevelLoops,
+                                       API.LLVMLoopRef, li), 1))
+    refs, i = state
+    return i > length(refs) ? nothing : (Loop(refs[i]), (refs, i + 1))
+end
 
 Base.show(io::IO, loop::Loop) =
     print(io, "Loop(header=", repr(header(loop).name), ", depth=", depth(loop), ")")
@@ -787,11 +866,17 @@ function scev_cast(se::ScalarEvolution, opcode::API.LLVMOpcode, s::SCEV, T::Inte
 end
 
 """
+    is_loop_invariant(loop::Loop, v::Value)
     is_loop_invariant(se::ScalarEvolution, loop::Loop, s::SCEV)
 
-Check whether the value of the expression `s` does not change during the execution of
-`loop`.
+Check whether the value `v` is defined outside of `loop` (a constant, an argument, or an
+instruction in a block that is not part of the loop), or whether the value of the
+expression `s` does not change during the execution of `loop`. The former does not imply
+that an instruction using `v` can be moved out of the loop, which may not be safe.
 """
+is_loop_invariant(loop::Loop, v::Value) = API.LLVMExtraLoopIsLoopInvariant(loop, v) |> Bool
+
+@doc (@doc is_loop_invariant)
 is_loop_invariant(se::ScalarEvolution, loop::Loop, s::SCEV) =
     API.LLVMExtraScalarEvolutionIsLoopInvariant(se, s, loop) |> Bool
 

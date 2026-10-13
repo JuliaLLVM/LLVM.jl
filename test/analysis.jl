@@ -361,6 +361,30 @@ end
             @test !(exit in outer_loop)
             @test sprint(show, inner_loop) == "Loop(header=\"inner\", depth=2)"
 
+            # the structure of loops
+            @test collect(li) == [outer_loop]
+            @test outer_loop.subloops == [inner_loop]
+            @test isempty(inner_loop.subloops)
+            @test outer_loop.blocks == [outer, inner, latch]
+            @test inner_loop.blocks == [inner]
+            @test_throws BoundsError outer_loop.blocks[4]
+            @test_throws Exception outer_loop.blocks[1] = entry
+            @test collect(outer_loop.exit_blocks) == [exit]
+            @test collect(inner_loop.exit_blocks) == [latch]
+            @test outer_loop.latch == latch
+            @test inner_loop.latch == inner
+            @test outer_loop.preheader == entry
+            @test inner_loop.preheader == outer
+            @test i in inner_loop
+            @test j in outer_loop
+            @test !(j in inner_loop)
+            @test !(b in outer_loop)
+            @test is_loop_invariant(inner_loop, j)
+            @test is_loop_invariant(inner_loop, a)
+            @test !is_loop_invariant(inner_loop, i)
+            @test !is_loop_invariant(outer_loop, i)
+            @test is_loop_invariant(outer_loop, ConstantInt(Int64(1)))
+
             # expressions
             sa = se[a]
             @test sa isa SCEVUnknown

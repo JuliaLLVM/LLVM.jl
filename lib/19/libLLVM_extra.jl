@@ -1047,6 +1047,42 @@ function LLVMExtraLoopContains(L, BB)
     ccall((:LLVMExtraLoopContains, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMBasicBlockRef), L, BB)
 end
 
+function LLVMExtraLoopGetNumBlocks(L)
+    ccall((:LLVMExtraLoopGetNumBlocks, libLLVMExtra), Cuint, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopGetBlock(L, Index)
+    ccall((:LLVMExtraLoopGetBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef, Cuint), L, Index)
+end
+
+function LLVMExtraLoopGetNumSubLoops(L)
+    ccall((:LLVMExtraLoopGetNumSubLoops, libLLVMExtra), Cuint, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopGetSubLoop(L, Index)
+    ccall((:LLVMExtraLoopGetSubLoop, libLLVMExtra), LLVMLoopRef, (LLVMLoopRef, Cuint), L, Index)
+end
+
+function LLVMExtraLoopGetUniqueExitBlocks(L, Blocks)
+    ccall((:LLVMExtraLoopGetUniqueExitBlocks, libLLVMExtra), Cuint, (LLVMLoopRef, Ptr{LLVMBasicBlockRef}), L, Blocks)
+end
+
+function LLVMExtraLoopInfoGetTopLevelLoops(LI, Loops)
+    ccall((:LLVMExtraLoopInfoGetTopLevelLoops, libLLVMExtra), Cuint, (LLVMLoopInfoRef, Ptr{LLVMLoopRef}), LI, Loops)
+end
+
+function LLVMExtraLoopGetLatch(L)
+    ccall((:LLVMExtraLoopGetLatch, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopGetPreheader(L)
+    ccall((:LLVMExtraLoopGetPreheader, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef,), L)
+end
+
+function LLVMExtraLoopIsLoopInvariant(L, V)
+    ccall((:LLVMExtraLoopIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMValueRef), L, V)
+end
+
 function LLVMExtraDominatorTreeInstructionDominatesUse(Tree, Inst, U)
     ccall((:LLVMExtraDominatorTreeInstructionDominatesUse, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMUseRef), Tree, Inst, U)
 end

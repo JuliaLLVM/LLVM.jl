@@ -919,6 +919,29 @@ LLVMSCEVRef LLVMExtraScalarEvolutionGetAddExpr(LLVMScalarEvolutionRef SE, LLVMSC
                                                unsigned NumOps);
 LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVMSCEVRef LHS,
                                                  LLVMSCEVRef RHS);
+LLVMSCEVRef LLVMExtraScalarEvolutionGetMulExpr(LLVMScalarEvolutionRef SE, LLVMSCEVRef *Ops,
+                                               unsigned NumOps);
+// a truncation, zero or sign extension of an integer expression to an integer type, which
+// needs to be narrower or wider respectively; returns NULL otherwise
+LLVMSCEVRef LLVMExtraScalarEvolutionGetCastExpr(LLVMScalarEvolutionRef SE, LLVMOpcode Opcode,
+                                                LLVMSCEVRef S, LLVMTypeRef Ty);
+LLVMBool LLVMExtraScalarEvolutionIsLoopInvariant(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
+                                                 LLVMLoopRef L);
+// the number of times the backedge of a loop is taken: exactly, at most (as a constant), or
+// at most (as an expression); could-not-compute if unknown
+typedef enum {
+  LLVMExtraExactBackedgeTakenCount,
+  LLVMExtraConstantMaxBackedgeTakenCount,
+  LLVMExtraSymbolicMaxBackedgeTakenCount,
+} LLVMExtraBackedgeTakenCountKind;
+LLVMSCEVRef LLVMExtraScalarEvolutionGetBackedgeTakenCount(LLVMScalarEvolutionRef SE,
+                                                          LLVMLoopRef L,
+                                                          LLVMExtraBackedgeTakenCountKind Kind);
+// the step of an add recurrence, or NULL for other expressions
+LLVMSCEVRef LLVMExtraSCEVAddRecGetStepRecurrence(LLVMScalarEvolutionRef SE, LLVMSCEVRef S);
+// the no-wrap flags of an n-ary expression (SCEV::NoWrapFlags: 1 for no self-wrap, 2 for
+// no unsigned wrap, 4 for no signed wrap), or 0 for other expressions
+unsigned LLVMExtraSCEVGetNoWrapFlags(LLVMSCEVRef S);
 // the signed or unsigned range of an expression, written as for constant ranges if `Lower`
 // and `Upper` are not NULL; returns the bit width of the range, or 0 for could-not-compute
 unsigned LLVMExtraScalarEvolutionGetRange(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,

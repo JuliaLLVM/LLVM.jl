@@ -573,7 +573,9 @@ Base.show(io::IO, loop::Loop) =
                      SCEVZeroExtendExpr, SCEVSignExtendExpr, SCEVPtrToIntExpr, SCEVAddExpr,
                      SCEVMulExpr, SCEVUDivExpr, SCEVAddRecExpr, SCEVUMaxExpr, SCEVSMaxExpr,
                      SCEVUMinExpr, SCEVSMinExpr, SCEVSequentialUMinExpr, SCEVUnknown,
-                     SCEVCouldNotCompute, scev_add, scev_minus, contains_scev
+                     SCEVCouldNotCompute, scev_add, scev_minus, scev_mul, scev_cast,
+                     contains_scev, is_scevable, is_loop_invariant, backedge_taken_count,
+                     step_recurrence
 
 """
     ScalarEvolution
@@ -582,9 +584,13 @@ LLVM's scalar evolution analysis, which represents integer and pointer values as
 expressions ([`SCEV`](@ref)s), e.g., to recognize induction variables of loops. It is
 obtained from the analysis manager of a custom pass (`am[ScalarEvolution]`).
 
-- `se[v]`: the expression for the integer or pointer value `v`;
-- [`scev_add`](@ref), [`scev_minus`](@ref): build new expressions;
-- `ConstantRange(se, s; signed=false)`: the range of the values of an expression.
+- `se[v]`: the expression for the integer or pointer value `v` (see
+  [`is_scevable`](@ref));
+- [`scev_add`](@ref), [`scev_minus`](@ref), [`scev_mul`](@ref), [`scev_cast`](@ref):
+  build new expressions;
+- `ConstantRange(se, s; signed=false)`: the range of the values of an expression;
+- [`is_loop_invariant`](@ref), [`backedge_taken_count`](@ref),
+  [`step_recurrence`](@ref): loop-related queries.
 
 Expressions are owned by the analysis and uniqued, so that expressions that are equal are
 also identical (`==`). The analysis caches its results, which become stale when the
@@ -616,6 +622,14 @@ that obtained them returns, or after the analysis was invalidated.
 - `s.operands`: the operands of the expression (a vector of `SCEV`s).
 - `s.value`: the `ConstantInt` of a `SCEVConstant`, or the value of a `SCEVUnknown`.
 - `s.loop`: the [`Loop`](@ref) of a `SCEVAddRecExpr`.
+- `s.start`: the start value of a `SCEVAddRecExpr` (its first operand).
+- `s.affine`: whether a `SCEVAddRecExpr` is affine, i.e., has a step that is invariant in
+  its loop (when it has two operands: `{start,+,step}`).
+- `s.nuw`, `s.nsw`, `s.nw`: the no-wrap flags of an n-ary expression (`SCEVAddExpr`,
+  `SCEVMulExpr`, `SCEVAddRecExpr`, and the minima and maxima): whether it is known not to
+  wrap in the unsigned or signed sense, and (for an add recurrence) whether it is known to
+  never wrap back to its start value (no self-wrap). These are facts that scalar evolution
+  proved or derived from the IR, which hold in the context of the expression.
 """
 abstract type SCEV end
 @properties SCEV
@@ -676,18 +690,45 @@ value(s::SCEVUnknown) = Value(API.LLVMExtraSCEVGetValue(s))
 
 loop(s::SCEVAddRecExpr) = Loop(API.LLVMExtraSCEVAddRecGetLoop(s))
 
+start(s::SCEVAddRecExpr) = first(operands(s))
+affine(s::SCEVAddRecExpr) = API.LLVMExtraSCEVGetOperands(s, C_NULL) == 2
+
+const SCEVNAryExpr = Union{SCEVAddExpr,SCEVMulExpr,SCEVAddRecExpr,SCEVUMaxExpr,SCEVSMaxExpr,
+                           SCEVUMinExpr,SCEVSMinExpr,SCEVSequentialUMinExpr}
+
+# the values of SCEV::NoWrapFlags
+nw(s::SCEVNAryExpr) = API.LLVMExtraSCEVGetNoWrapFlags(s) & 1 != 0
+nuw(s::SCEVNAryExpr) = API.LLVMExtraSCEVGetNoWrapFlags(s) & 2 != 0
+nsw(s::SCEVNAryExpr) = API.LLVMExtraSCEVGetNoWrapFlags(s) & 4 != 0
+
 @property SCEV type
 @property SCEV operands
 @property Union{SCEVConstant,SCEVUnknown} value
 @property SCEVAddRecExpr loop
+@property SCEVAddRecExpr start
+@property SCEVAddRecExpr affine
+@property SCEVNAryExpr nw
+@property SCEVNAryExpr nuw
+@property SCEVNAryExpr nsw
 
 function Base.show(io::IO, s::SCEV)
     str = unsafe_message(API.LLVMExtraPrintSCEVToString(s))
     print(io, nameof(typeof(s)), "(", str, ")")
 end
 
+"""
+    is_scevable(se::ScalarEvolution, T::LLVMType)
+    is_scevable(se::ScalarEvolution, v::Value)
+
+Check whether scalar evolution can analyze values of type `T`, or the value `v`, i.e.,
+whether `se[v]` is supported: integers and pointers are.
+"""
+is_scevable(se::ScalarEvolution, T::LLVMType) =
+    API.LLVMExtraScalarEvolutionIsSCEVable(se, T) |> Bool
+is_scevable(se::ScalarEvolution, v::Value) = is_scevable(se, value_type(v))
+
 function Base.getindex(se::ScalarEvolution, v::Value)
-    API.LLVMExtraScalarEvolutionIsSCEVable(se, value_type(v)) |> Bool ||
+    is_scevable(se, v) ||
         throw(ArgumentError("Scalar evolution only supports integer and pointer values"))
     return SCEV(API.LLVMExtraScalarEvolutionGetSCEV(se, v))
 end
@@ -716,6 +757,78 @@ function scev_minus(se::ScalarEvolution, a::SCEV, b::SCEV)
         throw(ArgumentError("Cannot subtract expressions of incompatible types"))
     return SCEV(ref)
 end
+
+"""
+    scev_mul(se::ScalarEvolution, operands::SCEV...)
+
+Build the (simplified) expression for the product of the `operands`, which must be integer
+expressions of the same type.
+"""
+function scev_mul(se::ScalarEvolution, operands::SCEV...)
+    isempty(operands) && throw(ArgumentError("Cannot multiply zero expressions"))
+    refs = API.LLVMSCEVRef[s.ref for s in operands]
+    ref = API.LLVMExtraScalarEvolutionGetMulExpr(se, refs, length(refs))
+    ref == C_NULL && throw(ArgumentError("Cannot multiply expressions of incompatible types"))
+    return SCEV(ref)
+end
+
+"""
+    scev_cast(se::ScalarEvolution, opcode, s::SCEV, T::IntegerType)
+
+Build the (simplified) expression for the cast `opcode` of the integer expression `s` to
+the integer type `T`: `LLVM.Opcode.Trunc` to a narrower type, or `LLVM.Opcode.ZExt` or
+`LLVM.Opcode.SExt` to a wider one.
+"""
+function scev_cast(se::ScalarEvolution, opcode::API.LLVMOpcode, s::SCEV, T::IntegerType)
+    ref = API.LLVMExtraScalarEvolutionGetCastExpr(se, opcode, s, T)
+    ref == C_NULL &&
+        throw(ArgumentError("Invalid $opcode of $s to $T"))
+    return SCEV(ref)
+end
+
+"""
+    is_loop_invariant(se::ScalarEvolution, loop::Loop, s::SCEV)
+
+Check whether the value of the expression `s` does not change during the execution of
+`loop`.
+"""
+is_loop_invariant(se::ScalarEvolution, loop::Loop, s::SCEV) =
+    API.LLVMExtraScalarEvolutionIsLoopInvariant(se, s, loop) |> Bool
+
+"""
+    backedge_taken_count(se::ScalarEvolution, loop::Loop; kind=:exact)
+
+The number of times that the backedge of `loop` is taken before the loop exits, which is
+the number of iterations minus one, as an expression that is evaluated before the loop is
+entered. It is a `SCEVCouldNotCompute` if it is not known. Use `kind=:constant_max` for
+an upper bound that is a constant (as a `SCEVConstant`), or `kind=:symbolic_max` for an
+upper bound that is an expression.
+
+The count only describes the iterations of the loop when it is entered, and not exited
+abnormally (e.g., by throwing an exception).
+"""
+function backedge_taken_count(se::ScalarEvolution, loop::Loop; kind::Symbol=:exact)
+    api_kind = if kind === :exact
+        API.LLVMExtraExactBackedgeTakenCount
+    elseif kind === :constant_max
+        API.LLVMExtraConstantMaxBackedgeTakenCount
+    elseif kind === :symbolic_max
+        API.LLVMExtraSymbolicMaxBackedgeTakenCount
+    else
+        throw(ArgumentError("Invalid kind :$kind; expected :exact, :constant_max or :symbolic_max"))
+    end
+    return SCEV(API.LLVMExtraScalarEvolutionGetBackedgeTakenCount(se, loop, api_kind))
+end
+
+"""
+    step_recurrence(se::ScalarEvolution, s::SCEVAddRecExpr)
+
+The step of the add recurrence `s`, i.e., the value that is added to it in each iteration
+of its loop. For an affine recurrence `{start,+,step}` this is `step`, while for other
+recurrences it is itself an add recurrence (e.g., `{a,+,b,+,c}` has the step `{b,+,c}`).
+"""
+step_recurrence(se::ScalarEvolution, s::SCEVAddRecExpr) =
+    SCEV(API.LLVMExtraSCEVAddRecGetStepRecurrence(se, s))
 
 """
     contains_scev(s::SCEV, T::Type{<:SCEV})

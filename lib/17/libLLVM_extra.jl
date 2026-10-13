@@ -999,6 +999,36 @@ function LLVMExtraScalarEvolutionGetMinusSCEV(SE, LHS, RHS)
     ccall((:LLVMExtraScalarEvolutionGetMinusSCEV, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMSCEVRef), SE, LHS, RHS)
 end
 
+function LLVMExtraScalarEvolutionGetMulExpr(SE, Ops, NumOps)
+    ccall((:LLVMExtraScalarEvolutionGetMulExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, Ptr{LLVMSCEVRef}, Cuint), SE, Ops, NumOps)
+end
+
+function LLVMExtraScalarEvolutionGetCastExpr(SE, Opcode, S, Ty)
+    ccall((:LLVMExtraScalarEvolutionGetCastExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMOpcode, LLVMSCEVRef, LLVMTypeRef), SE, Opcode, S, Ty)
+end
+
+function LLVMExtraScalarEvolutionIsLoopInvariant(SE, S, L)
+    ccall((:LLVMExtraScalarEvolutionIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMLoopRef), SE, S, L)
+end
+
+@cenum LLVMExtraBackedgeTakenCountKind::UInt32 begin
+    LLVMExtraExactBackedgeTakenCount = 0
+    LLVMExtraConstantMaxBackedgeTakenCount = 1
+    LLVMExtraSymbolicMaxBackedgeTakenCount = 2
+end
+
+function LLVMExtraScalarEvolutionGetBackedgeTakenCount(SE, L, Kind)
+    ccall((:LLVMExtraScalarEvolutionGetBackedgeTakenCount, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMLoopRef, LLVMExtraBackedgeTakenCountKind), SE, L, Kind)
+end
+
+function LLVMExtraSCEVAddRecGetStepRecurrence(SE, S)
+    ccall((:LLVMExtraSCEVAddRecGetStepRecurrence, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMSCEVRef), SE, S)
+end
+
+function LLVMExtraSCEVGetNoWrapFlags(S)
+    ccall((:LLVMExtraSCEVGetNoWrapFlags, libLLVMExtra), Cuint, (LLVMSCEVRef,), S)
+end
+
 function LLVMExtraScalarEvolutionGetRange(SE, S, Signed, Lower, Upper)
     ccall((:LLVMExtraScalarEvolutionGetRange, libLLVMExtra), Cuint, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), SE, S, Signed, Lower, Upper)
 end

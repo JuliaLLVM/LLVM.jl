@@ -60,7 +60,13 @@ LoopInfo
 Loop
 ScalarEvolution
 SCEV
+is_scevable
 scev_add
+scev_mul
+scev_cast
 contains_scev
 ConstantRange(::ScalarEvolution, ::SCEV)
+is_loop_invariant
+backedge_taken_count
+step_recurrence
 ```

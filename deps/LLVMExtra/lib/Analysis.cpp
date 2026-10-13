@@ -534,6 +534,82 @@ LLVMSCEVRef LLVMExtraScalarEvolutionGetMinusSCEV(LLVMScalarEvolutionRef SE, LLVM
   return wrap(unwrap(SE)->getMinusSCEV(unwrap(LHS), unwrap(RHS)));
 }
 
+LLVMSCEVRef LLVMExtraScalarEvolutionGetMulExpr(LLVMScalarEvolutionRef SE, LLVMSCEVRef *Ops,
+                                               unsigned NumOps) {
+  SmallVector<const SCEV *, 4> Operands;
+  for (unsigned I = 0; I < NumOps; ++I)
+    Operands.push_back(unwrap(Ops[I]));
+  // pointers cannot be multiplied
+  if (Operands.empty() || !areCompatibleOperands(*unwrap(SE), Operands, 0))
+    return nullptr;
+#if LLVM_VERSION_MAJOR >= 23
+  SmallVector<SCEVUse, 4> Uses(Operands.begin(), Operands.end());
+  return wrap(unwrap(SE)->getMulExpr(Uses));
+#else
+  return wrap(unwrap(SE)->getMulExpr(Operands));
+#endif
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetCastExpr(LLVMScalarEvolutionRef SE, LLVMOpcode Opcode,
+                                                LLVMSCEVRef S, LLVMTypeRef Ty) {
+  ScalarEvolution &Evolution = *unwrap(SE);
+  const SCEV *Op = unwrap(S);
+  Type *DestTy = unwrap(Ty);
+  // the builders assert that the types are valid for the cast
+  if (isa<SCEVCouldNotCompute>(Op) || !Op->getType()->isIntegerTy() ||
+      !DestTy->isIntegerTy())
+    return nullptr;
+  unsigned SrcBits = Op->getType()->getIntegerBitWidth();
+  unsigned DestBits = DestTy->getIntegerBitWidth();
+  switch (Opcode) {
+  case LLVMTrunc:
+    return SrcBits > DestBits ? wrap(Evolution.getTruncateExpr(Op, DestTy)) : nullptr;
+  case LLVMZExt:
+    return SrcBits < DestBits ? wrap(Evolution.getZeroExtendExpr(Op, DestTy)) : nullptr;
+  case LLVMSExt:
+    return SrcBits < DestBits ? wrap(Evolution.getSignExtendExpr(Op, DestTy)) : nullptr;
+  default:
+    return nullptr;
+  }
+}
+
+LLVMBool LLVMExtraScalarEvolutionIsLoopInvariant(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
+                                                 LLVMLoopRef L) {
+  return unwrap(SE)->isLoopInvariant(unwrap(S), unwrap(L));
+}
+
+LLVMSCEVRef LLVMExtraScalarEvolutionGetBackedgeTakenCount(LLVMScalarEvolutionRef SE,
+                                                          LLVMLoopRef L,
+                                                          LLVMExtraBackedgeTakenCountKind Kind) {
+  ScalarEvolution::ExitCountKind CountKind;
+  switch (Kind) {
+  case LLVMExtraExactBackedgeTakenCount:
+    CountKind = ScalarEvolution::Exact;
+    break;
+  case LLVMExtraConstantMaxBackedgeTakenCount:
+    CountKind = ScalarEvolution::ConstantMaximum;
+    break;
+  case LLVMExtraSymbolicMaxBackedgeTakenCount:
+    CountKind = ScalarEvolution::SymbolicMaximum;
+    break;
+  default:
+    llvm_unreachable("unknown backedge-taken count kind");
+  }
+  return wrap(unwrap(SE)->getBackedgeTakenCount(unwrap(L), CountKind));
+}
+
+LLVMSCEVRef LLVMExtraSCEVAddRecGetStepRecurrence(LLVMScalarEvolutionRef SE, LLVMSCEVRef S) {
+  if (auto *AR = dyn_cast<SCEVAddRecExpr>(unwrap(S)))
+    return wrap(AR->getStepRecurrence(*unwrap(SE)));
+  return nullptr;
+}
+
+unsigned LLVMExtraSCEVGetNoWrapFlags(LLVMSCEVRef S) {
+  if (auto *NAry = dyn_cast<SCEVNAryExpr>(unwrap(S)))
+    return static_cast<unsigned>(NAry->getNoWrapFlags());
+  return 0;
+}
+
 unsigned LLVMExtraScalarEvolutionGetRange(LLVMScalarEvolutionRef SE, LLVMSCEVRef S,
                                           LLVMBool Signed, uint64_t *Lower,
                                           uint64_t *Upper) {

@@ -320,7 +320,9 @@ end
           br label %inner
         inner:
           %i = phi i64 [ 0, %outer ], [ %i.next, %inner ]
+          %s = phi i64 [ 0, %outer ], [ %s.next, %inner ]
           %i.next = add nuw nsw i64 %i, 1
+          %s.next = add i64 %s, %i
           %ci = icmp ult i64 %i.next, 10
           br i1 %ci, label %inner, label %outer.latch
         outer.latch:
@@ -395,6 +397,52 @@ end
             s32 = se[ConstantInt(Int32(1))]
             @test_throws ArgumentError scev_add(se, sa, s32)
             @test_throws ArgumentError scev_minus(se, sa, s32)
+
+            @test is_scevable(se, a)
+            @test is_scevable(se, LLVM.Int32Type())
+            @test !is_scevable(se, LLVM.FloatType())
+
+            # multiplication and casts
+            @test scev_mul(se, sa, seven) isa SCEVMulExpr
+            @test scev_mul(se, seven, seven) == se[ConstantInt(Int64(49))]
+            @test_throws ArgumentError scev_mul(se)
+            @test_throws ArgumentError scev_mul(se, sa, s32)
+            t = scev_cast(se, LLVM.Opcode.Trunc, sa, LLVM.Int32Type())
+            @test t isa SCEVTruncateExpr
+            @test t.type == LLVM.Int32Type()
+            @test scev_cast(se, LLVM.Opcode.ZExt, t, LLVM.Int64Type()) isa SCEVZeroExtendExpr
+            @test scev_cast(se, LLVM.Opcode.SExt, s32, LLVM.Int64Type()) ==
+                  se[ConstantInt(Int64(1))]
+            @test_throws ArgumentError scev_cast(se, LLVM.Opcode.ZExt, sa, LLVM.Int32Type())
+            @test_throws ArgumentError scev_cast(se, LLVM.Opcode.Trunc, sa, LLVM.Int64Type())
+            @test_throws ArgumentError scev_cast(se, LLVM.Opcode.Add, sa, LLVM.Int32Type())
+
+            # add recurrences: {0,+,1} for i, and {0,+,0,+,1} for s
+            @test si.start == se[ConstantInt(Int64(0))]
+            @test si.affine
+            @test step_recurrence(se, si) == se[ConstantInt(Int64(1))]
+            @test si.nuw && si.nsw && si.nw
+            @test !sb.nuw && !sb.nsw
+            ss = se[collect(inner.instructions)[2]]
+            @test ss isa SCEVAddRecExpr
+            @test !ss.affine
+            step = step_recurrence(se, ss)
+            @test step isa SCEVAddRecExpr && step.affine && step.loop == inner_loop
+
+            # loop invariance and trip counts
+            sj = se[j]
+            @test is_loop_invariant(se, inner_loop, sa)
+            @test is_loop_invariant(se, inner_loop, sj)
+            @test !is_loop_invariant(se, inner_loop, si)
+            @test !is_loop_invariant(se, outer_loop, sj)
+            @test backedge_taken_count(se, inner_loop) == se[ConstantInt(Int64(9))]
+            @test backedge_taken_count(se, inner_loop; kind=:constant_max) ==
+                  se[ConstantInt(Int64(9))]
+            outer_count = backedge_taken_count(se, outer_loop)
+            @test !(outer_count isa SCEVCouldNotCompute)
+            @test contains_scev(outer_count, SCEVUnknown)       # depends on %n
+            @test backedge_taken_count(se, outer_loop; kind=:symbolic_max) isa SCEV
+            @test_throws ArgumentError backedge_taken_count(se, outer_loop; kind=:bogus)
         end
     end
 end

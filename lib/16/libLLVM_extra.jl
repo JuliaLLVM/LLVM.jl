@@ -789,6 +789,10 @@ function LLVMExtraGetFirstInsertionPt(BB, Before, Head)
     ccall((:LLVMExtraGetFirstInsertionPt, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), BB, Before, Head)
 end
 
+function LLVMExtraGetInsertionPointAfterDef(Inst, BB, Before, Head)
+    ccall((:LLVMExtraGetInsertionPointAfterDef, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{LLVMBasicBlockRef}, Ptr{LLVMValueRef}, Ptr{LLVMBool}), Inst, BB, Before, Head)
+end
+
 function LLVMExtraInstructionComesBefore(Inst, Other)
     ccall((:LLVMExtraInstructionComesBefore, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef), Inst, Other)
 end

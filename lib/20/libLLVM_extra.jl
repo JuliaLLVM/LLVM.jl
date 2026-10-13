@@ -671,6 +671,10 @@ function LLVMExtraGetFirstInsertionPt(BB, Before, Head)
     ccall((:LLVMExtraGetFirstInsertionPt, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), BB, Before, Head)
 end
 
+function LLVMExtraGetInsertionPointAfterDef(Inst, BB, Before, Head)
+    ccall((:LLVMExtraGetInsertionPointAfterDef, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{LLVMBasicBlockRef}, Ptr{LLVMValueRef}, Ptr{LLVMBool}), Inst, BB, Before, Head)
+end
+
 function LLVMExtraDIBuilderInsertDeclareRecordAt(Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
     ccall((:LLVMExtraDIBuilderInsertDeclareRecordAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
 end

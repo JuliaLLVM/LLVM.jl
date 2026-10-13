@@ -677,6 +677,11 @@ LLVMBasicBlockRef LLVMExtraGetInsertPoint(LLVMBuilderRef Builder, LLVMValueRef *
 // there is none (e.g., in a block that is terminated by a catchswitch)
 LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before,
                                       LLVMBool *Head);
+// the insertion point right after the definition of an instruction, where its value can be
+// used (after the PHI nodes of its block for a PHI node, or in the normal destination of an
+// invoke), storing its block; returns false if there is none (e.g., for a callbr)
+LLVMBool LLVMExtraGetInsertionPointAfterDef(LLVMValueRef Inst, LLVMBasicBlockRef *BB,
+                                            LLVMValueRef *Before, LLVMBool *Head);
 #if LLVM_VERSION_MAJOR >= 19
 // insert a debug record at an insertion point, which must not be the end of a terminated
 // block; requires the new debug info format

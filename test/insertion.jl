@@ -195,6 +195,80 @@ end
 end
 end
 
+@testset "after_def" begin
+@dispose ctx=Context() builder=IRBuilder() begin
+    ptr = supports_typed_pointers(ctx) ? "i8*" : "ptr"
+    i32ptr = supports_typed_pointers(ctx) ? "i32*" : "ptr"
+    mod = parse(LLVM.Module, """
+        declare i32 @g()
+        declare i32 @pers(...)
+
+        define i32 @f(i32 %x, i1 %c) personality $ptr bitcast (i32 (...)* @pers to $ptr) {
+        entry:
+          %a = add i32 %x, 1
+          store i32 %a, $i32ptr null
+          br i1 %c, label %loop, label %call
+        loop:
+          %p1 = phi i32 [ %x, %entry ], [ %p2, %loop ]
+          %p2 = phi i32 [ %a, %entry ], [ %p1, %loop ]
+          %s = add i32 %p1, %p2
+          br i1 %c, label %loop, label %call
+        call:
+          %r = invoke i32 @g() to label %cont unwind label %dispatch
+        cont:
+          %q = phi i32 [ %r, %call ]
+          ret i32 %q
+        dispatch:
+          %cs = catchswitch within none [label %handler] unwind to caller
+        handler:
+          %cp = catchpad within %cs []
+          catchret from %cp to label %out
+        out:
+          ret i32 0
+        }""")
+    f = mod.functions["f"]
+    insts = Dict(inst.name => inst for bb in f.blocks for inst in bb.instructions
+                 if !isempty(inst.name))
+    store = collect(f.entry.instructions)[2]
+
+    @test LLVM.after_def(insts["a"]) == LLVM.after(insts["a"])
+    @test LLVM.after_def(insts["s"]) == LLVM.after(insts["s"])
+    # PHI nodes define their value for the whole block
+    @test LLVM.after_def(insts["p1"]) == LLVM.after(insts["p2"])
+    # an invoke's value is available in its normal destination
+    @test LLVM.after_def(insts["r"]) == LLVM.after(insts["q"])
+    @test LLVM.after_def(insts["cs"]) === nothing
+    @test_throws ArgumentError LLVM.after_def(store)
+    detached = copy(insts["a"])
+    @test_throws ArgumentError LLVM.after_def(detached)
+    erase!(detached)
+
+    # instructions can use the value there
+    position!(builder, LLVM.after_def(insts["r"]))
+    add!(builder, insts["r"], insts["r"])
+    position!(builder, LLVM.after_def(insts["p1"]))
+    add!(builder, insts["p1"], insts["p2"])
+    verify(mod)
+    dispose(mod)
+end
+
+# callbr values are available in several destinations
+if LLVM.version() >= v"17"
+@dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f() {
+        entry:
+          %cb = callbr i32 asm "", "=r,!i"() to label %exit [label %other]
+        exit:
+          ret i32 %cb
+        other:
+          ret i32 0
+        }""") begin
+    cb = first(mod.functions["f"].entry.instructions)
+    @test LLVM.after_def(cb) === nothing
+end
+end
+end
+
 @testset "instructions" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()])

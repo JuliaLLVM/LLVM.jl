@@ -1368,6 +1368,46 @@ LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before
   return true;
 }
 
+LLVMBool LLVMExtraGetInsertionPointAfterDef(LLVMValueRef Inst, LLVMBasicBlockRef *BB,
+                                            LLVMValueRef *Before, LLVMBool *Head) {
+  Instruction *I = unwrap<Instruction>(Inst);
+#if LLVM_VERSION_MAJOR >= 18
+  std::optional<BasicBlock::iterator> It = I->getInsertionPointAfterDef();
+  if (!It)
+    return false;
+  BasicBlock *B = (*It)->getParent();
+  BasicBlock::iterator Pos = *It;
+#elif LLVM_VERSION_MAJOR >= 17
+  Instruction *Next = I->getInsertionPointAfterDef();
+  if (!Next)
+    return false;
+  BasicBlock *B = Next->getParent();
+  BasicBlock::iterator Pos = Next->getIterator();
+#else
+  // back-port of LLVM 17, which unlike LLVM 16 doesn't use the default destination of a
+  // callbr, as it does not dominate the other destinations
+  BasicBlock *B;
+  BasicBlock::iterator Pos;
+  if (auto *PN = dyn_cast<PHINode>(I)) {
+    B = PN->getParent();
+    Pos = B->getFirstInsertionPt();
+  } else if (auto *II = dyn_cast<InvokeInst>(I)) {
+    B = II->getNormalDest();
+    Pos = B->getFirstInsertionPt();
+  } else if (isa<CallBrInst>(I)) {
+    return false;
+  } else {
+    B = I->getParent();
+    Pos = std::next(I->getIterator());
+  }
+  if (Pos == B->end())
+    return false;
+#endif
+  *BB = wrap(B);
+  readInsertionPoint(B, Pos, Before, Head);
+  return true;
+}
+
 #if LLVM_VERSION_MAJOR >= 19
 // insert a debug record using a DIBuilder function, which is passed the position
 template <typename InsertFn>

@@ -3284,7 +3284,7 @@ end
         name = LLVM.attribute_kind_name(id)
         @test LLVM.attribute_kind_id(name) == id
         @test LLVM.attribute_kind_id(String(name)) == id
-        @test LLVM.attribute_kind_category(id) == LLVM.lookup_attribute_kind_category(id)
+        @test LLVM.attribute_kind_category(id) == LLVM.lookup_attribute_kind_category(LLVM.library(), id)
     end
     @test LLVM.attribute_kind_id(:nonexisting) == 0
     @test_throws ErrorException LLVM.attribute_kind_name(0)

@@ -15,7 +15,7 @@ function isboxed(typ::Type)
     end
 end
 function _isboxed(typ::Type)
-    LLVM.check_julia_llvm("Converting Julia types to LLVM")
+    LLVM.check_julia_library("Converting Julia types to LLVM")
     isboxed_ref = Ref{Bool}()
     ccall(:jl_type_to_llvm, LLVM.API.LLVMTypeRef,
            (Any, LLVM.API.LLVMContextRef, Ptr{Bool}), typ, context(), isboxed_ref)
@@ -29,7 +29,7 @@ Convert a Julia type `typ` to its LLVM representation in the current context.
 The `allow_boxed` argument determines whether boxed types are allowed.
 """
 function Base.convert(::Type{LLVMType}, typ::Type; allow_boxed::Bool=false)
-    LLVM.check_julia_llvm("Converting Julia types to LLVM")
+    LLVM.check_julia_library("Converting Julia types to LLVM")
     isboxed_ref = Ref{Bool}()
     llvmtyp =
         LLVMType(ccall(:jl_type_to_llvm, LLVM.API.LLVMTypeRef,

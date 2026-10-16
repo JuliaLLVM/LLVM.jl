@@ -223,7 +223,7 @@ end
 Base.unsafe_convert(::Type{API.JuliaOJITRef}, jljit::JuliaOJIT) = jljit.ref
 
 function JuliaOJIT()
-    check_julia_llvm("JuliaOJIT")
+    check_julia_library("JuliaOJIT")
     JuliaOJIT(API.JLJITGetJuliaOJIT())
 end
 

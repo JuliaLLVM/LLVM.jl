@@ -5,10 +5,10 @@
 """
     LLVM.version() -> VersionNumber
 
-The version of the LLVM library that LLVM.jl uses: the one Julia uses, unless the `libLLVM`
-preference selects another one.
+The version of the current LLVM library (see [`LLVM.library`](@ref)): the one Julia uses,
+unless the `libLLVM` preference selects another one.
 """
-version() = libllvm_version
+version() = library().version
 
 """
     LLVM.isavailable(x)
@@ -20,10 +20,12 @@ but passing them to a version of LLVM that lacks them throws an error.
 """
 function isavailable end
 
-function runtime_version()
+# the version that a shared libLLVM reports, which can differ from the version of the headers
+# it was built from (and that Julia was built for) when Julia uses a system LLVM
+function runtime_version(lib::Library=library())
     # FIXME: add a proper C API to LLVM
-    version_print = unsafe_string(
-        ccall((:_ZN4llvm16LTOCodeGenerator16getVersionStringEv, libllvm), Cstring, ()))
+    fn = Libdl.dlsym(lib.handle, :_ZN4llvm16LTOCodeGenerator16getVersionStringEv)
+    version_print = unsafe_string(ccall(fn, Cstring, ()))
     m = match(r"LLVM version (?<version>.+)", version_print)
     m === nothing && error("Unrecognized version string: '$version_print'")
     version = m[:version]::AbstractString
@@ -36,9 +38,5 @@ function runtime_version()
     end
 end
 
-function is_asserts()
-    Libdl.dlopen(libllvm) do handle
-        @assert !isnothing(handle)
-        Libdl.dlsym(handle, "_ZN4llvm23EnableABIBreakingChecksE"; throw_error=false) !== nothing
-    end
-end
+is_asserts(lib::Library=library()) =
+    Libdl.dlsym(lib.handle, "_ZN4llvm23EnableABIBreakingChecksE"; throw_error=false) !== nothing

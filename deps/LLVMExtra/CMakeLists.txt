@@ -17,6 +17,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
+# by default, build a library that links against a shared libLLVM. a standalone library
+# instead contains LLVM, linked statically, and only exports the LLVM C API and LLVMExtra, so
+# that it can be loaded in a process that already uses another copy of LLVM (e.g., Julia's).
+option(LLVMEXTRA_STANDALONE "Build a standalone library with LLVM linked in statically" OFF)
+
 find_package(LLVM REQUIRED CONFIG)
 set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}

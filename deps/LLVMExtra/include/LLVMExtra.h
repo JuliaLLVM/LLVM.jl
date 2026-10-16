@@ -84,6 +84,11 @@ LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A);
 LLVMBool LLVMIsConstantRangeListAttribute(LLVMAttributeRef A);
 #endif
 
+// version information
+#if LLVM_VERSION_MAJOR < 16 // D139381
+void LLVMGetVersion(unsigned *Major, unsigned *Minor, unsigned *Patch);
+#endif
+
 // Bug fixes
 #if LLVM_VERSION_MAJOR < 20 // llvm/llvm-project#105521
 void LLVMSetInitializer2(LLVMValueRef GlobalVar, LLVMValueRef ConstantVal);

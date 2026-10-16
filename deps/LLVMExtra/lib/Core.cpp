@@ -56,6 +56,17 @@ LLVMBool LLVMExtraInitializeNativeDisassembler() {
   return InitializeNativeTargetDisassembler();
 }
 
+#if LLVM_VERSION_MAJOR < 16
+void LLVMGetVersion(unsigned *Major, unsigned *Minor, unsigned *Patch) {
+  if (Major)
+    *Major = LLVM_VERSION_MAJOR;
+  if (Minor)
+    *Minor = LLVM_VERSION_MINOR;
+  if (Patch)
+    *Patch = LLVM_VERSION_PATCH;
+}
+#endif
+
 
 //
 // Missing functionality

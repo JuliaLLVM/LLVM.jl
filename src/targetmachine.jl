@@ -39,14 +39,17 @@ unconditionally, e.g., using the do-block form of its constructor.
 """
 mutable struct TargetMachine
     ref::API.LLVMTargetMachineRef
+    const library::Library
     owned::Bool
 
-    function TargetMachine(ref::API.LLVMTargetMachineRef)
+    function TargetMachine(ref::API.LLVMTargetMachineRef; library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        new(ref, true)
+        new(ref, library, true)
     end
 end
 @properties TargetMachine
+
+argument_library(tm::TargetMachine) = tm.library
 
 Base.unsafe_convert(::Type{API.LLVMTargetMachineRef}, tm::TargetMachine) =
     check_owned(tm).ref
@@ -74,7 +77,7 @@ function TargetMachine(t::Target, triple::AbstractString; cpu::AbstractString=""
     if ref === C_NULL
         throw(ArgumentError("Target $t does not have a target machine"))
     end
-    mark_alloc(TargetMachine(ref))
+    mark_alloc(TargetMachine(ref; library=t.library))
 end
 
 """
@@ -87,9 +90,9 @@ dispose(tm::TargetMachine) = dispose_owned(API.LLVMDisposeTargetMachine, tm)
 TargetMachine(f::Core.Function, args...; kwargs...) =
     with_disposal(f, TargetMachine(args...; kwargs...))
 
-target(tm::TargetMachine) = Target(API.LLVMGetTargetMachineTarget(tm))
+target(tm::TargetMachine) = Target(API.LLVMGetTargetMachineTarget(tm), tm.library)
 
-triple(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineTriple(tm))
+triple(tm::TargetMachine) = unsafe_message(tm.library, API.LLVMGetTargetMachineTriple(tm))
 
 """
     LLVM.default_triple()
@@ -120,9 +123,10 @@ Normalize the given target triple.
 """
 normalize(triple::AbstractString) = unsafe_message(API.LLVMNormalizeTargetTriple(triple))
 
-cpu(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineCPU(tm))
+cpu(tm::TargetMachine) = unsafe_message(tm.library, API.LLVMGetTargetMachineCPU(tm))
 
-features(tm::TargetMachine) = unsafe_message(API.LLVMGetTargetMachineFeatureString(tm))
+features(tm::TargetMachine) =
+    unsafe_message(tm.library, API.LLVMGetTargetMachineFeatureString(tm))
 
 @property TargetMachine target
 @property TargetMachine triple
@@ -143,7 +147,9 @@ asm_verbosity!(tm::TargetMachine, verbose::Bool) =
 Generate code for the given module using the target machine, returning the binary data.
 If assembly code was requested, the binary data can be converted back using `String`.
 """
-function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType)
+emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType) =
+    library!(() -> _emit(tm, mod, filetype), tm.library)
+function _emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType)
     ctx = context(mod)
     prepare_diagnostic(ctx)
     out_error = Ref{Cstring}(C_NULL)
@@ -167,8 +173,10 @@ end
 
 Generate code for the given module using the target machine, writing it to the given file.
 """
-function emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType,
-              path::AbstractString)
+emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType,
+     path::AbstractString) = library!(() -> _emit(tm, mod, filetype, path), tm.library)
+function _emit(tm::TargetMachine, mod::Module, filetype::API.LLVMCodeGenFileType,
+               path::AbstractString)
     ctx = context(mod)
     prepare_diagnostic(ctx)
     out_error = Ref{Cstring}(C_NULL)

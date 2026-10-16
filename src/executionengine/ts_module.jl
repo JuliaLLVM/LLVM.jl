@@ -16,22 +16,29 @@ of the thread-safe context.
 """
 @checked struct ThreadSafeContext
     ref::API.LLVMOrcThreadSafeContextRef
+    library::Library
 end
 Base.unsafe_convert(::Type{API.LLVMOrcThreadSafeContextRef}, ctx::ThreadSafeContext) = mark_use(ctx).ref
 
-"""
-    ThreadSafeContext(; opaque_pointers=nothing)
+ThreadSafeContext(ref::API.LLVMOrcThreadSafeContextRef) = ThreadSafeContext(ref, library())
 
-Create a new thread-safe context. The behavior of `opaque_pointers` is the same as in
-[`Context`](@ref).
+argument_library(ctx::ThreadSafeContext) = ctx.library
+
+"""
+    ThreadSafeContext(; opaque_pointers=nothing, library=LLVM.library())
+
+Create a new thread-safe context. The behavior of `opaque_pointers` and `library` is the
+same as in [`Context`](@ref).
 
 This object needs to be disposed of using [`dispose(::ThreadSafeContext)`](@ref).
 """
-function ThreadSafeContext(; opaque_pointers::Union{Nothing,Bool}=nothing)
-    @static if version() >= v"17"
+function ThreadSafeContext(; opaque_pointers::Union{Nothing,Bool}=nothing,
+                           library::Union{Nothing,Library,Symbol}=nothing)
+    lib = resolve_library(library)
+    if lib.version >= v"17"
         opaque_pointers === false && throw(ArgumentError("LLVM >=17 does not support typed pointers"))
     end
-    ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext()))
+    ts_ctx = mark_alloc(ThreadSafeContext(API.LLVMOrcCreateNewThreadSafeContext(lib), lib))
     ctx = mark_untracked(context(ts_ctx))
     memcheck_register_context(ctx, ts_ctx)
     if opaque_pointers !== nothing
@@ -42,8 +49,13 @@ function ThreadSafeContext(; opaque_pointers::Union{Nothing,Bool}=nothing)
     ts_ctx
 end
 
-ThreadSafeContext(f::Core.Function; kwargs...) =
-    with_disposal(f, ThreadSafeContext(; kwargs...))
+function ThreadSafeContext(f::Core.Function; library::Union{Nothing,Library,Symbol}=nothing,
+                           kwargs...)
+    lib = resolve_library(library)
+    library!(lib) do
+        with_disposal(f, ThreadSafeContext(; library=lib, kwargs...))
+    end
+end
 
 """
     context(ts_ctx::ThreadSafeContext)
@@ -57,7 +69,7 @@ Obtain the context associated with a thread-safe context.
 """
 function context(ctx::ThreadSafeContext)
     ref = API.LLVMOrcThreadSafeContextGetContext(ctx)
-    Context(ref)
+    Context(ref, ctx.library)
 end
 
 """
@@ -104,17 +116,21 @@ module over to foreign code, use [`LLVM.consume!`](@ref).
 """
 mutable struct ThreadSafeModule
     ref::API.LLVMOrcThreadSafeModuleRef
+    const library::Library
     owned::Bool     # whether we own the module, i.e., it wasn't consumed or borrowed
     borrowed::Bool  # whether the module is borrowed from LLVM (e.g., in an IR transform)
     # whether `unsafe_module` gave access to the module, which memcheck then doesn't track
     unsafe_access::Bool
 
-    function ThreadSafeModule(ref::API.LLVMOrcThreadSafeModuleRef; borrowed::Bool=false)
+    function ThreadSafeModule(ref::API.LLVMOrcThreadSafeModuleRef; borrowed::Bool=false,
+                              library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        tsm = new(ref, !borrowed, borrowed, false)
+        tsm = new(ref, library, !borrowed, borrowed, false)
         borrowed ? tsm : mark_alloc(tsm)
     end
 end
+
+argument_library(tsm::ThreadSafeModule) = tsm.library
 
 function check_usable(tsm::ThreadSafeModule)
     tsm.owned || tsm.borrowed ||
@@ -161,6 +177,7 @@ the thread-safe module, so the module must not be disposed of afterwards.
 This object needs to be disposed of using [`dispose(::ThreadSafeModule)`](@ref).
 """
 function ThreadSafeModule(mod::Module)
+    check_library(mod.library, ts_context())
     if context(mod) != context(ts_context())
         # XXX: the C API doesn't expose the convenience method to create a TSModule from a
         #      Module and a regular Context, only a method to create one from a Module
@@ -177,7 +194,7 @@ function ThreadSafeModule(mod::Module)
     @assert context(mod) == context(ts_context())
 
     ref = API.LLVMOrcCreateNewThreadSafeModule(mod, ts_context())
-    tsm = ThreadSafeModule(ref)
+    tsm = ThreadSafeModule(ref; library=mod.library)
     mark_disposed(mod)
     return tsm
 end
@@ -220,6 +237,10 @@ end
 
 function tsm_callback(data::Ptr{Cvoid}, ref::API.LLVMModuleRef)
     cb = Base.unsafe_pointer_to_objref(data)::ThreadSafeModuleCallback
+    library!(() -> tsm_callback(cb, ref), cb.tsm.library)
+end
+
+function tsm_callback(cb::ThreadSafeModuleCallback, ref::API.LLVMModuleRef)
     # the module is only valid during the callback, unless `unsafe_module` is used
     mod = Module(ref)
     @static if memcheck_enabled
@@ -282,7 +303,7 @@ function (mod::ThreadSafeModule)(f)
     check_has_module(mod)
     cb = ThreadSafeModuleCallback(f, mod)
     GC.@preserve cb begin
-        @check API.LLVMOrcThreadSafeModuleWithModuleDo(
+        @check mod.library API.LLVMOrcThreadSafeModuleWithModuleDo(
             mod,
             @cfunction(tsm_callback, API.LLVMErrorRef, (Ptr{Cvoid}, API.LLVMModuleRef)),
             Base.pointer_from_objref(cb))
@@ -310,7 +331,7 @@ ownership of the module instead, see [`LLVM.unsafe_take_module!`](@ref).
 """
 function unsafe_module(tsm::ThreadSafeModule)
     check_has_module(tsm)
-    mod = Module(API.LLVMExtraThreadSafeModuleGetModuleUnlocked(tsm))
+    mod = Module(API.LLVMExtraThreadSafeModuleGetModuleUnlocked(tsm), tsm.library)
     tsm.unsafe_access = true
     @static if memcheck_enabled
         borrows = get(task_local_storage(), :llvm_tsm_borrows, nothing)
@@ -346,7 +367,8 @@ that created it.
 function unsafe_take_module!(tsm::ThreadSafeModule)
     @static if version() >= v"16"
         check_has_module(tsm)
-        return track_alloc(Module(API.LLVMExtraThreadSafeModuleTakeModule(tsm)))
+        ref = API.LLVMExtraThreadSafeModuleTakeModule(tsm)
+        return track_alloc(Module(ref, tsm.library))
     else
         error("Taking the module out of a ThreadSafeModule requires LLVM 16 or later")
     end

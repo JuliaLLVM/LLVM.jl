@@ -22,8 +22,13 @@ AttributeKinds() = AttributeKinds(Symbol[], Symbol[], Dict{Symbol,Cuint}())
 
 An LLVM library that LLVM.jl can use, together with the LLVMExtra library built for it.
 Libraries are registered under a name, e.g., `:julia` for the library Julia uses, and
-looked up by calling `LLVM.Library(name)`. LLVM.jl uses the current library (see
-[`LLVM.library`](@ref)).
+looked up by calling `LLVM.Library(name)`.
+
+Objects that own LLVM resources, like contexts, modules and target machines, remember the
+library that created them in their `library` property, and are always used with it.
+Values, types and metadata do not: they need to be used with the current library (see
+[`LLVM.library!`](@ref)), typically by working with them inside a
+[`context!`](@ref) block.
 
 # Properties
 
@@ -181,15 +186,23 @@ end
     throw(ArgumentError("$(typeof(x)) belongs to LLVM library :$(other.name) (LLVM $(other.version)), but is used with :$(lib.name) (LLVM $(lib.version))"))
 
 
+# for a message returned by a library that may not be the current one
+function unsafe_message(lib::Library, ptr, args...)
+    str = unsafe_string(ptr, args...)
+    API.LLVMDisposeMessage(lib, ptr)
+    str
+end
+
 
 ## the current library
 
 """
     LLVM.library() -> LLVM.Library
 
-The current LLVM library. This is the library Julia uses, unless the `libLLVM` preference
-selects another one, and can be changed for the duration of a block using
-[`LLVM.library!`](@ref).
+The current LLVM library: the one that is used by operations whose arguments do not
+determine it, like creating a context. This is the library Julia uses, unless the
+`libLLVM` preference selects another one, and can be changed for the duration of a block
+using [`LLVM.library!`](@ref) or [`context!`](@ref).
 """
 @inline library() =
     # most processes only use one library, so avoid looking at the scope then. this is part
@@ -350,3 +363,7 @@ function check_julia_library(what, lib::Library=library())
     lib === julia_library && return
     error("$what requires the LLVM library that Julia uses, but uses LLVM library :$(lib.name) (LLVM $(lib.version))")
 end
+
+resolve_library(::Nothing) = library()
+resolve_library(lib::Library) = lib
+resolve_library(name::Symbol) = Library(name)

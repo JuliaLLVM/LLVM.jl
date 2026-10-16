@@ -32,10 +32,14 @@ e.g., `vmap.metadata[md] = md` to have metadata mapped to itself instead of bein
 """
 struct ValueMap <: AbstractDict{Value,Value}
     ref::API.LLVMValueMapRef
+    library::Library
 
-    ValueMap(ref::API.LLVMValueMapRef) = (refcheck(ValueMap, ref); new(ref))
+    # wrap a handle of the current library
+    ValueMap(ref::API.LLVMValueMapRef) = (refcheck(ValueMap, ref); new(ref, library()))
 end
 @properties ValueMap
+
+argument_library(vmap::ValueMap) = vmap.library
 
 Base.unsafe_convert(::Type{API.LLVMValueMapRef}, vmap::ValueMap) = mark_use(vmap).ref
 

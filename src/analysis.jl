@@ -31,7 +31,7 @@ msg === nothing || error("Generated invalid code for \$name:\n\$msg\n\$(string(f
 function verification_error(mod::Module)
     out_error = Ref{Cstring}()
     status = API.LLVMVerifyModule(mod, API.LLVMReturnStatusAction, out_error) |> Bool
-    msg = unsafe_message(out_error[])
+    msg = unsafe_message(mod.library, out_error[])
     return status ? msg : nothing
 end
 
@@ -74,7 +74,13 @@ Dominator tree for a function.
 """
 @checked struct DomTree
     ref::API.LLVMDominatorTreeRef
+    library::Library
 end
+
+# wrap a handle of the current library
+DomTree(ref::API.LLVMDominatorTreeRef) = DomTree(ref, library())
+
+argument_library(x::DomTree) = x.library
 
 Base.unsafe_convert(::Type{API.LLVMDominatorTreeRef}, domtree::DomTree) =
     mark_use(domtree).ref
@@ -354,7 +360,13 @@ Post-dominator tree for a function.
 """
 @checked struct PostDomTree
     ref::API.LLVMPostDominatorTreeRef
+    library::Library
 end
+
+# wrap a handle of the current library
+PostDomTree(ref::API.LLVMPostDominatorTreeRef) = PostDomTree(ref, library())
+
+argument_library(x::PostDomTree) = x.library
 
 Base.unsafe_convert(::Type{API.LLVMPostDominatorTreeRef}, postdomtree::PostDomTree) =
     mark_use(postdomtree).ref
@@ -1453,13 +1465,16 @@ This object needs to be disposed of using [`dispose`](@ref), or by using the do-
 @checked struct MemorySSAUpdater
     ref::API.LLVMMemorySSAUpdaterRef
     mssa::MemorySSA
+    library::Library
 end
+
+argument_library(u::MemorySSAUpdater) = u.library
 
 Base.unsafe_convert(::Type{API.LLVMMemorySSAUpdaterRef}, u::MemorySSAUpdater) =
     mark_use(u).ref
 
 MemorySSAUpdater(mssa::MemorySSA) =
-    mark_alloc(MemorySSAUpdater(API.LLVMExtraCreateMemorySSAUpdater(mssa), mssa))
+    mark_alloc(MemorySSAUpdater(API.LLVMExtraCreateMemorySSAUpdater(mssa), mssa, library()))
 
 MemorySSAUpdater(f::Core.Function, mssa::MemorySSA) = with_disposal(f, MemorySSAUpdater(mssa))
 

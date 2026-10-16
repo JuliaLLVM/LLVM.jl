@@ -23,7 +23,13 @@ The bit width of the integer value stored in the generic value.
 """
 @checked struct GenericValue
     ref::API.LLVMGenericValueRef
+    library::Library
 end
+
+# wrap a handle of the current library
+GenericValue(ref::API.LLVMGenericValueRef) = GenericValue(ref, library())
+
+argument_library(x::GenericValue) = x.library
 
 Base.unsafe_convert(::Type{API.LLVMGenericValueRef}, val::GenericValue) = mark_use(val).ref
 
@@ -138,8 +144,11 @@ they fail. Use `delete!(engine, mod)` to take back ownership of a module.
 """
 @checked struct ExecutionEngine
     ref::API.LLVMExecutionEngineRef
+    library::Library
     mods::Set{Module}
 end
+
+argument_library(engine::ExecutionEngine) = engine.library
 @public ExecutionEngine, execute, run_static_constructors!, run_static_destructors!
 @properties ExecutionEngine
 
@@ -162,11 +171,11 @@ function ExecutionEngine(mod::Module)
     if status
         # the module is consumed, even on failure
         mark_disposed(mod)
-        error = unsafe_message(out_error[])
+        error = unsafe_message(mod.library, out_error[])
         throw(LLVMException(error))
     end
 
-    return mark_alloc(ExecutionEngine(out_ref[], Set([mod])))
+    return mark_alloc(ExecutionEngine(out_ref[], mod.library, Set([mod])))
 end
 
 """
@@ -177,7 +186,7 @@ Create an interpreter for the given module, taking ownership of it.
 This object needs to be disposed of using [`dispose`](@ref).
 """
 function Interpreter(mod::Module)
-    API.LLVMLinkInInterpreter()
+    API.LLVMLinkInInterpreter(mod.library)
 
     out_ref = Ref{API.LLVMExecutionEngineRef}()
     out_error = Ref{Cstring}()
@@ -186,11 +195,11 @@ function Interpreter(mod::Module)
     if status
         # the module is consumed, even on failure
         mark_disposed(mod)
-        error = unsafe_message(out_error[])
+        error = unsafe_message(mod.library, out_error[])
         throw(LLVMException(error))
     end
 
-    return mark_alloc(ExecutionEngine(out_ref[], Set([mod])))
+    return mark_alloc(ExecutionEngine(out_ref[], mod.library, Set([mod])))
 end
 
 """
@@ -201,7 +210,7 @@ Create a JIT compiler for the given module, taking ownership of it.
 This object needs to be disposed of using [`dispose`](@ref).
 """
 function JIT(mod::Module; opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault)
-    API.LLVMLinkInMCJIT()
+    API.LLVMLinkInMCJIT(mod.library)
 
     out_ref = Ref{API.LLVMExecutionEngineRef}()
     out_error = Ref{Cstring}()
@@ -210,11 +219,11 @@ function JIT(mod::Module; opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLeve
     if status
         # the module is consumed, even on failure
         mark_disposed(mod)
-        error = unsafe_message(out_error[])
+        error = unsafe_message(mod.library, out_error[])
         throw(LLVMException(error))
     end
 
-    return mark_alloc(ExecutionEngine(out_ref[], Set([mod])))
+    return mark_alloc(ExecutionEngine(out_ref[], mod.library, Set([mod])))
 end
 
 """
@@ -262,7 +271,7 @@ function Base.delete!(engine::ExecutionEngine, mod::Module)
     out_error = Ref{Cstring}(C_NULL)
     # the C API can report a failure, although LLVM's implementation doesn't
     if API.LLVMRemoveModule(engine, mod, out_ref, out_error) |> Bool
-        throw(LLVMException(unsafe_message(out_error[])))
+        throw(LLVMException(unsafe_message(engine.library, out_error[])))
     end
     delete!(engine.mods, mod)
     return engine
@@ -279,7 +288,8 @@ result. The arguments are only borrowed, while the result needs to be disposed o
 function execute(engine::ExecutionEngine, f::Function,
                  args::AbstractVector{GenericValue}=GenericValue[])
     vals = as_refs(args)
-    mark_alloc(GenericValue(API.LLVMRunFunction(engine, f, length(vals), vals)))
+    mark_alloc(GenericValue(API.LLVMRunFunction(engine, f, length(vals), vals),
+                            engine.library))
 end
 
 """

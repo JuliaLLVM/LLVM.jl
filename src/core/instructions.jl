@@ -1289,8 +1289,12 @@ The inputs of the operand bundle, as a read-only view.
 """
 @checked mutable struct OperandBundle
     ref::API.LLVMOperandBundleRef
+    # finalizers run in any task, so they can't rely on the current library
+    library::Library
 end
 @properties OperandBundle
+
+argument_library(bundle::OperandBundle) = bundle.library
 
 Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
@@ -1307,7 +1311,8 @@ function OperandBundle(tag::AbstractString, args::AbstractVector{<:Value}=Value[
     tag = String(tag)
     refs = as_refs(args)
     bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, ncodeunits(tag),
-                                                       refs, length(refs)))
+                                                       refs, length(refs)),
+                           library())
     finalizer(bundle) do obj
         API.LLVMDisposeOperandBundle(obj)
     end
@@ -1327,7 +1332,7 @@ Base.IndexStyle(::Type{OperandBundleIterator}) = IndexLinear()
 
 function Base.getindex(iter::OperandBundleIterator, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
-    bundle = OperandBundle(API.LLVMGetOperandBundleAtIndex(iter.inst, i-1))
+    bundle = OperandBundle(API.LLVMGetOperandBundleAtIndex(iter.inst, i-1), library())
     finalizer(bundle) do obj
         API.LLVMDisposeOperandBundle(obj)
     end

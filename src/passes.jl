@@ -1127,7 +1127,10 @@ disposed of before the context, e.g., using the do-block form.
 """
 mutable struct RemarkFile
     ref::API.LLVMRemarkFileRef
+    library::Library
 end
+
+argument_library(file::RemarkFile) = file.library
 
 Base.unsafe_convert(::Type{API.LLVMRemarkFileRef}, file::RemarkFile) = mark_use(file).ref
 
@@ -1138,7 +1141,7 @@ function RemarkFile(path::AbstractString; passes::AbstractString="",
     ref = API.LLVMExtraCreateRemarkFile(ctx, path, passes, format, error_ref)
     ref == C_NULL && throw(LLVMException(unsafe_message(error_ref[])))
     # not owned by the context, which doesn't dispose of it
-    mark_alloc(RemarkFile(ref))
+    mark_alloc(RemarkFile(ref, ctx.library))
 end
 
 RemarkFile(f::Core.Function, args...; kwargs...) =
@@ -1208,6 +1211,7 @@ See also: [`register!`](@ref), [`add!`](@ref), [`run!`](@ref)
 """
 mutable struct PassBuilder <: AbstractPassManager
     opts::API.LLVMPassBuilderOptionsRef
+    const library::Library
     passes::Vector{String}
     aa_passes::Vector{String}
     custom_passes::Vector{CustomPass}
@@ -1221,9 +1225,11 @@ Base.string(pm::PassBuilder) = join(pm.passes, ",")
 Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::PassBuilder) =
     mark_use(pb).opts
 
+argument_library(pb::PassBuilder) = pb.library
+
 function PassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
-    obj = mark_alloc(PassBuilder(opts, [], [], [], nothing, [], nothing))
+    obj = mark_alloc(PassBuilder(opts, library(), [], [], [], nothing, [], nothing))
 
     # dispose of the options if a keyword argument is invalid
     try
@@ -1354,6 +1360,14 @@ run!
 
 function run!(pb::PassBuilder, target::Union{Module,Function}, tm::Union{Nothing,TargetMachine}=nothing)
     isempty(pb.passes) && return
+    # passes run with the library of the module, which may not be the current one
+    lib = target isa Module ? target.library : library()
+    check_library(lib, pb, tm)
+    library!(() -> _run!(pb, target, tm), lib)
+end
+
+function _run!(pb::PassBuilder, target::Union{Module,Function},
+               tm::Union{Nothing,TargetMachine})
     pipeline = join(pb.passes, ",")
     # without an AA manager, LLVM uses its default alias analyses
     aa_pipeline = isempty(pb.aa_passes) ? nothing : join(filter(!isempty, pb.aa_passes), ",")
@@ -1499,7 +1513,7 @@ function register_extensions!(exts::API.LLVMPassBuilderExtensionsRef, pb::PassBu
     end
 
     # register Julia passes, which only work with Julia's LLVM
-    if library() === julia_library
+    if pb.library === julia_library
         julia_callback = cglobal(:jl_register_passbuilder_callbacks)
         API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
     end
@@ -1558,6 +1572,12 @@ globaldce,function(instsimplify)
 print_pipeline(pb::PassBuilder, args...) = print_pipeline(stdout, pb, args...)
 
 function print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine}=nothing)
+    # the pipeline is parsed by the library of the pass builder
+    check_library(pb.library, tm)
+    library!(() -> _print_pipeline(io, pb, tm), pb.library)
+end
+
+function _print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine})
     states = [CustomPassState(pass) for pass in pb.custom_passes]
     exts = API.LLVMCreatePassBuilderExtensions()
     try
@@ -1627,7 +1647,12 @@ function run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
     isempty(pb.aa_passes) && pb.custom_tti === nothing && pb.remarks === nothing ||
         throw(ArgumentError("Passes that run from a pass use the alias analyses, target transform info and remarks of the enclosing pipeline"))
     isempty(pb.passes) && return PreservedAnalyses(AllAnalyses)
+    check_library(pb.library, tm)
+    library!(() -> _run!(pb, f, am, tm), pb.library)
+end
 
+function _run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
+               tm::Union{Nothing,TargetMachine})
     exts = API.LLVMCreatePassBuilderExtensions()
     states = [CustomPassState(pass, exts) for pass in pb.custom_passes]
     try
@@ -1660,9 +1685,11 @@ function run!(pass::CustomPass, f::Function, am::FunctionAnalysisManager,
 end
 
 function run!(pass::AbstractString, args...; kwargs...)
-    @dispose pb=PassBuilder(; kwargs...) begin
-        add!(pb, pass)
-        run!(pb, args...)
+    library!(route_library(args...)) do
+        @dispose pb=PassBuilder(; kwargs...) begin
+            add!(pb, pass)
+            run!(pb, args...)
+        end
     end
 end
 
@@ -1681,26 +1708,28 @@ function run!(pass::CustomPass, target::Union{Module,Function},
     if pass.type === :module && target isa Function
         throw(ArgumentError("Cannot run module pass $(pass.name) on a function"))
     end
-    @dispose pb=PassBuilder(; kwargs...) begin
-        register!(pb, pass)
-        if pass.type === :function && target isa Module
-            add!(pb, FunctionPassManager()) do fpm
-                add!(fpm, pass)
-            end
-        elseif pass.type === :loop
-            lpm = LoopPassManager()
-            add!(lpm, pass)
-            if target isa Module
+    library!(route_library(target, tm)) do
+        @dispose pb=PassBuilder(; kwargs...) begin
+            register!(pb, pass)
+            if pass.type === :function && target isa Module
                 add!(pb, FunctionPassManager()) do fpm
-                    add!(fpm, lpm)
+                    add!(fpm, pass)
+                end
+            elseif pass.type === :loop
+                lpm = LoopPassManager()
+                add!(lpm, pass)
+                if target isa Module
+                    add!(pb, FunctionPassManager()) do fpm
+                        add!(fpm, lpm)
+                    end
+                else
+                    add!(pb, lpm)
                 end
             else
-                add!(pb, lpm)
+                add!(pb, pass)
             end
-        else
-            add!(pb, pass)
+            run!(pb, target, tm)
         end
-        run!(pb, target, tm)
     end
 end
 

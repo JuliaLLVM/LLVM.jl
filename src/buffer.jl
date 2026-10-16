@@ -17,14 +17,17 @@ buffer over to such code while keeping it usable, use
 """
 mutable struct MemoryBuffer
     ref::API.LLVMMemoryBufferRef
+    const library::Library
     owned::Bool     # whether we own the buffer, i.e., it wasn't consumed or disposed of
     borrowed::Bool  # whether the buffer was handed over, but can still be used
 
-    function MemoryBuffer(ref::API.LLVMMemoryBufferRef)
+    function MemoryBuffer(ref::API.LLVMMemoryBufferRef; library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        new(ref, true, false)
+        new(ref, library, true, false)
     end
 end
+
+argument_library(membuf::MemoryBuffer) = membuf.library
 
 function check_usable(membuf::MemoryBuffer)
     membuf.borrowed && return membuf

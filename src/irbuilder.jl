@@ -45,8 +45,14 @@ instead: `inst.debug_location = builder.debug_location`.
 """
 @checked struct IRBuilder
     ref::API.LLVMBuilderRef
+    library::Library
 end
 @properties IRBuilder
+
+# wrap a handle of the current library
+IRBuilder(ref::API.LLVMBuilderRef) = IRBuilder(ref, library())
+
+argument_library(builder::IRBuilder) = builder.library
 
 Base.unsafe_convert(::Type{API.LLVMBuilderRef}, builder::IRBuilder) =
     mark_use(builder).ref
@@ -58,7 +64,10 @@ Create a new, unpositioned instruction builder.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-IRBuilder() = mark_alloc(IRBuilder(API.LLVMCreateBuilderInContext(context())))
+function IRBuilder()
+    ctx = context()
+    mark_alloc(IRBuilder(API.LLVMCreateBuilderInContext(ctx), ctx.library))
+end
 
 """
     dispose(builder::IRBuilder)
@@ -67,7 +76,7 @@ Dispose of an instruction builder.
 """
 dispose(builder::IRBuilder) = mark_dispose(API.LLVMDisposeBuilder, builder)
 
-context(builder::IRBuilder) = Context(API.LLVMGetBuilderContext(builder))
+context(builder::IRBuilder) = Context(API.LLVMGetBuilderContext(builder), builder.library)
 
 @property IRBuilder context
 

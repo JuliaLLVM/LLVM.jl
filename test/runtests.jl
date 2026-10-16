@@ -56,10 +56,10 @@ else
         @dispose ctx=Context() begin
             @test_throws "requires the LLVM library that Julia uses" convert(LLVMType, Int)
         end
-        @test_throws "requires the LLVM library that Julia uses" LLVM.Interop.generate_llvmcall(
-            Int, Tuple{Int}, :x) do builder, x
+        # code for Julia's code generator is generated with Julia's LLVM
+        @test LLVM.Interop.generate_llvmcall(Int, Tuple{Int}, :x) do builder, x
             x
-        end
+        end isa Expr
         @test !("RemoveNI" in LLVM.module_passes)
     end
 end

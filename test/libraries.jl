@@ -13,4 +13,15 @@ lib = LLVM.library()
 @test LLVM.library!(LLVM.library, lib) === lib
 @test LLVM.library!(LLVM.library, lib.name) === lib
 
+# objects that own LLVM resources remember their library
+@dispose ctx=Context() begin
+    @test ctx.library === lib
+    @dispose mod=LLVM.Module("foo") builder=IRBuilder() membuf=MemoryBuffer(UInt8[]) begin
+        @test mod.library === lib
+        @test mod.context.library === lib
+        @test builder.library === lib
+        @test membuf.library === lib
+    end
+end
+
 end

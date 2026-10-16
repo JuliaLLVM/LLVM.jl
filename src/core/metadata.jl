@@ -332,11 +332,12 @@ were obtained from it before.
 """
 mutable struct TemporaryMDNode{T<:MDNode}
     ref::API.LLVMMetadataRef
+    const library::Library
     owned::Bool
 
     function TemporaryMDNode{T}(ref::API.LLVMMetadataRef) where {T<:MDNode}
         ref == C_NULL && throw(UndefRefError())
-        mark_alloc(new{T}(ref, true))
+        mark_alloc(new{T}(ref, library(), true))
     end
 end
 @properties TemporaryMDNode
@@ -415,7 +416,7 @@ function dispose(temp::TemporaryMDNode)
     getfield(temp, :owned) || return
     setfield!(temp, :owned, false)
     mark_dispose(temp) do temp
-        API.LLVMDisposeTemporaryMDNode(temp.ref)
+        API.LLVMDisposeTemporaryMDNode(getfield(temp, :library), temp.ref)
     end
 end
 

@@ -1,8 +1,9 @@
 # Enumerations
 
 The enumerations of the C API are available using scoped names, e.g.,
-`LLVM.Linkage.Internal` for `LLVM.API.LLVMInternalLinkage`. The values that are available
-depend on the version of LLVM, so they may differ from the ones listed here.
+`LLVM.Linkage.Internal` for `LLVM.API.LLVMInternalLinkage`. They contain the values of
+every version of LLVM that LLVM.jl supports; the tables list the versions that have each
+value (see [`LLVM.isavailable`](@ref)).
 
 ```@docs
 LLVM.Linkage

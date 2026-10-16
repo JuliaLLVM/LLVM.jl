@@ -14,7 +14,8 @@ version() = libllvm_version
 
 Check whether `x`, e.g. a value of one of the enums in `LLVM.API`, is supported by the
 version of LLVM in use. Such values can be named on every LLVM version, even ones that
-predate them, so that code does not need to be version-gated just to compile.
+predate or removed them, so that code does not need to be version-gated just to compile,
+but passing them to a version of LLVM that lacks them throws an error.
 """
 function isavailable end
 

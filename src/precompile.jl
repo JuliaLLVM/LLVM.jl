@@ -1,4 +1,5 @@
-@setup_workload begin
+# the workload uses Julia's code generator, which only works with Julia's LLVM
+julia_llvm && @setup_workload begin
     # __init__ has not yet run during precompilation, so ensure the EH frame
     # registration stubs are published before exercising the LLJIT (see support.jl).
     register_eh_frame_stubs()

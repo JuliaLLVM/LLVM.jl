@@ -19,6 +19,10 @@ LLVMBool LLVMExtraInitializeNativeAsmParser(void);
 LLVMBool LLVMExtraInitializeNativeAsmPrinter(void);
 LLVMBool LLVMExtraInitializeNativeDisassembler(void);
 
+// parse command-line options from an environment variable, like Julia does with
+// `JULIA_LLVM_ARGS` (unlike LLVMParseCommandLineOptions, this exits on invalid options)
+void LLVMExtraParseEnvironmentOptions(const char *ProgName, const char *EnvVar);
+
 typedef enum {
   LLVMDebugEmissionKindNoDebug = 0,
   LLVMDebugEmissionKindFullDebug = 1,

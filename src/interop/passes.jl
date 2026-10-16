@@ -2,6 +2,11 @@
 
 using ..LLVM: @module_pass, @function_pass, @loop_pass
 
+# where Julia's passes start in LLVM.jl's lists of passes, which only include them when
+# LLVM.jl uses Julia's LLVM
+const pass_lists = (LLVM.module_passes, LLVM.function_passes, LLVM.loop_passes)
+const first_julia_pass = map(list -> length(list) + 1, pass_lists)
+
 @module_pass "CPUFeatures" CPUFeaturesPass
 @module_pass "RemoveNI" RemoveNIPass
 @module_pass "RemoveJuliaAddrspaces" RemoveJuliaAddrspacesPass
@@ -33,6 +38,10 @@ end
 @loop_pass "JuliaLICM" JuliaLICMPass
 @loop_pass "LowerSIMDLoop" LowerSIMDLoopPass
 
+if !LLVM.julia_llvm
+    foreach((list, first) -> deleteat!(list, first:length(list)), pass_lists, first_julia_pass)
+end
+
 # Julia's parser uses underscores in option names, unlike ordinary LLVM passes.
 function kwargs_to_params(kwargs)
     isempty(kwargs) && return ""
@@ -58,6 +67,7 @@ Julia's optimization pipeline, as a string for use with [`add!`](@ref LLVM.add!)
 `enable_vector_pipeline=false` or `enable_early_simplifications=false`.
 """
 function JuliaPipeline(; opt_level=nothing, kwargs...)
+    LLVM.check_julia_llvm("Julia's pipeline")
     kwargs = Dict{Symbol, Any}(kwargs)
 
     # `opt_level` => `level` for consistency with LLVM's passes

@@ -14,9 +14,40 @@ using PrecompileTools
 include("base.jl")
 include("version.jl")
 
-# we don't embed the full path to LLVM, because the location might be different at run time.
-const libllvm = basename(String(Base.libllvm_path()))
-const libllvm_version = Base.libllvm_version
+# the LLVM library is the one Julia uses, unless the `libLLVM` preference selects another one,
+# e.g., a standalone library built by `deps/build_standalone.jl` to test LLVM.jl with another
+# version of LLVM. such a library also provides LLVMExtra.
+const libllvm_preference = @load_preference("libLLVM", nothing)
+
+# whether LLVM.jl uses Julia's LLVM, which functionality that integrates with Julia's code
+# generator requires
+const julia_llvm = libllvm_preference === nothing
+
+# we don't embed the full path to Julia's LLVM, because the location might be different at
+# run time.
+const libllvm = julia_llvm ? basename(String(Base.libllvm_path())) : libllvm_preference
+
+# the version of an LLVM library that provides the C API (or LLVMExtra, which provides the
+# function that reports it on versions of LLVM whose C API does not)
+function library_version(lib)
+    major, minor, patch = Ref{Cuint}(), Ref{Cuint}(), Ref{Cuint}()
+    # the library is not closed again, as LLVM.jl is going to use it anyway, and unloading
+    # LLVM would run its static destructors
+    handle = Libdl.dlopen(lib)
+    ccall(Libdl.dlsym(handle, :LLVMGetVersion), Cvoid,
+          (Ptr{Cuint}, Ptr{Cuint}, Ptr{Cuint}), major, minor, patch)
+    VersionNumber(major[], minor[], patch[])
+end
+
+const libllvm_version = julia_llvm ? Base.libllvm_version : library_version(libllvm)
+
+# the wrappers depend on the version of another library, so recompile when it changes
+julia_llvm || include_dependency(libllvm)
+
+function check_julia_llvm(what)
+    julia_llvm && return
+    error("$what requires the LLVM library that Julia uses, but LLVM.jl uses $libllvm (LLVM $libllvm_version)")
+end
 
 module API
 using CEnum
@@ -26,7 +57,10 @@ using Preferences
 import ..LLVM
 using ..LLVM: libllvm, version
 using LLVMExtra_jll
-if has_preference(LLVM, "libLLVMExtra")
+if !LLVM.julia_llvm
+    # another LLVM library also provides LLVMExtra, built for it
+    const libLLVMExtra = libllvm
+elseif has_preference(LLVM, "libLLVMExtra")
     const libLLVMExtra = load_preference(LLVM, "libLLVMExtra")
 elseif isdefined(LLVMExtra_jll, :libLLVMExtra)
     import LLVMExtra_jll: libLLVMExtra
@@ -144,20 +178,39 @@ include("precompile.jl")
 ## initialization
 
 function __init__()
-    @debug "Using LLVM $libllvm_version at $(Base.libllvm_path())"
+    @debug "Using LLVM $libllvm_version at $(julia_llvm ? Base.libllvm_path() : libllvm)"
 
     # sanity checks
-    if libllvm_version != Base.libllvm_version
+    if !julia_llvm
+        # the wrappers are specific to the version of LLVM, so don't use another one
+        if library_version(libllvm) != libllvm_version
+            error("""LLVM.jl was precompiled for LLVM $libllvm_version, whereas $libllvm is now LLVM $(library_version(libllvm)).
+                     Please re-compile LLVM.jl.""")
+        end
+    elseif libllvm_version != Base.libllvm_version
         # this checks that the precompilation image isn't being used
         # after having upgraded Julia and the contained LLVM library.
         @error """LLVM.jl was precompiled for LLVM $libllvm_version, whereas you are now using LLVM $(Base.libllvm_version).
                   Please re-compile LLVM.jl."""
     end
-    if version() !== runtime_version()
+    if julia_llvm && version() !== runtime_version()
         # this is probably caused by a combination of USE_SYSTEM_LLVM
         # and an LLVM upgrade without recompiling Julia.
         @error """Julia was compiled for LLVM $(version()), whereas you are now using LLVM $(runtime_version()).
                   Please re-compile Julia and LLVM.jl (but note that USE_SYSTEM_LLVM is not a supported configuration)."""
+    end
+
+    # initialize another LLVM library like Julia initializes its own
+    if !julia_llvm
+        # LLVM's JIT looks up functions that support JIT-compiled code by name, e.g., LLVM 17
+        # in the process. make it find those of this library, which isn't loaded globally.
+        load_library_permanently(libllvm)
+        InitializeNativeTarget()
+        InitializeNativeAsmPrinter()
+        InitializeNativeAsmParser()
+        InitializeNativeDisassembler()
+        # like Julia, this exits the process if the options are invalid
+        API.LLVMExtraParseEnvironmentOptions("julia", "JULIA_LLVM_ARGS")
     end
 
     register_eh_frame_stubs()

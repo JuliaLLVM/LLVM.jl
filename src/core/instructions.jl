@@ -1022,7 +1022,7 @@ const CallBase = Union{CallBrInst, CallInst, InvokeInst}
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
 callconv!(inst::CallBase, cc) =
-    API.LLVMSetInstructionCallConv(inst, cc)
+    API.LLVMSetInstructionCallConv(inst, API.to_abi(API.LLVMCallConv, cc))
 
 @property CallBase callconv callconv!
 

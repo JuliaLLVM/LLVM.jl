@@ -39,6 +39,30 @@ Special versions of these functions are available to initialize all available ta
 e.g., `LLVM.InitializeAllTargetInfos`, or to initialize the native target, e.g.,
 `LLVM.InitializeNativeTarget`.
 
+### Using another version of LLVM
+
+LLVM.jl uses the LLVM library that Julia uses, but the `libLLVM` preference can select
+another one: a standalone library that contains LLVM, linked in statically, and LLVMExtra,
+LLVM.jl's library of extensions to the C API. `deps/build_standalone.jl` builds such a
+library for a version of LLVM from LLVM_full_jll, and prints its path:
+
+```
+$ julia --project=deps deps/build_standalone.jl 21
+/path/to/libLLVM-standalone-21.so
+```
+
+```toml
+# LocalPreferences.toml
+[LLVM]
+libLLVM = "/path/to/libLLVM-standalone-21.so"
+```
+
+LLVM.jl then uses that library for everything, and `LLVM.version()` returns its version.
+This is useful, e.g., to test LLVM.jl with versions of LLVM that Julia doesn't use.
+Functionality that integrates with Julia's code generator requires Julia's LLVM, and throws
+an error with another library: `LLVM.Interop` (generating `llvmcall`s, converting Julia
+types), `JuliaOJIT`, and Julia's passes.
+
 
 ## Vocabularies
 

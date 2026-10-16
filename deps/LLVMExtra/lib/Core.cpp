@@ -43,6 +43,7 @@
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Remarks/RemarkFormat.h>
 #include <llvm/Remarks/RemarkStreamer.h>
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/Regex.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
@@ -68,6 +69,15 @@ LLVMBool LLVMExtraInitializeNativeAsmPrinter() {
 
 LLVMBool LLVMExtraInitializeNativeDisassembler() {
   return InitializeNativeTargetDisassembler();
+}
+
+void LLVMExtraParseEnvironmentOptions(const char *ProgName, const char *EnvVar) {
+  const char *const Argv[1] = {ProgName};
+  cl::ParseCommandLineOptions(1, Argv, "", /*Errs=*/nullptr,
+#if LLVM_VERSION_MAJOR >= 22
+                              /*VFS=*/nullptr,
+#endif
+                              EnvVar);
 }
 
 #if LLVM_VERSION_MAJOR < 16

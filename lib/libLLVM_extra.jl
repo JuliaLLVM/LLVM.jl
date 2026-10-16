@@ -49,6 +49,10 @@ function LLVMExtraInitializeNativeDisassembler()
     ccall((:LLVMExtraInitializeNativeDisassembler, libLLVMExtra), LLVMBool, ())
 end
 
+function LLVMExtraParseEnvironmentOptions(ProgName, EnvVar)
+    ccall((:LLVMExtraParseEnvironmentOptions, libLLVMExtra), Cvoid, (Cstring, Cstring), ProgName, EnvVar)
+end
+
 @cenum LLVMDebugEmissionKind::UInt32 begin
     LLVMDebugEmissionKindNoDebug = 0
     LLVMDebugEmissionKindFullDebug = 1

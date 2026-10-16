@@ -87,6 +87,7 @@ end
 function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
                             @nospecialize(argtypes), argexprs::Vector{Any}, what::String,
                             sparams::Union{Nothing,Vector{Any}}=nothing)
+    LLVM.check_julia_llvm(what)
     rettyp isa Type || throw(ArgumentError("$what: return type $rettyp is not a type"))
     (argtypes isa DataType && argtypes <: Tuple && !Base.isvatuple(argtypes)) ||
         throw(ArgumentError("$what: argument types $argtypes are not a tuple type of fixed length"))

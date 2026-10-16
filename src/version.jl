@@ -5,7 +5,8 @@
 """
     LLVM.version() -> VersionNumber
 
-The version of the LLVM library that LLVM.jl uses, which is the one Julia uses.
+The version of the LLVM library that LLVM.jl uses: the one Julia uses, unless the `libLLVM`
+preference selects another one.
 """
 version() = libllvm_version
 

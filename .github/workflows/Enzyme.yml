@@ -86,4 +86,13 @@ jobs:
         shell: julia --color=yes --project=downstream {0}
         run: |
           using Pkg
-          Pkg.test(; coverage=true, julia_args=`--depwarn=no`)
+          # track the LLVM.jl checkout (which contains the Enzyme checkout too), not just Enzyme
+          Pkg.test(; coverage="@" * pwd(), julia_args=`--depwarn=no`)
+      - uses: julia-actions/julia-processcoverage@v1
+        if: steps.install.outputs.installable == 'true'
+      - uses: codecov/codecov-action@v7
+        if: steps.install.outputs.installable == 'true'
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          file: lcov.info

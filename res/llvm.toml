@@ -3,7 +3,7 @@ library_name = "libllvm"
 prologue_file_path = "./missing_defs.jl"
 epilogue_file_path = ""
 use_julia_native_enum_type = false
-use_deterministic_symbol = false
+use_deterministic_symbol = true
 printer_blacklist = [
     "LLVM_C_STRICT_PROTOTYPES_END",
     "LLVM_NATIVE_ARCH",
@@ -20,6 +20,9 @@ printer_blacklist = [
     "LLVM_C_EXTERN_C_BEGIN",
     "LLVM_C_EXTERN_C_END",
     "HUGE_VALF",
+    # versions of things that differ between versions of LLVM
+    "LTO_API_VERSION",
+    "LLVM_BLAKE3_VERSION_STRING",
     # configuration
     "LLVM_DEFAULT_TARGET_TRIPLE",
     "LLVM_ENABLE_THREADS",

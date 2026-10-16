@@ -22,7 +22,7 @@ include the most recent version.
 | Definitions | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 |
 |:------------|--:|--:|--:|--:|--:|--:|--:|--:|--:|
 | LLVM functions | 1261 | 1248 | 1177 | 1200 | 1229 | 1248 | 1257 | 1272 | 1283 |
-| LLVMExtra functions | 372 | 382 | 375 | 359 | 365 | 356 | 354 | 345 | 345 |
+| LLVMExtra functions | 373 | 382 | 375 | 359 | 365 | 356 | 354 | 345 | 345 |
 | LLVM enums | 41 | 41 | 41 | 44 | 45 | 45 | 44 | 46 | 47 |
 | LLVMExtra enums | 17 | 17 | 17 | 15 | 16 | 16 | 16 | 15 | 15 |
 | LLVM structs | 81 | 81 | 79 | 81 | 83 | 83 | 83 | 83 | 83 |
@@ -234,7 +234,6 @@ Calling these on another version of LLVM throws an error.
 | `LLVMGetTargetExtTypeNumIntParams` | 16+ |
 | `LLVMGetTargetExtTypeNumTypeParams` | 16+ |
 | `LLVMGetTargetExtTypeTypeParam` | 16+ |
-| `LLVMGetVersion` | 16+ |
 | `LLVMGlobalAddDebugInfo` | 22+ |
 | `LLVMGlobalAddMetadata` | 22+ |
 | `LLVMHasPrefixData` | 19+ |
@@ -353,6 +352,7 @@ LLVMExtra provides some functions of the C API on versions of LLVM that lack the
 | `LLVMGetTargetExtTypeNumTypeParams` | `libLLVMExtra` (16–18), `libllvm` (19+) |
 | `LLVMGetTargetExtTypeTypeParam` | `libLLVMExtra` (16–18), `libllvm` (19+) |
 | `LLVMGetValueContext` | `libLLVMExtra` (15–19), `libllvm` (20+) |
+| `LLVMGetVersion` | `libLLVMExtra` (15), `libllvm` (16+) |
 | `LLVMIsAtomic` | `libLLVMExtra` (15–19), `libllvm` (20+) |
 | `LLVMOrcThreadSafeContextGetContext` | `libllvm` (15–20), `libLLVMExtra` (21+) |
 | `LLVMReplaceMDNodeOperandWith` | `libLLVMExtra` (15–16), `libllvm` (17+) |

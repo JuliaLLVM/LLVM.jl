@@ -1116,8 +1116,11 @@ Return the major, minor, and patch version of LLVM
 The version components are returned via the function's three output parameters or skipped if a NULL pointer was supplied.
 """
 function LLVMGetVersion(Major, Minor, Patch)
-    check_available(:LLVMGetVersion, 16)
-    ccall((:LLVMGetVersion, libllvm), Cvoid, (Ptr{Cuint}, Ptr{Cuint}, Ptr{Cuint}), Major, Minor, Patch)
+    if version().major >= 16
+        ccall((:LLVMGetVersion, libllvm), Cvoid, (Ptr{Cuint}, Ptr{Cuint}, Ptr{Cuint}), Major, Minor, Patch)
+    else
+        ccall((:LLVMGetVersion, libLLVMExtra), Cvoid, (Ptr{Cuint}, Ptr{Cuint}, Ptr{Cuint}), Major, Minor, Patch)
+    end
 end
 
 function LLVMCreateMessage(Message)

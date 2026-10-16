@@ -1,12 +1,12 @@
 # scoped names for the enums of the C API
 
-# The enums of the C API are generated per LLVM version, and are the values that LLVM.jl's
-# API takes and returns (e.g., `gv.linkage`). Their names are long, and part of the raw
-# `LLVM.API` namespace, so we make them available in a module per enum, with the prefix and
-# suffix stripped from their names: `LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage`.
-# These modules only contain aliases of the values of the C API (and `T`, their type), so
-# they don't need to be kept in sync with LLVM, and automatically contain the values that
-# are available on the current version of LLVM (including those that `API` backfills).
+# The enums of the C API are the values that LLVM.jl's API takes and returns (e.g.,
+# `gv.linkage`). Their names are long, and part of the raw `LLVM.API` namespace, so we make
+# them available in a module per enum, with the prefix and suffix stripped from their names:
+# `LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage`. These modules only contain
+# aliases of the values of the C API (and `T`, their type), so they don't need to be kept in
+# sync with LLVM. Like the enums in `API`, they contain the values of every version of LLVM
+# that LLVM.jl supports.
 #
 # The modules are public, but not part of a vocabulary, as their names are common words
 # (`Opcode`, `Linkage`), and qualifying them documents what the value is about. To add an
@@ -168,3 +168,13 @@ end
 end
 Base.show(io::IO, ::MIME"text/plain", x::ScopedEnum) = show(io, x)
 Base.print(io::IO, x::ScopedEnum) = show(io, x)
+
+# the enums of `API` contain the members of every version of LLVM; their translation tables
+# say which ones the version in use has
+function isavailable(x::CEnum.Cenum)
+    tables = API.abi_tables(typeof(x), version().major)
+    tables === nothing && return true
+    val = Integer(x)
+    0 <= val < length(tables.to) || return true
+    return @inbounds(tables.to[val+1]) >= 0
+end

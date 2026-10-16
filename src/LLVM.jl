@@ -54,17 +54,10 @@ undocumented(ex) =
     Meta.isexpr(ex, :macrocall) && ex.args[1] == GlobalRef(Core, Symbol("@doc")) ?
         ex.args[end] : ex
 
-# enum members that the C API lacks, at least on older versions of LLVM, numbered as in newer
-# C APIs or as their next values, so that they can be named and enumerated on every LLVM
-# version. they are added to the definitions of the enums in the generated wrappers, so that
-# CEnum knows them too, e.g., for `instances`.
+# enum members that no C API names, numbered as their next values, so that they can be named
+# and enumerated. they are added to the definitions of the enums in the generated wrappers,
+# so that CEnum knows them too, e.g., for `instances`.
 const backfilled_enum_members = (
-    # atomicrmw operations (`LLVM.isavailable` says whether LLVM supports them)
-    :LLVMAtomicRMWBinOp => (
-        :LLVMAtomicRMWBinOpUIncWrap => 15, :LLVMAtomicRMWBinOpUDecWrap => 16,
-        :LLVMAtomicRMWBinOpUSubCond => 17, :LLVMAtomicRMWBinOpUSubSat => 18,
-        :LLVMAtomicRMWBinOpFMaximum => 19, :LLVMAtomicRMWBinOpFMinimum => 20,
-        :LLVMAtomicRMWBinOpFMaximumNum => 21, :LLVMAtomicRMWBinOpFMinimumNum => 22),
     # module flag behaviors that every supported LLVM has (`Module::ModFlagBehavior`)
     :LLVMModuleFlagBehavior => (
         :LLVMModuleFlagBehaviorMax => 6, :LLVMModuleFlagBehaviorMin => 7),
@@ -95,25 +88,61 @@ function backfill_enum_members(ex)
     return ex
 end
 wrapper_mapexpr(ex) = inline_wrapper(backfill_enum_members(ex))
-@nospecialize
-let
-    if version().major < 15
-        error("LLVM.jl only supports LLVM 15 and later.")
-    end
-    dir = if version().major > 23
-        @warn "LLVM.jl has not been tested with LLVM versions newer than 23."
-        joinpath(@__DIR__, "..", "lib", "23")
-    else
-        joinpath(@__DIR__, "..", "lib", string(version().major))
-    end
-    @assert isdir(dir)
 
-    include(wrapper_mapexpr, joinpath(dir, "libLLVM.jl"))
-    include(wrapper_mapexpr, joinpath(dir, "libLLVM_extra.jl"))
+# the wrappers are generated for every supported version of LLVM, and merged into a single
+# set of definitions by `res/merge.jl`. functions that are not available on every version
+# check the version first, and enums whose members are not available on every version, or
+# whose values differ between versions, are translated by the wrappers taking or returning
+# them (see `res/ABI.md` for the differences).
+
+@inline function check_available(name::Symbol, since::Int, until::Union{Int,Nothing}=nothing)
+    major = Int(version().major)
+    if major < since || (until !== nothing && major >= until)
+        throw_unavailable(name, since, until)
+    end
 end
+@noinline function throw_unavailable(name, since, until)
+    supported = until === nothing ? "$since and later" : "$since to $(until-1)"
+    error("$name is not available on LLVM $(version()) (only on LLVM $supported)")
+end
+
+# translation tables of an enum for a version of LLVM, generated for enums with members that
+# are not available on every version, or with values that differ. `nothing` means that the
+# values of the C API are those defined by the wrappers.
+abi_tables(::Type, major::Integer) = nothing
+
+@inline function to_abi(::Type{T}, x) where {T}
+    x = x isa T ? x : T(x)
+    tables = abi_tables(T, version().major)
+    tables === nothing && return x
+    val = Integer(x)
+    0 <= val < length(tables.to) || return x
+    raw = @inbounds tables.to[val+1]
+    raw < 0 && throw_unavailable(x)
+    return T(raw)
+end
+@noinline throw_unavailable(x) =
+    throw(ArgumentError("$x is not available on LLVM $(version())"))
+
+@inline function from_abi(::Type{T}, x::T) where {T}
+    tables = abi_tables(T, version().major)
+    tables === nothing && return x
+    raw = Integer(x)
+    0 <= raw < length(tables.from) || return x
+    return T(@inbounds tables.from[raw+1])
+end
+
+@nospecialize
+include(wrapper_mapexpr, joinpath(@__DIR__, "..", "lib", "libLLVM.jl"))
+include(wrapper_mapexpr, joinpath(@__DIR__, "..", "lib", "libLLVM_extra.jl"))
 include(wrapper_mapexpr, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 @specialize
 
+if version().major < first(WRAPPED_VERSIONS)
+    error("LLVM.jl only supports LLVM $(first(WRAPPED_VERSIONS)) and later.")
+elseif version().major > last(WRAPPED_VERSIONS)
+    @warn "LLVM.jl has not been tested with LLVM versions newer than $(last(WRAPPED_VERSIONS))."
+end
 for (enum, _) in backfilled_enum_members
     n = get(backfilled_enum_definitions, enum, 0)
     n == 1 || error("Expected one definition of $enum in the wrappers, found $n")

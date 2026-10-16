@@ -728,9 +728,7 @@ end
 @property SyncScope name
 
 function Base.show(io::IO, scope::SyncScope)
-    str = if scope.id <= 1 || isdefined(API, :libLLVMExtra)
-        _name(scope)
-    end
+    str = _name(scope)
     if str === nothing
         print(io, "SyncScope(target-specific scope $(scope.id))")
     else
@@ -999,7 +997,7 @@ const CallBase = Union{CallBrInst, CallInst, InvokeInst}
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
 callconv!(inst::CallBase, cc) =
-    API.LLVMSetInstructionCallConv(inst, API.to_abi(API.LLVMCallConv, cc))
+    API.LLVMSetInstructionCallConv(inst, API.to_abi(library(), API.LLVMCallConv, cc))
 
 @property CallBase callconv callconv!
 

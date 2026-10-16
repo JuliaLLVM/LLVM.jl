@@ -985,7 +985,7 @@ function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
         end
 
         # register Julia passes, which only work with Julia's LLVM
-        if julia_llvm
+        if library() === julia_library
             julia_callback = cglobal(:jl_register_passbuilder_callbacks)
             API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
         end

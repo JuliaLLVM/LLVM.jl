@@ -67,7 +67,7 @@ Julia's optimization pipeline, as a string for use with [`add!`](@ref LLVM.add!)
 `enable_vector_pipeline=false` or `enable_early_simplifications=false`.
 """
 function JuliaPipeline(; opt_level=nothing, kwargs...)
-    LLVM.check_julia_llvm("Julia's pipeline")
+    LLVM.check_julia_library("Julia's pipeline")
     kwargs = Dict{Symbol, Any}(kwargs)
 
     # `opt_level` => `level` for consistency with LLVM's passes

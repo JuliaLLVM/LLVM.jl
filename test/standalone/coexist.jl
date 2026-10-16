@@ -70,7 +70,8 @@ function wrapped_functions(major)
             available = true
             for st in def.args[2].args
                 Meta.isexpr(st, :call) && st.args[1] == :check_available || continue
-                since, until = st.args[3], get(st.args, 4, typemax(Int))
+                # check_available(lib, :name, since[, until])
+                since, until = st.args[4], get(st.args, 5, typemax(Int))
                 available = since <= major < until
             end
             available && push!(functions, name)

@@ -20,8 +20,14 @@ A short description of the target.
 """
 @checked struct Target
     ref::API.LLVMTargetRef
+    library::Library
 end
 @properties Target
+
+# wrap a handle of the current library
+Target(ref::API.LLVMTargetRef) = Target(ref, library())
+
+argument_library(target::Target) = target.library
 
 Base.unsafe_convert(::Type{API.LLVMTargetRef}, target::Target) = target.ref
 

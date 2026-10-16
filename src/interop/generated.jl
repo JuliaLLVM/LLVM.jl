@@ -84,10 +84,14 @@ function emit_return!(builder::IRBuilder, f::LLVM.Function, @nospecialize(rv),
     return
 end
 
-function _generate_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
-                            @nospecialize(argtypes), argexprs::Vector{Any}, what::String,
-                            sparams::Union{Nothing,Vector{Any}}=nothing)
-    LLVM.check_julia_library(what)
+# the IR is for Julia's code generator, so it is built with Julia's LLVM, also when another
+# library is the current one
+_generate_llvmcall(@nospecialize(args...)) =
+    LLVM.library!(() -> generate_julia_llvmcall(args...), :julia)
+
+function generate_julia_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
+                                 @nospecialize(argtypes), argexprs::Vector{Any},
+                                 what::String, sparams::Union{Nothing,Vector{Any}}=nothing)
     rettyp isa Type || throw(ArgumentError("$what: return type $rettyp is not a type"))
     (argtypes isa DataType && argtypes <: Tuple && !Base.isvatuple(argtypes)) ||
         throw(ArgumentError("$what: argument types $argtypes are not a tuple type of fixed length"))

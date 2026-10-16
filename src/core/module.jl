@@ -124,17 +124,24 @@ Module
 # forward definition of Module in src/core/value/constant.jl
 @properties Module
 
+# wrap a handle of the current library
+Module(ref::API.LLVMModuleRef) = Module(ref, library())
+
+argument_library(mod::Module) = mod.library
+
 Base.unsafe_convert(::Type{API.LLVMModuleRef}, mod::Module) = mark_use(mod).ref
 
 Base.:(==)(x::Module, y::Module) = (x.ref === y.ref)
 
 # memcheck: a module is owned by its context (using the handle, as converting the module
 # would check whether it's an object that was disposed of earlier at the same address)
-memcheck_owner(mod::Module) = memcheck_context_owner(API.LLVMGetModuleContext(mod.ref))
+memcheck_owner(mod::Module) =
+    memcheck_context_owner(API.LLVMGetModuleContext(mod.library, mod.ref))
 
 # forward declarations
 @checked struct DataLayout
     ref::API.LLVMTargetDataRef
+    library::Library
 end
 @properties DataLayout
 @checked struct Function <: GlobalObject
@@ -148,8 +155,10 @@ Create a new module with the given name.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-Module(name::AbstractString) =
-    track_alloc(Module(API.LLVMModuleCreateWithNameInContext(name, context())))
+function Module(name::AbstractString)
+    ctx = context()
+    track_alloc(Module(API.LLVMModuleCreateWithNameInContext(name, ctx), ctx.library))
+end
 
 """
     copy(mod::LLVM.Module)
@@ -158,7 +167,7 @@ Clone the given module.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-Base.copy(mod::Module) = track_alloc(Module(API.LLVMCloneModule(mod)))
+Base.copy(mod::Module) = track_alloc(Module(API.LLVMCloneModule(mod), mod.library))
 
 """
     dispose(mod::LLVM.Module)
@@ -201,7 +210,8 @@ triple!(mod::Module, triple) = API.LLVMSetTarget(mod, triple)
 
 @property Module triple triple!
 
-datalayout(mod::Module) = DataLayout(API.LLVMGetModuleDataLayout(mod))
+datalayout(mod::Module) =
+    library!(() -> DataLayout(API.LLVMGetModuleDataLayout(mod)), mod.library)
 
 datalayout!(mod::Module, layout::AbstractString) = API.LLVMSetDataLayout(mod, layout)
 datalayout!(mod::Module, layout::DataLayout) =
@@ -246,7 +256,7 @@ function Base.empty!(asm::ModuleInlineAsm)
     return asm
 end
 
-context(mod::Module) = Context(API.LLVMGetModuleContext(mod))
+context(mod::Module) = Context(API.LLVMGetModuleContext(mod), mod.library)
 
 @property Module context
 
@@ -268,7 +278,8 @@ Base.length(set::ModuleUsedSet) =
     Int(set.compiler ? API.LLVMGetNumCompilerUsed(set.mod) : API.LLVMGetNumUsed(set.mod))
 
 # NOTE: optimized `collect`
-function Base.collect(set::ModuleUsedSet)
+Base.collect(set::ModuleUsedSet) = library!(() -> _collect(set), set.mod.library)
+function _collect(set::ModuleUsedSet)
     refs = Vector{API.LLVMValueRef}(undef, length(set))
     set.compiler ? API.LLVMGetCompilerUsed(set.mod, refs) : API.LLVMGetUsed(set.mod, refs)
     return GlobalValue[Value(ref) for ref in refs]
@@ -317,12 +328,13 @@ Parse the given LLVM IR string into a module.
 function Base.parse(::Type{Module}, ir::AbstractString)
     ir = String(ir)
     data = unsafe_wrap(Vector{UInt8}, ir)
+    ctx = context()
     membuf = MemoryBuffer(data, "", false)
 
     out_ref = Ref{API.LLVMModuleRef}()
     out_error = Ref{Cstring}()
     # the parser takes ownership of the buffer, which refers to the memory of `ir`
-    status = GC.@preserve ir API.LLVMParseIRInContext(context(), consume!(membuf), out_ref,
+    status = GC.@preserve ir API.LLVMParseIRInContext(ctx, consume!(membuf), out_ref,
                                                       out_error) |> Bool
 
     if status
@@ -330,7 +342,7 @@ function Base.parse(::Type{Module}, ir::AbstractString)
         throw(LLVMException(error))
     end
 
-    track_alloc(Module(out_ref[]))
+    track_alloc(Module(out_ref[], ctx.library))
 end
 
 """
@@ -338,7 +350,7 @@ end
 
 Convert the given module to a string.
 """
-Base.string(mod::Module) = unsafe_message(API.LLVMPrintModuleToString(mod))
+Base.string(mod::Module) = unsafe_message(mod.library, API.LLVMPrintModuleToString(mod))
 
 
 ## binary bitcode handling
@@ -357,6 +369,7 @@ function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     out_ref = Ref{API.LLVMModuleRef}()
     out_error = Ref{Cstring}()
     ctx = context()
+    check_library(ctx.library, membuf)
     prepare_diagnostic(ctx)
 
     # use the variants that return the parser error, instead of the `2` ones that
@@ -373,7 +386,7 @@ function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
     status && throw(LLVMException(unsafe_message(out_error[])))
     check_diagnostic(ctx)
 
-    track_alloc(Module(out_ref[]))
+    track_alloc(Module(out_ref[], ctx.library))
 end
 
 """
@@ -401,7 +414,7 @@ end
 Convert the given module to a memory buffer containing its bitcode.
 """
 Base.convert(::Type{MemoryBuffer}, mod::Module) =
-    mark_alloc(MemoryBuffer(API.LLVMWriteBitcodeToMemoryBuffer(mod)))
+    mark_alloc(MemoryBuffer(API.LLVMWriteBitcodeToMemoryBuffer(mod); library=mod.library))
 
 """
     convert(::Type{Vector}, mod::Module)
@@ -444,7 +457,8 @@ globals(mod::Module) = ModuleGlobalSet(mod)
 Base.eltype(::Type{ModuleGlobalSet}) = GlobalVariable
 
 @inline function Base.iterate(iter::ModuleGlobalSet, state=API.LLVMGetFirstGlobal(iter.mod))
-    state == C_NULL ? nothing : (GlobalVariable(state), API.LLVMGetNextGlobal(state))
+    state == C_NULL ? nothing :
+        (GlobalVariable(state), API.LLVMGetNextGlobal(iter.mod.library, state))
 end
 
 function Base.first(iter::ModuleGlobalSet)
@@ -563,7 +577,8 @@ functions(mod::Module) = ModuleFunctionSet(mod)
 Base.eltype(::Type{ModuleFunctionSet}) = Function
 
 @inline function Base.iterate(iter::ModuleFunctionSet, state=API.LLVMGetFirstFunction(iter.mod))
-    state == C_NULL ? nothing : (Function(state), API.LLVMGetNextFunction(state))
+    state == C_NULL ? nothing :
+        (Function(state), API.LLVMGetNextFunction(iter.mod.library, state))
 end
 
 function Base.first(iter::ModuleFunctionSet)
@@ -672,7 +687,8 @@ aliases(mod::Module) = ModuleAliasSet(mod)
 Base.eltype(::Type{ModuleAliasSet}) = GlobalAlias
 
 function Base.iterate(iter::ModuleAliasSet, state=API.LLVMGetFirstGlobalAlias(iter.mod))
-    state == C_NULL ? nothing : (GlobalAlias(state), API.LLVMGetNextGlobalAlias(state))
+    state == C_NULL ? nothing :
+        (GlobalAlias(state), API.LLVMGetNextGlobalAlias(iter.mod.library, state))
 end
 
 function Base.first(iter::ModuleAliasSet)
@@ -737,7 +753,8 @@ ifuncs(mod::Module) = ModuleIFuncSet(mod)
 Base.eltype(::Type{ModuleIFuncSet}) = GlobalIFunc
 
 function Base.iterate(iter::ModuleIFuncSet, state=API.LLVMGetFirstGlobalIFunc(iter.mod))
-    state == C_NULL ? nothing : (GlobalIFunc(state), API.LLVMGetNextGlobalIFunc(state))
+    state == C_NULL ? nothing :
+        (GlobalIFunc(state), API.LLVMGetNextGlobalIFunc(iter.mod.library, state))
 end
 
 function Base.first(iter::ModuleIFuncSet)
@@ -800,7 +817,8 @@ flags(mod::Module) = ModuleFlagDict(mod)
 @property Module flags
 
 # LLVM only supports fetching all flags at once
-function Base.iterate(iter::ModuleFlagDict)
+Base.iterate(iter::ModuleFlagDict) = library!(() -> _iterate(iter), iter.mod.library)
+function _iterate(iter::ModuleFlagDict)
     len = Ref{Csize_t}()
     ptr = API.LLVMCopyModuleFlagsMetadata(iter.mod, len)
     entries = Pair{String,Metadata}[]
@@ -828,7 +846,7 @@ function Base.getindex(iter::ModuleFlagDict, name::AbstractString)
     name = String(name)
     objref = API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
-    return Metadata(objref)
+    return library!(() -> Metadata(objref), iter.mod.library)
 end
 
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,

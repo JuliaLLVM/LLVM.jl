@@ -502,10 +502,12 @@ it pops it from the context stack, so activate it before disposing of it.
 function adopt end
 
 # dispose of the object using `f(ref)`, unless it was consumed already
+# `f` is the wrapper of the function that disposes of the handle, which is called with the
+# library of the object
 function dispose_owned(f, obj)
     obj.owned || return
     obj.owned = false
-    mark_dispose(obj -> f(obj.ref), obj)
+    mark_dispose(obj -> f(obj.library, obj.ref), obj)
     return
 end
 

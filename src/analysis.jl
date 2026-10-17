@@ -1064,3 +1064,57 @@ function erase_trivially_dead!(insts::AbstractVector{<:Instruction})
     return API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(
         refs, length(refs)) |> Bool
 end
+
+
+## promotion to registers
+
+@vocabulary IR is_promotable, promote_mem_to_reg!
+
+"""
+    is_promotable(alloca::AllocaInst)
+
+Check whether [`promote_mem_to_reg!`](@ref) can replace the alloca by SSA values: it is only
+used by non-volatile loads and stores of the allocated value, and by lifetime markers and
+debug information.
+"""
+is_promotable(alloca::AllocaInst) = API.LLVMExtraIsAllocaPromotable(alloca) |> Bool
+
+"""
+    promote_mem_to_reg!(alloca::AllocaInst, domtree::DomTree; [assumptions::AssumptionCache])
+    promote_mem_to_reg!(allocas::AbstractVector{<:AllocaInst}, domtree::DomTree;
+                        [assumptions::AssumptionCache])
+
+Promote allocas to SSA values, inserting phi nodes where needed, like the `mem2reg` pass
+does for every promotable alloca of a function. The allocas must be promotable (see
+[`is_promotable`](@ref)) and part of the same function, and `domtree` must be an up-to-date
+dominator tree of that function, e.g., `am[DomTree]` in a custom pass. If given,
+`assumptions` must be the assumption cache of that function. Throws an `ArgumentError`,
+without changing anything, if these requirements are not met, except for whether the tree is
+up to date and whether `assumptions` is one of that function, which are not checked.
+
+The CFG is not changed, so `domtree` remains valid. The allocas are erased, together with
+the instructions that use them (loads, stores, lifetime markers and the casts and GEPs they
+use, debug intrinsics): their wrappers must not be used anymore.
+"""
+promote_mem_to_reg!(alloca::AllocaInst, domtree::DomTree; kwargs...) =
+    promote_mem_to_reg!([alloca], domtree; kwargs...)
+function promote_mem_to_reg!(allocas::AbstractVector{<:AllocaInst}, domtree::DomTree;
+                             assumptions::Union{Nothing,AssumptionCache}=nothing)
+    refs = API.LLVMValueRef[propref(alloca) for alloca in allocas]
+    allunique(refs) || throw(ArgumentError("Cannot promote an alloca more than once"))
+    fn = C_NULL
+    for (ref, alloca) in zip(refs, allocas)
+        bb = API.LLVMGetInstructionParent(ref)
+        f = bb == C_NULL ? C_NULL : API.LLVMGetBasicBlockParent(bb)
+        f == C_NULL && throw(ArgumentError("Alloca is not part of a function"))
+        fn == C_NULL && (fn = f)
+        f == fn ||
+            throw(ArgumentError("Cannot promote allocas of different functions together"))
+        is_promotable(alloca) ||
+            throw(ArgumentError("Alloca is not promotable (see `is_promotable`)"))
+    end
+    API.LLVMExtraPromoteMemToReg(refs, length(refs), domtree,
+                                 something(assumptions, C_NULL)) |> Bool ||
+        throw(ArgumentError("The dominator tree is not one of the function containing the allocas"))
+    return
+end

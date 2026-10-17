@@ -1,6 +1,15 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.3
+
+### Promoting allocas to registers
+
+`promote_mem_to_reg!(allocas, domtree)` replaces allocas by SSA values, like the `mem2reg`
+pass but for chosen allocas, e.g. ones a custom pass created. `is_promotable(alloca)`
+checks whether an alloca can be promoted.
+
+
 ## LLVM.jl v10.2
 
 ### Intrinsics

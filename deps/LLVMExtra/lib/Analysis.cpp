@@ -25,6 +25,7 @@
 #include <llvm/Support/KnownBits.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include <llvm/Transforms/Utils/Local.h>
+#include <llvm/Transforms/Utils/PromoteMemToReg.h>
 
 #include <optional>
 
@@ -843,6 +844,23 @@ LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(LLVMValue
   for (unsigned I = 0; I < NumInsts; ++I)
     DeadInsts.emplace_back(unwrap(Insts[I]));
   return RecursivelyDeleteTriviallyDeadInstructionsPermissive(DeadInsts);
+}
+
+LLVMBool LLVMExtraIsAllocaPromotable(LLVMValueRef Alloca) {
+  return isAllocaPromotable(unwrap<AllocaInst>(Alloca));
+}
+
+LLVMBool LLVMExtraPromoteMemToReg(LLVMValueRef *Allocas, unsigned NumAllocas,
+                                  LLVMDominatorTreeRef Tree, LLVMAssumptionCacheRef AC) {
+  if (NumAllocas == 0)
+    return true;
+  SmallVector<AllocaInst *, 4> List;
+  for (unsigned I = 0; I < NumAllocas; ++I)
+    List.push_back(unwrap<AllocaInst>(Allocas[I]));
+  if (unwrap(Tree)->getRoot() != &List.front()->getFunction()->getEntryBlock())
+    return false;
+  PromoteMemToReg(List, *unwrap(Tree), unwrap(AC));
+  return true;
 }
 
 LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,

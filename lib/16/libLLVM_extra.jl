@@ -1195,6 +1195,14 @@ function LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(Insts, Nu
     ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Cuint), Insts, NumInsts)
 end
 
+function LLVMExtraIsAllocaPromotable(Alloca)
+    ccall((:LLVMExtraIsAllocaPromotable, libLLVMExtra), LLVMBool, (LLVMValueRef,), Alloca)
+end
+
+function LLVMExtraPromoteMemToReg(Allocas, NumAllocas, Tree, AC)
+    ccall((:LLVMExtraPromoteMemToReg, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Cuint, LLVMDominatorTreeRef, LLVMAssumptionCacheRef), Allocas, NumAllocas, Tree, AC)
+end
+
 function LLVMExtraConstantFoldCastOperand(Opcode, C, DestTy, TD, Result)
     ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), Opcode, C, DestTy, TD, Result)
 end

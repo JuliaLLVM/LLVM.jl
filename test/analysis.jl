@@ -735,6 +735,109 @@ end
     end
 end
 
+@testset "promotion to registers" begin
+    # in the pointer representation of the current context (typed by default before LLVM 17)
+    function diamond()
+        ptr = supports_typed_pointers(context()) ? "i32*" : "ptr"
+        return """
+        declare void @g($ptr)
+        define i32 @f(i1 %c, i32 %a, i32 %b) {
+        entry:
+          %p = alloca i32
+          %q = alloca i32
+          %e = alloca i32
+          call void @g($ptr %e)
+          br i1 %c, label %then, label %else
+        then:
+          store i32 %a, $ptr %p
+          br label %exit
+        else:
+          store i32 %b, $ptr %p
+          br label %exit
+        exit:
+          %r = load i32, $ptr %p
+          ret i32 %r
+        }
+        define void @h() {
+          %x = alloca i32
+          ret void
+        }"""
+    end
+
+    @dispose ctx=Context() mod=parse(LLVM.Module, diamond()) begin
+        f = mod.functions["f"]
+        p, q, e = collect(f.entry.instructions)[1:3]
+        x = first(mod.functions["h"].entry.instructions)
+        @test is_promotable(p)
+        @test is_promotable(q)
+        @test !is_promotable(e)  # escapes into a call
+
+        @dispose domtree=DomTree(f) begin
+            # nothing changes when the requirements are not met
+            ninsts() = sum(length(collect(bb.instructions)) for bb in f.blocks)
+            n = ninsts()
+            @test_throws ArgumentError promote_mem_to_reg!([p, e], domtree)
+            @test_throws ArgumentError promote_mem_to_reg!([p, p], domtree)
+            @test_throws ArgumentError promote_mem_to_reg!([p, x], domtree)
+            @dispose other=DomTree(mod.functions["h"]) begin
+                @test_throws ArgumentError promote_mem_to_reg!(p, other)
+            end
+            @test promote_mem_to_reg!(AllocaInst[], domtree) === nothing
+            @test ninsts() == n
+
+            # allocas that are not part of a function
+            detached = x.parent
+            remove!(detached)
+            @test_throws ArgumentError promote_mem_to_reg!(x, domtree)
+            remove!(x)
+            @test_throws ArgumentError promote_mem_to_reg!(x, domtree)
+            erase!(x)
+            erase!(detached)
+
+            @test promote_mem_to_reg!([p, q], domtree) === nothing
+            @test verify(f) === nothing
+            exit = last(collect(f.blocks))
+            r = first(exit.instructions)
+            @test r isa LLVM.PHIInst
+            @test sort([(v.name, bb.name) for (v, bb) in r.incoming]) ==
+                  [("a", "then"), ("b", "else")]
+            @test !any(i -> i isa LLVM.AllocaInst && i != e, f.entry.instructions)
+            @test !any(i -> i isa Union{LLVM.LoadInst,LLVM.StoreInst},
+                       Iterators.flatten(bb.instructions for bb in f.blocks))
+
+            # the CFG is unchanged, so the tree remains valid
+            @dispose fresh=DomTree(f) begin
+                for a in f.blocks, b in f.blocks
+                    @test dominates(domtree, a, b) == dominates(fresh, a, b)
+                end
+            end
+        end
+    end
+
+    # in a custom pass, with the analyses of the pass manager
+    @dispose ctx=Context() mod=parse(LLVM.Module, diamond()) begin
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("promote", (f, am) -> begin
+                allocas = filter(i -> i isa LLVM.AllocaInst && is_promotable(i),
+                                 collect(f.entry.instructions))
+                isempty(allocas) && return PreservedAnalyses(AllAnalyses)
+                foreach(allocas) do alloca
+                    promote_mem_to_reg!(alloca, am[DomTree];
+                                        assumptions=am[AssumptionCache])
+                end
+                return PreservedAnalyses(CFGAnalyses)
+            end; analyses=true))
+            add!(pb, "function(promote)")
+            run!(pb, mod)
+        end
+        f = mod.functions["f"]
+        @test verify(mod) === nothing
+        @test count(i -> i isa LLVM.AllocaInst, f.entry.instructions) == 1
+        @test first(last(collect(f.blocks)).instructions) isa LLVM.PHIInst
+        @test isempty(collect(mod.functions["h"].entry.instructions)[1:end-1])
+    end
+end
+
 @testset "constant folding" begin
     @dispose ctx=Context() dl=LLVM.DataLayout("e-p:64:64") begin
         c = ConstantInt(Int64(0x1_0000_0005))

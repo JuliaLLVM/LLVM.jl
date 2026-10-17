@@ -34,9 +34,13 @@ but passing them to a version of LLVM that lacks them throws an error.
 """
 function isavailable end
 
-# the version that a shared libLLVM reports, which can differ from the version of the headers
-# it was built from (and that Julia was built for) when Julia uses a system LLVM
+# the version that a library reports at run time. for Julia's library, this can differ from
+# the version of the headers it was built from (and that Julia was built for) when Julia uses
+# a system LLVM.
 function runtime_version(lib::Library=library())
+    # standalone libraries hide their C++ symbols, but the C API reports the version
+    lib === julia_library || return library_version(lib.handle, lib.extra_handle)
+
     # FIXME: add a proper C API to LLVM
     fn = Libdl.dlsym(lib.handle, :_ZN4llvm16LTOCodeGenerator16getVersionStringEv)
     version_print = unsafe_string(ccall(fn, Cstring, ()))
@@ -52,5 +56,10 @@ function runtime_version(lib::Library=library())
     end
 end
 
-is_asserts(lib::Library=library()) =
+# whether a library was built with assertions, which is only known for Julia's library: the
+# symbol that tells is hidden in standalone libraries
+function is_asserts(lib::Library=library())
+    lib === julia_library ||
+        throw(ArgumentError("Cannot determine whether LLVM library :$(lib.name) was built with assertions"))
     Libdl.dlsym(lib.handle, "_ZN4llvm23EnableABIBreakingChecksE"; throw_error=false) !== nothing
+end

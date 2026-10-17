@@ -24,8 +24,9 @@ using LLVMExtra_jll
 # also provides LLVMExtra.
 const libllvm_preference = @load_preference("libLLVM", nothing)
 
-# whether the default library is Julia's. code that depends on the version of LLVM at
-# compile time (`@static if version() ...`) uses the version of the default library.
+# whether the default library is Julia's. LLVM.jl checks the version of the library it uses
+# at run time, but packages that check it at compile time (`@static if LLVM.version() ...`)
+# get the version of the default library.
 const julia_llvm = libllvm_preference === nothing
 
 # the default library, for code that calls it directly, e.g., `ccall((:LLVMFoo,
@@ -67,7 +68,8 @@ else
     end
 end
 
-# the wrappers depend on the version of another library, so recompile when it changes
+# the default library, and its version, are part of the precompilation image, so recompile
+# when another library is selected
 julia_llvm || include_dependency(libllvm_preference)
 
 const libllvm_version = default_library.version
@@ -256,8 +258,7 @@ include("precompile.jl")
 function __init__()
     init_library_caches!()
 
-    # code that depends on the version of the default library is specific to it, so don't
-    # use another one
+    # the default library was created when precompiling, with the version it had then
     if !julia_llvm && library_version(default_library.path) != default_library.version
         error("""LLVM.jl was precompiled for LLVM $(default_library.version), whereas $(default_library.path) is now LLVM $(library_version(default_library.path)).
                  Please re-compile LLVM.jl.""")
@@ -279,10 +280,10 @@ function __init__()
         @error """LLVM.jl was precompiled for LLVM $libllvm_version, whereas you are now using LLVM $(Base.libllvm_version).
                   Please re-compile LLVM.jl."""
     end
-    if julia_llvm && version() !== runtime_version()
+    if julia_llvm && julia_library.version != runtime_version(julia_library)
         # this is probably caused by a combination of USE_SYSTEM_LLVM
         # and an LLVM upgrade without recompiling Julia.
-        @error """Julia was compiled for LLVM $(version()), whereas you are now using LLVM $(runtime_version()).
+        @error """Julia was compiled for LLVM $(julia_library.version), whereas you are now using LLVM $(runtime_version(julia_library)).
                   Please re-compile Julia and LLVM.jl (but note that USE_SYSTEM_LLVM is not a supported configuration)."""
     end
 

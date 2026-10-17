@@ -1033,6 +1033,15 @@ LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(LLVMValueRef Inst);
 // deleted while processing others, are skipped. Returns whether any were deleted.
 LLVMBool LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(LLVMValueRef *Insts,
                                                                        unsigned NumInsts);
+// whether an alloca is only loaded from and stored to in ways that let PromoteMemToReg
+// replace it by SSA values
+LLVMBool LLVMExtraIsAllocaPromotable(LLVMValueRef Alloca);
+// promote allocas of one function, which must all be promotable, to SSA values, inserting
+// phis. The CFG is unchanged, so `Tree` stays valid; `AC` may be NULL. Returns false
+// (without changing anything) if `Tree` is not a tree for the current entry block of the
+// function.
+LLVMBool LLVMExtraPromoteMemToReg(LLVMValueRef *Allocas, unsigned NumAllocas,
+                                  LLVMDominatorTreeRef Tree, LLVMAssumptionCacheRef AC);
 // fold a cast of a constant, storing the result in *Result, or NULL if it cannot be
 // folded. Returns false if the cast is invalid.
 LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,

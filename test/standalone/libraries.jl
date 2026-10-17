@@ -204,6 +204,43 @@ end
     end
 end
 
+@testset "version-dependent functionality" begin
+    # the same code works with libraries of different versions, also when switching back
+    # and forth between them
+    ir = """
+        define i32 @g(i64 %x) {
+          %t = trunc i64 %x to i32
+          ret i32 %t
+        }"""
+    function check(lib)
+        @test library() === lib
+        LLVM.Context() do ctx
+            @test !LLVM.supports_typed_pointers(ctx) || lib.version < v"17"
+            @dispose mod=parse(LLVM.Module, ir) begin
+                @test LLVM.version(mod) == lib.version
+                trunc = first(first(first(mod.functions).blocks).instructions)
+                @test hasproperty(trunc, :nuw) == (lib.version >= v"19")
+                @test (:nuw in propertynames(trunc)) == (lib.version >= v"19")
+                @test LLVM.ArrayType(LLVM.Int8Type(), 4).length == 4
+            end
+        end
+        @test LLVM.Passes.FlattenCFGPass() ==
+              (lib.version >= v"19" ? "flatten-cfg" : "flattencfg")
+    end
+    for lib in (julia, other, julia, other)
+        library!(() -> check(lib), lib)
+    end
+
+    # objects use the version of their library, also when another library is current
+    ctx = LLVM.Context(; library=other)
+    @test library() === julia
+    @test LLVM.version(ctx) == other.version
+    other.version >= v"17" && @test !LLVM.supports_typed_pointers(ctx)
+    LLVM.opaque_pointers!(ctx, true)
+    dispose(ctx)
+    @test_throws "does not remember its LLVM library" LLVM.version(1)
+end
+
 @testset "code generation" begin
     LLVM.Context(; library=other) do ctx
         LLVM.JITTargetMachine() do tm

@@ -1,12 +1,12 @@
 # scoped names for the enums of the C API
 
-# The enums of the C API are generated per LLVM version, and are the values that LLVM.jl's
-# API takes and returns (e.g., `gv.linkage`). Their names are long, and part of the raw
-# `LLVM.API` namespace, so we make them available in a module per enum, with the prefix and
-# suffix stripped from their names: `LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage`.
-# These modules only contain aliases of the values of the C API (and `T`, their type), so
-# they don't need to be kept in sync with LLVM, and automatically contain the values that
-# are available on the current version of LLVM (including those that `API` backfills).
+# The enums of the C API are the values that LLVM.jl's API takes and returns (e.g.,
+# `gv.linkage`). Their names are long, and part of the raw `LLVM.API` namespace, so we make
+# them available in a module per enum, with the prefix and suffix stripped from their names:
+# `LLVM.Linkage.Internal === LLVM.API.LLVMInternalLinkage`. These modules only contain
+# aliases of the values of the C API (and `T`, their type), so they don't need to be kept in
+# sync with LLVM. Like the enums in `API`, they contain the values of every version of LLVM
+# that LLVM.jl supports.
 #
 # The modules are public, but not part of a vocabulary, as their names are common words
 # (`Opcode`, `Linkage`), and qualifying them documents what the value is about. To add an
@@ -73,6 +73,53 @@ const enum_scopes = [
      "LLVMOrcSymbolLookupFlags", "", ()),
 ]
 
+# the enums of `API` contain the members of every version of LLVM; their translation tables
+# say which ones a version has
+function isavailable(x::CEnum.Cenum, major::Integer)
+    tables = API.abi_tables(typeof(x), major)
+    tables === nothing && return true
+    val = Integer(x)
+    0 <= val < length(tables.to) || return true
+    return @inbounds(tables.to[val+1]) >= 0
+end
+isavailable(x::CEnum.Cenum) = isavailable(x, version().major)
+
+# the LLVM version that introduced each atomicrmw operation, indexed by its C API value.
+# LLVM.jl supports some of them on versions whose C API does not name them yet.
+const ATOMIC_RMW_BINOP_SINCE = (
+    ntuple(_ -> v"0", 15)...,   # Xchg through FMin
+    v"16", v"16",               # UIncWrap, UDecWrap
+    v"20", v"20",               # USubCond, USubSat
+    v"21", v"21",               # FMaximum, FMinimum
+    v"23", v"23",               # FMaximumNum, FMinimumNum
+)
+
+function isavailable(op::API.LLVMAtomicRMWBinOp, major::Integer)
+    since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)
+    since !== nothing && major >= since.major
+end
+
+"""
+    isavailable(op::LLVM.AtomicRMWBinOp.T)
+
+Check whether the atomic read-modify-write operation `op` is supported by the version of
+LLVM in use. All operations can be named on every LLVM version, and are listed by
+`instances(LLVM.AtomicRMWBinOp.T)`, but instructions can only be created with the ones
+that are available, e.g., `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))`.
+"""
+isavailable(op::API.LLVMAtomicRMWBinOp) = isavailable(op, version().major)
+@public isavailable
+
+# the versions of LLVM that have a member of an enum, e.g., "all" or "19+"
+function availability(@nospecialize(x))
+    versions = [v for v in API.WRAPPED_VERSIONS if isavailable(x, v)]
+    versions == API.WRAPPED_VERSIONS && return "all"
+    isempty(versions) && return "none"
+    lo, hi = first(versions), last(versions)
+    hi == last(API.WRAPPED_VERSIONS) && return "$lo+"
+    lo == hi ? "$lo" : "$(lo)–$(hi)"
+end
+
 # the members of an enum: (short name, integer value, name in the C API), in the order of
 # the values, derived from the constants in `API` of that type.
 #
@@ -109,12 +156,14 @@ Base.@nospecializeinfer function enum_doc(scope::Symbol, @nospecialize(T::Type),
     println(io)
     print(io, "Values of the `LLVM.API.", nameof(T), "` enum, for ", description, ", e.g., ")
     println(io, "`LLVM.", scope, ".", first(members)[1], "`. Their type is `LLVM.", scope,
-            ".T`. The available values depend on the version of LLVM:")
+            ".T`. Some values are only available on some versions of LLVM (see ",
+            "[`LLVM.isavailable`](@ref)):")
     println(io)
-    println(io, "| Name | Value | C API |")
-    println(io, "|:---- |:----- |:----- |")
+    println(io, "| Name | Value | C API | Availability |")
+    println(io, "|:---- |:----- |:----- |:---- |")
     for (name, val, raw) in members
-        println(io, "| `", name, "` | ", val, " | `", raw, "` |")
+        println(io, "| `", name, "` | ", val, " | `", raw, "` | ",
+                availability(getfield(API, raw)), " |")
     end
     return String(take!(io))
 end

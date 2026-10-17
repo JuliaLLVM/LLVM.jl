@@ -769,29 +769,6 @@ end
 
 @property AtomicRMWInst binop
 
-# the LLVM version that introduced each atomicrmw operation, indexed by its C API value
-const ATOMIC_RMW_BINOP_SINCE = (
-    ntuple(_ -> v"0", 15)...,   # Xchg through FMin
-    v"16", v"16",               # UIncWrap, UDecWrap
-    v"20", v"20",               # USubCond, USubSat
-    v"21", v"21",               # FMaximum, FMinimum
-    v"23", v"23",               # FMaximumNum, FMinimumNum
-)
-
-"""
-    isavailable(op::LLVM.AtomicRMWBinOp.T)
-
-Check whether the atomic read-modify-write operation `op` is supported by the version of
-LLVM in use. All operations can be named on every LLVM version, and are listed by
-`instances(LLVM.AtomicRMWBinOp.T)`, but instructions can only be created with the ones
-that are available, e.g., `filter(LLVM.isavailable, instances(LLVM.AtomicRMWBinOp.T))`.
-"""
-function isavailable(op::API.LLVMAtomicRMWBinOp)
-    since = get(ATOMIC_RMW_BINOP_SINCE, Integer(op) + 1, nothing)
-    since !== nothing && version() >= since
-end
-@public isavailable
-
 weak(inst::AtomicCmpXchgInst) = API.LLVMGetWeak(inst) |> Bool
 
 weak!(inst::AtomicCmpXchgInst, flag::Bool) = API.LLVMSetWeak(inst, flag)
@@ -1022,7 +999,7 @@ const CallBase = Union{CallBrInst, CallInst, InvokeInst}
 callconv(inst::CallBase) = API.LLVMGetInstructionCallConv(inst)
 
 callconv!(inst::CallBase, cc) =
-    API.LLVMSetInstructionCallConv(inst, cc)
+    API.LLVMSetInstructionCallConv(inst, API.to_abi(API.LLVMCallConv, cc))
 
 @property CallBase callconv callconv!
 

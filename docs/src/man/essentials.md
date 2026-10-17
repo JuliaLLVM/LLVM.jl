@@ -586,9 +586,10 @@ julia> LLVM.IntPredicate.EQ, LLVM.Opcode.BitCast, LLVM.AtomicOrdering.Acquire
 ```
 
 These names are those of the C API, without their common prefix and suffix. The modules
-contain the values that `LLVM.API` defines for the current version of LLVM (including
-values that LLVM.jl backfills, like newer `atomicrmw` operations, whose availability can be
-checked with `LLVM.isavailable`), and `T`, their type (e.g., `LLVM.Linkage.T ===
+contain the values that `LLVM.API` defines, which are those of every version of LLVM that
+LLVM.jl supports (whether the version in use has a value can be checked with
+`LLVM.isavailable`, and passing a value that it lacks to LLVM throws an error), and `T`,
+their type (e.g., `LLVM.Linkage.T ===
 LLVM.API.LLVMLinkage`), to use in type annotations or with functions like
 `parse(LLVM.AtomicOrdering.T, "acquire")`. The modules are public, but not
 part of any vocabulary, so they are always qualified by default. To use them unqualified,

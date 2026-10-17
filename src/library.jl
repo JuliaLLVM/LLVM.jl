@@ -162,6 +162,16 @@ end
 # the library that an argument of a wrapper belongs to, for objects that remember it
 argument_library(@nospecialize(x)) = nothing
 
+# the library that an object is used with: the one it remembers, or the current one (e.g.,
+# for values, which are used with the current library)
+@inline object_library(@nospecialize(x)) =
+    (lib = argument_library(x); lib === nothing ? library() : lib)
+
+# whether `lib` is LLVM `major` or later. LLVM.jl's version-dependent behavior only depends
+# on the major version, which is cheaper to check than a version number, and this is used
+# in places where that matters (e.g., when wrapping values).
+@inline atleast(major::Int, lib::Library=library()) = Int(lib.version.major) >= major
+
 # the library to call: that of the arguments, if they remember one, or the current one
 @inline function route_library(args...)
     lib = tagged_library(args...)

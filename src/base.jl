@@ -295,8 +295,9 @@ end
 #   do that work when they are used.
 # - Declare the property on the types that support it, not on a supertype where the
 #   accessor would fail (e.g., `alignment` is only available on memory instructions). When
-#   support depends on the LLVM version, only declare the property on versions that support
-#   it (e.g., `disjoint`), but keep defining its accessor so that it can be documented.
+#   support depends on the LLVM version, declare the versions that support it
+#   (`@property OrInst disjoint since=18`), which are checked against the library the object
+#   is used with, and keep defining its accessor so that it can be documented.
 # - When a relationship can be absent, the accessor returns `nothing` instead of throwing.
 # - A relationship is a property even if it refers to a different kind of object, like the
 #   execution session of a JIT (`jit.execution_session`, not `ExecutionSession(jit)`).
@@ -322,8 +323,20 @@ end
 # known at run time, to access it without dispatch)
 @inline propref(x) = getfield(x, :ref)
 
-# (type, name) pairs, to implement `propertynames`
-const property_registry = Tuple{Type,Symbol}[]
+# the declared properties, to implement `propertynames`: the type, the name, and the first
+# and (exclusive) last major versions of LLVM that support it, if limited
+const property_registry = Tuple{Type,Symbol,Union{Nothing,Int},Union{Nothing,Int}}[]
+
+register_property!(T::Type, name::Symbol; since=nothing, until=nothing) =
+    push!(property_registry, (T, name, since, until))
+
+# whether a property that depends on the version of LLVM is available on the library `x` is
+# used with
+@inline function property_available(@nospecialize(x), since, until)
+    lib = object_library(x)
+    return (since === nothing || atleast(since, lib)) &&
+           (until === nothing || !atleast(until, lib))
+end
 
 # fall back to the object's fields, or error with a list of the available properties.
 # hierarchies of wrappers that consist of nothing but their reference (values, types,
@@ -368,7 +381,8 @@ end
 end
 
 Base.@nospecializeinfer function property_names(@nospecialize(x), private::Bool)
-    names = Symbol[name for (T, name) in property_registry if x isa T]
+    names = Symbol[name for (T, name, since, until) in property_registry
+                   if x isa T && property_available(x, since, until)]
     private && append!(names, fieldnames(typeof(x)))
     return Tuple(unique!(names))
 end
@@ -396,27 +410,47 @@ end
 # `@property T name` declares a read-only property backed by `name(x)`, while
 # `@property T name setter` makes it writable by calling `setter(x, v)`. For setters that
 # need to adapt the value, `setter` can be an anonymous function `(x, v) -> ...`, which
-# becomes the body of the setter method (so that its arguments can be typed).
-macro property(T, name, setter=nothing)
+# becomes the body of the setter method (so that its arguments can be typed). Properties that
+# are only supported by some versions of LLVM declare them by appending `since=major` and/or
+# `until=major` (exclusive).
+macro property(T, name, args...)
     # `@property T name => getter` uses a getter that isn't named after the property, e.g.,
     # when that name is a Base function with another meaning (like `length`)
     name, getter = Meta.isexpr(name, :call) && name.args[1] === :(=>) ?
                    (name.args[2], name.args[3]) : (name, name)
+    setter = nothing
+    since = until = nothing
+    for arg in args
+        if Meta.isexpr(arg, :(=)) && arg.args[1] === :since
+            since = arg.args[2]::Int
+        elseif Meta.isexpr(arg, :(=)) && arg.args[1] === :until
+            until = arg.args[2]::Int
+        elseif setter === nothing
+            setter = arg
+        else
+            error("unsupported argument to @property: $arg")
+        end
+    end
     sym = QuoteNode(name)
+    check = since === nothing && until === nothing ? nothing :
+            :(property_available(x, $since, $until) || property_error(x, $sym))
     setter_method = if setter === nothing
         :(setprop!(x::$T, ::Val{$sym}, v) =
-            error("property `", $sym, "` of ", typeof(x), " is read-only"))
+            ($check; error("property `", $sym, "` of ", typeof(x), " is read-only")))
     elseif Meta.isexpr(setter, :->)
         x, v = setter.args[1].args
         vname = Meta.isexpr(v, :(::)) ? v.args[1] : v
-        :(setprop!($x::$T, ::Val{$sym}, $v) = ($(setter.args[2]); $vname))
+        xname = Meta.isexpr(x, :(::)) ? x.args[1] : x
+        setter_check = check === nothing ? nothing :
+                 :(property_available($xname, $since, $until) || property_error($xname, $sym, $vname))
+        :(setprop!($x::$T, ::Val{$sym}, $v) = ($setter_check; $(setter.args[2]); $vname))
     else
-        :(setprop!(x::$T, ::Val{$sym}, v) = ($setter(x, v); v))
+        :(setprop!(x::$T, ::Val{$sym}, v) = ($check; $setter(x, v); v))
     end
     quote
-        @inline getprop(x::$T, ::Val{$sym}) = $getter(x)
+        @inline getprop(x::$T, ::Val{$sym}) = ($check; $getter(x))
         $setter_method
-        push!(property_registry, ($T, $sym))
+        register_property!($T, $sym; since=$since, until=$until)
     end |> esc
 end
 

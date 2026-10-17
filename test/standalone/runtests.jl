@@ -1,5 +1,5 @@
 # test standalone LLVM libraries next to Julia's LLVM, loading each in a fresh process, with
-# and without making its symbols globally available.
+# and without making its symbols globally available, and using it with LLVM.jl.
 #
 # usage: julia --project=test test/standalone/runtests.jl LIBRARY...
 
@@ -41,6 +41,11 @@ end
                        $(joinpath(@__DIR__, "coexist.jl")) $lib $mode`
                 @test success(pipeline(cmd; stdout, stderr))
             end
+
+            # LLVM.jl using the library next to Julia's
+            cmd = `$(Base.julia_cmd()) --project=$(Base.active_project())
+                   $(joinpath(@__DIR__, "libraries.jl")) $lib`
+            @test success(pipeline(cmd; stdout, stderr))
         end
     end
 end

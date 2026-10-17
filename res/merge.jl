@@ -89,6 +89,10 @@ function parse_items(path, file)
         elseif Meta.isexpr(def, :function)
             name = def.args[1].args[1]::Symbol
             push!(items, Item(:function, String(name), name, file, text, doc, comment, def))
+        elseif Meta.isexpr(def, :macrocall) && def.args[1] in (Symbol("@llvmapi"), Symbol("@inline"))
+            # merged definitions, e.g., of the baseline (only its enums are used)
+            name = def.args[end].args[1].args[1]::Symbol
+            push!(items, Item(:function, String(name), name, file, text, doc, comment, def))
         elseif Meta.isexpr(def, :macrocall) && def.args[1] == Symbol("@cenum")
             name = def.args[3].args[1]
             name = name isa Symbol ? name : Symbol(name)
@@ -294,13 +298,15 @@ function format_tables(e::EnumInfo, versions)
         end
     end
     table_name(lo) = "$(e.name)_abi_$lo"
+    # vectors, not tuples, so that selecting the tables of a version that is only known at
+    # run time is type stable, and does not copy them
     for (lo, t) in groups
         t === nothing && continue
-        println(io, "const ", table_name(lo), " = (to = ", t.to, ",")
-        println(io, "    from = ", t.from, ")")
+        println(io, "const ", table_name(lo), " = (to = Int[", join(t.to, ", "), "],")
+        println(io, "    from = Int[", join(t.from, ", "), "])")
         println(io)
     end
-    println(io, "function abi_tables(::Type{", e.name, "}, major::Integer)")
+    println(io, "@inline function abi_tables(::Type{", e.name, "}, major::Integer)")
     for (i, (lo, t)) in enumerate(groups)
         if i == 1
             println(io, "    if major >= ", lo)
@@ -397,7 +403,7 @@ function format_function(m::Merged, key, d::Dict{Int,Item})
     simple = length(variants) == 1 && sort(collect(keys(d))) == versions &&
              length(unique(info.lib for info in values(infos))) == 1 &&
              !any(T -> contains_type(newest_item(d).def, T), keys(checked))
-    simple && return newest_item(d).text
+    simple && return explicit_library(newest_item(d).text, name)
 
     io = IOBuffer()
     item = newest_item(d)
@@ -407,23 +413,25 @@ function format_function(m::Merged, key, d::Dict{Int,Item})
         i == 1 || print(io, "\n\n")
         info = infos[maximum(vs)]
         i == 1 && !isempty(item.doc) && println(io, item.doc)
-        println(io, "function ", name, "(", join(info.argnames, ", "), ")")
+        args = join(["lib::Library"; info.argnames], ", ")
+        println(io, "@llvmapi function ", name, "(", args, ")")
 
         rs = ranges(vs)
         length(rs) == 1 || error("$name is not available on a contiguous range of versions")
         r = only(rs)
         if r != first(versions):last(versions)
             if last(r) == last(versions)
-                println(io, "    check_available(:", name, ", ", first(r), ")")
+                println(io, "    check_available(lib, :", name, ", ", first(r), ")")
             else
-                println(io, "    check_available(:", name, ", ", first(r), ", ", last(r) + 1, ")")
+                println(io, "    check_available(lib, :", name, ", ", first(r), ", ",
+                        last(r) + 1, ")")
             end
         end
 
         # convert the arguments and return value of enums that need to be translated
         args = map(zip(info.types, info.argnames)) do (T, a)
             if T isa Symbol && haskey(checked, T)
-                "to_abi($T, $a)"
+                "to_abi(lib, $T, $a)"
             else
                 for E in keys(checked)
                     contains_type(T, E) && error("$name passes $E indirectly, which cannot be translated")
@@ -442,7 +450,7 @@ function format_function(m::Merged, key, d::Dict{Int,Item})
         function ccall_str(lib)
             types = Expr(:tuple, info.types...)
             s = "ccall((:$name, $lib), $ret, $types" * join(", " .* args) * ")"
-            translate_ret ? "from_abi($ret, $s)" : s
+            translate_ret ? "from_abi(lib, $ret, $s)" : s
         end
 
         # the library that provides the function, per range of versions
@@ -461,11 +469,11 @@ function format_function(m::Merged, key, d::Dict{Int,Item})
             reverse!(libs)
             for (j, (lr, lib)) in enumerate(libs)
                 if j == 1
-                    println(io, "    if version().major >= ", first(lr))
+                    println(io, "    if lib.version.major >= ", first(lr))
                 elseif j == length(libs)
                     println(io, "    else")
                 else
-                    println(io, "    elseif version().major >= ", first(lr))
+                    println(io, "    elseif lib.version.major >= ", first(lr))
                 end
                 println(io, "        ", ccall_str(lib))
             end
@@ -474,6 +482,17 @@ function format_function(m::Merged, key, d::Dict{Int,Item})
         print(io, "end")
     end
     String(take!(io))
+end
+
+# the wrappers take the library to call as their first argument (see `@llvmapi` in LLVM.jl)
+function explicit_library(text, name)
+    lines = split(text, '\n')
+    i = findfirst(l -> startswith(l, "function $name("), lines)
+    i === nothing && error("cannot find the definition of $name")
+    args = chop(chopprefix(lines[i], "function $name("))
+    args = join(filter(!isempty, ["lib::Library", args]), ", ")
+    lines[i] = "@llvmapi function $name($args)"
+    join(lines, '\n')
 end
 
 function format_item(m::Merged, key)

@@ -30,6 +30,7 @@ end
 @public Module
 @checked struct Module
     ref::API.LLVMModuleRef
+    library::Library
 end
 abstract type Instruction <: User end
 

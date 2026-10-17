@@ -3,48 +3,48 @@
 
 using CEnum: CEnum, @cenum
 
-function LLVMContextSupportsTypedPointers(C)
-    check_available(:LLVMContextSupportsTypedPointers, 15, 17)
+@llvmapi function LLVMContextSupportsTypedPointers(lib::Library, C)
+    check_available(lib, :LLVMContextSupportsTypedPointers, 15, 17)
     ccall((:LLVMContextSupportsTypedPointers, libLLVMExtra), LLVMBool, (LLVMContextRef,), C)
 end
 
-function LLVMExtraBuildAtomicRMWSyncScope(B, op, PTR, Val, ordering, SSID)
-    check_available(:LLVMExtraBuildAtomicRMWSyncScope, 16, 19)
+@llvmapi function LLVMExtraBuildAtomicRMWSyncScope(lib::Library, B, op, PTR, Val, ordering, SSID)
+    check_available(lib, :LLVMExtraBuildAtomicRMWSyncScope, 16, 19)
     ccall((:LLVMExtraBuildAtomicRMWSyncScope, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, Cuint, LLVMValueRef, LLVMValueRef, LLVMAtomicOrdering, Cuint), B, op, PTR, Val, ordering, SSID)
 end
 
-function LLVMExtraGetAtomicRMWBinOp(AtomicRMWInst)
-    check_available(:LLVMExtraGetAtomicRMWBinOp, 16, 19)
+@llvmapi function LLVMExtraGetAtomicRMWBinOp(lib::Library, AtomicRMWInst)
+    check_available(lib, :LLVMExtraGetAtomicRMWBinOp, 16, 19)
     ccall((:LLVMExtraGetAtomicRMWBinOp, libLLVMExtra), Cuint, (LLVMValueRef,), AtomicRMWInst)
 end
 
-function LLVMExtraGetOrdering(MemAccessInst)
-    check_available(:LLVMExtraGetOrdering, 15, 18)
+@llvmapi function LLVMExtraGetOrdering(lib::Library, MemAccessInst)
+    check_available(lib, :LLVMExtraGetOrdering, 15, 18)
     ccall((:LLVMExtraGetOrdering, libLLVMExtra), LLVMAtomicOrdering, (LLVMValueRef,), MemAccessInst)
 end
 
-function LLVMExtraSetOrdering(MemAccessInst, Ordering)
-    check_available(:LLVMExtraSetOrdering, 15, 18)
+@llvmapi function LLVMExtraSetOrdering(lib::Library, MemAccessInst, Ordering)
+    check_available(lib, :LLVMExtraSetOrdering, 15, 18)
     ccall((:LLVMExtraSetOrdering, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMAtomicOrdering), MemAccessInst, Ordering)
 end
 
-function LLVMExtraInitializeNativeTarget()
+@llvmapi function LLVMExtraInitializeNativeTarget(lib::Library)
     ccall((:LLVMExtraInitializeNativeTarget, libLLVMExtra), LLVMBool, ())
 end
 
-function LLVMExtraInitializeNativeAsmParser()
+@llvmapi function LLVMExtraInitializeNativeAsmParser(lib::Library)
     ccall((:LLVMExtraInitializeNativeAsmParser, libLLVMExtra), LLVMBool, ())
 end
 
-function LLVMExtraInitializeNativeAsmPrinter()
+@llvmapi function LLVMExtraInitializeNativeAsmPrinter(lib::Library)
     ccall((:LLVMExtraInitializeNativeAsmPrinter, libLLVMExtra), LLVMBool, ())
 end
 
-function LLVMExtraInitializeNativeDisassembler()
+@llvmapi function LLVMExtraInitializeNativeDisassembler(lib::Library)
     ccall((:LLVMExtraInitializeNativeDisassembler, libLLVMExtra), LLVMBool, ())
 end
 
-function LLVMExtraParseEnvironmentOptions(ProgName, EnvVar)
+@llvmapi function LLVMExtraParseEnvironmentOptions(lib::Library, ProgName, EnvVar)
     ccall((:LLVMExtraParseEnvironmentOptions, libLLVMExtra), Cvoid, (Cstring, Cstring), ProgName, EnvVar)
 end
 
@@ -55,144 +55,144 @@ end
     LLVMDebugEmissionKindDebugDirectivesOnly = 3
 end
 
-function LLVMAppendToUsed(Mod, Values, Count)
+@llvmapi function LLVMAppendToUsed(lib::Library, Mod, Values, Count)
     ccall((:LLVMAppendToUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
 end
 
-function LLVMAppendToCompilerUsed(Mod, Values, Count)
+@llvmapi function LLVMAppendToCompilerUsed(lib::Library, Mod, Values, Count)
     ccall((:LLVMAppendToCompilerUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
 end
 
-function LLVMGetNumUsed(Mod)
+@llvmapi function LLVMGetNumUsed(lib::Library, Mod)
     ccall((:LLVMGetNumUsed, libLLVMExtra), Csize_t, (LLVMModuleRef,), Mod)
 end
 
-function LLVMGetUsed(Mod, Dest)
+@llvmapi function LLVMGetUsed(lib::Library, Mod, Dest)
     ccall((:LLVMGetUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}), Mod, Dest)
 end
 
-function LLVMGetNumCompilerUsed(Mod)
+@llvmapi function LLVMGetNumCompilerUsed(lib::Library, Mod)
     ccall((:LLVMGetNumCompilerUsed, libLLVMExtra), Csize_t, (LLVMModuleRef,), Mod)
 end
 
-function LLVMGetCompilerUsed(Mod, Dest)
+@llvmapi function LLVMGetCompilerUsed(lib::Library, Mod, Dest)
     ccall((:LLVMGetCompilerUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}), Mod, Dest)
 end
 
-function LLVMRemoveFromUsed(Mod, Values, Count)
+@llvmapi function LLVMRemoveFromUsed(lib::Library, Mod, Values, Count)
     ccall((:LLVMRemoveFromUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
 end
 
-function LLVMRemoveFromCompilerUsed(Mod, Values, Count)
+@llvmapi function LLVMRemoveFromCompilerUsed(lib::Library, Mod, Values, Count)
     ccall((:LLVMRemoveFromCompilerUsed, libLLVMExtra), Cvoid, (LLVMModuleRef, Ptr{LLVMValueRef}, Csize_t), Mod, Values, Count)
 end
 
-function LLVMDumpMetadata(MD)
+@llvmapi function LLVMDumpMetadata(lib::Library, MD)
     ccall((:LLVMDumpMetadata, libLLVMExtra), Cvoid, (LLVMMetadataRef,), MD)
 end
 
-function LLVMPrintMetadataToString(MD)
+@llvmapi function LLVMPrintMetadataToString(lib::Library, MD)
     ccall((:LLVMPrintMetadataToString, libLLVMExtra), Cstring, (LLVMMetadataRef,), MD)
 end
 
-function LLVMDIScopeGetName(File, Len)
+@llvmapi function LLVMDIScopeGetName(lib::Library, File, Len)
     ccall((:LLVMDIScopeGetName, libLLVMExtra), Cstring, (LLVMMetadataRef, Ptr{Cuint}), File, Len)
 end
 
-function LLVMFunctionDeleteBody(Func)
+@llvmapi function LLVMFunctionDeleteBody(lib::Library, Func)
     ccall((:LLVMFunctionDeleteBody, libLLVMExtra), Cvoid, (LLVMValueRef,), Func)
 end
 
-function LLVMDestroyConstant(Const)
+@llvmapi function LLVMDestroyConstant(lib::Library, Const)
     ccall((:LLVMDestroyConstant, libLLVMExtra), Cvoid, (LLVMValueRef,), Const)
 end
 
-function LLVMGetFunctionType(Fn)
+@llvmapi function LLVMGetFunctionType(lib::Library, Fn)
     ccall((:LLVMGetFunctionType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
-function LLVMGetGlobalValueType(Fn)
+@llvmapi function LLVMGetGlobalValueType(lib::Library, Fn)
     ccall((:LLVMGetGlobalValueType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), Fn)
 end
 
-function LLVMExtraMoveFunction(Fn, Mod, Before)
+@llvmapi function LLVMExtraMoveFunction(lib::Library, Fn, Mod, Before)
     ccall((:LLVMExtraMoveFunction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMModuleRef, LLVMValueRef), Fn, Mod, Before)
 end
 
-function LLVMExtraMoveGlobal(GlobalVar, Mod, Before)
+@llvmapi function LLVMExtraMoveGlobal(lib::Library, GlobalVar, Mod, Before)
     ccall((:LLVMExtraMoveGlobal, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMModuleRef, LLVMValueRef), GlobalVar, Mod, Before)
 end
 
-function LLVMExtraIntrinsicGetOverloadTypes(ID, FunctionTy, OverloadTypes, OverloadCount)
+@llvmapi function LLVMExtraIntrinsicGetOverloadTypes(lib::Library, ID, FunctionTy, OverloadTypes, OverloadCount)
     ccall((:LLVMExtraIntrinsicGetOverloadTypes, libLLVMExtra), LLVMBool, (Cuint, LLVMTypeRef, Ptr{LLVMTypeRef}, Ptr{Csize_t}), ID, FunctionTy, OverloadTypes, OverloadCount)
 end
 
-function LLVMConvertUsersOfConstantsToInstructions(Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
-    check_available(:LLVMConvertUsersOfConstantsToInstructions, 17)
+@llvmapi function LLVMConvertUsersOfConstantsToInstructions(lib::Library, Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
+    check_available(lib, :LLVMConvertUsersOfConstantsToInstructions, 17)
     ccall((:LLVMConvertUsersOfConstantsToInstructions, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Csize_t, LLVMValueRef, LLVMBool, LLVMBool), Consts, Count, RestrictToFunc, RemoveDeadConstants, IncludeSelf)
 end
 
-function LLVMIsConstantRangeAttribute(A)
-    check_available(:LLVMIsConstantRangeAttribute, 19)
+@llvmapi function LLVMIsConstantRangeAttribute(lib::Library, A)
+    check_available(lib, :LLVMIsConstantRangeAttribute, 19)
     ccall((:LLVMIsConstantRangeAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
 end
 
-function LLVMSetInitializer2(GlobalVar, ConstantVal)
-    check_available(:LLVMSetInitializer2, 15, 20)
+@llvmapi function LLVMSetInitializer2(lib::Library, GlobalVar, ConstantVal)
+    check_available(lib, :LLVMSetInitializer2, 15, 20)
     ccall((:LLVMSetInitializer2, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, ConstantVal)
 end
 
-function LLVMSetPersonalityFn2(Fn, PersonalityFn)
-    check_available(:LLVMSetPersonalityFn2, 15, 20)
+@llvmapi function LLVMSetPersonalityFn2(lib::Library, Fn, PersonalityFn)
+    check_available(lib, :LLVMSetPersonalityFn2, 15, 20)
     ccall((:LLVMSetPersonalityFn2, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, PersonalityFn)
 end
 
-function LLVMIsConstantRangeListAttribute(A)
-    check_available(:LLVMIsConstantRangeListAttribute, 20)
+@llvmapi function LLVMIsConstantRangeListAttribute(lib::Library, A)
+    check_available(lib, :LLVMIsConstantRangeListAttribute, 20)
     ccall((:LLVMIsConstantRangeListAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
 end
 
-function LLVMGetMDString2(MD, Length)
+@llvmapi function LLVMGetMDString2(lib::Library, MD, Length)
     ccall((:LLVMGetMDString2, libLLVMExtra), Cstring, (LLVMMetadataRef, Ptr{Cuint}), MD, Length)
 end
 
-function LLVMGetMDNodeNumOperands2(MD)
+@llvmapi function LLVMGetMDNodeNumOperands2(lib::Library, MD)
     ccall((:LLVMGetMDNodeNumOperands2, libLLVMExtra), Cuint, (LLVMMetadataRef,), MD)
 end
 
-function LLVMGetMDNodeOperands2(MD, Dest)
+@llvmapi function LLVMGetMDNodeOperands2(lib::Library, MD, Dest)
     ccall((:LLVMGetMDNodeOperands2, libLLVMExtra), Cvoid, (LLVMMetadataRef, Ptr{LLVMMetadataRef}), MD, Dest)
 end
 
-function LLVMGetMDNodeOperand2(MD, I)
+@llvmapi function LLVMGetMDNodeOperand2(lib::Library, MD, I)
     ccall((:LLVMGetMDNodeOperand2, libLLVMExtra), LLVMMetadataRef, (LLVMMetadataRef, Cuint), MD, I)
 end
 
-function LLVMGetNamedMetadataNumOperands2(NMD)
+@llvmapi function LLVMGetNamedMetadataNumOperands2(lib::Library, NMD)
     ccall((:LLVMGetNamedMetadataNumOperands2, libLLVMExtra), Cuint, (LLVMNamedMDNodeRef,), NMD)
 end
 
-function LLVMGetNamedMetadataOperands2(NMD, Dest)
+@llvmapi function LLVMGetNamedMetadataOperands2(lib::Library, NMD, Dest)
     ccall((:LLVMGetNamedMetadataOperands2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, Ptr{LLVMMetadataRef}), NMD, Dest)
 end
 
-function LLVMGetNamedMetadataOperand2(NMD, I)
+@llvmapi function LLVMGetNamedMetadataOperand2(lib::Library, NMD, I)
     ccall((:LLVMGetNamedMetadataOperand2, libLLVMExtra), LLVMMetadataRef, (LLVMNamedMDNodeRef, Cuint), NMD, I)
 end
 
-function LLVMAddNamedMetadataOperand2(NMD, Val)
+@llvmapi function LLVMAddNamedMetadataOperand2(lib::Library, NMD, Val)
     ccall((:LLVMAddNamedMetadataOperand2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, LLVMMetadataRef), NMD, Val)
 end
 
-function LLVMClearNamedMetadataOperands(NMD)
+@llvmapi function LLVMClearNamedMetadataOperands(lib::Library, NMD)
     ccall((:LLVMClearNamedMetadataOperands, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef,), NMD)
 end
 
-function LLVMSetNamedMetadataOperand2(NMD, I, Val)
+@llvmapi function LLVMSetNamedMetadataOperand2(lib::Library, NMD, I, Val)
     ccall((:LLVMSetNamedMetadataOperand2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, Cuint, LLVMMetadataRef), NMD, I, Val)
 end
 
-function LLVMReplaceMDNodeOperandWith2(MD, I, New)
+@llvmapi function LLVMReplaceMDNodeOperandWith2(lib::Library, MD, I, New)
     ccall((:LLVMReplaceMDNodeOperandWith2, libLLVMExtra), Cvoid, (LLVMMetadataRef, Cuint, LLVMMetadataRef), MD, I, New)
 end
 
@@ -200,36 +200,36 @@ mutable struct LLVMOrcOpaqueIRCompileLayer end
 
 const LLVMOrcIRCompileLayerRef = Ptr{LLVMOrcOpaqueIRCompileLayer}
 
-function LLVMOrcIRCompileLayerEmit(IRLayer, MR, TSM)
+@llvmapi function LLVMOrcIRCompileLayerEmit(lib::Library, IRLayer, MR, TSM)
     ccall((:LLVMOrcIRCompileLayerEmit, libLLVMExtra), Cvoid, (LLVMOrcIRCompileLayerRef, LLVMOrcMaterializationResponsibilityRef, LLVMOrcThreadSafeModuleRef), IRLayer, MR, TSM)
 end
 
-function LLVMDumpJitDylibToString(JD)
+@llvmapi function LLVMDumpJitDylibToString(lib::Library, JD)
     ccall((:LLVMDumpJitDylibToString, libLLVMExtra), Cstring, (LLVMOrcJITDylibRef,), JD)
 end
 
-function LLVMExtraThreadSafeModuleGetModuleUnlocked(TSM)
+@llvmapi function LLVMExtraThreadSafeModuleGetModuleUnlocked(lib::Library, TSM)
     ccall((:LLVMExtraThreadSafeModuleGetModuleUnlocked, libLLVMExtra), LLVMModuleRef, (LLVMOrcThreadSafeModuleRef,), TSM)
 end
 
-function LLVMExtraThreadSafeModuleTakeModule(TSM)
-    check_available(:LLVMExtraThreadSafeModuleTakeModule, 16)
+@llvmapi function LLVMExtraThreadSafeModuleTakeModule(lib::Library, TSM)
+    check_available(lib, :LLVMExtraThreadSafeModuleTakeModule, 16)
     ccall((:LLVMExtraThreadSafeModuleTakeModule, libLLVMExtra), LLVMModuleRef, (LLVMOrcThreadSafeModuleRef,), TSM)
 end
 
-function LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(RTDyldObjLinkingLayer, OverrideObjectFlags)
+@llvmapi function LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(lib::Library, RTDyldObjLinkingLayer, OverrideObjectFlags)
     ccall((:LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, LLVMBool), RTDyldObjLinkingLayer, OverrideObjectFlags)
 end
 
-function LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(RTDyldObjLinkingLayer, AutoClaimObjectSymbols)
+@llvmapi function LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(lib::Library, RTDyldObjLinkingLayer, AutoClaimObjectSymbols)
     ccall((:LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, LLVMBool), RTDyldObjLinkingLayer, AutoClaimObjectSymbols)
 end
 
-function LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(RTDyldObjLinkingLayer, Triple)
+@llvmapi function LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(lib::Library, RTDyldObjLinkingLayer, Triple)
     ccall((:LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, Cstring), RTDyldObjLinkingLayer, Triple)
 end
 
-function LLVMExtraDisposeRTDyldObjectLinkingLayer(RTDyldObjLinkingLayer)
+@llvmapi function LLVMExtraDisposeRTDyldObjectLinkingLayer(lib::Library, RTDyldObjLinkingLayer)
     ccall((:LLVMExtraDisposeRTDyldObjectLinkingLayer, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef,), RTDyldObjLinkingLayer)
 end
 
@@ -240,19 +240,19 @@ end
     LLVMCloneFunctionChangeTypeClonedModule = 3
 end
 
-function LLVMCloneFunctionInto(NewFunc, OldFunc, ValueMap, ValueMapElements, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+@llvmapi function LLVMCloneFunctionInto(lib::Library, NewFunc, OldFunc, ValueMap, ValueMapElements, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
     ccall((:LLVMCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMCloneFunctionChangeType, Cstring, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), NewFunc, OldFunc, ValueMap, ValueMapElements, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
 end
 
-function LLVMCloneBasicBlock(BB, NameSuffix, ValueMap, ValueMapElements, F)
+@llvmapi function LLVMCloneBasicBlock(lib::Library, BB, NameSuffix, ValueMap, ValueMapElements, F)
     ccall((:LLVMCloneBasicBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMBasicBlockRef, Cstring, Ptr{LLVMValueRef}, Cuint, LLVMValueRef), BB, NameSuffix, ValueMap, ValueMapElements, F)
 end
 
-function LLVMMetadataAsValue2(C, Metadata)
+@llvmapi function LLVMMetadataAsValue2(lib::Library, C, Metadata)
     ccall((:LLVMMetadataAsValue2, libLLVMExtra), LLVMValueRef, (LLVMContextRef, LLVMMetadataRef), C, Metadata)
 end
 
-function LLVMReplaceAllMetadataUsesWith(Old, New)
+@llvmapi function LLVMReplaceAllMetadataUsesWith(lib::Library, Old, New)
     ccall((:LLVMReplaceAllMetadataUsesWith, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Old, New)
 end
 
@@ -260,15 +260,15 @@ mutable struct LLVMOpaqueDominatorTree end
 
 const LLVMDominatorTreeRef = Ptr{LLVMOpaqueDominatorTree}
 
-function LLVMCreateDominatorTree(Fn)
+@llvmapi function LLVMCreateDominatorTree(lib::Library, Fn)
     ccall((:LLVMCreateDominatorTree, libLLVMExtra), LLVMDominatorTreeRef, (LLVMValueRef,), Fn)
 end
 
-function LLVMDisposeDominatorTree(Tree)
+@llvmapi function LLVMDisposeDominatorTree(lib::Library, Tree)
     ccall((:LLVMDisposeDominatorTree, libLLVMExtra), Cvoid, (LLVMDominatorTreeRef,), Tree)
 end
 
-function LLVMDominatorTreeInstructionDominates(Tree, InstA, InstB)
+@llvmapi function LLVMDominatorTreeInstructionDominates(lib::Library, Tree, InstA, InstB)
     ccall((:LLVMDominatorTreeInstructionDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMValueRef), Tree, InstA, InstB)
 end
 
@@ -276,51 +276,51 @@ mutable struct LLVMOpaquePostDominatorTree end
 
 const LLVMPostDominatorTreeRef = Ptr{LLVMOpaquePostDominatorTree}
 
-function LLVMCreatePostDominatorTree(Fn)
+@llvmapi function LLVMCreatePostDominatorTree(lib::Library, Fn)
     ccall((:LLVMCreatePostDominatorTree, libLLVMExtra), LLVMPostDominatorTreeRef, (LLVMValueRef,), Fn)
 end
 
-function LLVMDisposePostDominatorTree(Tree)
+@llvmapi function LLVMDisposePostDominatorTree(lib::Library, Tree)
     ccall((:LLVMDisposePostDominatorTree, libLLVMExtra), Cvoid, (LLVMPostDominatorTreeRef,), Tree)
 end
 
-function LLVMPostDominatorTreeInstructionDominates(Tree, InstA, InstB)
+@llvmapi function LLVMPostDominatorTreeInstructionDominates(lib::Library, Tree, InstA, InstB)
     ccall((:LLVMPostDominatorTreeInstructionDominates, libLLVMExtra), LLVMBool, (LLVMPostDominatorTreeRef, LLVMValueRef, LLVMValueRef), Tree, InstA, InstB)
 end
 
-function LLVMExtraSetFastMathFlags(FPMathInst, FMF)
+@llvmapi function LLVMExtraSetFastMathFlags(lib::Library, FPMathInst, FMF)
     ccall((:LLVMExtraSetFastMathFlags, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMFastMathFlags), FPMathInst, FMF)
 end
 
-function LLVMExtraBuildAtomicRMWValue(B, Op, Loaded, Val)
+@llvmapi function LLVMExtraBuildAtomicRMWValue(lib::Library, B, Op, Loaded, Val)
     ccall((:LLVMExtraBuildAtomicRMWValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, Cuint, LLVMValueRef, LLVMValueRef), B, Op, Loaded, Val)
 end
 
-function LLVMExtraBuildCmpXchgValue(B, PointerVal, Cmp, Val, Alignment, Success)
+@llvmapi function LLVMExtraBuildCmpXchgValue(lib::Library, B, PointerVal, Cmp, Val, Alignment, Success)
     ccall((:LLVMExtraBuildCmpXchgValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, LLVMValueRef, Cuint, Ptr{LLVMValueRef}), B, PointerVal, Cmp, Val, Alignment, Success)
 end
 
-function LLVMExtraLowerAtomicRMWInst(RMWI)
+@llvmapi function LLVMExtraLowerAtomicRMWInst(lib::Library, RMWI)
     ccall((:LLVMExtraLowerAtomicRMWInst, libLLVMExtra), LLVMBool, (LLVMValueRef,), RMWI)
 end
 
-function LLVMExtraLowerAtomicCmpXchgInst(CXI)
+@llvmapi function LLVMExtraLowerAtomicCmpXchgInst(lib::Library, CXI)
     ccall((:LLVMExtraLowerAtomicCmpXchgInst, libLLVMExtra), LLVMBool, (LLVMValueRef,), CXI)
 end
 
-function LLVMExtraExpandAtomicRMWToCmpXchg(RMWI)
+@llvmapi function LLVMExtraExpandAtomicRMWToCmpXchg(lib::Library, RMWI)
     ccall((:LLVMExtraExpandAtomicRMWToCmpXchg, libLLVMExtra), LLVMBool, (LLVMValueRef,), RMWI)
 end
 
-function LLVMExtraCastAtomicToInteger(Inst)
+@llvmapi function LLVMExtraCastAtomicToInteger(lib::Library, Inst)
     ccall((:LLVMExtraCastAtomicToInteger, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraIsNonIntegralPointerType(M, T)
+@llvmapi function LLVMExtraIsNonIntegralPointerType(lib::Library, M, T)
     ccall((:LLVMExtraIsNonIntegralPointerType, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
 end
 
-function LLVMExtraMustNotIntroducePtrToInt(M, T)
+@llvmapi function LLVMExtraMustNotIntroducePtrToInt(lib::Library, M, T)
     ccall((:LLVMExtraMustNotIntroducePtrToInt, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMTypeRef), M, T)
 end
 
@@ -335,27 +335,27 @@ struct LLVMExtraPartwordMaskValues
     InvMask::LLVMValueRef
 end
 
-function LLVMExtraCreatePartwordMaskValues(B, ValueType, Addr, AddrAlign, MinWordSize, PMV)
+@llvmapi function LLVMExtraCreatePartwordMaskValues(lib::Library, B, ValueType, Addr, AddrAlign, MinWordSize, PMV)
     ccall((:LLVMExtraCreatePartwordMaskValues, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Cuint, Cuint, Ptr{LLVMExtraPartwordMaskValues}), B, ValueType, Addr, AddrAlign, MinWordSize, PMV)
 end
 
-function LLVMExtraExtractMaskedValue(B, WideWord, PMV)
+@llvmapi function LLVMExtraExtractMaskedValue(lib::Library, B, WideWord, PMV)
     ccall((:LLVMExtraExtractMaskedValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, Ptr{LLVMExtraPartwordMaskValues}), B, WideWord, PMV)
 end
 
-function LLVMExtraInsertMaskedValue(B, WideWord, Updated, PMV)
+@llvmapi function LLVMExtraInsertMaskedValue(lib::Library, B, WideWord, Updated, PMV)
     ccall((:LLVMExtraInsertMaskedValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{LLVMExtraPartwordMaskValues}), B, WideWord, Updated, PMV)
 end
 
-function LLVMExtraExpandPartwordAtomicRMW(RMWI, MinWordSize)
+@llvmapi function LLVMExtraExpandPartwordAtomicRMW(lib::Library, RMWI, MinWordSize)
     ccall((:LLVMExtraExpandPartwordAtomicRMW, libLLVMExtra), LLVMBool, (LLVMValueRef, Cuint), RMWI, MinWordSize)
 end
 
-function LLVMExtraExpandPartwordCmpXchg(CXI, MinWordSize)
+@llvmapi function LLVMExtraExpandPartwordCmpXchg(lib::Library, CXI, MinWordSize)
     ccall((:LLVMExtraExpandPartwordCmpXchg, libLLVMExtra), LLVMBool, (LLVMValueRef, Cuint), CXI, MinWordSize)
 end
 
-function LLVMExtraGetSyncScopeName(C, SSID, Len)
+@llvmapi function LLVMExtraGetSyncScopeName(lib::Library, C, SSID, Len)
     ccall((:LLVMExtraGetSyncScopeName, libLLVMExtra), Cstring, (LLVMContextRef, Cuint, Ptr{Csize_t}), C, SSID, Len)
 end
 
@@ -365,7 +365,7 @@ end
     LLVMExtraRemarkAnalysis = 2
 end
 
-function LLVMExtraGetRemarkInfo(DI, Kind, PassName, RemarkName, FunctionName, Message, File, Line, Column)
+@llvmapi function LLVMExtraGetRemarkInfo(lib::Library, DI, Kind, PassName, RemarkName, FunctionName, Message, File, Line, Column)
     ccall((:LLVMExtraGetRemarkInfo, libLLVMExtra), LLVMBool, (LLVMDiagnosticInfoRef, Ptr{LLVMExtraRemarkKind}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cuint}, Ptr{Cuint}), DI, Kind, PassName, RemarkName, FunctionName, Message, File, Line, Column)
 end
 
@@ -373,15 +373,15 @@ mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
 
-function LLVMCreatePassBuilderExtensions()
+@llvmapi function LLVMCreatePassBuilderExtensions(lib::Library)
     ccall((:LLVMCreatePassBuilderExtensions, libLLVMExtra), LLVMPassBuilderExtensionsRef, ())
 end
 
-function LLVMDisposePassBuilderExtensions(Extensions)
+@llvmapi function LLVMDisposePassBuilderExtensions(lib::Library, Extensions)
     ccall((:LLVMDisposePassBuilderExtensions, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef,), Extensions)
 end
 
-function LLVMPassBuilderExtensionsPushRegistrationCallbacks(Options, RegistrationCallback)
+@llvmapi function LLVMPassBuilderExtensionsPushRegistrationCallbacks(lib::Library, Options, RegistrationCallback)
     ccall((:LLVMPassBuilderExtensionsPushRegistrationCallbacks, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Ptr{Cvoid}), Options, RegistrationCallback)
 end
 
@@ -391,19 +391,19 @@ const LLVMJuliaModulePassCallback = Ptr{Cvoid}
 # typedef LLVMBool ( * LLVMJuliaFunctionPassCallback ) ( LLVMValueRef F , void * Thunk )
 const LLVMJuliaFunctionPassCallback = Ptr{Cvoid}
 
-function LLVMPassBuilderExtensionsRegisterModulePass(Options, PassName, Callback, Thunk)
+@llvmapi function LLVMPassBuilderExtensionsRegisterModulePass(lib::Library, Options, PassName, Callback, Thunk)
     ccall((:LLVMPassBuilderExtensionsRegisterModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
 end
 
-function LLVMPassBuilderExtensionsRegisterFunctionPass(Options, PassName, Callback, Thunk)
+@llvmapi function LLVMPassBuilderExtensionsRegisterFunctionPass(lib::Library, Options, PassName, Callback, Thunk)
     ccall((:LLVMPassBuilderExtensionsRegisterFunctionPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassCallback, Ptr{Cvoid}), Options, PassName, Callback, Thunk)
 end
 
-function LLVMPassBuilderExtensionsRegisterModulePassWithRequired(Options, PassName, Callback, Thunk, Required)
+@llvmapi function LLVMPassBuilderExtensionsRegisterModulePassWithRequired(lib::Library, Options, PassName, Callback, Thunk, Required)
     ccall((:LLVMPassBuilderExtensionsRegisterModulePassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
 end
 
-function LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(Options, PassName, Callback, Thunk, Required)
+@llvmapi function LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(lib::Library, Options, PassName, Callback, Thunk, Required)
     ccall((:LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassCallback, Ptr{Cvoid}, LLVMBool), Options, PassName, Callback, Thunk, Required)
 end
 
@@ -418,7 +418,7 @@ const LLVMPreservedAnalysesRef = Ptr{LLVMOpaquePreservedAnalyses}
 # typedef void ( * LLVMJuliaFunctionPassWithAnalysesCallback ) ( LLVMValueRef F , LLVMFunctionAnalysisManagerRef AM , LLVMPreservedAnalysesRef PA , void * Thunk )
 const LLVMJuliaFunctionPassWithAnalysesCallback = Ptr{Cvoid}
 
-function LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(Extensions, PassName, Callback, Thunk, Required)
+@llvmapi function LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(lib::Library, Extensions, PassName, Callback, Thunk, Required)
     ccall((:LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassWithAnalysesCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, Thunk, Required)
 end
 
@@ -431,27 +431,27 @@ end
     LLVMExtraLoopAnalysis = 5
 end
 
-function LLVMExtraFunctionAnalysisManagerGetResult(AM, F, Analysis)
+@llvmapi function LLVMExtraFunctionAnalysisManagerGetResult(lib::Library, AM, F, Analysis)
     ccall((:LLVMExtraFunctionAnalysisManagerGetResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
 end
 
-function LLVMExtraFunctionAnalysisManagerGetCachedResult(AM, F, Analysis)
+@llvmapi function LLVMExtraFunctionAnalysisManagerGetCachedResult(lib::Library, AM, F, Analysis)
     ccall((:LLVMExtraFunctionAnalysisManagerGetCachedResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
 end
 
-function LLVMExtraSetPreservedAnalyses(PA, All, CFG, Analyses, NumAnalyses)
+@llvmapi function LLVMExtraSetPreservedAnalyses(lib::Library, PA, All, CFG, Analyses, NumAnalyses)
     ccall((:LLVMExtraSetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, CFG, Analyses, NumAnalyses)
 end
 
-function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, CFG, Analyses, NumAnalyses)
+@llvmapi function LLVMExtraFunctionAnalysisManagerInvalidate(lib::Library, AM, F, All, CFG, Analyses, NumAnalyses)
     ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, CFG, Analyses, NumAnalyses)
 end
 
-function LLVMExtraFunctionAnalysisManagerClear(AM, F)
+@llvmapi function LLVMExtraFunctionAnalysisManagerClear(lib::Library, AM, F)
     ccall((:LLVMExtraFunctionAnalysisManagerClear, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef), AM, F)
 end
 
-function LLVMExtraFunctionAnalysisManagerEmitRemark(AM, Kind, PassName, RemarkName, Inst, Message)
+@llvmapi function LLVMExtraFunctionAnalysisManagerEmitRemark(lib::Library, AM, Kind, PassName, RemarkName, Inst, Message)
     ccall((:LLVMExtraFunctionAnalysisManagerEmitRemark, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef, Cstring), AM, Kind, PassName, RemarkName, Inst, Message)
 end
 
@@ -462,39 +462,39 @@ const LLVMModuleAnalysisManagerRef = Ptr{LLVMOpaqueModuleAnalysisManager}
 # typedef void ( * LLVMJuliaModulePassWithAnalysesCallback ) ( LLVMModuleRef M , LLVMModuleAnalysisManagerRef AM , LLVMPreservedAnalysesRef PA , void * Thunk )
 const LLVMJuliaModulePassWithAnalysesCallback = Ptr{Cvoid}
 
-function LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses(Extensions, PassName, Callback, Thunk, Required)
+@llvmapi function LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses(lib::Library, Extensions, PassName, Callback, Thunk, Required)
     ccall((:LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassWithAnalysesCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, Thunk, Required)
 end
 
-function LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager(AM, M)
+@llvmapi function LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager(lib::Library, AM, M)
     ccall((:LLVMExtraModuleAnalysisManagerGetFunctionAnalysisManager, libLLVMExtra), LLVMFunctionAnalysisManagerRef, (LLVMModuleAnalysisManagerRef, LLVMModuleRef), AM, M)
 end
 
-function LLVMExtraSetModulePreservedAnalyses(PA, All, Functions, CFG, Analyses, NumAnalyses)
+@llvmapi function LLVMExtraSetModulePreservedAnalyses(lib::Library, PA, All, Functions, CFG, Analyses, NumAnalyses)
     ccall((:LLVMExtraSetModulePreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, Functions, CFG, Analyses, NumAnalyses)
 end
 
 # typedef void * ( * LLVMJuliaPassParametersCallback ) ( const char * Parameters , void * Thunk )
 const LLVMJuliaPassParametersCallback = Ptr{Cvoid}
 
-function LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+@llvmapi function LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(lib::Library, Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
     ccall((:LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaModulePassWithAnalysesCallback, LLVMJuliaPassParametersCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
 end
 
-function LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+@llvmapi function LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(lib::Library, Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
     ccall((:LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaFunctionPassWithAnalysesCallback, LLVMJuliaPassParametersCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
 end
 
-function LLVMPassBuilderExtensionsSetAAPipeline(Extensions, AAPipeline)
-    check_available(:LLVMPassBuilderExtensionsSetAAPipeline, 15, 20)
+@llvmapi function LLVMPassBuilderExtensionsSetAAPipeline(lib::Library, Extensions, AAPipeline)
+    check_available(lib, :LLVMPassBuilderExtensionsSetAAPipeline, 15, 20)
     ccall((:LLVMPassBuilderExtensionsSetAAPipeline, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring), Extensions, AAPipeline)
 end
 
-function LLVMRunJuliaPasses(M, Passes, TM, Options, Extensions)
+@llvmapi function LLVMRunJuliaPasses(lib::Library, M, Passes, TM, Options, Extensions)
     ccall((:LLVMRunJuliaPasses, libLLVMExtra), LLVMErrorRef, (LLVMModuleRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef), M, Passes, TM, Options, Extensions)
 end
 
-function LLVMRunJuliaPassesOnFunction(F, Passes, TM, Options, Extensions)
+@llvmapi function LLVMRunJuliaPassesOnFunction(lib::Library, F, Passes, TM, Options, Extensions)
     ccall((:LLVMRunJuliaPassesOnFunction, libLLVMExtra), LLVMErrorRef, (LLVMValueRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef), F, Passes, TM, Options, Extensions)
 end
 
@@ -523,71 +523,71 @@ mutable struct LLVMOpaqueTTIOptions end
 
 const LLVMTTIOptionsRef = Ptr{LLVMOpaqueTTIOptions}
 
-function LLVMCreateTTIOptions()
+@llvmapi function LLVMCreateTTIOptions(lib::Library)
     ccall((:LLVMCreateTTIOptions, libLLVMExtra), LLVMTTIOptionsRef, ())
 end
 
-function LLVMDisposeTTIOptions(Options)
+@llvmapi function LLVMDisposeTTIOptions(lib::Library, Options)
     ccall((:LLVMDisposeTTIOptions, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef,), Options)
 end
 
-function LLVMTTIOptionsSetFlatAddressSpace(Options, AS)
+@llvmapi function LLVMTTIOptionsSetFlatAddressSpace(lib::Library, Options, AS)
     ccall((:LLVMTTIOptionsSetFlatAddressSpace, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, Cuint), Options, AS)
 end
 
-function LLVMTTIOptionsSetHasBranchDivergence(Options, Value)
+@llvmapi function LLVMTTIOptionsSetHasBranchDivergence(lib::Library, Options, Value)
     ccall((:LLVMTTIOptionsSetHasBranchDivergence, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMBool), Options, Value)
 end
 
-function LLVMTTIOptionsSetIsSingleThreaded(Options, Value)
+@llvmapi function LLVMTTIOptionsSetIsSingleThreaded(lib::Library, Options, Value)
     ccall((:LLVMTTIOptionsSetIsSingleThreaded, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMBool), Options, Value)
 end
 
-function LLVMTTIOptionsSetIsNoopAddrSpaceCast(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetIsNoopAddrSpaceCast(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetIsNoopAddrSpaceCast, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPairPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetIsValidAddrSpaceCast(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetIsValidAddrSpaceCast(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetIsValidAddrSpaceCast, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPairPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetAddrSpacesMayAlias(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetAddrSpacesMayAlias(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetAddrSpacesMayAlias, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPairPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetCanHaveGlobalInitializerInAS(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetCanHaveGlobalInitializerInAS(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetCanHaveGlobalInitializerInAS, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIASPredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetIsSourceOfDivergence(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetIsSourceOfDivergence(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetIsSourceOfDivergence, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIValuePredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetIsAlwaysUniform(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetIsAlwaysUniform(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetIsAlwaysUniform, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIValuePredicateFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetGetAssumedAddressSpace(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetGetAssumedAddressSpace(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetGetAssumedAddressSpace, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIGetAssumedAddressSpaceFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetGetPredicatedAddressSpace(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetGetPredicatedAddressSpace(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetGetPredicatedAddressSpace, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIGetPredicatedAddressSpaceFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetRewriteIntrinsicWithAS(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetRewriteIntrinsicWithAS(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetRewriteIntrinsicWithAS, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTIRewriteIntrinsicFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMTTIOptionsSetCollectFlatAddressOperands(Options, Callback, UserData)
+@llvmapi function LLVMTTIOptionsSetCollectFlatAddressOperands(lib::Library, Options, Callback, UserData)
     ccall((:LLVMTTIOptionsSetCollectFlatAddressOperands, libLLVMExtra), Cvoid, (LLVMTTIOptionsRef, LLVMTTICollectFlatAddressOperandsFn, Ptr{Cvoid}), Options, Callback, UserData)
 end
 
-function LLVMPassBuilderExtensionsSetTTI(Extensions, Options)
+@llvmapi function LLVMPassBuilderExtensionsSetTTI(lib::Library, Extensions, Options)
     ccall((:LLVMPassBuilderExtensionsSetTTI, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, LLVMTTIOptionsRef), Extensions, Options)
 end
 
-function LLVMGlobalsAddressSpace(TD)
+@llvmapi function LLVMGlobalsAddressSpace(lib::Library, TD)
     ccall((:LLVMGlobalsAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
 end
 
@@ -597,185 +597,185 @@ end
     LLVMLinkerLinkOnlyNeeded = 2
 end
 
-function LLVMLinkModules3(Dest, Src, Flags)
+@llvmapi function LLVMLinkModules3(lib::Library, Dest, Src, Flags)
     ccall((:LLVMLinkModules3, libLLVMExtra), LLVMBool, (LLVMModuleRef, LLVMModuleRef, Cuint), Dest, Src, Flags)
 end
 
-function LLVMOrcThreadSafeContextGetContext(TSCtx)
-    if version().major >= 21
+@llvmapi function LLVMOrcThreadSafeContextGetContext(lib::Library, TSCtx)
+    if lib.version.major >= 21
         ccall((:LLVMOrcThreadSafeContextGetContext, libLLVMExtra), LLVMContextRef, (LLVMOrcThreadSafeContextRef,), TSCtx)
     else
         ccall((:LLVMOrcThreadSafeContextGetContext, libllvm), LLVMContextRef, (LLVMOrcThreadSafeContextRef,), TSCtx)
     end
 end
 
-function LLVMExtraConstFPGetBits(ConstantVal, N)
+@llvmapi function LLVMExtraConstFPGetBits(lib::Library, ConstantVal, N)
     ccall((:LLVMExtraConstFPGetBits, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
 end
 
-function LLVMExtraConstIntGetWords(ConstantVal, N)
+@llvmapi function LLVMExtraConstIntGetWords(lib::Library, ConstantVal, N)
     ccall((:LLVMExtraConstIntGetWords, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{UInt64}), ConstantVal, N)
 end
 
-function LLVMGetFirstDbgRecord2(Inst)
-    check_available(:LLVMGetFirstDbgRecord2, 19, 22)
+@llvmapi function LLVMGetFirstDbgRecord2(lib::Library, Inst)
+    check_available(lib, :LLVMGetFirstDbgRecord2, 19, 22)
     ccall((:LLVMGetFirstDbgRecord2, libLLVMExtra), LLVMDbgRecordRef, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraDbgVariableRecordGetNumValues(Rec)
-    check_available(:LLVMExtraDbgVariableRecordGetNumValues, 19)
+@llvmapi function LLVMExtraDbgVariableRecordGetNumValues(lib::Library, Rec)
+    check_available(lib, :LLVMExtraDbgVariableRecordGetNumValues, 19)
     ccall((:LLVMExtraDbgVariableRecordGetNumValues, libLLVMExtra), Cuint, (LLVMDbgRecordRef,), Rec)
 end
 
-function LLVMExtraGetAttributeKindName(KindID, Len)
+@llvmapi function LLVMExtraGetAttributeKindName(lib::Library, KindID, Len)
     ccall((:LLVMExtraGetAttributeKindName, libLLVMExtra), Cstring, (Cuint, Ptr{Csize_t}), KindID, Len)
 end
 
-function LLVMExtraIsEnumAttributeKind(KindID)
+@llvmapi function LLVMExtraIsEnumAttributeKind(lib::Library, KindID)
     ccall((:LLVMExtraIsEnumAttributeKind, libLLVMExtra), LLVMBool, (Cuint,), KindID)
 end
 
-function LLVMExtraIsIntAttributeKind(KindID)
+@llvmapi function LLVMExtraIsIntAttributeKind(lib::Library, KindID)
     ccall((:LLVMExtraIsIntAttributeKind, libLLVMExtra), LLVMBool, (Cuint,), KindID)
 end
 
-function LLVMExtraIsTypeAttributeKind(KindID)
+@llvmapi function LLVMExtraIsTypeAttributeKind(lib::Library, KindID)
     ccall((:LLVMExtraIsTypeAttributeKind, libLLVMExtra), LLVMBool, (Cuint,), KindID)
 end
 
-function LLVMExtraIsConstantRangeAttributeKind(KindID)
-    check_available(:LLVMExtraIsConstantRangeAttributeKind, 19)
+@llvmapi function LLVMExtraIsConstantRangeAttributeKind(lib::Library, KindID)
+    check_available(lib, :LLVMExtraIsConstantRangeAttributeKind, 19)
     ccall((:LLVMExtraIsConstantRangeAttributeKind, libLLVMExtra), LLVMBool, (Cuint,), KindID)
 end
 
-function LLVMExtraBuildExtractValue(B, AggVal, Idxs, NumIdxs, Name)
+@llvmapi function LLVMExtraBuildExtractValue(lib::Library, B, AggVal, Idxs, NumIdxs, Name)
     ccall((:LLVMExtraBuildExtractValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, Idxs, NumIdxs, Name)
 end
 
-function LLVMExtraBuildInsertValue(B, AggVal, EltVal, Idxs, NumIdxs, Name)
+@llvmapi function LLVMExtraBuildInsertValue(lib::Library, B, AggVal, EltVal, Idxs, NumIdxs, Name)
     ccall((:LLVMExtraBuildInsertValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), B, AggVal, EltVal, Idxs, NumIdxs, Name)
 end
 
-function LLVMExtraBuildAssumption(B, Cond)
+@llvmapi function LLVMExtraBuildAssumption(lib::Library, B, Cond)
     ccall((:LLVMExtraBuildAssumption, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef), B, Cond)
 end
 
-function LLVMExtraConstVectorSplat(VecTy, Elt)
+@llvmapi function LLVMExtraConstVectorSplat(lib::Library, VecTy, Elt)
     ccall((:LLVMExtraConstVectorSplat, libLLVMExtra), LLVMValueRef, (LLVMTypeRef, LLVMValueRef), VecTy, Elt)
 end
 
-function LLVMExtraBuildAlloca(B, Ty, AddrSpace, ArraySize, Name)
+@llvmapi function LLVMExtraBuildAlloca(lib::Library, B, Ty, AddrSpace, ArraySize, Name)
     ccall((:LLVMExtraBuildAlloca, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, Cuint, LLVMValueRef, Cstring), B, Ty, AddrSpace, ArraySize, Name)
 end
 
-function LLVMExtraGetIndexSizeInBits(TD, AddrSpace)
+@llvmapi function LLVMExtraGetIndexSizeInBits(lib::Library, TD, AddrSpace)
     ccall((:LLVMExtraGetIndexSizeInBits, libLLVMExtra), Cuint, (LLVMTargetDataRef, Cuint), TD, AddrSpace)
 end
 
-function LLVMExtraGEPAccumulateConstantOffset(GEP, TD, Words)
+@llvmapi function LLVMExtraGEPAccumulateConstantOffset(lib::Library, GEP, TD, Words)
     ccall((:LLVMExtraGEPAccumulateConstantOffset, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMTargetDataRef, Ptr{UInt64}), GEP, TD, Words)
 end
 
-function LLVMExtraStripAndAccumulateConstantOffsets(V, TD, AllowNonInbounds, Words)
+@llvmapi function LLVMExtraStripAndAccumulateConstantOffsets(lib::Library, V, TD, AllowNonInbounds, Words)
     ccall((:LLVMExtraStripAndAccumulateConstantOffsets, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMTargetDataRef, LLVMBool, Ptr{UInt64}), V, TD, AllowNonInbounds, Words)
 end
 
-function LLVMExtraMoveInstruction(Inst, BB, Before, Head)
+@llvmapi function LLVMExtraMoveInstruction(lib::Library, Inst, BB, Before, Head)
     ccall((:LLVMExtraMoveInstruction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
 end
 
-function LLVMExtraMoveBasicBlock(BB, Fn, Before)
+@llvmapi function LLVMExtraMoveBasicBlock(lib::Library, BB, Fn, Before)
     ccall((:LLVMExtraMoveBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef, LLVMValueRef, LLVMBasicBlockRef), BB, Fn, Before)
 end
 
-function LLVMExtraDeleteBasicBlock(BB)
+@llvmapi function LLVMExtraDeleteBasicBlock(lib::Library, BB)
     ccall((:LLVMExtraDeleteBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef,), BB)
 end
 
-function LLVMExtraPositionBuilder(Builder, BB, Before, Head)
+@llvmapi function LLVMExtraPositionBuilder(lib::Library, Builder, BB, Before, Head)
     ccall((:LLVMExtraPositionBuilder, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, BB, Before, Head)
 end
 
-function LLVMExtraGetInsertPoint(Builder, Before, Head)
+@llvmapi function LLVMExtraGetInsertPoint(lib::Library, Builder, Before, Head)
     ccall((:LLVMExtraGetInsertPoint, libLLVMExtra), LLVMBasicBlockRef, (LLVMBuilderRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), Builder, Before, Head)
 end
 
-function LLVMExtraGetFirstInsertionPt(BB, Before, Head)
+@llvmapi function LLVMExtraGetFirstInsertionPt(lib::Library, BB, Before, Head)
     ccall((:LLVMExtraGetFirstInsertionPt, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef, Ptr{LLVMValueRef}, Ptr{LLVMBool}), BB, Before, Head)
 end
 
-function LLVMExtraGetInsertionPointAfterDef(Inst, BB, Before, Head)
+@llvmapi function LLVMExtraGetInsertionPointAfterDef(lib::Library, Inst, BB, Before, Head)
     ccall((:LLVMExtraGetInsertionPointAfterDef, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{LLVMBasicBlockRef}, Ptr{LLVMValueRef}, Ptr{LLVMBool}), Inst, BB, Before, Head)
 end
 
-function LLVMExtraDIBuilderInsertDeclareRecordAt(Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
-    check_available(:LLVMExtraDIBuilderInsertDeclareRecordAt, 19)
+@llvmapi function LLVMExtraDIBuilderInsertDeclareRecordAt(lib::Library, Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
+    check_available(lib, :LLVMExtraDIBuilderInsertDeclareRecordAt, 19)
     ccall((:LLVMExtraDIBuilderInsertDeclareRecordAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)
 end
 
-function LLVMExtraDIBuilderInsertDbgValueRecordAt(Builder, Val, VarInfo, Expr, DL, BB, Before, Head)
-    check_available(:LLVMExtraDIBuilderInsertDbgValueRecordAt, 19)
+@llvmapi function LLVMExtraDIBuilderInsertDbgValueRecordAt(lib::Library, Builder, Val, VarInfo, Expr, DL, BB, Before, Head)
+    check_available(lib, :LLVMExtraDIBuilderInsertDbgValueRecordAt, 19)
     ccall((:LLVMExtraDIBuilderInsertDbgValueRecordAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMValueRef, LLVMMetadataRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, Val, VarInfo, Expr, DL, BB, Before, Head)
 end
 
-function LLVMExtraDIBuilderInsertLabelAt(Builder, LabelInfo, DL, BB, Before, Head)
-    check_available(:LLVMExtraDIBuilderInsertLabelAt, 20)
+@llvmapi function LLVMExtraDIBuilderInsertLabelAt(lib::Library, Builder, LabelInfo, DL, BB, Before, Head)
+    check_available(lib, :LLVMExtraDIBuilderInsertLabelAt, 20)
     ccall((:LLVMExtraDIBuilderInsertLabelAt, libLLVMExtra), LLVMDbgRecordRef, (LLVMDIBuilderRef, LLVMMetadataRef, LLVMMetadataRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, LabelInfo, DL, BB, Before, Head)
 end
 
-function LLVMExtraInstructionComesBefore(Inst, Other)
+@llvmapi function LLVMExtraInstructionComesBefore(lib::Library, Inst, Other)
     ccall((:LLVMExtraInstructionComesBefore, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef), Inst, Other)
 end
 
-function LLVMExtraMayReadFromMemory(Inst)
+@llvmapi function LLVMExtraMayReadFromMemory(lib::Library, Inst)
     ccall((:LLVMExtraMayReadFromMemory, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraMayWriteToMemory(Inst)
+@llvmapi function LLVMExtraMayWriteToMemory(lib::Library, Inst)
     ccall((:LLVMExtraMayWriteToMemory, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraMayHaveSideEffects(Inst)
+@llvmapi function LLVMExtraMayHaveSideEffects(lib::Library, Inst)
     ccall((:LLVMExtraMayHaveSideEffects, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraTakeName(Val, From)
+@llvmapi function LLVMExtraTakeName(lib::Library, Val, From)
     ccall((:LLVMExtraTakeName, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Val, From)
 end
 
-function LLVMExtraStripPointerCasts(Val)
+@llvmapi function LLVMExtraStripPointerCasts(lib::Library, Val)
     ccall((:LLVMExtraStripPointerCasts, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
 end
 
-function LLVMExtraStripPointerCastsAndAliases(Val)
+@llvmapi function LLVMExtraStripPointerCastsAndAliases(lib::Library, Val)
     ccall((:LLVMExtraStripPointerCastsAndAliases, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
 end
 
-function LLVMExtraGetOperandNo(U)
+@llvmapi function LLVMExtraGetOperandNo(lib::Library, U)
     ccall((:LLVMExtraGetOperandNo, libLLVMExtra), Cuint, (LLVMUseRef,), U)
 end
 
-function LLVMExtraOnlyReadsMemory(V, ArgNo)
+@llvmapi function LLVMExtraOnlyReadsMemory(lib::Library, V, ArgNo)
     ccall((:LLVMExtraOnlyReadsMemory, libLLVMExtra), LLVMBool, (LLVMValueRef, Cint), V, ArgNo)
 end
 
-function LLVMExtraDoesNotCapture(V, ArgNo)
+@llvmapi function LLVMExtraDoesNotCapture(lib::Library, V, ArgNo)
     ccall((:LLVMExtraDoesNotCapture, libLLVMExtra), LLVMBool, (LLVMValueRef, Cint), V, ArgNo)
 end
 
-function LLVMExtraGetArgNo(Arg)
+@llvmapi function LLVMExtraGetArgNo(lib::Library, Arg)
     ccall((:LLVMExtraGetArgNo, libLLVMExtra), Cuint, (LLVMValueRef,), Arg)
 end
 
-function LLVMExtraCopyAttributesFrom(Dst, Src)
+@llvmapi function LLVMExtraCopyAttributesFrom(lib::Library, Dst, Src)
     ccall((:LLVMExtraCopyAttributesFrom, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Dst, Src)
 end
 
-function LLVMExtraRemoveDeadConstantUsers(C)
+@llvmapi function LLVMExtraRemoveDeadConstantUsers(lib::Library, C)
     ccall((:LLVMExtraRemoveDeadConstantUsers, libLLVMExtra), Cvoid, (LLVMValueRef,), C)
 end
 
-function LLVMExtraVerifyFunction(Fn, OutMessage)
+@llvmapi function LLVMExtraVerifyFunction(lib::Library, Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
 end
 
@@ -790,48 +790,48 @@ end
     LLVMExtraSignedRange = 2
 end
 
-function LLVMExtraConstantRangeBinaryOp(Opcode, NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
-    ccall((:LLVMExtraConstantRangeBinaryOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), to_abi(LLVMOpcode, Opcode), NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
+@llvmapi function LLVMExtraConstantRangeBinaryOp(lib::Library, Opcode, NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeBinaryOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), to_abi(lib, LLVMOpcode, Opcode), NoWrapKind, NumBits, LowerA, UpperA, LowerB, UpperB, LowerOut, UpperOut)
 end
 
-function LLVMExtraConstantRangeCastOp(Opcode, NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
-    ccall((:LLVMExtraConstantRangeCastOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Ptr{UInt64}, Ptr{UInt64}, Cuint, Ptr{UInt64}, Ptr{UInt64}), to_abi(LLVMOpcode, Opcode), NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
+@llvmapi function LLVMExtraConstantRangeCastOp(lib::Library, Opcode, NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
+    ccall((:LLVMExtraConstantRangeCastOp, libLLVMExtra), LLVMBool, (LLVMOpcode, Cuint, Ptr{UInt64}, Ptr{UInt64}, Cuint, Ptr{UInt64}, Ptr{UInt64}), to_abi(lib, LLVMOpcode, Opcode), NumBits, Lower, Upper, ResultBits, LowerOut, UpperOut)
 end
 
-function LLVMExtraConstantRangeIntersectWith(NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+@llvmapi function LLVMExtraConstantRangeIntersectWith(lib::Library, NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
     ccall((:LLVMExtraConstantRangeIntersectWith, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, LLVMExtraPreferredRangeType, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
 end
 
-function LLVMExtraConstantRangeUnionWith(NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
+@llvmapi function LLVMExtraConstantRangeUnionWith(lib::Library, NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
     ccall((:LLVMExtraConstantRangeUnionWith, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, LLVMExtraPreferredRangeType, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB, Type, LowerOut, UpperOut)
 end
 
-function LLVMExtraConstantRangeMakeICmpRegion(Predicate, Satisfying, NumBits, Lower, Upper, LowerOut, UpperOut)
+@llvmapi function LLVMExtraConstantRangeMakeICmpRegion(lib::Library, Predicate, Satisfying, NumBits, Lower, Upper, LowerOut, UpperOut)
     ccall((:LLVMExtraConstantRangeMakeICmpRegion, libLLVMExtra), Cvoid, (LLVMIntPredicate, LLVMBool, Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), Predicate, Satisfying, NumBits, Lower, Upper, LowerOut, UpperOut)
 end
 
-function LLVMExtraConstantRangeFromKnownBits(NumBits, Zero, One, Signed, LowerOut, UpperOut)
+@llvmapi function LLVMExtraConstantRangeFromKnownBits(lib::Library, NumBits, Zero, One, Signed, LowerOut, UpperOut)
     ccall((:LLVMExtraConstantRangeFromKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), NumBits, Zero, One, Signed, LowerOut, UpperOut)
 end
 
-function LLVMExtraConstantRangeToKnownBits(NumBits, Lower, Upper, ZeroOut, OneOut)
+@llvmapi function LLVMExtraConstantRangeToKnownBits(lib::Library, NumBits, Lower, Upper, ZeroOut, OneOut)
     ccall((:LLVMExtraConstantRangeToKnownBits, libLLVMExtra), Cvoid, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), NumBits, Lower, Upper, ZeroOut, OneOut)
 end
 
-function LLVMExtraConstantRangeContains(NumBits, LowerA, UpperA, LowerB, UpperB)
+@llvmapi function LLVMExtraConstantRangeContains(lib::Library, NumBits, LowerA, UpperA, LowerB, UpperB)
     ccall((:LLVMExtraConstantRangeContains, libLLVMExtra), LLVMBool, (Cuint, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}), NumBits, LowerA, UpperA, LowerB, UpperB)
 end
 
-function LLVMExtraGetConstantRangeFromMetadata(MD, Lower, Upper)
+@llvmapi function LLVMExtraGetConstantRangeFromMetadata(lib::Library, MD, Lower, Upper)
     ccall((:LLVMExtraGetConstantRangeFromMetadata, libLLVMExtra), Cuint, (LLVMMetadataRef, Ptr{UInt64}, Ptr{UInt64}), MD, Lower, Upper)
 end
 
-function LLVMExtraCreateRangeMetadata(C, NumBits, Lower, Upper)
+@llvmapi function LLVMExtraCreateRangeMetadata(lib::Library, C, NumBits, Lower, Upper)
     ccall((:LLVMExtraCreateRangeMetadata, libLLVMExtra), LLVMMetadataRef, (LLVMContextRef, Cuint, Ptr{UInt64}, Ptr{UInt64}), C, NumBits, Lower, Upper)
 end
 
-function LLVMExtraGetConstantRangeAttributeValue(A, Lower, Upper)
-    check_available(:LLVMExtraGetConstantRangeAttributeValue, 19)
+@llvmapi function LLVMExtraGetConstantRangeAttributeValue(lib::Library, A, Lower, Upper)
+    check_available(lib, :LLVMExtraGetConstantRangeAttributeValue, 19)
     ccall((:LLVMExtraGetConstantRangeAttributeValue, libLLVMExtra), Cuint, (LLVMAttributeRef, Ptr{UInt64}, Ptr{UInt64}), A, Lower, Upper)
 end
 
@@ -839,43 +839,43 @@ mutable struct LLVMOpaqueAssumptionCache end
 
 const LLVMAssumptionCacheRef = Ptr{LLVMOpaqueAssumptionCache}
 
-function LLVMExtraAssumptionCacheGetAssumptions(AC, Assumes)
+@llvmapi function LLVMExtraAssumptionCacheGetAssumptions(lib::Library, AC, Assumes)
     ccall((:LLVMExtraAssumptionCacheGetAssumptions, libLLVMExtra), Cuint, (LLVMAssumptionCacheRef, Ptr{LLVMValueRef}), AC, Assumes)
 end
 
-function LLVMExtraAssumptionCacheGetAssumptionsFor(AC, V, Assumes, Indices)
+@llvmapi function LLVMExtraAssumptionCacheGetAssumptionsFor(lib::Library, AC, V, Assumes, Indices)
     ccall((:LLVMExtraAssumptionCacheGetAssumptionsFor, libLLVMExtra), Cuint, (LLVMAssumptionCacheRef, LLVMValueRef, Ptr{LLVMValueRef}, Ptr{Cint}), AC, V, Assumes, Indices)
 end
 
-function LLVMExtraAssumptionCacheRegisterAssumption(AC, Assume)
+@llvmapi function LLVMExtraAssumptionCacheRegisterAssumption(lib::Library, AC, Assume)
     ccall((:LLVMExtraAssumptionCacheRegisterAssumption, libLLVMExtra), LLVMBool, (LLVMAssumptionCacheRef, LLVMValueRef), AC, Assume)
 end
 
-function LLVMExtraAssumptionCacheClear(AC)
+@llvmapi function LLVMExtraAssumptionCacheClear(lib::Library, AC)
     ccall((:LLVMExtraAssumptionCacheClear, libLLVMExtra), Cvoid, (LLVMAssumptionCacheRef,), AC)
 end
 
-function LLVMExtraComputeConstantRange(V, ForSigned, UseInstrInfo, AC, CxtI, DT, DL, Lower, Upper)
+@llvmapi function LLVMExtraComputeConstantRange(lib::Library, V, ForSigned, UseInstrInfo, AC, CxtI, DT, DL, Lower, Upper)
     ccall((:LLVMExtraComputeConstantRange, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{UInt64}, Ptr{UInt64}), V, ForSigned, UseInstrInfo, AC, CxtI, DT, DL, Lower, Upper)
 end
 
-function LLVMExtraComputeKnownBits(V, UseInstrInfo, AC, CxtI, DT, DL, Zero, One)
+@llvmapi function LLVMExtraComputeKnownBits(lib::Library, V, UseInstrInfo, AC, CxtI, DT, DL, Zero, One)
     ccall((:LLVMExtraComputeKnownBits, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{UInt64}, Ptr{UInt64}), V, UseInstrInfo, AC, CxtI, DT, DL, Zero, One)
 end
 
-function LLVMExtraIsValidAssumeForContext(Assume, CxtI, DT)
+@llvmapi function LLVMExtraIsValidAssumeForContext(lib::Library, Assume, CxtI, DT)
     ccall((:LLVMExtraIsValidAssumeForContext, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMDominatorTreeRef), Assume, CxtI, DT)
 end
 
-function LLVMExtraIsGuaranteedNotToBePoison(V, AC, CxtI, DT)
+@llvmapi function LLVMExtraIsGuaranteedNotToBePoison(lib::Library, V, AC, CxtI, DT)
     ccall((:LLVMExtraIsGuaranteedNotToBePoison, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef), V, AC, CxtI, DT)
 end
 
-function LLVMExtraProgramUndefinedIfPoison(Inst)
+@llvmapi function LLVMExtraProgramUndefinedIfPoison(lib::Library, Inst)
     ccall((:LLVMExtraProgramUndefinedIfPoison, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraIsGuaranteedNotToBeUndefOrPoison(V, AC, CxtI, DT)
+@llvmapi function LLVMExtraIsGuaranteedNotToBeUndefOrPoison(lib::Library, V, AC, CxtI, DT)
     ccall((:LLVMExtraIsGuaranteedNotToBeUndefOrPoison, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef), V, AC, CxtI, DT)
 end
 
@@ -885,11 +885,11 @@ end
     LLVMExtraKnownNonZero = 2
 end
 
-function LLVMExtraIsKnown(Fact, V, UseInstrInfo, AC, CxtI, DT, DL, Known)
+@llvmapi function LLVMExtraIsKnown(lib::Library, Fact, V, UseInstrInfo, AC, CxtI, DT, DL, Known)
     ccall((:LLVMExtraIsKnown, libLLVMExtra), LLVMBool, (LLVMExtraKnownFact, LLVMValueRef, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef, Ptr{LLVMBool}), Fact, V, UseInstrInfo, AC, CxtI, DT, DL, Known)
 end
 
-function LLVMExtraComputeNumSignBits(V, UseInstrInfo, AC, CxtI, DT, DL)
+@llvmapi function LLVMExtraComputeNumSignBits(lib::Library, V, UseInstrInfo, AC, CxtI, DT, DL)
     ccall((:LLVMExtraComputeNumSignBits, libLLVMExtra), Cuint, (LLVMValueRef, LLVMBool, LLVMAssumptionCacheRef, LLVMValueRef, LLVMDominatorTreeRef, LLVMTargetDataRef), V, UseInstrInfo, AC, CxtI, DT, DL)
 end
 
@@ -897,16 +897,16 @@ mutable struct LLVMOpaqueLazyValueInfo end
 
 const LLVMLazyValueInfoRef = Ptr{LLVMOpaqueLazyValueInfo}
 
-function LLVMExtraLazyValueInfoGetConstantRange(LVI, V, CxtI, UndefAllowed, Lower, Upper)
+@llvmapi function LLVMExtraLazyValueInfoGetConstantRange(lib::Library, LVI, V, CxtI, UndefAllowed, Lower, Upper)
     ccall((:LLVMExtraLazyValueInfoGetConstantRange, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMValueRef, LLVMValueRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), LVI, V, CxtI, UndefAllowed, Lower, Upper)
 end
 
-function LLVMExtraLazyValueInfoGetConstantRangeOnEdge(LVI, V, From, To, CxtI, Lower, Upper)
+@llvmapi function LLVMExtraLazyValueInfoGetConstantRangeOnEdge(lib::Library, LVI, V, From, To, CxtI, Lower, Upper)
     ccall((:LLVMExtraLazyValueInfoGetConstantRangeOnEdge, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMValueRef, LLVMBasicBlockRef, LLVMBasicBlockRef, LLVMValueRef, Ptr{UInt64}, Ptr{UInt64}), LVI, V, From, To, CxtI, Lower, Upper)
 end
 
-function LLVMExtraLazyValueInfoGetConstantRangeAtUse(LVI, U, UndefAllowed, Lower, Upper)
-    check_available(:LLVMExtraLazyValueInfoGetConstantRangeAtUse, 16)
+@llvmapi function LLVMExtraLazyValueInfoGetConstantRangeAtUse(lib::Library, LVI, U, UndefAllowed, Lower, Upper)
+    check_available(lib, :LLVMExtraLazyValueInfoGetConstantRangeAtUse, 16)
     ccall((:LLVMExtraLazyValueInfoGetConstantRangeAtUse, libLLVMExtra), LLVMBool, (LLVMLazyValueInfoRef, LLVMUseRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), LVI, U, UndefAllowed, Lower, Upper)
 end
 
@@ -943,31 +943,31 @@ const LLVMLoopRef = Ptr{LLVMOpaqueLoop}
     LLVMExtraSCEVOtherKind = 17
 end
 
-function LLVMExtraScalarEvolutionIsSCEVable(SE, Ty)
+@llvmapi function LLVMExtraScalarEvolutionIsSCEVable(lib::Library, SE, Ty)
     ccall((:LLVMExtraScalarEvolutionIsSCEVable, libLLVMExtra), LLVMBool, (LLVMScalarEvolutionRef, LLVMTypeRef), SE, Ty)
 end
 
-function LLVMExtraScalarEvolutionGetSCEV(SE, V)
+@llvmapi function LLVMExtraScalarEvolutionGetSCEV(lib::Library, SE, V)
     ccall((:LLVMExtraScalarEvolutionGetSCEV, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMValueRef), SE, V)
 end
 
-function LLVMExtraScalarEvolutionGetAddExpr(SE, Ops, NumOps)
+@llvmapi function LLVMExtraScalarEvolutionGetAddExpr(lib::Library, SE, Ops, NumOps)
     ccall((:LLVMExtraScalarEvolutionGetAddExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, Ptr{LLVMSCEVRef}, Cuint), SE, Ops, NumOps)
 end
 
-function LLVMExtraScalarEvolutionGetMinusSCEV(SE, LHS, RHS)
+@llvmapi function LLVMExtraScalarEvolutionGetMinusSCEV(lib::Library, SE, LHS, RHS)
     ccall((:LLVMExtraScalarEvolutionGetMinusSCEV, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMSCEVRef), SE, LHS, RHS)
 end
 
-function LLVMExtraScalarEvolutionGetMulExpr(SE, Ops, NumOps)
+@llvmapi function LLVMExtraScalarEvolutionGetMulExpr(lib::Library, SE, Ops, NumOps)
     ccall((:LLVMExtraScalarEvolutionGetMulExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, Ptr{LLVMSCEVRef}, Cuint), SE, Ops, NumOps)
 end
 
-function LLVMExtraScalarEvolutionGetCastExpr(SE, Opcode, S, Ty)
-    ccall((:LLVMExtraScalarEvolutionGetCastExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMOpcode, LLVMSCEVRef, LLVMTypeRef), SE, to_abi(LLVMOpcode, Opcode), S, Ty)
+@llvmapi function LLVMExtraScalarEvolutionGetCastExpr(lib::Library, SE, Opcode, S, Ty)
+    ccall((:LLVMExtraScalarEvolutionGetCastExpr, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMOpcode, LLVMSCEVRef, LLVMTypeRef), SE, to_abi(lib, LLVMOpcode, Opcode), S, Ty)
 end
 
-function LLVMExtraScalarEvolutionIsLoopInvariant(SE, S, L)
+@llvmapi function LLVMExtraScalarEvolutionIsLoopInvariant(lib::Library, SE, S, L)
     ccall((:LLVMExtraScalarEvolutionIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMLoopRef), SE, S, L)
 end
 
@@ -977,47 +977,47 @@ end
     LLVMExtraSymbolicMaxBackedgeTakenCount = 2
 end
 
-function LLVMExtraScalarEvolutionGetBackedgeTakenCount(SE, L, Kind)
+@llvmapi function LLVMExtraScalarEvolutionGetBackedgeTakenCount(lib::Library, SE, L, Kind)
     ccall((:LLVMExtraScalarEvolutionGetBackedgeTakenCount, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMLoopRef, LLVMExtraBackedgeTakenCountKind), SE, L, Kind)
 end
 
-function LLVMExtraSCEVAddRecGetStepRecurrence(SE, S)
+@llvmapi function LLVMExtraSCEVAddRecGetStepRecurrence(lib::Library, SE, S)
     ccall((:LLVMExtraSCEVAddRecGetStepRecurrence, libLLVMExtra), LLVMSCEVRef, (LLVMScalarEvolutionRef, LLVMSCEVRef), SE, S)
 end
 
-function LLVMExtraSCEVGetNoWrapFlags(S)
+@llvmapi function LLVMExtraSCEVGetNoWrapFlags(lib::Library, S)
     ccall((:LLVMExtraSCEVGetNoWrapFlags, libLLVMExtra), Cuint, (LLVMSCEVRef,), S)
 end
 
-function LLVMExtraScalarEvolutionGetRange(SE, S, Signed, Lower, Upper)
+@llvmapi function LLVMExtraScalarEvolutionGetRange(lib::Library, SE, S, Signed, Lower, Upper)
     ccall((:LLVMExtraScalarEvolutionGetRange, libLLVMExtra), Cuint, (LLVMScalarEvolutionRef, LLVMSCEVRef, LLVMBool, Ptr{UInt64}, Ptr{UInt64}), SE, S, Signed, Lower, Upper)
 end
 
-function LLVMExtraSCEVGetKind(S)
+@llvmapi function LLVMExtraSCEVGetKind(lib::Library, S)
     ccall((:LLVMExtraSCEVGetKind, libLLVMExtra), LLVMExtraSCEVKind, (LLVMSCEVRef,), S)
 end
 
-function LLVMExtraSCEVGetType(S)
+@llvmapi function LLVMExtraSCEVGetType(lib::Library, S)
     ccall((:LLVMExtraSCEVGetType, libLLVMExtra), LLVMTypeRef, (LLVMSCEVRef,), S)
 end
 
-function LLVMExtraSCEVGetOperands(S, Ops)
+@llvmapi function LLVMExtraSCEVGetOperands(lib::Library, S, Ops)
     ccall((:LLVMExtraSCEVGetOperands, libLLVMExtra), Cuint, (LLVMSCEVRef, Ptr{LLVMSCEVRef}), S, Ops)
 end
 
-function LLVMExtraSCEVGetValue(S)
+@llvmapi function LLVMExtraSCEVGetValue(lib::Library, S)
     ccall((:LLVMExtraSCEVGetValue, libLLVMExtra), LLVMValueRef, (LLVMSCEVRef,), S)
 end
 
-function LLVMExtraSCEVAddRecGetLoop(S)
+@llvmapi function LLVMExtraSCEVAddRecGetLoop(lib::Library, S)
     ccall((:LLVMExtraSCEVAddRecGetLoop, libLLVMExtra), LLVMLoopRef, (LLVMSCEVRef,), S)
 end
 
-function LLVMExtraSCEVContains(S, Kind)
+@llvmapi function LLVMExtraSCEVContains(lib::Library, S, Kind)
     ccall((:LLVMExtraSCEVContains, libLLVMExtra), LLVMBool, (LLVMSCEVRef, LLVMExtraSCEVKind), S, Kind)
 end
 
-function LLVMExtraPrintSCEVToString(S)
+@llvmapi function LLVMExtraPrintSCEVToString(lib::Library, S)
     ccall((:LLVMExtraPrintSCEVToString, libLLVMExtra), Cstring, (LLVMSCEVRef,), S)
 end
 
@@ -1025,91 +1025,91 @@ mutable struct LLVMOpaqueLoopInfo end
 
 const LLVMLoopInfoRef = Ptr{LLVMOpaqueLoopInfo}
 
-function LLVMExtraLoopInfoGetLoopFor(LI, BB)
+@llvmapi function LLVMExtraLoopInfoGetLoopFor(lib::Library, LI, BB)
     ccall((:LLVMExtraLoopInfoGetLoopFor, libLLVMExtra), LLVMLoopRef, (LLVMLoopInfoRef, LLVMBasicBlockRef), LI, BB)
 end
 
-function LLVMExtraLoopGetHeader(L)
+@llvmapi function LLVMExtraLoopGetHeader(lib::Library, L)
     ccall((:LLVMExtraLoopGetHeader, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef,), L)
 end
 
-function LLVMExtraLoopGetParent(L)
+@llvmapi function LLVMExtraLoopGetParent(lib::Library, L)
     ccall((:LLVMExtraLoopGetParent, libLLVMExtra), LLVMLoopRef, (LLVMLoopRef,), L)
 end
 
-function LLVMExtraLoopGetDepth(L)
+@llvmapi function LLVMExtraLoopGetDepth(lib::Library, L)
     ccall((:LLVMExtraLoopGetDepth, libLLVMExtra), Cuint, (LLVMLoopRef,), L)
 end
 
-function LLVMExtraLoopContains(L, BB)
+@llvmapi function LLVMExtraLoopContains(lib::Library, L, BB)
     ccall((:LLVMExtraLoopContains, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMBasicBlockRef), L, BB)
 end
 
-function LLVMExtraLoopGetNumBlocks(L)
+@llvmapi function LLVMExtraLoopGetNumBlocks(lib::Library, L)
     ccall((:LLVMExtraLoopGetNumBlocks, libLLVMExtra), Cuint, (LLVMLoopRef,), L)
 end
 
-function LLVMExtraLoopGetBlock(L, Index)
+@llvmapi function LLVMExtraLoopGetBlock(lib::Library, L, Index)
     ccall((:LLVMExtraLoopGetBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef, Cuint), L, Index)
 end
 
-function LLVMExtraLoopGetNumSubLoops(L)
+@llvmapi function LLVMExtraLoopGetNumSubLoops(lib::Library, L)
     ccall((:LLVMExtraLoopGetNumSubLoops, libLLVMExtra), Cuint, (LLVMLoopRef,), L)
 end
 
-function LLVMExtraLoopGetSubLoop(L, Index)
+@llvmapi function LLVMExtraLoopGetSubLoop(lib::Library, L, Index)
     ccall((:LLVMExtraLoopGetSubLoop, libLLVMExtra), LLVMLoopRef, (LLVMLoopRef, Cuint), L, Index)
 end
 
-function LLVMExtraLoopGetUniqueExitBlocks(L, Blocks)
+@llvmapi function LLVMExtraLoopGetUniqueExitBlocks(lib::Library, L, Blocks)
     ccall((:LLVMExtraLoopGetUniqueExitBlocks, libLLVMExtra), Cuint, (LLVMLoopRef, Ptr{LLVMBasicBlockRef}), L, Blocks)
 end
 
-function LLVMExtraLoopInfoGetTopLevelLoops(LI, Loops)
+@llvmapi function LLVMExtraLoopInfoGetTopLevelLoops(lib::Library, LI, Loops)
     ccall((:LLVMExtraLoopInfoGetTopLevelLoops, libLLVMExtra), Cuint, (LLVMLoopInfoRef, Ptr{LLVMLoopRef}), LI, Loops)
 end
 
-function LLVMExtraLoopGetLatch(L)
+@llvmapi function LLVMExtraLoopGetLatch(lib::Library, L)
     ccall((:LLVMExtraLoopGetLatch, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef,), L)
 end
 
-function LLVMExtraLoopGetPreheader(L)
+@llvmapi function LLVMExtraLoopGetPreheader(lib::Library, L)
     ccall((:LLVMExtraLoopGetPreheader, libLLVMExtra), LLVMBasicBlockRef, (LLVMLoopRef,), L)
 end
 
-function LLVMExtraLoopIsLoopInvariant(L, V)
+@llvmapi function LLVMExtraLoopIsLoopInvariant(lib::Library, L, V)
     ccall((:LLVMExtraLoopIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMValueRef), L, V)
 end
 
-function LLVMExtraDominatorTreeInstructionDominatesUse(Tree, Inst, U)
+@llvmapi function LLVMExtraDominatorTreeInstructionDominatesUse(lib::Library, Tree, Inst, U)
     ccall((:LLVMExtraDominatorTreeInstructionDominatesUse, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMUseRef), Tree, Inst, U)
 end
 
-function LLVMExtraDominatorTreeBlockDominates(Tree, A, B)
+@llvmapi function LLVMExtraDominatorTreeBlockDominates(lib::Library, Tree, A, B)
     ccall((:LLVMExtraDominatorTreeBlockDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef, LLVMBasicBlockRef), Tree, A, B)
 end
 
-function LLVMExtraDominatorTreeRecalculate(Tree, F)
+@llvmapi function LLVMExtraDominatorTreeRecalculate(lib::Library, Tree, F)
     ccall((:LLVMExtraDominatorTreeRecalculate, libLLVMExtra), Cvoid, (LLVMDominatorTreeRef, LLVMValueRef), Tree, F)
 end
 
-function LLVMExtraSplitBlockAndInsertIfThen(Cond, SplitBefore, Unreachable, Tree)
+@llvmapi function LLVMExtraSplitBlockAndInsertIfThen(lib::Library, Cond, SplitBefore, Unreachable, Tree)
     ccall((:LLVMExtraSplitBlockAndInsertIfThen, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMBool, LLVMDominatorTreeRef), Cond, SplitBefore, Unreachable, Tree)
 end
 
-function LLVMExtraIsInstructionTriviallyDead(Inst)
+@llvmapi function LLVMExtraIsInstructionTriviallyDead(lib::Library, Inst)
     ccall((:LLVMExtraIsInstructionTriviallyDead, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(Inst)
+@llvmapi function LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(lib::Library, Inst)
     ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructions, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
-function LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(Insts, NumInsts)
+@llvmapi function LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(lib::Library, Insts, NumInsts)
     ccall((:LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive, libLLVMExtra), LLVMBool, (Ptr{LLVMValueRef}, Cuint), Insts, NumInsts)
 end
 
-function LLVMExtraConstantFoldCastOperand(Opcode, C, DestTy, TD, Result)
-    ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), to_abi(LLVMOpcode, Opcode), C, DestTy, TD, Result)
+@llvmapi function LLVMExtraConstantFoldCastOperand(lib::Library, Opcode, C, DestTy, TD, Result)
+    ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), to_abi(lib, LLVMOpcode, Opcode), C, DestTy, TD, Result)
 end
 

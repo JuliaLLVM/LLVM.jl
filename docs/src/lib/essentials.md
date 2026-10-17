@@ -10,10 +10,15 @@ LLVM.Analysis
 LLVM.ORC
 ```
 
-## Version
+## Libraries and versions
 
 ```@docs
 LLVM.version
+LLVM.Library
+LLVM.Library(::Symbol)
+LLVM.library
+LLVM.library!
+LLVM.register_library!
 ```
 
 ## Initialization

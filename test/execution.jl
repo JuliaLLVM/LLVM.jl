@@ -302,7 +302,7 @@ end
     # loading libraries (which can be done multiple times), here the LLVM library itself:
     # loading another copy of LLVM would make its JIT find functions in the wrong library
     for _ in 1:2
-        @test LLVM.load_library_permanently(Base.Libc.Libdl.dlpath(LLVM.libllvm)) === nothing
+        @test LLVM.load_library_permanently(LLVM.library().path) === nothing
     end
     @test_throws LLVMException LLVM.load_library_permanently("/nonexistent/libfoo.so")
 end

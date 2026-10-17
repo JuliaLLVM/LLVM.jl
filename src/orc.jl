@@ -29,13 +29,17 @@ consumed.
 """
 mutable struct TargetMachineBuilder
     ref::API.LLVMOrcJITTargetMachineBuilderRef
+    const library::Library
     owned::Bool
 
-    function TargetMachineBuilder(ref::API.LLVMOrcJITTargetMachineBuilderRef)
+    function TargetMachineBuilder(ref::API.LLVMOrcJITTargetMachineBuilderRef;
+                                  library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        mark_alloc(new(ref, true))
+        mark_alloc(new(ref, library, true))
     end
 end
+
+argument_library(x::TargetMachineBuilder) = x.library
 Base.unsafe_convert(::Type{API.LLVMOrcJITTargetMachineBuilderRef},
                     tmb::TargetMachineBuilder) = check_owned(tmb).ref
 
@@ -49,7 +53,9 @@ function TargetMachineBuilder()
 end
 
 TargetMachineBuilder(tm::TargetMachine) =
-    TargetMachineBuilder(API.LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(consume!(tm)))
+    TargetMachineBuilder(
+        API.LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(tm.library, consume!(tm));
+        tm.library)
 
 TargetMachineBuilder(f::Core.Function, args...) =
     with_disposal(f, TargetMachineBuilder(args...))
@@ -67,11 +73,15 @@ It is available as the `execution_session` property of a JIT.
 """
 @checked struct ExecutionSession
     ref::API.LLVMOrcExecutionSessionRef
+    library::Library
 end
+ExecutionSession(ref::API.LLVMOrcExecutionSessionRef) = ExecutionSession(ref, library())
+
+argument_library(x::ExecutionSession) = x.library
 Base.unsafe_convert(::Type{API.LLVMOrcExecutionSessionRef}, es::ExecutionSession) = es.ref
 
 execution_session(lljit::LLJIT) =
-    ExecutionSession(API.LLVMOrcLLJITGetExecutionSession(lljit))
+    ExecutionSession(API.LLVMOrcLLJITGetExecutionSession(lljit), lljit.library)
 
 @property LLJIT execution_session
 
@@ -87,13 +97,17 @@ constructor, which do nothing once it has been consumed.
 """
 mutable struct ObjectLinkingLayer
     ref::API.LLVMOrcObjectLayerRef
+    const library::Library
     owned::Bool
 
-    function ObjectLinkingLayer(ref::API.LLVMOrcObjectLayerRef)
+    function ObjectLinkingLayer(ref::API.LLVMOrcObjectLayerRef;
+                                library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        mark_alloc(new(ref, true))
+        mark_alloc(new(ref, library, true))
     end
 end
+
+argument_library(x::ObjectLinkingLayer) = x.library
 Base.unsafe_convert(::Type{API.LLVMOrcObjectLayerRef}, oll::ObjectLinkingLayer) =
     check_owned(oll).ref
 
@@ -134,22 +148,23 @@ function ObjectLinkingLayer(es::ExecutionSession,
                             auto_claim_object_symbols::Union{Nothing,Bool}=nothing)
     triple = Base.cconvert(Cstring, triple)
     Base.unsafe_convert(Cstring, triple)  # validate embedded NUL before allocating the layer
+    lib = es.library
     ref = API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
     try
-        API.LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(ref, triple)
+        API.LLVMOrcRTDyldObjectLinkingLayerApplyTargetDefaults(lib, ref, triple)
         if override_object_flags !== nothing
             API.LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(
-                ref, override_object_flags)
+                lib, ref, override_object_flags)
         end
         if auto_claim_object_symbols !== nothing
             API.LLVMOrcRTDyldObjectLinkingLayerSetAutoClaimResponsibilityForObjectSymbols(
-                ref, auto_claim_object_symbols)
+                lib, ref, auto_claim_object_symbols)
         end
     catch
-        API.LLVMExtraDisposeRTDyldObjectLinkingLayer(ref)
+        API.LLVMExtraDisposeRTDyldObjectLinkingLayer(lib, ref)
         rethrow()
     end
-    ObjectLinkingLayer(ref)
+    ObjectLinkingLayer(ref; library=lib)
 end
 
 ObjectLinkingLayer(f::Core.Function, args...; kwargs...) =
@@ -166,19 +181,24 @@ end
 mutable struct ObjectLinkingLayerCreator
     cb
     exception::Union{Nothing,Tuple{Any,Vector}}
-    ObjectLinkingLayerCreator(cb) = new(cb, nothing)
+    # the library of the JIT, as the callback may run on another thread
+    library::Library
+    ObjectLinkingLayerCreator(cb) = new(cb, nothing, library())
 end
 
 function ollc_callback(ctx::Ptr{Cvoid}, es::API.LLVMOrcExecutionSessionRef, triple::Ptr{Cchar})
     ollc = Base.unsafe_pointer_to_objref(ctx)::ObjectLinkingLayerCreator
-    try
-        layer = ollc.cb(ExecutionSession(es), Base.unsafe_string(triple))::ObjectLinkingLayer
-        return consume!(layer)  # the JIT takes ownership of the layer
-    catch err
-        _capture_callback_exception!(ollc, err)
-        # The C callback has no error return. Give LLJIT a valid default layer
-        # so construction can finish normally and the Julia wrapper can throw.
-        return API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
+    return library!(ollc.library) do
+        try
+            layer = ollc.cb(ExecutionSession(es), Base.unsafe_string(triple))::ObjectLinkingLayer
+            check_library(ollc.library, layer)
+            return consume!(layer)  # the JIT takes ownership of the layer
+        catch err
+            _capture_callback_exception!(ollc, err)
+            # The C callback has no error return. Give LLJIT a valid default layer
+            # so construction can finish normally and the Julia wrapper can throw.
+            return API.LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager(es)
+        end
     end
 end
 
@@ -196,6 +216,7 @@ end
 
 function linking_layer_creator!(builder::LLJITBuilder, state::ObjectLinkingLayerCreator)
     state.exception = nothing
+    state.library = builder.library
     push!(builder.roots, state)
     cb = @cfunction(ollc_callback,
                     API.LLVMOrcObjectLayerRef,
@@ -224,7 +245,11 @@ was only borrowed.
 """
 @checked struct LLVMSymbol
     ref::API.LLVMOrcSymbolStringPoolEntryRef
+    library::Library
 end
+LLVMSymbol(ref::API.LLVMOrcSymbolStringPoolEntryRef) = LLVMSymbol(ref, library())
+
+argument_library(x::LLVMSymbol) = x.library
 Base.unsafe_convert(::Type{API.LLVMOrcSymbolStringPoolEntryRef}, sym::LLVMSymbol) = sym.ref
 Base.convert(::Type{API.LLVMOrcSymbolStringPoolEntryRef}, sym::LLVMSymbol) = sym.ref
 
@@ -250,7 +275,7 @@ reference; see [`LLVMSymbol`](@ref).
 """
 function intern(es::ExecutionSession, string)
     entry = API.LLVMOrcExecutionSessionIntern(es, string)
-    LLVMSymbol(entry)
+    LLVMSymbol(entry, es.library)
 end
 
 """
@@ -286,7 +311,7 @@ see [`LLVMSymbol`](@ref).
 """
 function mangle(lljit::LLJIT, name)
     entry = API.LLVMOrcLLJITMangleAndIntern(lljit, name)
-    return LLVMSymbol(entry)
+    return LLVMSymbol(entry, lljit.library)
 end
 
 
@@ -346,13 +371,16 @@ check_symbol_flags(flags) =
     throw(ArgumentError("symbol flags must be SymbolFlags, got a $(typeof(flags))"))
 
 # check the names of a symbol map before any of them is handed over to LLVM
+# check symbol names, returning the library they belong to (by default, the current one)
 function check_symbol_names(names, what="symbol")
     for name in names
         name isa LLVMSymbol ||
             throw(ArgumentError("$what names must be LLVMSymbols, got a $(typeof(name))"))
     end
     allunique(names) || throw(ArgumentError("duplicate $what names"))
-    return
+    lib = isempty(names) ? library() : first(names).library
+    check_library(lib, names...)
+    return lib
 end
 
 """
@@ -372,12 +400,17 @@ afterwards.
 """
 @checked struct JITDylib
     ref::API.LLVMOrcJITDylibRef
+    library::Library
 end
+JITDylib(ref::API.LLVMOrcJITDylibRef) = JITDylib(ref, library())
+
+argument_library(x::JITDylib) = x.library
 @properties JITDylib
 
 Base.unsafe_convert(::Type{API.LLVMOrcJITDylibRef}, jd::JITDylib) = jd.ref
 
-main_dylib(lljit::LLJIT) = JITDylib(API.LLVMOrcLLJITGetMainJITDylib(lljit))
+main_dylib(lljit::LLJIT) =
+    JITDylib(API.LLVMOrcLLJITGetMainJITDylib(lljit), lljit.library)
 
 @property LLJIT main_dylib
 
@@ -393,12 +426,13 @@ function JITDylib(es::ExecutionSession, name; bare=false)
         ref = API.LLVMOrcExecutionSessionCreateBareJITDylib(es, name)
     else
         ref = Ref{API.LLVMOrcJITDylibRef}()
-        @check API.LLVMOrcExecutionSessionCreateJITDylib(es, ref, name)
+        @check es.library API.LLVMOrcExecutionSessionCreateJITDylib(es, ref, name)
         ref = ref[]
     end
-    JITDylib(ref)
+    JITDylib(ref, es.library)
 end
-Base.string(jd::JITDylib) = unsafe_message(API.LLVMDumpJitDylibToString(jd))
+Base.string(jd::JITDylib) =
+    unsafe_message(jd.library, API.LLVMDumpJitDylibToString(jd))
 
 function Base.show(io::IO, ::MIME"text/plain", jd::JITDylib)
     output = string(jd)
@@ -421,13 +455,17 @@ See also: [`DynamicLibrarySearchGenerator`](@ref), [`CustomDefinitionGenerator`]
 """
 mutable struct DefinitionGenerator
     ref::API.LLVMOrcDefinitionGeneratorRef
+    const library::Library
     owned::Bool
 
-    function DefinitionGenerator(ref::API.LLVMOrcDefinitionGeneratorRef)
+    function DefinitionGenerator(ref::API.LLVMOrcDefinitionGeneratorRef;
+                                 library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        mark_alloc(new(ref, true))
+        mark_alloc(new(ref, library, true))
     end
 end
+
+argument_library(x::DefinitionGenerator) = x.library
 Base.unsafe_convert(::Type{API.LLVMOrcDefinitionGeneratorRef}, dg::DefinitionGenerator) =
     check_owned(dg).ref
 
@@ -447,6 +485,7 @@ Attach the definition generator `dg` to `jd`. The JITDylib takes ownership of th
 generator, so `dg` can't be added again, and disposing of it does nothing.
 """
 function add!(jd::JITDylib, dg::DefinitionGenerator)
+    check_library(jd.library, dg)
     API.LLVMOrcJITDylibAddGenerator(jd, consume!(dg))
     return
 end
@@ -464,10 +503,11 @@ looking up symbols. The do-block form disposes of the generator afterwards, unle
 added to a JITDylib.
 """
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}) =
-    process_search_generator(global_prefix(jit))
+    library!(() -> process_search_generator(global_prefix(jit)), argument_library(jit))
 
 DynamicLibrarySearchGenerator(jit::Union{LLJIT,JuliaOJIT}, path::AbstractString) =
-    library_search_generator(path, global_prefix(jit))
+    library!(() -> library_search_generator(path, global_prefix(jit)),
+             argument_library(jit))
 
 DynamicLibrarySearchGenerator(f::Core.Function, args...) =
     with_disposal(f, DynamicLibrarySearchGenerator(args...))
@@ -492,21 +532,23 @@ function __try_to_generate(generator::API.LLVMOrcDefinitionGeneratorRef, ctx::Pt
                            jd_flags::API.LLVMOrcJITDylibLookupFlags,
                            lookup_set::API.LLVMOrcCLookupSet, lookup_set_size::Csize_t)
     dg = Base.unsafe_pointer_to_objref(ctx)::CustomDefinitionGenerator
-    try
-        elements = Base.unsafe_wrap(Array, lookup_set, lookup_set_size)
-        symbols = [LLVMSymbol(el.Name) => el.LookupFlags for el in elements]
-        dg.callback(kind, JITDylib(jd), jd_flags, symbols)
-        return API.LLVMErrorRef(C_NULL)
-    catch err
-        # Julia exceptions cannot unwind through LLVM, so report the failure to ORC
-        # and keep the exception around for check_callback_error!.
-        _capture_callback_exception!(dg, err)
-        msg = try
-            sprint(showerror, err)
-        catch
-            "unprintable $(typeof(err))"
+    return library!(dg.dg.library) do
+        try
+            elements = Base.unsafe_wrap(Array, lookup_set, lookup_set_size)
+            symbols = [LLVMSymbol(el.Name) => el.LookupFlags for el in elements]
+            dg.callback(kind, JITDylib(jd), jd_flags, symbols)
+            return API.LLVMErrorRef(C_NULL)
+        catch err
+            # Julia exceptions cannot unwind through LLVM, so report the failure to ORC
+            # and keep the exception around for check_callback_error!.
+            _capture_callback_exception!(dg, err)
+            msg = try
+                sprint(showerror, err)
+            catch
+                "unprintable $(typeof(err))"
+            end
+            return API.LLVMCreateStringError("exception in ORC definition generator: $msg")
         end
-        return API.LLVMCreateStringError("exception in ORC definition generator: $msg")
     end
 end
 
@@ -613,7 +655,7 @@ function lookup_dylib(es::ExecutionSession, name)
     if ref == C_NULL
         return
     end
-    JITDylib(ref)
+    JITDylib(ref, es.library)
 end
 
 """
@@ -626,19 +668,21 @@ The code is compiled and linked lazily, when one of its symbols is looked up. Th
 or module is consumed, even if adding it fails.
 """
 function add!(lljit::LLJIT, jd::JITDylib, obj::MemoryBuffer)
+    check_library(lljit.library, jd, obj)
     # consumed, even on failure
     err = API.LLVMOrcLLJITAddObjectFile(lljit, jd, consume!(obj))
-    @check err
+    @check lljit.library err
     return
 end
 
 # LLVMOrcLLJITAddObjectFileWithRT(J, RT, ObjBuffer)
 
 function add!(lljit::LLJIT, jd::JITDylib, mod::ThreadSafeModule)
+    check_library(lljit.library, jd, mod)
     # consumed, even on failure
     check_has_module(mod)
     err = API.LLVMOrcLLJITAddLLVMIRModule(lljit, jd, consume!(mod))
-    @check err
+    @check lljit.library err
     return
 end
 
@@ -651,7 +695,7 @@ Remove all code and data from `jd`, releasing the resources of all of its resour
 trackers.
 """
 function Base.empty!(jd::JITDylib)
-    @check API.LLVMOrcJITDylibClear(jd)
+    @check jd.library API.LLVMOrcJITDylibClear(jd)
     return jd
 end
 
@@ -677,14 +721,18 @@ JITDylib.
 mutable struct ResourceTracker
     # mutable, so that the memory checker can tell multiple references apart
     ref::API.LLVMOrcResourceTrackerRef
+    const library::Library
     owned::Bool     # whether we hold a reference that needs to be released
     borrowed::Bool  # whether the tracker is borrowed from its JITDylib (the default one)
 
-    function ResourceTracker(ref::API.LLVMOrcResourceTrackerRef; borrowed::Bool=false)
+    function ResourceTracker(ref::API.LLVMOrcResourceTrackerRef; borrowed::Bool=false,
+                             library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        new(ref, !borrowed, borrowed)
+        new(ref, library, !borrowed, borrowed)
     end
 end
+
+argument_library(rt::ResourceTracker) = rt.library
 
 function check_usable(rt::ResourceTracker)
     rt.owned || rt.borrowed ||
@@ -696,7 +744,8 @@ Base.unsafe_convert(::Type{API.LLVMOrcResourceTrackerRef}, rt::ResourceTracker) 
     check_usable(rt).ref
 
 function ResourceTracker(jd::JITDylib)
-    mark_alloc(ResourceTracker(API.LLVMOrcJITDylibCreateResourceTracker(jd)))
+    mark_alloc(ResourceTracker(API.LLVMOrcJITDylibCreateResourceTracker(jd);
+                               library=jd.library))
 end
 
 ResourceTracker(f::Core.Function, jd::JITDylib) =
@@ -706,7 +755,8 @@ function default_resource_tracker(jd::JITDylib)
     # contrary to its documentation, LLVMOrcJITDylibGetDefaultResourceTracker does not
     # retain the tracker, so we should not release it either.
     # See https://github.com/llvm/llvm-project/issues/227221
-    ResourceTracker(API.LLVMOrcJITDylibGetDefaultResourceTracker(jd); borrowed=true)
+    ResourceTracker(API.LLVMOrcJITDylibGetDefaultResourceTracker(jd); borrowed=true,
+                    library=jd.library)
 end
 
 @property JITDylib default_resource_tracker
@@ -735,7 +785,7 @@ function remove!(rt::ResourceTracker)
     err = API.LLVMOrcResourceTrackerRemove(rt)
     # the JITDylib releases its default tracker when removing it (even if that fails)
     rt.borrowed = false
-    @check err
+    @check rt.library err
     return
 end
 
@@ -752,18 +802,20 @@ end
 
 function add!(lljit::LLJIT, rt::ResourceTracker, obj::MemoryBuffer)
     check_usable(rt)
+    check_library(lljit.library, rt, obj)
     # consumed, even on failure
     err = API.LLVMOrcLLJITAddObjectFileWithRT(lljit, rt, consume!(obj))
-    @check err
+    @check lljit.library err
     return
 end
 
 function add!(lljit::LLJIT, rt::ResourceTracker, mod::ThreadSafeModule)
     check_usable(rt)
+    check_library(lljit.library, rt, mod)
     # consumed, even on failure
     check_has_module(mod)
     err = API.LLVMOrcLLJITAddLLVMIRModuleWithRT(lljit, rt, consume!(mod))
-    @check err
+    @check lljit.library err
     return
 end
 
@@ -794,7 +846,7 @@ found or materialized. Use `pointer` to convert the resulting address to a point
 """
 function lookup(lljit::LLJIT, name)
     result = Ref{API.LLVMOrcJITTargetAddress}()
-    @check API.LLVMOrcLLJITLookup(lljit, result, name)
+    @check lljit.library API.LLVMOrcLLJITLookup(lljit, result, name)
     OrcTargetAddress(result[])
 end
 
@@ -826,6 +878,7 @@ function __lookup_result(err::API.LLVMErrorRef, result::API.LLVMOrcCSymbolMapPai
 end
 
 function lookup(lljit::LLJIT, jd::JITDylib, name)
+    check_library(lljit.library, jd)
     es = execution_session(lljit)
     order = Ref(API.LLVMOrcCJITDylibSearchOrderElement(
         jd.ref, API.LLVMOrcJITDylibLookupFlagsMatchAllSymbols))
@@ -851,7 +904,7 @@ function lookup(lljit::LLJIT, jd::JITDylib, name)
             @lock SESSION_LOOKUP_LOCK delete!(SESSION_LOOKUP_ROOTS, state)
         end
     end
-    @check state.error
+    @check lljit.library state.error
     OrcTargetAddress(state.address)
 end
 
@@ -867,6 +920,8 @@ available as its `ir_transform_layer` property.
 end
 Base.unsafe_convert(::Type{API.LLVMOrcIRTransformLayerRef}, il::IRTransformLayer) = il.ref
 
+argument_library(il::IRTransformLayer) = il.jit.library
+
 ir_transform_layer(lljit::LLJIT) =
     IRTransformLayer(API.LLVMOrcLLJITGetIRTransformLayer(lljit), lljit)
 
@@ -875,32 +930,36 @@ ir_transform_layer(lljit::LLJIT) =
 mutable struct IRTransform
     callback
     exception::Union{Nothing,Tuple{Any,Vector}}
-    IRTransform(callback) = new(callback, nothing)
+    # the library of the JIT, as the transformation may run on another thread
+    library::Library
+    IRTransform(callback, library) = new(callback, nothing, library)
 end
 
 function __ir_transform(ctx::Ptr{Cvoid}, tsm_ref::Ptr{API.LLVMOrcThreadSafeModuleRef},
                         mr::API.LLVMOrcMaterializationResponsibilityRef)
     state = Base.unsafe_pointer_to_objref(ctx)::IRTransform
-    tsm = ThreadSafeModule(unsafe_load(tsm_ref); borrowed=true)
-    responsibility = MaterializationResponsibility(mr; borrowed=true)
-    try
-        state.callback(tsm, responsibility)
-        return API.LLVMErrorRef(C_NULL)
-    catch err
-        _capture_callback_exception!(state, err)
-        # on failure, LLVM expects us to have disposed of the module
-        API.LLVMOrcDisposeThreadSafeModule(unsafe_load(tsm_ref))
-        unsafe_store!(tsm_ref, C_NULL)
-        msg = try
-            sprint(showerror, err)
-        catch
-            "unprintable $(typeof(err))"
+    return library!(state.library) do
+        tsm = ThreadSafeModule(unsafe_load(tsm_ref); borrowed=true)
+        responsibility = MaterializationResponsibility(mr; borrowed=true)
+        try
+            state.callback(tsm, responsibility)
+            return API.LLVMErrorRef(C_NULL)
+        catch err
+            _capture_callback_exception!(state, err)
+            # on failure, LLVM expects us to have disposed of the module
+            API.LLVMOrcDisposeThreadSafeModule(unsafe_load(tsm_ref))
+            unsafe_store!(tsm_ref, C_NULL)
+            msg = try
+                sprint(showerror, err)
+            catch
+                "unprintable $(typeof(err))"
+            end
+            return API.LLVMCreateStringError("exception in ORC IR transform: $msg")
+        finally
+            # both are only borrowed for the duration of the transformation
+            tsm.borrowed = false
+            responsibility.borrowed = false
         end
-        return API.LLVMCreateStringError("exception in ORC IR transform: $msg")
-    finally
-        # both are only borrowed for the duration of the transformation
-        tsm.borrowed = false
-        responsibility.borrowed = false
     end
 end
 
@@ -930,7 +989,7 @@ If `f` throws, materialization of the module fails, and the original exception c
 retrieved by calling [`check_callback_error!`](@ref) on the layer.
 """
 function transform!(f, il::IRTransformLayer)
-    state = IRTransform(f)
+    state = IRTransform(f, il.jit.library)
     # LLVM only holds a raw pointer to the transformation. Earlier transformations may
     # still be in use, so keep all of them alive until the JIT is disposed of.
     push!(il.jit.roots, state)
@@ -981,16 +1040,20 @@ transformation, but not be consumed.
 """
 mutable struct MaterializationResponsibility
     ref::API.LLVMOrcMaterializationResponsibilityRef
+    const library::Library
     owned::Bool     # whether we own the responsibility, i.e., it wasn't consumed or borrowed
     borrowed::Bool  # whether it is borrowed from LLVM (e.g., in an IR transform)
 
     function MaterializationResponsibility(ref::API.LLVMOrcMaterializationResponsibilityRef;
-                                           borrowed::Bool=false)
+                                           borrowed::Bool=false,
+                                           library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        new(ref, !borrowed, borrowed)
+        new(ref, library, !borrowed, borrowed)
     end
 end
 @properties MaterializationResponsibility
+
+argument_library(mr::MaterializationResponsibility) = mr.library
 
 function check_usable(mr::MaterializationResponsibility)
     mr.owned || mr.borrowed ||
@@ -1024,6 +1087,7 @@ emitted.
 function emit!(il::IRTransformLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     check_consumable(mr)
     check_consumable(tsm)
+    check_library(il.jit.library, mr, tsm)
     API.LLVMOrcIRTransformLayerEmit(il, consume!(mr), consume!(tsm))
 end
 
@@ -1040,8 +1104,8 @@ requested_symbols(mr::MaterializationResponsibility) =
 function collect_requested_symbols(mr::MaterializationResponsibility)
     N = Ref{Csize_t}()
     ptr = API.LLVMOrcMaterializationResponsibilityGetRequestedSymbols(mr, N)
-    syms = map(LLVMSymbol, Base.unsafe_wrap(Array, ptr, N[], own=false))
-    API.LLVMOrcDisposeSymbols(ptr)
+    syms = [LLVMSymbol(ref, mr.library) for ref in Base.unsafe_wrap(Array, ptr, N[])]
+    API.LLVMOrcDisposeSymbols(mr.library, ptr)
     return syms
 end
 
@@ -1073,13 +1137,17 @@ to be disposed of using `dispose`, which does nothing once it has been consumed.
 """
 mutable struct MaterializationUnit <: AbstractMaterializationUnit
     ref::API.LLVMOrcMaterializationUnitRef
+    const library::Library
     owned::Bool
 
-    function MaterializationUnit(ref::API.LLVMOrcMaterializationUnitRef)
+    function MaterializationUnit(ref::API.LLVMOrcMaterializationUnitRef;
+                                 library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        mark_alloc(new(ref, true))
+        mark_alloc(new(ref, library, true))
     end
 end
+
+argument_library(mu::MaterializationUnit) = mu.library
 Base.unsafe_convert(::Type{API.LLVMOrcMaterializationUnitRef}, mu::MaterializationUnit) =
     check_owned(mu).ref
 
@@ -1096,12 +1164,13 @@ defined in `jd`) it is disposed of before the error is rethrown as an
 [`LLVMException`](@ref).
 """
 function define!(jd::JITDylib, mu::AbstractMaterializationUnit)
+    check_library(jd.library, materialization_unit(mu))
     ref = consume!(materialization_unit(mu))
     err = API.LLVMOrcJITDylibDefine(jd, ref)
     if err != C_NULL
         # on failure, ownership of the materialization unit stays with us
-        API.LLVMOrcDisposeMaterializationUnit(ref)
-        throw(convert(LLVMException, LLVMError(err)))
+        API.LLVMOrcDisposeMaterializationUnit(jd.library, ref)
+        throw(convert(LLVMException, LLVMError(err, jd.library)))
     end
     return
 end
@@ -1136,34 +1205,38 @@ end
 
 function __materialize(ctx::Ptr{Cvoid}, mr::API.LLVMOrcMaterializationResponsibilityRef)
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
-    responsibility = MaterializationResponsibility(mr)
-    try
-        mu.materialize(responsibility)
-    catch err
-        _capture_callback_exception!(mu, err)
-        # only fail materialization if the responsibility wasn't handed off already
-        if responsibility.owned
-            responsibility.owned = false
-            API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
-            API.LLVMOrcDisposeMaterializationResponsibility(mr)
+    return library!(mu.mu.library) do
+        responsibility = MaterializationResponsibility(mr)
+        try
+            mu.materialize(responsibility)
+        catch err
+            _capture_callback_exception!(mu, err)
+            # only fail materialization if the responsibility wasn't handed off already
+            if responsibility.owned
+                responsibility.owned = false
+                API.LLVMOrcMaterializationResponsibilityFailMaterialization(mr)
+                API.LLVMOrcDisposeMaterializationResponsibility(mr)
+            end
+        finally
+            # LLVM does not call the destroy callback for materialized units
+            @lock CUSTOM_MU_LOCK delete!(CUSTOM_MU_ROOTS, mu)
         end
-    finally
-        # LLVM does not call the destroy callback for materialized units
-        @lock CUSTOM_MU_LOCK delete!(CUSTOM_MU_ROOTS, mu)
+        nothing
     end
-    nothing
 end
 
 function __discard(ctx::Ptr{Cvoid}, jd::API.LLVMOrcJITDylibRef, symbol::API.LLVMOrcSymbolStringPoolEntryRef)
     mu = Base.unsafe_pointer_to_objref(ctx)::CustomMaterializationUnit
-    try
-        mu.discard(JITDylib(jd), LLVMSymbol(symbol))
-    catch err
-        # ORC's discard callback has no failure return. Preserve the exception
-        # on the owned materialization unit for a later Julia-side check.
-        _capture_callback_exception!(mu, err)
+    return library!(mu.mu.library) do
+        try
+            mu.discard(JITDylib(jd), LLVMSymbol(symbol))
+        catch err
+            # ORC's discard callback has no failure return. Preserve the exception
+            # on the owned materialization unit for a later Julia-side check.
+            _capture_callback_exception!(mu, err)
+        end
+        nothing
     end
-    nothing
 end
 
 function __destroy(ctx::Ptr{Cvoid})
@@ -1203,7 +1276,8 @@ function CustomMaterializationUnit(name, symbols::Union{AbstractVector{<:Pair},A
                                    materialize, discard;
                                    init::Union{Nothing,LLVMSymbol}=nothing)
     # validate everything before taking ownership of the names
-    check_symbol_names([first(pair) for pair in symbols])
+    lib = check_symbol_names([first(pair) for pair in symbols])
+    init === nothing || check_library(lib, init)
     pairs = API.LLVMOrcCSymbolFlagsMapPair[
         API.LLVMOrcCSymbolFlagsMapPair(sym, convert(API.LLVMJITSymbolFlags,
                                                     check_symbol_flags(flags)))
@@ -1223,6 +1297,7 @@ function CustomMaterializationUnit(name, symbols::Union{AbstractVector{<:Pair},A
     # LLVM doesn't call back before the unit is defined or disposed of, so only root the
     # unit once it has been created, so that a failure to create it doesn't leak the root
     ref = API.LLVMOrcCreateCustomMaterializationUnit(
+        lib,
         name,
         Base.pointer_from_objref(this), # escaping this, rooted in CUSTOM_MU_ROOTS below
         pairs,
@@ -1233,7 +1308,7 @@ function CustomMaterializationUnit(name, symbols::Union{AbstractVector{<:Pair},A
         @cfunction(__destroy, Cvoid, (Ptr{Cvoid},))
     )
     @lock CUSTOM_MU_LOCK push!(CUSTOM_MU_ROOTS, this)
-    this.mu = MaterializationUnit(ref)
+    this.mu = MaterializationUnit(ref; library=lib)
     return this
 end
 
@@ -1261,7 +1336,7 @@ absolute_symbols(pair::Pair{LLVMSymbol}, pairs::Pair{LLVMSymbol}...) =
 
 function absolute_symbols(pairs::Union{AbstractVector{<:Pair},AbstractDict})
     # validate everything before taking ownership of the names
-    check_symbol_names([first(pair) for pair in pairs])
+    lib = check_symbol_names([first(pair) for pair in pairs])
     symbols = API.LLVMOrcCSymbolMapPair[]
     for (sym, def) in pairs
         address, flags = def isa Tuple{Any,Any} ? def : (def, SymbolFlags())
@@ -1272,7 +1347,7 @@ function absolute_symbols(pairs::Union{AbstractVector{<:Pair},AbstractDict})
             target_address(address), convert(API.LLVMJITSymbolFlags,
                                              check_symbol_flags(flags)))))
     end
-    MaterializationUnit(API.LLVMOrcAbsoluteSymbols(symbols, length(symbols)))
+    MaterializationUnit(API.LLVMOrcAbsoluteSymbols(lib, symbols, length(symbols)); library=lib)
 end
 
 target_address(ptr::Ptr) = API.LLVMOrcJITTargetAddress(reinterpret(UInt, ptr))
@@ -1283,7 +1358,12 @@ target_address(addr) = throw(ArgumentError(
 
 @checked struct IndirectStubsManager
     ref::API.LLVMOrcIndirectStubsManagerRef
+    library::Library
 end
+IndirectStubsManager(ref::API.LLVMOrcIndirectStubsManagerRef) =
+    IndirectStubsManager(ref, library())
+
+argument_library(x::IndirectStubsManager) = x.library
 Base.unsafe_convert(::Type{API.LLVMOrcIndirectStubsManagerRef}, ism::IndirectStubsManager) = ism.ref
 
 """
@@ -1308,7 +1388,12 @@ end
 
 @checked mutable struct LazyCallThroughManager
     ref::API.LLVMOrcLazyCallThroughManagerRef
+    library::Library
 end
+LazyCallThroughManager(ref::API.LLVMOrcLazyCallThroughManagerRef) =
+    LazyCallThroughManager(ref, library())
+
+argument_library(x::LazyCallThroughManager) = x.library
 Base.unsafe_convert(::Type{API.LLVMOrcLazyCallThroughManagerRef}, lcm::LazyCallThroughManager) = lcm.ref
 
 """
@@ -1321,8 +1406,8 @@ do-block form, after the last call of a stub that uses it.
 """
 function LocalLazyCallThroughManager(triple, es)
     ref = Ref{API.LLVMOrcLazyCallThroughManagerRef}()
-    @check API.LLVMOrcCreateLocalLazyCallThroughManager(triple, es, C_NULL, ref)
-    LazyCallThroughManager(ref[])
+    @check es.library API.LLVMOrcCreateLocalLazyCallThroughManager(triple, es, C_NULL, ref)
+    LazyCallThroughManager(ref[], es.library)
 end
 
 LocalLazyCallThroughManager(f::Core.Function, triple, es) =
@@ -1351,19 +1436,23 @@ aliases share a target, retain the target an additional time for every extra ali
 function lazy_reexports(lctm::LazyCallThroughManager, ism::IndirectStubsManager,
                         jd::JITDylib, aliases::Union{AbstractVector{<:Pair},AbstractDict})
     # validate everything before taking ownership of the names
-    check_symbol_names([first(pair) for pair in aliases], "alias")
+    names = [first(pair) for pair in aliases]
+    check_symbol_names(names, "alias")
+    check_library(jd.library, lctm, ism, names...)
     entries = API.LLVMOrcCSymbolAliasMapPair[]
     for (alias, def) in aliases
         target, flags = def isa Tuple{Any,Any} ? def : (def, SymbolFlags(callable=true))
         target isa LLVMSymbol ||
             throw(ArgumentError("alias targets must be LLVMSymbols, got a $(typeof(target))"))
+        check_library(jd.library, target)
         # LLVM asserts that lazy reexports are callable
         check_symbol_flags(flags).callable ||
             throw(ArgumentError("lazy reexports must be callable"))
         push!(entries, API.LLVMOrcCSymbolAliasMapPair(alias,
             API.LLVMOrcCSymbolAliasMapEntry(target, convert(API.LLVMJITSymbolFlags, flags))))
     end
-    MaterializationUnit(API.LLVMOrcLazyReexports(lctm, ism, jd, entries, length(entries)))
+    MaterializationUnit(API.LLVMOrcLazyReexports(lctm, ism, jd, entries, length(entries));
+                        library=jd.library)
 end
 
 
@@ -1372,13 +1461,13 @@ end
 @vocabulary ORC JuliaOJIT
 
 execution_session(jljit::JuliaOJIT) =
-    ExecutionSession(API.JLJITGetLLVMOrcExecutionSession(jljit))
+    ExecutionSession(API.JLJITGetLLVMOrcExecutionSession(jljit), julia_library)
 
 @property JuliaOJIT execution_session
 
 function mangle(jljit::JuliaOJIT, name)
     entry = API.JLJITMangleAndIntern(jljit, name)
-    return LLVMSymbol(entry)
+    return LLVMSymbol(entry, julia_library)
 end
 
 # Julia 1.14 (JuliaLang/julia#60988) replaced the JITDylib that was shared by all users of
@@ -1399,7 +1488,7 @@ JITDylib, which is shared by all users of the JIT: see the `external_dylib` prop
 """
 function JITDylib(jljit::JuliaOJIT, name::AbstractString)
     @static if JLJIT_CREATES_DYLIBS
-        JITDylib(API.JLJITCreateJITDylib(jljit, String(name)))
+        JITDylib(API.JLJITCreateJITDylib(jljit, String(name)), julia_library)
     else
         error("Julia's JIT can only create JITDylibs on Julia 1.14 and later; on Julia $VERSION, use the shared `jljit.external_dylib` instead")
     end
@@ -1421,7 +1510,7 @@ function external_dylib(jljit::JuliaOJIT)
     @static if JLJIT_CREATES_DYLIBS
         error("Julia's JIT doesn't have a shared external JITDylib on Julia $VERSION; create one using `JITDylib(jljit, name)` instead")
     else
-        JITDylib(API.JLJITGetExternalJITDylib(jljit))
+        JITDylib(API.JLJITGetExternalJITDylib(jljit), julia_library)
     end
 end
 
@@ -1435,9 +1524,10 @@ Add an object file or IR module to `jd` in Julia's JIT. The object or module is 
 even if adding it fails.
 """
 function add!(jljit::JuliaOJIT, jd::JITDylib, obj::MemoryBuffer)
+    check_library(julia_library, jd, obj)
     # consumed, even on failure
     err = API.JLJITAddObjectFile(jljit, jd, consume!(obj))
-    @check err
+    @check julia_library err
     return
 end
 
@@ -1509,6 +1599,7 @@ function decorate_module(mod)
 end
 
 function add!(jljit::JuliaOJIT, jd::JITDylib, tsm::ThreadSafeModule)
+    check_library(julia_library, jd, tsm)
     check_consumable(tsm)
     # Julia's debug info expects certain symbols to be present
     tsm() do mod
@@ -1516,16 +1607,17 @@ function add!(jljit::JuliaOJIT, jd::JITDylib, tsm::ThreadSafeModule)
     end
     # consumed, even on failure
     err = API.JLJITAddLLVMIRModule(jljit, jd, consume!(tsm))
-    @check err
+    @check julia_library err
     return
 end
 
 function lookup(jljit::JuliaOJIT, jd::JITDylib, name, external_jd_only=false)
+    check_library(julia_library, jd)
     result = Ref{API.LLVMOrcJITTargetAddress}()
     @static if JLJIT_CREATES_DYLIBS
-        @check API.JLJITJDLookup(jljit, jd, result, name, external_jd_only)
+        @check julia_library API.JLJITJDLookup(jljit, jd, result, name, external_jd_only)
     else
-        @check API.JLJITLookup(jljit, result, name, external_jd_only)
+        @check julia_library API.JLJITLookup(jljit, result, name, external_jd_only)
     end
     OrcTargetAddress(result[])
 end
@@ -1553,9 +1645,12 @@ end
 
 Base.unsafe_convert(::Type{API.LLVMOrcIRCompileLayerRef}, il::IRCompileLayer) = il.ref
 
+argument_library(il::IRCompileLayer) = argument_library(il.jit)
+
 function emit!(il::IRCompileLayer, mr::MaterializationResponsibility, tsm::ThreadSafeModule)
     check_consumable(mr)
     check_consumable(tsm)
+    check_library(argument_library(il), mr, tsm)
     if il.jit isa JuliaOJIT
         # Julia's debug info expects certain symbols to be present
         tsm() do mod

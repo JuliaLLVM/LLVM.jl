@@ -15,15 +15,22 @@ _has_context() = haskey(task_local_storage(), :LLVMContext) &&
     context(; throw_error::Bool=true)
 
 Get the active LLVM context for the current tasks. Throws an exception if no context is
-active, unless `throw_error=false`.
+active, unless `throw_error=false`. The context needs to belong to the current library (see
+[`LLVM.library`](@ref)).
 """
 function context(; throw_error::Bool=true)
     if !_has_context()
         throw_error && error("No LLVM context is active")
         return nothing
     end
-    last(task_local_storage(:LLVMContext))
+    ctx = last(task_local_storage(:LLVMContext))::Context
+    ctx.library === library() || throw_inactive_library(ctx)
+    return ctx
 end
+
+@noinline throw_inactive_library(@nospecialize(ctx)) =
+    error("""The active context belongs to LLVM library :$(ctx.library.name), but the current library is :$(library().name).
+             Use `context!(ctx) do ... end` or `LLVM.library!` to make the context's library current.""")
 
 """
     activate(obj)
@@ -67,7 +74,8 @@ end
 Pops the current context from the context stack.
 """
 function deactivate(ctx::Context)
-    context() == ctx || error("Deactivating wrong context")
+    _has_context() && last(task_local_storage(:LLVMContext)) == ctx ||
+        error("Deactivating wrong context")
     pop!(task_local_storage(:LLVMContext))
 end
 
@@ -76,14 +84,17 @@ end
         ...
     end
 
-Temporarily activates the given context for the duration of the block.
+Temporarily activates the given context for the duration of the block, and makes its
+library the current one (see [`LLVM.library!`](@ref)).
 """
 function context!(f, ctx::Context)
-    activate(ctx)
-    try
-        f()
-    finally
-        deactivate(ctx)
+    library!(ctx.library) do
+        activate(ctx)
+        try
+            f()
+        finally
+            deactivate(ctx)
+        end
     end
 end
 
@@ -106,7 +117,9 @@ function ts_context(; throw_error::Bool=true)
         throw_error && error("No LLVM thread-safe context is active")
         return nothing
     end
-    last(task_local_storage(:LLVMTSContext))
+    ts_ctx = last(task_local_storage(:LLVMTSContext))::ThreadSafeContext
+    ts_ctx.library === library() || throw_inactive_library(ts_ctx)
+    return ts_ctx
 end
 
 """
@@ -128,7 +141,8 @@ end
 Pops the current thread-safe context from the context stack.
 """
 function deactivate(ts_ctx::ThreadSafeContext)
-    ts_context() == ts_ctx || error("Deactivating wrong thread-safe context")
+    _has_ts_context() && last(task_local_storage(:LLVMTSContext)) == ts_ctx ||
+        error("Deactivating wrong thread-safe context")
     pop!(task_local_storage(:LLVMTSContext))
 end
 
@@ -137,13 +151,16 @@ end
         ...
     end
 
-Temporarily activates the given thread-safe context for the duration of the block.
+Temporarily activates the given thread-safe context for the duration of the block, and
+makes its library the current one (see [`LLVM.library!`](@ref)).
 """
 function ts_context!(f, ts_ctx::ThreadSafeContext)
-    activate(ts_ctx)
-    try
-        f()
-    finally
-        deactivate(ts_ctx)
+    library!(ts_ctx.library) do
+        activate(ts_ctx)
+        try
+            f()
+        finally
+            deactivate(ts_ctx)
+        end
     end
 end

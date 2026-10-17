@@ -18,13 +18,14 @@ julia_typed_pointers = let
 end
 @info "Pointer settings: Julia uses $(julia_typed_pointers ? "typed" : "opaque") pointers, default contexts use $(ctx_typed_pointers ? "typed" : "opaque") pointers"
 
-LLVM.julia_llvm || @info "Using LLVM $(LLVM.version()) from $(LLVM.libllvm) instead of Julia's"
+LLVM.julia_llvm || @info "Using LLVM $(LLVM.version()) from $(LLVM.library().path) instead of Julia's"
 @info "Debug settings: typecheck = $(LLVM.typecheck_enabled), memcheck = $(LLVM.memcheck_enabled)"
 
 
 @testset "LLVM" verbose=true begin
 
 include("essential.jl")
+include("libraries.jl")
 include("support.jl")
 include("enums.jl")
 include("core.jl")
@@ -55,10 +56,10 @@ else
         @dispose ctx=Context() begin
             @test_throws "requires the LLVM library that Julia uses" convert(LLVMType, Int)
         end
-        @test_throws "requires the LLVM library that Julia uses" LLVM.Interop.generate_llvmcall(
-            Int, Tuple{Int}, :x) do builder, x
+        # code for Julia's code generator is generated with Julia's LLVM
+        @test LLVM.Interop.generate_llvmcall(Int, Tuple{Int}, :x) do builder, x
             x
-        end
+        end isa Expr
         @test !("RemoveNI" in LLVM.module_passes)
     end
 end

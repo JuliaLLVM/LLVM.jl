@@ -10,6 +10,7 @@ issized
 ```@docs
 LLVM.IntegerType
 LLVM.IntType
+LLVM.ByteType
 ```
 
 ## Floating-point types

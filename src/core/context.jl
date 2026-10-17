@@ -167,25 +167,14 @@ Check whether the current context supports typed pointers.
 """
 supports_typed_pointers() = supports_typed_pointers(context())
 
-if version() >= v"17"
-    supports_typed_pointers(ctx::Context) = false
-else
-    supports_typed_pointers(ctx::Context) =
-        API.LLVMContextSupportsTypedPointers(ctx) |> Bool
-
-    unsafe_opaque_pointers!(ctx::Context, enable::Bool) =
-        API.LLVMContextSetOpaquePointers(ctx, enable)
-end
+supports_typed_pointers(ctx::Context) =
+    !atleast(17, ctx.library) && Bool(API.LLVMContextSupportsTypedPointers(ctx))
 
 function opaque_pointers!(ctx::Context, opaque_pointers::Bool)
-    @static if version() >= v"17"
-        if !opaque_pointers
-            error("LLVM >=17 does not support typed pointers")
-        end
-    end
-
-    @static if version() < v"17"
-        unsafe_opaque_pointers!(ctx, opaque_pointers)
+    if atleast(17, ctx.library)
+        opaque_pointers || error("LLVM >=17 does not support typed pointers")
+    else
+        API.LLVMContextSetOpaquePointers(ctx, opaque_pointers)
     end
 end
 

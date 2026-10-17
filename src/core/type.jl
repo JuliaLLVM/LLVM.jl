@@ -148,23 +148,21 @@ width(inttyp::IntegerType) = Int(API.LLVMGetIntTypeWidth(inttyp))
 
 @property IntegerType width
 
-if version() >= v"23"
-    @checked struct ByteType <: LLVMType
-        ref::API.LLVMTypeRef
-    end
-    @doc """
-        LLVM.ByteType(bits::Integer)
-
-    An arbitrary-width byte type, which holds uninterpreted bits. Requires LLVM 23+.
-
-    Its `width` property gives the bit width.
-    """ ByteType
-    @vocabulary IR ByteType
-    register(ByteType, API.LLVMByteTypeKind)
-    ByteType(bits::Integer) = ByteType(API.LLVMByteTypeInContext(context(), bits))
-    width(typ::ByteType) = Int(API.LLVMGetByteTypeWidth(typ))
-    @property ByteType width
+@checked struct ByteType <: LLVMType
+    ref::API.LLVMTypeRef
 end
+@doc """
+    LLVM.ByteType(bits::Integer)
+
+An arbitrary-width byte type, which holds uninterpreted bits. Requires LLVM 23+.
+
+Its `width` property gives the bit width.
+""" ByteType
+@vocabulary IR ByteType
+register(ByteType, API.LLVMByteTypeKind)
+ByteType(bits::Integer) = ByteType(API.LLVMByteTypeInContext(context(), bits))
+width(typ::ByteType) = Int(API.LLVMGetByteTypeWidth(typ))
+@property ByteType width
 
 
 ## floating-point
@@ -358,14 +356,12 @@ end
 
 isopaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool
 
-@static if version() < v"17"
-    # typed pointers
-    function element_type(typ::PointerType)
-        isopaque(typ) && return nothing
-        LLVMType(API.LLVMGetElementType(typ))
-    end
-    @property PointerType element_type
+# typed pointers
+function element_type(typ::PointerType)
+    isopaque(typ) && return nothing
+    LLVMType(API.LLVMGetElementType(typ))
 end
+@property PointerType element_type until=17
 
 """
     isopaque(ptrtyp::LLVM.PointerType)
@@ -410,7 +406,7 @@ register(ArrayType, API.LLVMArrayTypeKind)
 Create an array type with `count` elements of type `eltyp`.
 """
 function ArrayType(eltyp::LLVMType, count)
-    @static if version() >= v"17"
+    if atleast(17)
         return ArrayType(API.LLVMArrayType2(eltyp, count))
     else
         return ArrayType(API.LLVMArrayType(eltyp, count))
@@ -418,7 +414,7 @@ function ArrayType(eltyp::LLVMType, count)
 end
 
 function array_length(arrtyp::ArrayType)
-    @static if version() >= v"17"
+    if atleast(17)
         Int(API.LLVMGetArrayLength2(arrtyp))
     else
         Int(API.LLVMGetArrayLength(arrtyp))

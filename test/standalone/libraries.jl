@@ -72,6 +72,42 @@ other = Library(:other)
     end
 end
 
+@testset "contexts" begin
+    # each library has its own active contexts, so contexts of different libraries can be
+    # active at the same time, and their lifetimes can interleave
+    julia_ctx = LLVM.Context()
+    other_ctx = LLVM.Context(; library=other)
+    @test LLVM.context() == julia_ctx
+    @test library!(LLVM.context, other) == other_ctx
+    inner_ctx = LLVM.Context()
+    @test LLVM.context() == inner_ctx
+    # contexts of one library are deactivated in reverse order
+    @test_throws "Deactivating wrong context" dispose(julia_ctx)
+    dispose(inner_ctx)
+    @test LLVM.context() == julia_ctx
+    dispose(julia_ctx)
+    @test LLVM.context(; throw_error=false) === nothing
+    @test_throws "No LLVM context of LLVM library :julia is active, but one of :other is" LLVM.context()
+    @test library!(LLVM.context, other) == other_ctx
+    dispose(other_ctx)
+    @test_throws "No LLVM context is active" LLVM.context()
+
+    # thread-safe contexts too, and thread-safe modules use those of their module's library
+    LLVM.ThreadSafeContext() do julia_ts_ctx
+        other_ts_ctx = LLVM.ThreadSafeContext(; library=other)
+        @test LLVM.ts_context() == julia_ts_ctx
+        @test library!(LLVM.ts_context, other) == other_ts_ctx
+        mod = LLVM.context!(LLVM.context(other_ts_ctx)) do
+            parse(LLVM.Module, IR)
+        end
+        LLVM.ThreadSafeModule(mod) do tsm
+            @test tsm.library === other
+        end
+        dispose(other_ts_ctx)
+        @test LLVM.ts_context(; throw_error=false) == julia_ts_ctx
+    end
+end
+
 @testset "IR" begin
     # parse IR from Julia's LLVM, process it with the other library, and keep the module
     # after leaving the library's scope
@@ -128,7 +164,7 @@ end
     end
     # nor can contexts of another library be used implicitly
     LLVM.activate(ctx)
-    @test_throws "The active context belongs to LLVM library :other" LLVM.Module("foo")
+    @test_throws "No LLVM context of LLVM library :julia is active, but one of :other is" LLVM.Module("foo")
     @test library!(() -> LLVM.Module("foo"), other) isa LLVM.Module
     dispose(ctx)
 end
@@ -145,6 +181,64 @@ end
             @test seen[] === other
         end
     end
+end
+
+@testset "passes" begin
+    # the names of passes depend on the version of the library they are used with
+    flatten(lib) = lib.version >= v"19" ? "flatten-cfg" : "flattencfg"
+    @test library!(LLVM.Passes.FlattenCFGPass, other) == flatten(other)
+    @test LLVM.Passes.FlattenCFGPass() == flatten(julia)
+    @test ("flatten-cfg" in library!(LLVM.function_passes, other)) == (other.version >= v"19")
+    if other.version >= v"21"
+        @test_throws "only on LLVM 20 and earlier" library!(LLVM.Passes.InstrOrderFilePass, other)
+    end
+
+    # Julia's passes only work with Julia's LLVM
+    @test "RemoveNI" in LLVM.module_passes(julia)
+    @test !("RemoveNI" in LLVM.module_passes(other))
+    @test_throws "requires the LLVM library that Julia uses" library!(LLVM.Interop.AllocOptPass, other)
+    LLVM.Context(; library=other) do ctx
+        @dispose mod=parse(LLVM.Module, IR) begin
+            @test_throws "Julia's function pass `AllocOpt` requires the LLVM library that Julia uses" LLVM.run!("AllocOpt", mod)
+        end
+    end
+end
+
+@testset "version-dependent functionality" begin
+    # the same code works with libraries of different versions, also when switching back
+    # and forth between them
+    ir = """
+        define i32 @g(i64 %x) {
+          %t = trunc i64 %x to i32
+          ret i32 %t
+        }"""
+    function check(lib)
+        @test library() === lib
+        LLVM.Context() do ctx
+            @test !LLVM.supports_typed_pointers(ctx) || lib.version < v"17"
+            @dispose mod=parse(LLVM.Module, ir) begin
+                @test LLVM.version(mod) == lib.version
+                trunc = first(first(first(mod.functions).blocks).instructions)
+                @test hasproperty(trunc, :nuw) == (lib.version >= v"19")
+                @test (:nuw in propertynames(trunc)) == (lib.version >= v"19")
+                @test LLVM.ArrayType(LLVM.Int8Type(), 4).length == 4
+            end
+        end
+        @test LLVM.Passes.FlattenCFGPass() ==
+              (lib.version >= v"19" ? "flatten-cfg" : "flattencfg")
+    end
+    for lib in (julia, other, julia, other)
+        library!(() -> check(lib), lib)
+    end
+
+    # objects use the version of their library, also when another library is current
+    ctx = LLVM.Context(; library=other)
+    @test library() === julia
+    @test LLVM.version(ctx) == other.version
+    other.version >= v"17" && @test !LLVM.supports_typed_pointers(ctx)
+    LLVM.opaque_pointers!(ctx, true)
+    dispose(ctx)
+    @test_throws "does not remember its LLVM library" LLVM.version(1)
 end
 
 @testset "code generation" begin

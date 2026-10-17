@@ -247,16 +247,13 @@ const opcodes = [:Ret, :Br, :Switch, :IndirectBr, :Invoke, :Unreachable, :CallBr
                  :FCmp, :PHI, :Call, :Select, :UserOp1, :UserOp2, :VAArg, :ExtractElement,
                  :InsertElement, :ShuffleVector, :ExtractValue, :InsertValue, :Freeze,
                  :Fence, :AtomicCmpXchg, :AtomicRMW, :Resume, :LandingPad, :CleanupRet,
-                 :CatchRet, :CatchPad, :CleanupPad, :CatchSwitch]
-
-if version() >= v"22"
-    push!(opcodes, :PtrToAddr)
-end
+                 :CatchRet, :CatchPad, :CleanupPad, :CatchSwitch, :PtrToAddr]
 
 for op in opcodes
     typename = Symbol(op, :Inst)
-    enums = op === :Br && version() >= v"23" ?
-            (:LLVMUncondBr, :LLVMCondBr) : (Symbol(:LLVM, op),)
+    # LLVM 23 split branches into unconditional and conditional ones. as an older library
+    # does not return opcodes of a newer one, and vice versa, all of them can be registered.
+    enums = op === :Br ? (:LLVMBr, :LLVMUncondBr, :LLVMCondBr) : (Symbol(:LLVM, op),)
     # the instruction's name in textual IR
     irname = op === :VAArg ? "va_arg" : op === :AtomicCmpXchg ? "cmpxchg" :
              op === :AtomicRMW ? "atomicrmw" : lowercase(string(op))
@@ -405,10 +402,10 @@ isatomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
 
 function ordering(inst::AtomicInst)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
-    @static if version() < v"18"
-        API.LLVMExtraGetOrdering(inst)
-    else
+    if atleast(18)
         API.LLVMGetOrdering(inst)
+    else
+        API.LLVMExtraGetOrdering(inst)
     end
 end
 ordering(::AtomicCmpXchgInst) =
@@ -433,10 +430,10 @@ function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
     elseif inst isa FenceInst
         check_fence_ordering(ord)
     end
-    @static if version() < v"18"
-        API.LLVMExtraSetOrdering(inst, ord)
-    else
+    if atleast(18)
         API.LLVMSetOrdering(inst, ord)
+    else
+        API.LLVMExtraSetOrdering(inst, ord)
     end
 end
 ordering!(::AtomicCmpXchgInst, ::API.LLVMAtomicOrdering) =
@@ -758,7 +755,7 @@ syncscope!(inst::AtomicInst, name::Union{AbstractString,Symbol}) =
 @property AtomicInst syncscope syncscope!
 
 function binop(inst::AtomicRMWInst)
-    @static if v"16" <= version() < v"19"
+    if atleast(16) && !atleast(19)
         API.LLVMAtomicRMWBinOp(API.LLVMExtraGetAtomicRMWBinOp(inst))
     else
         API.LLVMGetAtomicRMWBinOp(inst)
@@ -1565,9 +1562,7 @@ Whether an `add`, `sub`, `mul`, `shl` or (on LLVM 19+) `trunc` instruction has t
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
 """
-const NoWrapInst = version() >= v"19" ?
-    Union{AddInst, SubInst, MulInst, ShlInst, TruncInst} :
-    Union{AddInst, SubInst, MulInst, ShlInst}
+const NoWrapInst = Union{AddInst, SubInst, MulInst, ShlInst, TruncInst}
 @vocabulary IR ExactInst
 
 """
@@ -1606,19 +1601,21 @@ which makes the result poison if the operand is negative. Requires LLVM 18+.
 The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
 """
-const NonNegInst = version() >= v"19" ? Union{ZExtInst, UIToFPInst} : ZExtInst
+const NonNegInst = Union{ZExtInst, UIToFPInst}
 
 nuw(inst::NoWrapInst) = API.LLVMGetNUW(inst) |> Bool
 
 nuw!(inst::NoWrapInst, flag::Bool) = API.LLVMSetNUW(inst, flag)
 
-@property NoWrapInst nuw nuw!
+@property Union{AddInst, SubInst, MulInst, ShlInst} nuw nuw!
+@property TruncInst nuw nuw! since=19
 
 nsw(inst::NoWrapInst) = API.LLVMGetNSW(inst) |> Bool
 
 nsw!(inst::NoWrapInst, flag::Bool) = API.LLVMSetNSW(inst, flag)
 
-@property NoWrapInst nsw nsw!
+@property Union{AddInst, SubInst, MulInst, ShlInst} nsw nsw!
+@property TruncInst nsw nsw! since=19
 
 exact(inst::ExactInst) = API.LLVMGetExact(inst) |> Bool
 
@@ -1630,25 +1627,20 @@ disjoint(inst::OrInst) = API.LLVMGetIsDisjoint(inst) |> Bool
 
 disjoint!(inst::OrInst, flag::Bool) = API.LLVMSetIsDisjoint(inst, flag)
 
-if version() >= v"18"
-    @property OrInst disjoint disjoint!
-end
+@property OrInst disjoint disjoint! since=18
 
 nneg(inst::NonNegInst) = API.LLVMGetNNeg(inst) |> Bool
 
 nneg!(inst::NonNegInst, flag::Bool) = API.LLVMSetNNeg(inst, flag)
 
-if version() >= v"18"
-    @property NonNegInst nneg nneg!
-end
+@property ZExtInst nneg nneg! since=18
+@property UIToFPInst nneg nneg! since=19
 
 samesign(inst::ICmpInst) = API.LLVMGetICmpSameSign(inst) |> Bool
 
 samesign!(inst::ICmpInst, flag::Bool) = API.LLVMSetICmpSameSign(inst, flag)
 
-if version() >= v"20"
-    @property ICmpInst samesign samesign!
-end
+@property ICmpInst samesign samesign! since=20
 
 ## floating point operations
 
@@ -1724,7 +1716,7 @@ for (flag, bit) in pairs(fast_math_flag_bits)
             set_fast_math_bits!(flags, v ? bits | $bit : bits & ~$bit)
             return v
         end
-        push!(property_registry, (FastMathFlags, $(QuoteNode(flag))))
+        register_property!(FastMathFlags, $(QuoteNode(flag)))
     end
 end
 
@@ -1734,7 +1726,7 @@ function setprop!(flags::FastMathFlags, ::Val{:fast}, v::Bool)
     set_fast_math_bits!(flags, v ? fast_math_all_bits : UInt32(0))
     return v
 end
-push!(property_registry, (FastMathFlags, :fast))
+register_property!(FastMathFlags, :fast)
 
 function Base.NamedTuple(flags::FastMathFlags)
     bits = fast_math_bits(flags)
@@ -1814,9 +1806,8 @@ The properties of [`Instruction`](@ref LLVM.Instruction), [`User`](@ref LLVM.Use
 [`Value`](@ref LLVM.Value) are available too.
 """
 const FPMathInst = Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemInst, FCmpInst,
-                         PHIInst, SelectInst, CallInst,
-                         (version() >= v"20" ? (FPTruncInst, FPExtInst) : ())...,
-                         (version() >= v"23" ? (UIToFPInst, SIToFPInst) : ())...}
+                         PHIInst, SelectInst, CallInst, FPTruncInst, FPExtInst,
+                         UIToFPInst, SIToFPInst}
 
 @vocabulary IR supports_fast_math
 
@@ -1829,7 +1820,10 @@ instructions, this depends on whether they produce a floating-point value.
 """
 supports_fast_math(inst::Instruction) = Bool(API.LLVMCanValueUseFastMathFlags(inst))
 
-@property FPMathInst fast_math fast_math!
+@property Union{FNegInst, FAddInst, FSubInst, FMulInst, FDivInst, FRemInst, FCmpInst,
+                PHIInst, SelectInst, CallInst} fast_math fast_math!
+@property Union{FPTruncInst, FPExtInst} fast_math fast_math! since=20
+@property Union{UIToFPInst, SIToFPInst} fast_math fast_math! since=23
 
 
 ## memory operations

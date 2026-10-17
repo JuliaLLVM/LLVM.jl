@@ -241,7 +241,7 @@ end
 
 # before LLVM 19, the C API has no getters, but the function and the block are operands
 function blockaddress_function(ba::BlockAddress)
-    ref = @static if version() >= v"19"
+    ref = if atleast(19)
         API.LLVMGetBlockAddressFunction(ba)
     else
         API.LLVMGetOperand(ba, 0)
@@ -250,7 +250,7 @@ function blockaddress_function(ba::BlockAddress)
 end
 
 function blockaddress_block(ba::BlockAddress)
-    @static if version() >= v"19"
+    if atleast(19)
         BasicBlock(API.LLVMGetBlockAddressBasicBlock(ba))
     else
         BasicBlock(API.LLVMGetOperand(ba, 1))

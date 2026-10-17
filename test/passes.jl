@@ -200,11 +200,11 @@ end
             "check-debugify",
             "debugify",
         ]
-        test_passes("module", LLVM.module_passes, bad_passes)
+        test_passes("module", LLVM.module_passes(), bad_passes)
     end
 
     @testset "cgscc" begin
-        test_passes("cgscc", LLVM.cgscc_passes)
+        test_passes("cgscc", LLVM.cgscc_passes())
     end
 
     @testset "function" begin
@@ -218,11 +218,11 @@ end
             "chr",
             "helloworld"
         ]
-        test_passes("function", LLVM.function_passes, bad_passes)
+        test_passes("function", LLVM.function_passes(), bad_passes)
     end
 
     @testset "loop" begin
-        test_passes("loop", LLVM.loop_passes)
+        test_passes("loop", LLVM.loop_passes())
     end
 end
 
@@ -1205,12 +1205,12 @@ end
     # This deliberately violates the raw callback's no-throw contract. Run it
     # in a child process so native state abandoned by longjmp cannot affect the
     # rest of the test suite.
-    script = joinpath(@__DIR__, "raw_newpm_longjmp.jl")
+    script = julia_script("include($(repr(joinpath(@__DIR__, "raw_newpm_longjmp.jl"))))")
     project = dirname(Base.active_project())
-    @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project $script`)
+    @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`)
 end
 
-if LLVM.julia_llvm
+if julia_llvm_in_use()
 @testset "julia" begin
     @testset "passes" begin
         @dispose ctx=Context() pb=PassBuilder() begin

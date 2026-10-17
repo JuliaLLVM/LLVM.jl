@@ -141,6 +141,7 @@ LLVM.DICompositeType
 LLVM.DISubroutineType
 LLVM.DIEnumerator
 LLVM.DISubrange
+LLVM.DISubrangeType
 ```
 
 #### Properties
@@ -185,7 +186,11 @@ LLVM.enumerator!
 LLVM.enumeration_type!
 LLVM.forward_decl!
 LLVM.replaceable_composite_type!
+LLVM.replace_arrays!
 LLVM.subrange!
+LLVM.subrange_type!
+LLVM.set_type!
+LLVM.dynamic_array_type!
 ```
 
 Subroutine types:
@@ -207,6 +212,7 @@ LLVM.objc_property!
 ```@docs
 DISubprogram
 LLVM.subprogram!
+LLVM.replace_type!
 ```
 
 ### Variables
@@ -256,6 +262,10 @@ return an `Instruction` on LLVM ≤ 18 (legacy `llvm.dbg.*` intrinsics) and a
 ```@docs
 dbg_declare!
 dbg_value!
+LLVM.DbgRecord
+LLVM.DILabel
+LLVM.label!
+LLVM.dbg_label!
 ```
 
 The debug location of an instruction is available as its `debug_location` property (see

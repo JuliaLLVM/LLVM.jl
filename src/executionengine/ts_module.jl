@@ -172,13 +172,14 @@ the thread-safe module, so the module must not be disposed of afterwards.
 
 !!! warning
 
-    The context of the module must be the same as the current thread-safe context.
+    The context of the module must be the same as the active thread-safe context of the
+    module's library.
 
 This object needs to be disposed of using [`dispose(::ThreadSafeModule)`](@ref).
 """
 function ThreadSafeModule(mod::Module)
-    check_library(mod.library, ts_context())
-    if context(mod) != context(ts_context())
+    ts_ctx = ts_context(mod.library)
+    if context(mod) != context(ts_ctx)
         # XXX: the C API doesn't expose the convenience method to create a TSModule from a
         #      Module and a regular Context, only a method to create one from a Module
         #      and a pre-existing TSContext, which isn't useful...
@@ -186,14 +187,14 @@ function ThreadSafeModule(mod::Module)
         # XXX: work around this by serializing/deserializing in the correct context
         bitcode = convert(MemoryBuffer, mod)
         dispose(mod)
-        mod = context!(context(ts_context())) do
+        mod = context!(context(ts_ctx)) do
             parse(Module, bitcode)
         end
         dispose(bitcode)
     end
-    @assert context(mod) == context(ts_context())
+    @assert context(mod) == context(ts_ctx)
 
-    ref = API.LLVMOrcCreateNewThreadSafeModule(mod, ts_context())
+    ref = API.LLVMOrcCreateNewThreadSafeModule(mod, ts_ctx)
     tsm = ThreadSafeModule(ref; library=mod.library)
     mark_disposed(mod)
     return tsm
@@ -365,11 +366,9 @@ alive (see [`ThreadSafeContext`](@ref LLVM.ThreadSafeContext)), e.g., inside the
 that created it.
 """
 function unsafe_take_module!(tsm::ThreadSafeModule)
-    @static if version() >= v"16"
-        check_has_module(tsm)
-        ref = API.LLVMExtraThreadSafeModuleTakeModule(tsm)
-        return track_alloc(Module(ref, tsm.library))
-    else
+    atleast(16, tsm.library) ||
         error("Taking the module out of a ThreadSafeModule requires LLVM 16 or later")
-    end
+    check_has_module(tsm)
+    ref = API.LLVMExtraThreadSafeModuleTakeModule(tsm)
+    return track_alloc(Module(ref, tsm.library))
 end

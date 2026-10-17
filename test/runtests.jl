@@ -60,7 +60,7 @@ else
         @test LLVM.Interop.generate_llvmcall(Int, Tuple{Int}, :x) do builder, x
             x
         end isa Expr
-        @test !("RemoveNI" in LLVM.module_passes)
+        @test !("RemoveNI" in LLVM.module_passes())
     end
 end
 include("orc.jl")

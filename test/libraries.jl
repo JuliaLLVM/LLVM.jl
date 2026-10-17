@@ -2,7 +2,8 @@
 
 # see test/standalone/libraries.jl for using several libraries
 lib = LLVM.library()
-@test lib.name === (LLVM.julia_llvm ? :julia : Symbol(:llvm, lib.version.major))
+@test lib.name === (haskey(ENV, "LLVM_TEST_LIBRARY") ? :test :
+                    LLVM.julia_llvm ? :julia : Symbol(:llvm, lib.version.major))
 @test LLVM.Library(lib.name) === lib
 @test LLVM.version() == lib.version
 @test sprint(show, lib) == "LLVM.Library(:$(lib.name))"

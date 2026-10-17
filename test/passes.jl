@@ -1205,12 +1205,12 @@ end
     # This deliberately violates the raw callback's no-throw contract. Run it
     # in a child process so native state abandoned by longjmp cannot affect the
     # rest of the test suite.
-    script = joinpath(@__DIR__, "raw_newpm_longjmp.jl")
+    script = julia_script("include($(repr(joinpath(@__DIR__, "raw_newpm_longjmp.jl"))))")
     project = dirname(Base.active_project())
-    @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project $script`)
+    @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`)
 end
 
-if LLVM.julia_llvm
+if julia_llvm_in_use()
 @testset "julia" begin
     @testset "passes" begin
         @dispose ctx=Context() pb=PassBuilder() begin

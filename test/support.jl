@@ -161,11 +161,11 @@ if LLVM.memcheck_enabled
     # reports are not interleaved when stdout is buffered, e.g., when it is a file
     mktemp() do path, io
         close(io)
-        script = """using LLVM
-                    ctx = LLVM.Context()
-                    builder = LLVM.IRBuilder()
-                    LLVM.dispose(builder)
-                    LLVM.API.LLVMGetInsertBlock(builder)"""
+        script = julia_script("""
+            ctx = LLVM.Context()
+            builder = LLVM.IRBuilder()
+            LLVM.dispose(builder)
+            LLVM.API.LLVMGetInsertBlock(builder)""")
         cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) -e $script`
         run(pipeline(ignorestatus(cmd), stdout=path, stderr=devnull))
         @test occursin("being used after it was disposed of.\nThe object was allocated at:\nStacktrace:",

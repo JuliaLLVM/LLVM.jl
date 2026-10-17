@@ -140,6 +140,49 @@ jobs:
                     end'
           julia --project -e 'using Pkg; Pkg.test()'
 
+  mixed:
+    # run the tests with a standalone library next to Julia's own LLVM, of another version,
+    # which LLVM.jl was not compiled for
+    name: Julia ${{ matrix.julia }} next to LLVM ${{ matrix.llvm }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - julia: '1.10'  # LLVM 15
+            llvm: '23'
+          - julia: '1.12'  # LLVM 18
+            llvm: '23'
+          - julia: '1.12'
+            llvm: '16'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
+      # the library is built using Julia 1.12, like in the standalone job, from a copy of
+      # deps/ so that its environment doesn't affect the one of the Julia version under test
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.12'
+      - name: Build the standalone library
+        run: |
+          cp -r deps "$RUNNER_TEMP/deps"
+          julia "$RUNNER_TEMP/deps/build_standalone.jl" ${{ matrix.llvm }} "$RUNNER_TEMP/standalone" | tee build.log
+          echo "LLVM_TEST_LIBRARY=$(tail -n 1 build.log)" >> "$GITHUB_ENV"
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+      - uses: julia-actions/cache@v3
+        with:
+          cache-artifacts: 'false'
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Build libLLVMExtra
+        run: julia --project=deps deps/build_ci.jl
+      - name: Run tests
+        timeout-minutes: 20
+        run: julia --project -e 'using Pkg; Pkg.test()'
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest

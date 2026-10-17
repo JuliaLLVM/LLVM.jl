@@ -4,11 +4,25 @@
 
 """
     LLVM.version() -> VersionNumber
+    LLVM.version(lib::LLVM.Library) -> VersionNumber
+    LLVM.version(obj) -> VersionNumber
 
-The version of the current LLVM library (see [`LLVM.library`](@ref)): the one Julia uses,
-unless the `libLLVM` preference selects another one.
+The version of LLVM of the current library (see [`LLVM.library`](@ref)), of `lib`, or of the
+library that `obj` belongs to: an object that remembers its library, like a context, module,
+builder or target machine.
+
+Code that depends on the version of LLVM should check it at run time, for the library it
+works with: e.g., `LLVM.version(mod) >= v"21"` when adding passes that run on `mod`.
+Checking it at compile time (`@static if LLVM.version() ...`) uses the library that LLVM.jl
+uses by default, while other libraries can be used at the same time.
 """
 version() = library().version
+version(lib::Library) = lib.version
+function version(@nospecialize(obj))
+    lib = argument_library(obj)
+    lib === nothing && throw(ArgumentError("$(typeof(obj)) does not remember its LLVM library; use the version of the current library, `LLVM.version()`"))
+    return lib.version
+end
 
 """
     LLVM.isavailable(x)

@@ -598,4 +598,4 @@ end
 
 @property Attribute kind
 @property Union{EnumAttribute,StringAttribute,TypeAttribute} value
-version() >= v"19" && @property ConstantRangeAttribute value
+@property ConstantRangeAttribute value since=19

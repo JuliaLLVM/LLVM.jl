@@ -4,6 +4,10 @@
 # e.g., by running `deps/build_local.jl`.
 #libLLVMExtra = "/path/to/libLLVMExtra.so"
 
+# which LLVM library to use instead of Julia's, e.g., a standalone library built by
+# `deps/build_standalone.jl`, which also provides LLVMExtra.
+#libLLVM = "/path/to/libLLVM-standalone.so"
+
 # whether to enable additional object type checking
 #typecheck = "false"
 

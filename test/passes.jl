@@ -1210,6 +1210,7 @@ end
     @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project $script`)
 end
 
+if LLVM.julia_llvm
 @testset "julia" begin
     @testset "passes" begin
         @dispose ctx=Context() pb=PassBuilder() begin
@@ -1354,6 +1355,7 @@ end
             end
         end
     end
+end
 end
 
 # on Windows, instrumentation needs LLVM 20 to work across libraries, including

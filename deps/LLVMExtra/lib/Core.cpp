@@ -32,6 +32,7 @@
 #include <llvm/IR/ReplaceConstant.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
@@ -55,6 +56,26 @@ LLVMBool LLVMExtraInitializeNativeAsmPrinter() {
 LLVMBool LLVMExtraInitializeNativeDisassembler() {
   return InitializeNativeTargetDisassembler();
 }
+
+void LLVMExtraParseEnvironmentOptions(const char *ProgName, const char *EnvVar) {
+  const char *const Argv[1] = {ProgName};
+  cl::ParseCommandLineOptions(1, Argv, "", /*Errs=*/nullptr,
+#if LLVM_VERSION_MAJOR >= 22
+                              /*VFS=*/nullptr,
+#endif
+                              EnvVar);
+}
+
+#if LLVM_VERSION_MAJOR < 16
+void LLVMGetVersion(unsigned *Major, unsigned *Minor, unsigned *Patch) {
+  if (Major)
+    *Major = LLVM_VERSION_MAJOR;
+  if (Minor)
+    *Minor = LLVM_VERSION_MINOR;
+  if (Patch)
+    *Patch = LLVM_VERSION_PATCH;
+}
+#endif
 
 
 //

@@ -100,11 +100,11 @@ jobs:
           file: lcov.info
 
   standalone:
-    # build standalone LLVM libraries from every version of LLVM_full_jll, and check that they
-    # work next to Julia's own LLVM
-    name: Standalone LLVM ${{ matrix.llvm }} - ${{ matrix.os }}
+    # build standalone LLVM libraries from every version of LLVM_full_jll, check that they
+    # work next to Julia's own LLVM, and run the tests with LLVM.jl using them
+    name: Julia 1.12 with LLVM ${{ matrix.llvm }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +132,13 @@ jobs:
         run: |
           julia --project=test -e 'using Pkg; Pkg.instantiate()'
           julia --project=test test/standalone/runtests.jl "$STANDALONE_LIBRARY"
+      - name: Run tests using the standalone library
+        timeout-minutes: 20
+        run: |
+          julia -e 'open("LocalPreferences.toml", "a") do io
+                      println(io, "libLLVM = \"$(ENV["STANDALONE_LIBRARY"])\"")
+                    end'
+          julia --project -e 'using Pkg; Pkg.test()'
 
   docs:
     name: Documentation

@@ -218,7 +218,7 @@ to have the same type, unless both are global values (e.g., when replacing a fun
 one with another signature, using typed pointers).
 """
 function replace_metadata_uses!(old::Value, new::Value)
-    if version() >= v"18" || value_type(old) == value_type(new)
+    if atleast(18) || value_type(old) == value_type(new)
         API.LLVMReplaceAllMetadataUsesWith(old, new)
         return
     end
@@ -335,10 +335,8 @@ Base.eltype(::Type{ValueUseSet}) = Use
 end
 
 first_use(val::Value) = API.LLVMGetFirstUse(val)
-@static if version() >= v"21"
-    # LLVM 21 removed the uselist from ConstantData values
-    first_use(::ConstantData) = C_NULL
-end
+# LLVM 21 removed the uselist from ConstantData values
+first_use(val::ConstantData) = atleast(21) ? C_NULL : API.LLVMGetFirstUse(val)
 
 Base.IteratorSize(::Type{ValueUseSet}) = Base.SizeUnknown()
 

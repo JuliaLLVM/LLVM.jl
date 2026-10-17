@@ -82,11 +82,11 @@ function Attribute(ref::API.LLVMAttributeRef)
     elseif Bool(API.LLVMIsTypeAttribute(ref))
         return TypeAttribute(ref)
     else
-        @static if version() >= v"20"
+        if atleast(19)
             Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
+        end
+        if atleast(20)
             Bool(API.LLVMIsConstantRangeListAttribute(ref)) && return ConstantRangeListAttribute(ref)
-        elseif version() >= v"19"
-            Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
         end
         error("unknown attribute kind")
     end
@@ -96,7 +96,7 @@ end
 function Base.show(io::IO, attr::Attribute)
     print(io, nameof(typeof(attr)), "(")
     show(io, kind(attr))
-    if attr isa ConstantRangeAttribute && version() >= v"19"
+    if attr isa ConstantRangeAttribute && atleast(19)
         print(io, ", ")
         show(io, value(attr))
     elseif attr isa Union{EnumAttribute,StringAttribute,TypeAttribute}
@@ -126,7 +126,7 @@ function attribute_kind_category(id::Integer)
     Bool(API.LLVMExtraIsEnumAttributeKind(id)) && return :enum
     Bool(API.LLVMExtraIsIntAttributeKind(id)) && return :int
     Bool(API.LLVMExtraIsTypeAttributeKind(id)) && return :type
-    @static if version() >= v"19"
+    if atleast(19)
         Bool(API.LLVMExtraIsConstantRangeAttributeKind(id)) && return :range
     end
     return :other
@@ -237,47 +237,43 @@ end
 
 ## constant range attribute
 
-if version() >= v"19"
-    function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, nbits::Integer,
-                                    lower::AbstractVector{UInt64},
-                                    upper::AbstractVector{UInt64})
-        enum_kind = checked_attribute_kind_id(kind, :range)
-        # LLVM reads the words of both bounds, cld(nbits, 64) each (ignoring bits beyond
-        # nbits), and asserts that the range is valid and not the full range
-        0 < nbits <= typemax(Cuint) ||
-            throw(ArgumentError("Invalid number of bits for a range: $nbits"))
-        nwords = cld(nbits, 64)
-        length(lower) == length(upper) == nwords ||
-            throw(ArgumentError("The bounds of a $nbits-bit range need $nwords words each, got $(length(lower)) and $(length(upper))"))
-        bound(words) = foldl((x, (i, w)) -> x | big(w) << (64*(i-1)), enumerate(words);
-                             init=big(0)) & (big(1) << nbits - 1)
-        lo, hi = bound(lower), bound(upper)
-        if lo == hi
-            lo == 0 || lo == big(1) << nbits - 1 ||
-                throw(ArgumentError("The bounds of a range can only be equal to denote the empty range (0, 0)"))
-            lo == 0 || throw(ArgumentError("A range attribute cannot be the full range"))
-        end
-        return ConstantRangeAttribute(
-            API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
-                                                 as_vector(lower), as_vector(upper)))
+function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, nbits::Integer,
+                                lower::AbstractVector{UInt64},
+                                upper::AbstractVector{UInt64})
+    enum_kind = checked_attribute_kind_id(kind, :range)
+    # LLVM reads the words of both bounds, cld(nbits, 64) each (ignoring bits beyond
+    # nbits), and asserts that the range is valid and not the full range
+    0 < nbits <= typemax(Cuint) ||
+        throw(ArgumentError("Invalid number of bits for a range: $nbits"))
+    nwords = cld(nbits, 64)
+    length(lower) == length(upper) == nwords ||
+        throw(ArgumentError("The bounds of a $nbits-bit range need $nwords words each, got $(length(lower)) and $(length(upper))"))
+    bound(words) = foldl((x, (i, w)) -> x | big(w) << (64*(i-1)), enumerate(words);
+                         init=big(0)) & (big(1) << nbits - 1)
+    lo, hi = bound(lower), bound(upper)
+    if lo == hi
+        lo == 0 || lo == big(1) << nbits - 1 ||
+            throw(ArgumentError("The bounds of a range can only be equal to denote the empty range (0, 0)"))
+        lo == 0 || throw(ArgumentError("A range attribute cannot be the full range"))
     end
+    return ConstantRangeAttribute(
+        API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
+                                             as_vector(lower), as_vector(upper)))
 end
 
-if version() >= v"19"
-    function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, r::ConstantRange)
-        isfullset(r) && throw(ArgumentError("A range attribute cannot be the full range"))
-        return ConstantRangeAttribute(kind, bitwidth(r), collect(getfield(r, :lower)),
-                                      collect(getfield(r, :upper)))
-    end
+function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, r::ConstantRange)
+    isfullset(r) && throw(ArgumentError("A range attribute cannot be the full range"))
+    return ConstantRangeAttribute(kind, bitwidth(r), collect(getfield(r, :lower)),
+                                  collect(getfield(r, :upper)))
+end
 
-    function value(attr::ConstantRangeAttribute)
-        nbits = API.LLVMExtraGetConstantRangeAttributeValue(attr, C_NULL, C_NULL)
-        n = nwords(nbits)
-        lower = Vector{UInt64}(undef, n)
-        upper = Vector{UInt64}(undef, n)
-        API.LLVMExtraGetConstantRangeAttributeValue(attr, lower, upper)
-        return unsafe_range(nbits, Tuple(lower)::Words, Tuple(upper)::Words)
-    end
+function value(attr::ConstantRangeAttribute)
+    nbits = API.LLVMExtraGetConstantRangeAttributeValue(attr, C_NULL, C_NULL)
+    n = nwords(nbits)
+    lower = Vector{UInt64}(undef, n)
+    upper = Vector{UInt64}(undef, n)
+    API.LLVMExtraGetConstantRangeAttributeValue(attr, lower, upper)
+    return unsafe_range(nbits, Tuple(lower)::Words, Tuple(upper)::Words)
 end
 
 kind(attr::ConstantRangeAttribute) = attribute_kind_name(attribute_kind_id(attr))

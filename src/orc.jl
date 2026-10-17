@@ -1547,7 +1547,7 @@ function decorate_module(mod)
             # Julia 1.12 (JuliaLang/julia#54841) rewrote the catchjmp asm to use
             # normal relocations and emit a PLT trampoline to __julia_personality.
             # The section used depends on the LLVM version.
-            if LLVM.version() >= v"18"
+            if version(mod) >= v"18"
                 section = ".ltext,\"ax\",@progbits"
                 offset = ".ltext"
             else

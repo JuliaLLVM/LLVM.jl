@@ -654,15 +654,15 @@ function fence!(builder::IRBuilder, ordering::API.LLVMAtomicOrdering, syncscope:
     Instruction(API.LLVMBuildFenceSyncScope(builder, ordering, syncscope.id, Name))
 end
 
-check_available(op::API.LLVMAtomicRMWBinOp) =
-    isavailable(op) ||
-        throw(ArgumentError("atomicrmw operation $(msgname(op)) is not supported by LLVM $(version())"))
+check_available(op::API.LLVMAtomicRMWBinOp, lib::Library) =
+    isavailable(op, lib.version.major) ||
+        throw(ArgumentError("atomicrmw operation $(msgname(op)) is not supported by LLVM $(lib.version)"))
 
 function _build_atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                             ordering::API.LLVMAtomicOrdering, syncscope::SyncScope)
-    check_available(op)
+    check_available(op, builder.library)
     check_context(syncscope, context(builder))
-    @static if v"16" <= version() < v"19"
+    if atleast(16, builder.library) && !atleast(19, builder.library)
         # operations that this C API doesn't define have to be passed as integers
         if Integer(op) > Integer(API.LLVMAtomicRMWBinOpFMin)
             return Instruction(API.LLVMExtraBuildAtomicRMWSyncScope(builder, Integer(op), Ptr,
@@ -687,7 +687,7 @@ size of the value.
 function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                      ordering::API.LLVMAtomicOrdering; scope=nothing, align=nothing,
                      volatile::Bool=false)
-    check_available(op)
+    check_available(op, builder.library)
     is_stronger(ordering, Unordered) ||
         throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $(msgname(ordering))"))
     T = value_type(Val)

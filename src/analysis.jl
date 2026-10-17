@@ -575,13 +575,11 @@ function ConstantRange(lvi::LazyValueInfo, v::Value; at::Union{Nothing,Instructi
     end
 end
 
-if version() >= v"16"
-    function ConstantRange(lvi::LazyValueInfo, use::Use; undef_allowed::Bool=false)
-        nbits = checked_integer_width(use.value)
-        compute_range(Val(nwords(nbits)), nbits) do lo, hi
-            API.LLVMExtraLazyValueInfoGetConstantRangeAtUse(lvi, use, undef_allowed, lo,
-                                                            hi) |> Bool
-        end
+function ConstantRange(lvi::LazyValueInfo, use::Use; undef_allowed::Bool=false)
+    nbits = checked_integer_width(use.value)
+    compute_range(Val(nwords(nbits)), nbits) do lo, hi
+        API.LLVMExtraLazyValueInfoGetConstantRangeAtUse(lvi, use, undef_allowed, lo,
+                                                        hi) |> Bool
     end
 end
 

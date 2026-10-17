@@ -366,11 +366,9 @@ alive (see [`ThreadSafeContext`](@ref LLVM.ThreadSafeContext)), e.g., inside the
 that created it.
 """
 function unsafe_take_module!(tsm::ThreadSafeModule)
-    @static if version() >= v"16"
-        check_has_module(tsm)
-        ref = API.LLVMExtraThreadSafeModuleTakeModule(tsm)
-        return track_alloc(Module(ref, tsm.library))
-    else
+    atleast(16, tsm.library) ||
         error("Taking the module out of a ThreadSafeModule requires LLVM 16 or later")
-    end
+    check_has_module(tsm)
+    ref = API.LLVMExtraThreadSafeModuleTakeModule(tsm)
+    return track_alloc(Module(ref, tsm.library))
 end

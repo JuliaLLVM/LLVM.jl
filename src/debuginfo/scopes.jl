@@ -62,7 +62,6 @@ tracked subprograms automatically.
 finalize_subprogram!(builder::DIBuilder, sp::DISubprogram) =
     API.LLVMDIBuilderFinalizeSubprogram(builder, sp)
 
-@static if version() >= v"21"
 
 @vocabulary Build replace_type!
 
@@ -73,8 +72,6 @@ Replace the type of the given subprogram. Requires LLVM 21+.
 """
 replace_type!(sp::DISubprogram, ty::DISubroutineType) =
     API.LLVMDISubprogramReplaceType(sp, ty)
-
-end # @static version check
 
 
 ## compile unit

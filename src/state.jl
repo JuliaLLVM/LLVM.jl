@@ -8,37 +8,80 @@
 
 @vocabulary IR context, activate, deactivate, context!
 
-# the stack of contexts of the current task, if any. constructors that use the active
-# context call this all the time, so it's a single lookup, and type-asserted so that the
-# C API wrappers it's passed to resolve statically.
-context_stack() =
-    get(task_local_storage(), :LLVMContext, nothing)::Union{Nothing,Vector{Context}}
+# the active contexts of the current task are kept in a single stack, in the order they
+# were activated, which can mix contexts of different libraries. each library sees its own
+# stack: lookups only consider the contexts of one library, and contexts of one library
+# need to be deactivated in reverse order, independently of those of other libraries.
+
+# constructors that use the active context look it up all the time, so this is a single
+# lookup, and type-asserted so that the C API wrappers it's passed to resolve statically.
+function active_stack(key::Symbol, ::Type{T}) where {T}
+    tls = task_local_storage()
+    stack = get(tls, key, nothing)
+    stack === nothing && return nothing
+    return stack::Vector{T}
+end
+
+# the index of the most recently activated context of `lib` in `stack`, or `nothing`
+function active_index(stack, lib::Library)
+    stack === nothing && return nothing
+    for i in lastindex(stack):-1:firstindex(stack)
+        @inbounds(stack[i]).library === lib && return i
+    end
+    return nothing
+end
+
+@inline function active_context(key::Symbol, ::Type{T}, lib::Library,
+                                throw_error::Bool) where {T}
+    stack = active_stack(key, T)
+    i = active_index(stack, lib)
+    i === nothing || return @inbounds stack[i]
+    throw_error && throw_no_context(T, lib, stack)
+    return nothing
+end
+
+@noinline function throw_no_context(T, lib::Library, stack)
+    kind = T === Context ? "LLVM context" : "LLVM thread-safe context"
+    others = stack === nothing ? Symbol[] : unique!([ctx.library.name for ctx in stack])
+    if isempty(others)
+        error("No $kind is active")
+    else
+        error("""No $kind of LLVM library :$(lib.name) is active, but one of :$(join(others, ", :")) is.
+                 Use `context!(ctx) do ... end` or `LLVM.library!` to make the context's library current.""")
+    end
+end
+
+function push_active!(key::Symbol, ctx::T) where {T}
+    stack = get!(() -> T[], task_local_storage(), key)::Vector{T}
+    push!(stack, ctx)
+    return
+end
+
+function pop_active!(key::Symbol, ctx::T) where {T}
+    stack = active_stack(key, T)
+    i = active_index(stack, ctx.library)
+    if i === nothing || stack[i] != ctx
+        error(T === Context ? "Deactivating wrong context" :
+                              "Deactivating wrong thread-safe context")
+    end
+    deleteat!(stack, i)
+    return
+end
 
 """
     context(; throw_error::Bool=true)
 
-Get the active LLVM context for the current tasks. Throws an exception if no context is
-active, unless `throw_error=false`. The context needs to belong to the current library (see
-[`LLVM.library`](@ref)).
+Get the active LLVM context of the current library (see [`LLVM.library`](@ref)) for the
+current task: the one that was activated most recently. Throws an exception if no context
+of that library is active, unless `throw_error=false`.
 """
 function context(; throw_error::Bool=true)
     # inlined, so that the result is a concrete `Context` when an error is thrown
     # otherwise; returning `Union{Nothing,Context}` would allocate, as contexts remember
     # their library
     @inline
-    stack = context_stack()
-    if stack === nothing || isempty(stack)
-        throw_error && error("No LLVM context is active")
-        return nothing
-    end
-    ctx = last(stack)
-    ctx.library === library() || throw_inactive_library(ctx)
-    return ctx
+    active_context(:LLVMContext, Context, library(), throw_error)
 end
-
-@noinline throw_inactive_library(@nospecialize(ctx)) =
-    error("""The active context belongs to LLVM library :$(ctx.library.name), but the current library is :$(library().name).
-             Use `context!(ctx) do ... end` or `LLVM.library!` to make the context's library current.""")
 
 """
     activate(obj)
@@ -66,27 +109,18 @@ function deactivate end
 """
     activate(ctx::LLVM.Context)
 
-Pushes a new context onto the context stack.
+Make `ctx` the active context of its library for the current task (see
+[`context`](@ref)), until it is deactivated.
 """
-function activate(ctx::Context)
-    stack = get!(task_local_storage(), :LLVMContext) do
-        Context[]
-    end
-    push!(stack, ctx)
-    return
-end
+activate(ctx::Context) = push_active!(:LLVMContext, ctx)
 
 """
     deactivate(ctx::LLVM.Context)
 
-Pops the current context from the context stack.
+Undo [`activate`](@ref)`(ctx)`. Contexts of a library need to be deactivated in the reverse
+order of their activation, which throws an error otherwise.
 """
-function deactivate(ctx::Context)
-    stack = context_stack()
-    stack !== nothing && !isempty(stack) && last(stack) == ctx ||
-        error("Deactivating wrong context")
-    pop!(stack)
-end
+deactivate(ctx::Context) = pop_active!(:LLVMContext, ctx)
 
 """
     context!(ctx::LLVM.Context) do
@@ -112,51 +146,36 @@ end
 
 @vocabulary ORC ts_context, activate, deactivate, ts_context!
 
-ts_context_stack() = get(task_local_storage(), :LLVMTSContext,
-                         nothing)::Union{Nothing,Vector{ThreadSafeContext}}
-
 """
     ts_context(; throw_error::Bool=true)
 
-Get the active LLVM thread-safe context for the current tasks. Throws an exception if no
-context is active, unless `throw_error=false`.
+Get the active LLVM thread-safe context of the current library for the current task.
+Throws an exception if no thread-safe context of that library is active, unless
+`throw_error=false`.
 """
 function ts_context(; throw_error::Bool=true)
     @inline
-    stack = ts_context_stack()
-    if stack === nothing || isempty(stack)
-        throw_error && error("No LLVM thread-safe context is active")
-        return nothing
-    end
-    ts_ctx = last(stack)
-    ts_ctx.library === library() || throw_inactive_library(ts_ctx)
-    return ts_ctx
+    ts_context(library(); throw_error)
 end
+
+# the active thread-safe context of another library, e.g., that of a module
+@inline ts_context(lib::Library; throw_error::Bool=true) =
+    active_context(:LLVMTSContext, ThreadSafeContext, lib, throw_error)
 
 """
     activate(ts_ctx::LLVM.ThreadSafeContext)
 
-Pushes a new thread-safe context onto the context stack.
+Make `ts_ctx` the active thread-safe context of its library for the current task (see
+[`ts_context`](@ref)), until it is deactivated.
 """
-function activate(ts_ctx::ThreadSafeContext)
-    stack = get!(task_local_storage(), :LLVMTSContext) do
-        ThreadSafeContext[]
-    end
-    push!(stack, ts_ctx)
-    return
-end
+activate(ts_ctx::ThreadSafeContext) = push_active!(:LLVMTSContext, ts_ctx)
 
 """
     deactivate(ts_ctx::LLVM.ThreadSafeContext)
 
-Pops the current thread-safe context from the context stack.
+Undo [`activate`](@ref)`(ts_ctx)`, in the reverse order of activation like for contexts.
 """
-function deactivate(ts_ctx::ThreadSafeContext)
-    stack = ts_context_stack()
-    stack !== nothing && !isempty(stack) && last(stack) == ts_ctx ||
-        error("Deactivating wrong thread-safe context")
-    pop!(stack)
-end
+deactivate(ts_ctx::ThreadSafeContext) = pop_active!(:LLVMTSContext, ts_ctx)
 
 """
     ts_context!(ts_ctx::LLVM.ThreadSafeContext) do

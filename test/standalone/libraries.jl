@@ -72,6 +72,42 @@ other = Library(:other)
     end
 end
 
+@testset "contexts" begin
+    # each library has its own active contexts, so contexts of different libraries can be
+    # active at the same time, and their lifetimes can interleave
+    julia_ctx = LLVM.Context()
+    other_ctx = LLVM.Context(; library=other)
+    @test LLVM.context() == julia_ctx
+    @test library!(LLVM.context, other) == other_ctx
+    inner_ctx = LLVM.Context()
+    @test LLVM.context() == inner_ctx
+    # contexts of one library are deactivated in reverse order
+    @test_throws "Deactivating wrong context" dispose(julia_ctx)
+    dispose(inner_ctx)
+    @test LLVM.context() == julia_ctx
+    dispose(julia_ctx)
+    @test LLVM.context(; throw_error=false) === nothing
+    @test_throws "No LLVM context of LLVM library :julia is active, but one of :other is" LLVM.context()
+    @test library!(LLVM.context, other) == other_ctx
+    dispose(other_ctx)
+    @test_throws "No LLVM context is active" LLVM.context()
+
+    # thread-safe contexts too, and thread-safe modules use those of their module's library
+    LLVM.ThreadSafeContext() do julia_ts_ctx
+        other_ts_ctx = LLVM.ThreadSafeContext(; library=other)
+        @test LLVM.ts_context() == julia_ts_ctx
+        @test library!(LLVM.ts_context, other) == other_ts_ctx
+        mod = LLVM.context!(LLVM.context(other_ts_ctx)) do
+            parse(LLVM.Module, IR)
+        end
+        LLVM.ThreadSafeModule(mod) do tsm
+            @test tsm.library === other
+        end
+        dispose(other_ts_ctx)
+        @test LLVM.ts_context(; throw_error=false) == julia_ts_ctx
+    end
+end
+
 @testset "IR" begin
     # parse IR from Julia's LLVM, process it with the other library, and keep the module
     # after leaving the library's scope
@@ -128,7 +164,7 @@ end
     end
     # nor can contexts of another library be used implicitly
     LLVM.activate(ctx)
-    @test_throws "The active context belongs to LLVM library :other" LLVM.Module("foo")
+    @test_throws "No LLVM context of LLVM library :julia is active, but one of :other is" LLVM.Module("foo")
     @test library!(() -> LLVM.Module("foo"), other) isa LLVM.Module
     dispose(ctx)
 end

@@ -286,16 +286,13 @@ const opcodes = [:Ret, :Br, :Switch, :IndirectBr, :Invoke, :Unreachable, :CallBr
                  :FCmp, :PHI, :Call, :Select, :UserOp1, :UserOp2, :VAArg, :ExtractElement,
                  :InsertElement, :ShuffleVector, :ExtractValue, :InsertValue, :Freeze,
                  :Fence, :AtomicCmpXchg, :AtomicRMW, :Resume, :LandingPad, :CleanupRet,
-                 :CatchRet, :CatchPad, :CleanupPad, :CatchSwitch]
-
-if version() >= v"22"
-    push!(opcodes, :PtrToAddr)
-end
+                 :CatchRet, :CatchPad, :CleanupPad, :CatchSwitch, :PtrToAddr]
 
 for op in opcodes
     typename = Symbol(op, :Inst)
-    enums = op === :Br && version() >= v"23" ?
-            (:LLVMUncondBr, :LLVMCondBr) : (Symbol(:LLVM, op),)
+    # LLVM 23 split branches into unconditional and conditional ones. as an older library
+    # does not return opcodes of a newer one, and vice versa, all of them can be registered.
+    enums = op === :Br ? (:LLVMBr, :LLVMUncondBr, :LLVMCondBr) : (Symbol(:LLVM, op),)
     # the instruction's name in textual IR
     irname = op === :VAArg ? "va_arg" : op === :AtomicCmpXchg ? "cmpxchg" :
              op === :AtomicRMW ? "atomicrmw" : lowercase(string(op))
@@ -447,10 +444,10 @@ isatomic(inst::Instruction) = API.LLVMIsAtomic(inst) |> Bool
 
 function ordering(inst::AtomicInst)
     isatomic(inst) || throw(ArgumentError("Instruction is not atomic"))
-    @static if version() < v"18"
-        API.LLVMExtraGetOrdering(inst)
-    else
+    if atleast(18)
         API.LLVMGetOrdering(inst)
+    else
+        API.LLVMExtraGetOrdering(inst)
     end
 end
 ordering(::AtomicCmpXchgInst) =
@@ -475,10 +472,10 @@ function ordering!(inst::AtomicInst, ord::API.LLVMAtomicOrdering)
     elseif inst isa FenceInst
         check_fence_ordering(ord)
     end
-    @static if version() < v"18"
-        API.LLVMExtraSetOrdering(inst, ord)
-    else
+    if atleast(18)
         API.LLVMSetOrdering(inst, ord)
+    else
+        API.LLVMExtraSetOrdering(inst, ord)
     end
 end
 ordering!(::AtomicCmpXchgInst, ::API.LLVMAtomicOrdering) =
@@ -800,7 +797,7 @@ syncscope!(inst::AtomicInst, name::Union{AbstractString,Symbol}) =
 @property AtomicInst syncscope syncscope!
 
 function binop(inst::AtomicRMWInst)
-    @static if v"16" <= version() < v"19"
+    if atleast(16) && !atleast(19)
         API.LLVMAtomicRMWBinOp(API.LLVMExtraGetAtomicRMWBinOp(inst))
     else
         API.LLVMGetAtomicRMWBinOp(inst)
@@ -809,9 +806,9 @@ end
 
 # not `binop!`, which builds binary operators
 function set_binop!(inst::AtomicRMWInst, op::API.LLVMAtomicRMWBinOp)
-    check_available(op)
+    check_available(op, library())
     check_rmw_type(op, value_type(value_operand(inst)))
-    @static if v"16" <= version() < v"19"
+    if atleast(16) && !atleast(19)
         API.LLVMExtraSetAtomicRMWBinOp(inst, Integer(op))
     else
         API.LLVMSetAtomicRMWBinOp(inst, op)
@@ -897,7 +894,7 @@ drops the annotations of other instructions. Requires LLVM 19 or later.
 This uses LLVM's `canInstructionHaveMMRAs`.
 """
 function supports_mmra(inst::Instruction)
-    @static if version() >= v"19"
+    if atleast(19)
         API.LLVMExtraCanInstructionHaveMMRAs(inst) |> Bool
     else
         error("Memory model relaxation annotations require LLVM 19 or later")
@@ -2065,8 +2062,6 @@ inbounds!(inst::GetElementPtrInst, flag::Bool) = API.LLVMSetIsInBounds(inst, fla
 
 # the other no-wrap flags of GEPs, which LLVM 19 added. `inbounds` implies `nusw`: LLVM
 # sets both when making a GEP `inbounds`, so clearing `nusw` has to clear `inbounds` too.
-if version() >= v"19"
-
 gep_flags(gep::Union{GetElementPtrInst,ConstantExpr}) = UInt32(API.LLVMGEPGetNoWrapFlags(gep))
 
 nusw(inst::GetElementPtrInst) = gep_flags(inst) & UInt32(API.LLVMGEPFlagNUSW) != 0
@@ -2087,12 +2082,10 @@ function nuw!(inst::GetElementPtrInst, flag::Bool)
     API.LLVMGEPSetNoWrapFlags(inst, flag ? gep_flags(inst) | bit : gep_flags(inst) & ~bit)
 end
 
-@property GetElementPtrInst nusw nusw!
-@property GetElementPtrInst nuw nuw!
-@property ConstantExpr nusw
-@property ConstantExpr nuw
-
-end
+@property GetElementPtrInst nusw nusw! since=19
+@property GetElementPtrInst nuw nuw! since=19
+@property ConstantExpr nusw since=19
+@property ConstantExpr nuw since=19
 
 
 ## aggregate operations

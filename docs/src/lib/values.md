@@ -31,6 +31,7 @@ UndefValue
 PoisonValue
 ConstantInt
 convert(::Type, val::ConstantInt)
+ConstantByte
 ConstantFP
 convert(::Type{T}, val::ConstantFP) where {T<:AbstractFloat}
 ConstantStruct

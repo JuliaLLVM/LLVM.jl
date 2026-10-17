@@ -53,7 +53,7 @@ struct InsertionPoint{T}
 
     # debug records, and with them the head bit, only exist since LLVM 19
     InsertionPoint{T}(parent, anchor, head::Bool) where {T} =
-        new{T}(parent, anchor, version() >= v"19" && head)
+        new{T}(parent, anchor, atleast(19) && head)
 end
 
 parent_block(pos::InsertionPoint{Instruction}) =

@@ -1222,7 +1222,9 @@ as a dictionary-like view that maps the kind of metadata to a metadata node. The
 an `MDKind`, like `LLVM.MD_dbg`, or the name of the kind, like `"tbaa"`. The view can be
 iterated (in the case of an instruction, this includes its debug location), and is mutable:
 assign to a kind to attach metadata, e.g., `inst.metadata["tbaa"] = node`, and use `delete!`
-to remove it.
+to remove it. Global objects can have several attachments of the same kind (e.g., a global
+variable that is described by several `!dbg` expressions), which are all iterated over;
+assigning replaces them, while [`add_metadata!`](@ref) adds one.
 
     gv.comdat
     gv.comdat = c::Union{LLVM.Comdat,Nothing}

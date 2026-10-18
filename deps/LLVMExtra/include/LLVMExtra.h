@@ -764,6 +764,9 @@ LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Nam
 LLVMValueRef LLVMExtraAddAlias(LLVMModuleRef M, LLVMTypeRef ValueTy, unsigned AddrSpace,
                                LLVMValueRef Aliasee, const char *Name);
 void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias);
+// attach metadata to a global object, keeping existing attachments of the same kind (unlike
+// LLVMGlobalSetMetadata, which replaces them)
+void LLVMExtraGlobalAddMetadata(LLVMValueRef Global, unsigned KindID, LLVMMetadataRef MD);
 const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len);
 
 // constants

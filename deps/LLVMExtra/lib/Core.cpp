@@ -1593,6 +1593,10 @@ void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias) {
   unwrap<GlobalAlias>(Alias)->eraseFromParent();
 }
 
+void LLVMExtraGlobalAddMetadata(LLVMValueRef Global, unsigned KindID, LLVMMetadataRef MD) {
+  unwrap<GlobalObject>(Global)->addMetadata(KindID, *unwrap<MDNode>(MD));
+}
+
 const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len) {
   StringRef Name = unwrap(C)->getName();
   *Len = Name.size();

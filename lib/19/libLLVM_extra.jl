@@ -809,6 +809,10 @@ function LLVMExtraEraseGlobalAlias(Alias)
     ccall((:LLVMExtraEraseGlobalAlias, libLLVMExtra), Cvoid, (LLVMValueRef,), Alias)
 end
 
+function LLVMExtraGlobalAddMetadata(Global, KindID, MD)
+    ccall((:LLVMExtraGlobalAddMetadata, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint, LLVMMetadataRef), Global, KindID, MD)
+end
+
 function LLVMExtraGetComdatName(C, Len)
     ccall((:LLVMExtraGetComdatName, libLLVMExtra), Cstring, (LLVMComdatRef, Ptr{Csize_t}), C, Len)
 end

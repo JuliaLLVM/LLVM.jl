@@ -1770,6 +1770,14 @@ end
             delete!(gv.metadata, "another.kind")
             @test !haskey(gv.metadata, "another.kind")
         end
+
+        # global objects can have several attachments of the same kind
+        md2 = MDNode([MDString("y")])
+        @test add_metadata!(gv, MD_dbg, md) === gv
+        add_metadata!(gv, "dbg", md2)
+        @test collect(gv.metadata) == [MD_dbg => md, MD_dbg => md2]
+        gv.metadata[MD_dbg] = md
+        @test collect(gv.metadata) == [MD_dbg => md]
     end
 end
 

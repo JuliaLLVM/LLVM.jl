@@ -1222,6 +1222,14 @@ is, `LLVM.UnnamedAddr.Local` if it is insignificant within the module
 altogether (`unnamed_addr`), which allows merging it with other constants that have the
 same initializer.
 
+    gv.dso_local
+    gv.dso_local = flag::Bool
+
+Whether the global value is known to resolve to a definition in the same linkage unit
+(`dso_local`), so that it can be accessed directly instead of through a GOT or PLT. LLVM
+requires this for values with local linkage or non-default visibility, and sets it when
+assigning those.
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 abstract type GlobalValue <: Constant end
@@ -1324,6 +1332,12 @@ unnamed_addr!(val::GlobalValue, kind::API.LLVMUnnamedAddr) =
     API.LLVMSetUnnamedAddress(val, kind)
 
 @property GlobalValue unnamed_addr unnamed_addr!
+
+dso_local(val::GlobalValue) = API.LLVMExtraIsDSOLocal(val) |> Bool
+
+dso_local!(val::GlobalValue, flag::Bool) = API.LLVMExtraSetDSOLocal(val, flag)
+
+@property GlobalValue dso_local dso_local!
 
 ## comdats
 

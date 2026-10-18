@@ -839,6 +839,14 @@ function LLVMExtraIsInterposable(GV)
     ccall((:LLVMExtraIsInterposable, libLLVMExtra), LLVMBool, (LLVMValueRef,), GV)
 end
 
+function LLVMExtraIsDSOLocal(GV)
+    ccall((:LLVMExtraIsDSOLocal, libLLVMExtra), LLVMBool, (LLVMValueRef,), GV)
+end
+
+function LLVMExtraSetDSOLocal(GV, Local)
+    ccall((:LLVMExtraSetDSOLocal, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBool), GV, Local)
+end
+
 function LLVMExtraAddFunctionInAddressSpace(M, Name, FunctionTy, AddrSpace)
     ccall((:LLVMExtraAddFunctionInAddressSpace, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, Cstring, LLVMTypeRef, Cuint), M, Name, FunctionTy, AddrSpace)
 end

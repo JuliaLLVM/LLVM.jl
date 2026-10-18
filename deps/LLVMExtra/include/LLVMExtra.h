@@ -757,6 +757,10 @@ unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 // Dst and Src are functions, global variables, aliases or ifuncs, of the same kind
 void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src);
 LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV);
+// whether a global value is known to resolve to a definition in the same linkage unit
+// (dso_local), and set that
+LLVMBool LLVMExtraIsDSOLocal(LLVMValueRef GV);
+void LLVMExtraSetDSOLocal(LLVMValueRef GV, LLVMBool Local);
 // like LLVMAddFunction, but in the given address space instead of the program one
 LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
                                                 LLVMTypeRef FunctionTy, unsigned AddrSpace);

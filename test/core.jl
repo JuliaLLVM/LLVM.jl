@@ -1471,6 +1471,19 @@ end
     @test fn.unnamed_addr == LLVM.API.LLVMNoUnnamedAddr
     @test_throws MethodError fn.unnamed_addr = true
 
+    # hidden visibility implies dso_local
+    @test fn.dso_local
+    let gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeDSOLocalGlobal")
+        @test !gv.dso_local
+        gv.dso_local = true
+        @test gv.dso_local
+        @check_ir gv "external dso_local global"
+        gv.dso_local = false
+        @test !gv.dso_local
+        @test !occursin("dso_local", string(gv))
+        erase!(gv)
+    end
+
     str = MDString("bar")
     md = MDNode([str])
     @test isempty(fn.metadata)

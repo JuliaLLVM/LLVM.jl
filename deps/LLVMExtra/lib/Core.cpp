@@ -1613,6 +1613,12 @@ LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV) {
   return unwrap<GlobalValue>(GV)->isInterposable();
 }
 
+LLVMBool LLVMExtraIsDSOLocal(LLVMValueRef GV) { return unwrap<GlobalValue>(GV)->isDSOLocal(); }
+
+void LLVMExtraSetDSOLocal(LLVMValueRef GV, LLVMBool Local) {
+  unwrap<GlobalValue>(GV)->setDSOLocal(Local);
+}
+
 
 //
 // types

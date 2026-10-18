@@ -1360,6 +1360,34 @@ end
 end
 end
 
+# interposable definitions
+@dispose ctx=Context() mod=parse(LLVM.Module, """
+    define void @external() { ret void }
+    define weak void @weak() { ret void }
+    define linkonce void @linkonce() { ret void }
+    define linkonce_odr void @linkonce_odr() { ret void }
+    define internal void @internal() { ret void }
+    """) begin
+    @test !isinterposable(mod.functions["external"])
+    @test isinterposable(mod.functions["weak"])
+    @test isinterposable(mod.functions["linkonce"])
+    @test !isinterposable(mod.functions["linkonce_odr"])
+    @test !isinterposable(mod.functions["internal"])
+end
+@dispose ctx=Context() mod=parse(LLVM.Module, """
+    @gv = global i32 0
+    define void @external() { ret void }
+    define dso_local void @local() { ret void }
+
+    !llvm.module.flags = !{!0}
+    !0 = !{i32 1, !"SemanticInterposition", i32 1}
+    """) begin
+    # with semantic interposition, definitions that aren't dso_local can be replaced
+    @test isinterposable(mod.functions["external"])
+    @test !isinterposable(mod.functions["local"])
+    @test isinterposable(mod.globals["gv"])
+end
+
 # global values
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     st = LLVM.StructType("SomeType")

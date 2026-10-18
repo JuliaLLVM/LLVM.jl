@@ -73,6 +73,7 @@ Filter = f -> f isa Function && startswith(string(nameof(f)), "const_")
 LLVM.GlobalValue
 LLVM.GlobalObject
 isdeclaration
+isinterposable
 ```
 
 ### Global variables

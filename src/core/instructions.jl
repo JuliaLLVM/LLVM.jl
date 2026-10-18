@@ -171,7 +171,7 @@ function erase!(inst::Instruction)
 end
 
 @vocabulary IR comes_before, may_read_from_memory, may_write_to_memory,
-               may_have_side_effects
+               may_have_side_effects, iscommutative
 
 function check_attached(inst::Instruction)
     API.LLVMGetInstructionParent(inst) == C_NULL &&
@@ -217,6 +217,16 @@ Check whether the given instruction may have side effects: whether it may write 
 unwind, or not return.
 """
 may_have_side_effects(inst::Instruction) = API.LLVMExtraMayHaveSideEffects(inst) |> Bool
+
+"""
+    iscommutative(inst::Instruction)
+
+Check whether the operands of the given instruction can be swapped without changing its
+result: for binary operators like `add`, `mul`, `and` or `fadd`, and for calls of
+commutative intrinsics like `llvm.smax` or `llvm.minnum` (in which case the first two
+arguments can be swapped). Comparisons are not considered commutative.
+"""
+iscommutative(inst::Instruction) = API.LLVMExtraIsCommutative(inst) |> Bool
 
 function parent(inst::Instruction)
     ref = API.LLVMGetInstructionParent(inst)
@@ -341,7 +351,7 @@ is_signed_predicate(predicate::API.LLVMIntPredicate) =
 
 @vocabulary IR isatomic, SyncScope,
                is_stronger, is_acquire_or_stronger, is_release_or_stronger, merged_ordering,
-               strongest_failure_ordering, mmra!, copy_atomic_metadata!
+               strongest_failure_ordering, mmra!, supports_mmra, copy_atomic_metadata!
 
 @vocabulary IR AtomicInst
 
@@ -859,7 +869,8 @@ volatile!(inst::MemAccessInst, flag::Bool) = API.LLVMSetVolatile(inst, flag)
 Attach memory model relaxation annotations (`!mmra` metadata) to an instruction, replacing
 any existing ones. Each tag is a `prefix => suffix` pair, e.g. `"amdgpu-as" => "local"`.
 Without tags, the annotations are removed. MMRAs are supported by LLVM 19 and later;
-older versions preserve the metadata but don't interpret it.
+older versions preserve the metadata but don't interpret it. See [`supports_mmra`](@ref)
+for the instructions they apply to.
 """
 function mmra!(inst::Instruction, tags::Pair{<:AbstractString,<:AbstractString}...)
     md = metadata(inst)
@@ -870,6 +881,23 @@ function mmra!(inst::Instruction, tags::Pair{<:AbstractString,<:AbstractString}.
         md["mmra"] = length(nodes) == 1 ? only(nodes) : MDNode(nodes)
     end
     return inst
+end
+
+"""
+    supports_mmra(inst::Instruction)
+
+Check whether the given instruction can have memory model relaxation annotations (see
+[`mmra!`](@ref)): memory accesses, fences, and calls that may read or write memory. LLVM
+drops the annotations of other instructions. Requires LLVM 19 or later.
+
+This uses LLVM's `canInstructionHaveMMRAs`.
+"""
+function supports_mmra(inst::Instruction)
+    @static if version() >= v"19"
+        API.LLVMExtraCanInstructionHaveMMRAs(inst) |> Bool
+    else
+        error("Memory model relaxation annotations require LLVM 19 or later")
+    end
 end
 
 # the metadata that AtomicExpand preserves when rewriting an atomic memory operation

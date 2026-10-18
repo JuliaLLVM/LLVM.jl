@@ -649,6 +649,21 @@ check_available(op::API.LLVMAtomicRMWBinOp) =
     isavailable(op) ||
         throw(ArgumentError("atomicrmw operation $(msgname(op)) is not supported by LLVM $(version())"))
 
+# check that an atomicrmw operation supports values of type T
+function check_rmw_type(op::API.LLVMAtomicRMWBinOp, T::LLVMType)
+    scalar_T = T isa VectorType ? element_type(T) : T
+    if op == API.LLVMAtomicRMWBinOpXchg
+        scalar_T isa Union{IntegerType,FloatingPointType,PointerType} ||
+            throw(ArgumentError("atomicrmw xchg requires an integer, floating-point or pointer value, got $(string(T))"))
+    elseif isfloatingpoint(op)
+        scalar_T isa FloatingPointType ||
+            throw(ArgumentError("atomicrmw $(msgname(op)) requires a floating-point value, got $(string(T))"))
+    else
+        scalar_T isa IntegerType ||
+            throw(ArgumentError("atomicrmw $(msgname(op)) requires an integer value, got $(string(T))"))
+    end
+end
+
 function _build_atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value, Val::Value,
                             ordering::API.LLVMAtomicOrdering, syncscope::SyncScope)
     check_available(op)
@@ -682,17 +697,7 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     is_stronger(ordering, Unordered) ||
         throw(ArgumentError("atomicrmw requires an ordering of at least monotonic, got $(msgname(ordering))"))
     T = value_type(Val)
-    scalar_T = T isa VectorType ? element_type(T) : T
-    if op == API.LLVMAtomicRMWBinOpXchg
-        scalar_T isa Union{IntegerType,FloatingPointType,PointerType} ||
-            throw(ArgumentError("atomicrmw xchg requires an integer, floating-point or pointer value, got $(string(T))"))
-    elseif isfloatingpoint(op)
-        scalar_T isa FloatingPointType ||
-            throw(ArgumentError("atomicrmw $(msgname(op)) requires a floating-point value, got $(string(T))"))
-    else
-        scalar_T isa IntegerType ||
-            throw(ArgumentError("atomicrmw $(msgname(op)) requires an integer value, got $(string(T))"))
-    end
+    check_rmw_type(op, T)
     check_atomic_type(T, "atomicrmw")
     check_alignment(align)
     inst = _build_atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(builder, scope))

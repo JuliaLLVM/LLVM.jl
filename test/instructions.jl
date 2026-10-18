@@ -434,6 +434,27 @@
     end
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpAdd)
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
+
+    # changing the operation, also to ones that are newer than the C API
+    rmw = atomic_rmw!(builder, LLVM.API.LLVMAtomicRMWBinOpXchg, ptr1, int1,
+                      LLVM.API.LLVMAtomicOrderingMonotonic)
+    rmw.binop = LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test rmw.binop == LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test occursin("atomicrmw add", string(rmw))
+    for op in (LLVM.API.LLVMAtomicRMWBinOpUIncWrap, LLVM.API.LLVMAtomicRMWBinOpUDecWrap,
+               LLVM.API.LLVMAtomicRMWBinOpUSubCond, LLVM.API.LLVMAtomicRMWBinOpUSubSat)
+        if LLVM.isavailable(op)
+            rmw.binop = op
+            @test rmw.binop == op
+            @test occursin("atomicrmw $(LLVM.irname(op)) ", string(rmw))
+        else
+            @test_throws ArgumentError rmw.binop = op
+        end
+    end
+    # the operation must support the type of the value
+    @test_throws ArgumentError rmw.binop = LLVM.API.LLVMAtomicRMWBinOpFAdd
+    @test rmw.binop != LLVM.API.LLVMAtomicRMWBinOpFAdd
+    erase!(rmw)
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
     @test !LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOp(1000))
@@ -994,6 +1015,10 @@ end
     @test_throws ArgumentError comes_before(a, c)
 
 
+    # commutativity
+    @test iscommutative(a) && iscommutative(b) && !iscommutative(c)
+    @test !iscommutative(ld)
+
     # memory effects
     @test !may_read_from_memory(a) && !may_write_to_memory(a) && !may_have_side_effects(a)
     @test may_read_from_memory(ld) && !may_write_to_memory(ld)
@@ -1029,6 +1054,27 @@ end
     @test strip_pointer_casts(alias) == alias
     @test strip_pointer_casts_and_aliases(alias) == gv
     @test strip_pointer_casts_and_aliases(const_addrspacecast(alias, LLVM.PointerType(LLVM.Int32Type(), 1))) == gv
+end
+end
+
+@testset "commutative intrinsics" begin
+@dispose ctx=Context() mod=parse(LLVM.Module, """
+    declare i32 @llvm.smax.i32(i32, i32)
+    declare i32 @llvm.usub.sat.i32(i32, i32)
+    declare double @llvm.minnum.f64(double, double)
+
+    define i32 @f(i32 %x, i32 %y, double %a, double %b) {
+      %max = call i32 @llvm.smax.i32(i32 %x, i32 %y)
+      %sat = call i32 @llvm.usub.sat.i32(i32 %x, i32 %y)
+      %min = call double @llvm.minnum.f64(double %a, double %b)
+      %cmp = icmp eq i32 %x, %y
+      ret i32 %max
+    }""") begin
+    max, sat, min, cmp, _ = mod.functions["f"].entry.instructions
+    @test iscommutative(max)
+    @test !iscommutative(sat)
+    @test iscommutative(min)
+    @test !iscommutative(cmp)
 end
 end
 

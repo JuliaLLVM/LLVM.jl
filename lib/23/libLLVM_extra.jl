@@ -622,6 +622,10 @@ function LLVMExtraMoveInstruction(Inst, BB, Before, Head)
     ccall((:LLVMExtraMoveInstruction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
 end
 
+function LLVMExtraMoveInstructionPreserving(Inst, BB, Before, Head)
+    ccall((:LLVMExtraMoveInstructionPreserving, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
+end
+
 function LLVMExtraMoveBasicBlock(BB, Fn, Before)
     ccall((:LLVMExtraMoveBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef, LLVMValueRef, LLVMBasicBlockRef), BB, Fn, Before)
 end
@@ -672,6 +676,22 @@ end
 
 function LLVMExtraMayHaveSideEffects(Inst)
     ccall((:LLVMExtraMayHaveSideEffects, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraIsCommutative(Inst)
+    ccall((:LLVMExtraIsCommutative, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraDropUnknownNonDebugMetadata(Inst, KnownIDs, NumKnownIDs)
+    ccall((:LLVMExtraDropUnknownNonDebugMetadata, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{Cuint}, Cuint), Inst, KnownIDs, NumKnownIDs)
+end
+
+function LLVMExtraCanInstructionHaveMMRAs(Inst)
+    ccall((:LLVMExtraCanInstructionHaveMMRAs, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraConstantExprGetAsInstruction(CE)
+    ccall((:LLVMExtraConstantExprGetAsInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), CE)
 end
 
 function LLVMExtraTakeName(Val, From)

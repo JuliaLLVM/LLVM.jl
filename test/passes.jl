@@ -1456,6 +1456,78 @@ end
             return false
         end; analyses=true), mod)
         @test_throws ArgumentError remark_enabled(ctx, :bogus, "arguments")
+
+        # remarks written to a file, with the arguments and their debug locations
+        function parse_remarks(path, format)
+            data = read(path)
+            str(ref) = unsafe_string(Ptr{UInt8}(LLVM.API.LLVMRemarkStringGetData(ref)),
+                                     LLVM.API.LLVMRemarkStringGetLen(ref))
+            parsed = Pair{String,Vector{Pair{String,String}}}[]
+            GC.@preserve data begin
+                parser = format == :yaml ?
+                    LLVM.API.LLVMRemarkParserCreateYAML(data, length(data)) :
+                    LLVM.API.LLVMRemarkParserCreateBitstream(data, length(data))
+                while (entry = LLVM.API.LLVMRemarkParserGetNext(parser)) != C_NULL
+                    args = Pair{String,String}[]
+                    arg = LLVM.API.LLVMRemarkEntryGetFirstArg(entry)
+                    while arg != C_NULL
+                        push!(args, str(LLVM.API.LLVMRemarkArgGetKey(arg)) =>
+                                    str(LLVM.API.LLVMRemarkArgGetValue(arg)))
+                        arg = LLVM.API.LLVMRemarkEntryGetNextArg(arg, entry)
+                    end
+                    push!(parsed, str(LLVM.API.LLVMRemarkEntryGetRemarkName(entry)) => args)
+                    LLVM.API.LLVMRemarkEntryDispose(entry)
+                end
+                @test !Bool(LLVM.API.LLVMRemarkParserHasError(parser))
+                LLVM.API.LLVMRemarkParserDispose(parser)
+            end
+            return parsed
+        end
+        mktempdir() do dir
+            path = joinpath(dir, "remarks.yaml")
+            # an invalid filter leaves the context as it was
+            @test_throws LLVMException RemarkFile(path; passes="[")
+            RemarkFile(path; passes="^arguments\$") do file
+                # the context doesn't dispose of the file, so it should be reported as
+                # leaked if it isn't disposed of
+                LLVM.memcheck_enabled && @test LLVM.tracked_objects[file].owner === nothing
+                @test remark_enabled(ctx, :passed, "arguments")
+                @test remark_enabled(ctx, :analysis, "arguments")
+                @test !remark_enabled(ctx, :passed, "other")
+                @test_throws LLVMException RemarkFile(joinpath(dir, "other.yaml"))
+                built[] = 0
+                run!(pass, mod)
+                @test built[] == 3
+            end
+            # remarks emitted after the file was disposed of are not written to it
+            run!(pass, mod)
+            @test built[] == 3
+            # written as text, so with CRLF line endings on Windows
+            yaml = replace(read(path, String), "\r\n" => "\n")
+            @test count("--- !", yaml) == 4
+            yaml = replace(yaml, r" +" => " ")
+            @test occursin("--- !Missed\nPass: arguments\nName: Others", yaml)
+            @test occursin("--- !Analysis\nPass: arguments\nName: Single", yaml)
+            @test occursin("- Inst: add\n DebugLoc: { File: file.jl, Line: 3, Column: 7 }", yaml)
+            @test occursin("- Func: f\n DebugLoc: { File: file.jl, Line: 2, Column: 0 }", yaml)
+            @test occursin("- Type: i32\n", yaml)
+
+            @test parse_remarks(path, :yaml) == [r.name => r.arguments for r in remarks[1:4]]
+
+            # other formats, which older versions of LLVM write for a string table that is
+            # stored elsewhere
+            path = joinpath(dir, "remarks.bitstream")
+            if LLVM.version() >= v"22"
+                RemarkFile(path; format="bitstream") do file
+                    run!(pass, mod)
+                end
+                @test parse_remarks(path, :bitstream) == [r.name => r.arguments for r in remarks[1:4]]
+            else
+                @test_throws LLVMException RemarkFile(path; format="bitstream")
+            end
+            @test_throws LLVMException RemarkFile(joinpath(dir, "remarks.txt");
+                                                  format="bogus")
+        end
     end
 
     # remarks enabled using LLVM's command-line options

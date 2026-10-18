@@ -427,6 +427,29 @@ top:
 }
 ```
 
+When rebuilding more than a single function, e.g., to change the types of all functions
+and global variables in a module, use a `ValueMap` instead of a dictionary. A value map is
+extended with the mappings that are made, and can be shared between several calls to
+`clone_into!`, so that the clones refer to each other, and with `map_value` and
+`map_metadata`, which map constants (like the initializers of global variables) and
+metadata using the same map. Like `clone_into!`, they take a `type_mapper` and a
+`materializer` callback:
+
+```jldoctest
+julia> gv = GlobalVariable(mod, LLVM.Int64Type(), "gv");
+
+julia> new_gv = GlobalVariable(mod, LLVM.Int64Type(), "new_gv");
+
+julia> vmap = ValueMap();
+
+julia> vmap[gv] = new_gv;
+
+julia> map_value(const_ptrtoint(gv, LLVM.Int32Type()), vmap)
+i32 ptrtoint (ptr @new_gv to i32)
+
+julia> dispose(vmap)
+```
+
 Finally, it is also possible to clone just a basic block, inserting it at the end of
 a function. This differs from a simple call to `copy` in that it also accepts a value map:
 

@@ -1180,6 +1180,35 @@ end
         end
     end
 
+    # a failure skips the rest of the pipeline, as it may have left the IR inconsistent:
+    # LLVM's passes, and custom passes even if they are required
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f() {
+          %a = add i32 1, 2
+          ret i32 %a
+        }""") begin
+        ran = String[]
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("fail", f -> error("failed")))
+            register!(pb, FunctionPass("after", f -> (push!(ran, "after"); false);
+                                       required=true))
+            register!(pb, ModulePass("later", m -> (push!(ran, "later"); false)))
+            add!(pb, "function(fail,instcombine,after),later")
+            @test_throws LLVM.PassException run!(pb, mod)
+        end
+        @test isempty(ran)
+        @test occursin("add i32 1, 2", string(mod))
+
+        # the next run is not affected
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("after", f -> (push!(ran, "after"); false)))
+            add!(pb, "function(instcombine,after)")
+            run!(pb, mod)
+        end
+        @test ran == ["after"]
+        @test !occursin("add i32 1, 2", string(mod))
+    end
+
     # a pass builder can be run multiple times, with the callbacks of each run using
     # their own state (they used to refer to the state of the first run)
     @dispose ctx=Context() mod=LLVM.Module("test") begin

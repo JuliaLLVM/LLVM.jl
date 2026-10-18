@@ -28,6 +28,7 @@ DefaultPipeline
 
 ```@docs
 LLVM.CustomPass
+LoopPass
 register!
 run!(::LLVM.CustomPass, ::Union{LLVM.Function, LLVM.Module}, ::Union{Nothing, LLVM.TargetMachine})
 register_callbacks!
@@ -38,8 +39,11 @@ register_callbacks!
 ```@docs
 FunctionAnalysisManager
 ModuleAnalysisManager
+LoopAnalysisResults
+LPMUpdater
 PreservedAnalyses
 AllAnalyses
+LoopAnalyses
 invalidate!
 remark!
 Remark

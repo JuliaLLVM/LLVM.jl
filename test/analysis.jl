@@ -371,6 +371,8 @@ end
             @test_throws Exception outer_loop.blocks[1] = entry
             @test collect(outer_loop.exit_blocks) == [exit]
             @test collect(inner_loop.exit_blocks) == [latch]
+            @test reverse_postorder(outer_loop, li) == [outer, inner, latch]
+            @test reverse_postorder(inner_loop, li) == [inner]
             @test outer_loop.latch == latch
             @test inner_loop.latch == inner
             @test outer_loop.preheader == entry
@@ -467,6 +469,27 @@ end
             @test contains_scev(outer_count, SCEVUnknown)       # depends on %n
             @test backedge_taken_count(se, outer_loop; kind=:symbolic_max) isa SCEV
             @test_throws ArgumentError backedge_taken_count(se, outer_loop; kind=:bogus)
+        end
+    end
+
+    # blocks in reverse post-order: %a comes before %b, which it branches to
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i1 %c, i1 %d) {
+        entry:
+          br label %header
+        header:
+          br i1 %c, label %a, label %b
+        b:
+          br i1 %d, label %header, label %exit
+        a:
+          br label %b
+        exit:
+          ret void
+        }""") begin
+        with_analyses(mod, "f") do fn, am
+            li = am[LoopInfo]
+            loop = only(collect(li))
+            @test [bb.name for bb in reverse_postorder(loop, li)] == ["header", "a", "b"]
         end
     end
 end

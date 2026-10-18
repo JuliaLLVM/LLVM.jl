@@ -507,6 +507,7 @@ typedef enum {
   LLVMExtraLazyValueAnalysis,
   LLVMExtraScalarEvolutionAnalysis,
   LLVMExtraLoopAnalysis,
+  LLVMExtraMemorySSAAnalysis,
 } LLVMExtraFunctionAnalysis;
 // get the result of an analysis for a function, computing it if needed (the result type
 // depends on the analysis, e.g. a `DominatorTree *`)
@@ -1237,6 +1238,84 @@ LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef C
 // which abort if it is inconsistent)
 typedef struct LLVMOpaqueMemorySSA *LLVMMemorySSARef;
 void LLVMExtraMemorySSAVerify(LLVMMemorySSARef MSSA);
+// the accesses of MemorySSA, which it owns: a MemoryUse or MemoryDef for an instruction that
+// reads or writes memory, a MemoryPhi where definitions merge at the start of a block, and
+// the live-on-entry definition (a MemoryDef without instruction) for the state of memory
+// on entry of the function
+typedef struct LLVMOpaqueMemoryAccess *LLVMMemoryAccessRef;
+typedef enum {
+  LLVMExtraMemoryUse,
+  LLVMExtraMemoryDef,
+  LLVMExtraMemoryPhi,
+} LLVMExtraMemoryAccessKind;
+// the access of an instruction, or the phi of a block, or NULL if there is none
+LLVMMemoryAccessRef LLVMExtraMemorySSAGetInstructionAccess(LLVMMemorySSARef MSSA,
+                                                           LLVMValueRef Inst);
+LLVMMemoryAccessRef LLVMExtraMemorySSAGetBlockPhi(LLVMMemorySSARef MSSA,
+                                                  LLVMBasicBlockRef BB);
+LLVMMemoryAccessRef LLVMExtraMemorySSAGetLiveOnEntryDef(LLVMMemorySSARef MSSA);
+// the accesses of a block, in order (starting with its phi), written to the array if it is
+// not NULL; returns their number
+unsigned LLVMExtraMemorySSAGetBlockAccesses(LLVMMemorySSARef MSSA, LLVMBasicBlockRef BB,
+                                            LLVMMemoryAccessRef *Accesses);
+LLVMExtraMemoryAccessKind LLVMExtraMemoryAccessGetKind(LLVMMemoryAccessRef MA);
+LLVMBasicBlockRef LLVMExtraMemoryAccessGetBlock(LLVMMemoryAccessRef MA);
+// the instruction and defining access of a use or definition (NULL for live-on-entry)
+LLVMValueRef LLVMExtraMemoryUseOrDefGetInstruction(LLVMMemoryAccessRef MA);
+LLVMMemoryAccessRef LLVMExtraMemoryUseOrDefGetDefiningAccess(LLVMMemoryAccessRef MA);
+unsigned LLVMExtraMemoryPhiGetNumIncoming(LLVMMemoryAccessRef MA);
+LLVMMemoryAccessRef LLVMExtraMemoryPhiGetIncomingAccess(LLVMMemoryAccessRef MA,
+                                                       unsigned Index);
+LLVMBasicBlockRef LLVMExtraMemoryPhiGetIncomingBlock(LLVMMemoryAccessRef MA, unsigned Index);
+char *LLVMExtraPrintMemoryAccessToString(LLVMMemoryAccessRef MA);
+// MemorySSAUpdater: keeps MemorySSA valid while a pass moves, creates and removes memory
+// operations. It refers to the MemorySSA it was created for, which must outlive it.
+typedef struct LLVMOpaqueMemorySSAUpdater *LLVMMemorySSAUpdaterRef;
+typedef enum {
+  LLVMExtraMemorySSABeginning,
+  LLVMExtraMemorySSAEnd,
+  LLVMExtraMemorySSABeforeTerminator,
+} LLVMExtraMemorySSAInsertionPlace;
+LLVMMemorySSAUpdaterRef LLVMExtraCreateMemorySSAUpdater(LLVMMemorySSARef MSSA);
+void LLVMExtraDisposeMemorySSAUpdater(LLVMMemorySSAUpdaterRef U);
+// remove the access of an instruction that is about to be erased
+void LLVMExtraMemorySSAUpdaterRemoveMemoryAccess(LLVMMemorySSAUpdaterRef U,
+                                                 LLVMMemoryAccessRef MA,
+                                                 LLVMBool OptimizePhis);
+// move the access of an instruction that was moved to another place
+void LLVMExtraMemorySSAUpdaterMoveToPlace(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef What,
+                                          LLVMBasicBlockRef BB,
+                                          LLVMExtraMemorySSAInsertionPlace Place);
+void LLVMExtraMemorySSAUpdaterMoveBefore(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef What,
+                                         LLVMMemoryAccessRef Where);
+void LLVMExtraMemorySSAUpdaterMoveAfter(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef What,
+                                        LLVMMemoryAccessRef Where);
+// create the access of a new instruction, with the given defining access (or NULL), at a
+// place in its block or before or after another access in it. Returns NULL (without
+// creating anything) if MemorySSA does not model the instruction as accessing memory. The
+// access must then be inserted with `InsertDef` or `InsertUse`, unless it has the correct
+// defining access already.
+LLVMMemoryAccessRef LLVMExtraMemorySSAUpdaterCreateMemoryAccessInBB(
+    LLVMMemorySSAUpdaterRef U, LLVMValueRef Inst, LLVMMemoryAccessRef Definition,
+    LLVMBasicBlockRef BB, LLVMExtraMemorySSAInsertionPlace Place);
+LLVMMemoryAccessRef LLVMExtraMemorySSAUpdaterCreateMemoryAccessBefore(
+    LLVMMemorySSAUpdaterRef U, LLVMValueRef Inst, LLVMMemoryAccessRef Definition,
+    LLVMMemoryAccessRef InsertPt);
+LLVMMemoryAccessRef LLVMExtraMemorySSAUpdaterCreateMemoryAccessAfter(
+    LLVMMemorySSAUpdaterRef U, LLVMValueRef Inst, LLVMMemoryAccessRef Definition,
+    LLVMMemoryAccessRef InsertPt);
+// insert a new definition or use into MemorySSA: compute its defining access, and make the
+// accesses that it now dominates use it, inserting phis as needed
+void LLVMExtraMemorySSAUpdaterInsertDef(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef Def,
+                                        LLVMBool RenameUses);
+void LLVMExtraMemorySSAUpdaterInsertUse(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef Use,
+                                        LLVMBool RenameUses);
+
+// the blocks of a loop in reverse post-order of a depth-first search from its header that
+// does not follow back edges (`LoopBlocksRPO`), written to the array if it is not NULL;
+// returns their number
+unsigned LLVMExtraLoopGetBlocksRPO(LLVMLoopRef L, LLVMLoopInfoRef LI,
+                                   LLVMBasicBlockRef *Blocks);
 
 // Custom loop passes, which run in a loop pass manager (`loop(...)` or `loop-mssa(...)`),
 // or on their own if their name is the first of a pipeline (like LLVM's loop passes). The

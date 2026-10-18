@@ -1173,6 +1173,10 @@ function LLVMExtraConstantFoldCastOperand(Opcode, C, DestTy, TD, Result)
     ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), Opcode, C, DestTy, TD, Result)
 end
 
+function LLVMExtraSimplifyInstruction(Inst)
+    ccall((:LLVMExtraSimplifyInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
+end
+
 function LLVMExtraTripleGetArchTypeName(Triple)
     ccall((:LLVMExtraTripleGetArchTypeName, libLLVMExtra), Cstring, (Cstring,), Triple)
 end

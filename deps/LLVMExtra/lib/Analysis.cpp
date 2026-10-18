@@ -4,6 +4,7 @@
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/ConstantFolding.h>
 #include <llvm/Analysis/DomTreeUpdater.h>
+#include <llvm/Analysis/InstructionSimplify.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/ScalarEvolution.h>
@@ -885,4 +886,9 @@ LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
     return false;
   *Result = wrap(ConstantFoldCastOperand(Op, Const, Ty, *unwrap(TD)));
   return true;
+}
+
+LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  return wrap(simplifyInstruction(I, SimplifyQuery(I->getModule()->getDataLayout(), I)));
 }

@@ -1019,9 +1019,9 @@ function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
 end
 
 
-## constant folding
+## constant folding and simplification
 
-@vocabulary IR constant_fold_cast
+@vocabulary IR constant_fold_cast, simplify_instruction
 
 """
     constant_fold_cast(opcode, c::Constant, T::LLVMType, dl::DataLayout)
@@ -1038,6 +1038,28 @@ function constant_fold_cast(opcode::API.LLVMOpcode, c::Constant, T::LLVMType,
     API.LLVMExtraConstantFoldCastOperand(opcode, c, T, dl, result) |> Bool ||
         throw(ArgumentError("Invalid cast $opcode of $c to $T"))
     return result[] == C_NULL ? nothing : Value(result[])
+end
+
+"""
+    simplify_instruction(inst::Instruction)
+
+Simplify an instruction, like the `instsimplify` pass: returns a simpler value that the
+instruction is equivalent to (e.g., an operand, or a constant), or `nothing` if there is
+none, e.g., `add i32 %x, 0` simplifies to `%x`, and `and i1 %c, false` to `false`. This
+does not change the IR: to fold the instruction, replace its uses by the returned value
+(`replace_uses!`), and erase it. The instruction must be part of a function in a module,
+whose data layout is used.
+
+This uses LLVM's `simplifyInstruction`, which also implements the `InstSimplifyFolder`
+that C++ code can use to simplify instructions as an `IRBuilder` creates them.
+"""
+function simplify_instruction(inst::Instruction)
+    bb = API.LLVMGetInstructionParent(check_attached(inst))
+    f = API.LLVMGetBasicBlockParent(bb)
+    (f == C_NULL || API.LLVMGetGlobalParent(f) == C_NULL) &&
+        throw(ArgumentError("Instruction is not part of a function in a module"))
+    ref = API.LLVMExtraSimplifyInstruction(inst)
+    return ref == C_NULL ? nothing : Value(ref)
 end
 
 

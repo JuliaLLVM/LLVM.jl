@@ -1571,7 +1571,21 @@ end
 @function_pass "structurizecfg" StructurizeCFGPass
 @function_pass "tailcallelim" TailCallElimPass
 @function_pass "unify-loop-exits" UnifyLoopExitsPass
-@function_pass "vector-combine" VectorCombinePass
+@function_pass "vector-combine" VectorCombinePass false
+"""
+    VectorCombinePass(; early=false) -> String
+
+The `vector-combine` function pass, as a string for use with [`add!`](@ref) or
+[`run!`](@ref). With `early=true`, it only performs the folds that LLVM's pipelines run
+early on, before vectorization (`vector-combine<early>`). LLVM's own pipeline parser does
+not support that option, which LLVM.jl adds on LLVM 16 and later.
+"""
+function VectorCombinePass(; early::Bool=false)
+    if early && version() < v"16"
+        throw(ArgumentError("vector-combine<early> requires LLVM 16 or later"))
+    end
+    return early ? "vector-combine<early>" : "vector-combine"
+end
 @function_pass "verify" VerifierPass
 @function_pass "verify<domtree>" DominatorTreeVerifierPass
 @function_pass "verify<loops>" LoopVerifierPass

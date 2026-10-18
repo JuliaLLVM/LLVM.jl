@@ -435,6 +435,11 @@ void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef A
                                                 const char *PassName,
                                                 const char *RemarkName, LLVMValueRef Inst,
                                                 const char *Message);
+// emit an optimization remark about an instruction through an OptimizationRemarkEmitter
+// for its function that is not cached by an analysis manager, e.g., in a loop pass (which
+// has no access to function analyses that the loop pass manager does not provide)
+void LLVMExtraEmitRemark(LLVMExtraRemarkKind Kind, const char *PassName,
+                         const char *RemarkName, LLVMValueRef Inst, const char *Message);
 
 // Custom module passes that use analyses. The callback receives the module analysis manager
 // of the pipeline, from which the function analysis manager can be obtained, and an output
@@ -1091,12 +1096,76 @@ LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L);
 // whether a value is defined outside of a loop
 LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V);
 
+// forget what scalar evolution knows about a value (and the values that use it), about a
+// loop (and its nested loops), or about which expressions are invariant in which loops,
+// after a pass changed them
+void LLVMExtraScalarEvolutionForgetValue(LLVMScalarEvolutionRef SE, LLVMValueRef V);
+void LLVMExtraScalarEvolutionForgetLoop(LLVMScalarEvolutionRef SE, LLVMLoopRef L);
+void LLVMExtraScalarEvolutionForgetLoopDispositions(LLVMScalarEvolutionRef SE);
+
 // whether an instruction can be executed without the conditions that guard it, i.e., it
 // has no side effects and cannot trap; the context instruction, assumption cache (only
 // used since LLVM 16) and dominator tree are optional
 LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef CxtI,
                                                LLVMAssumptionCacheRef AC,
                                                LLVMDominatorTreeRef DT);
+
+// MemorySSA: verify its consistency with the IR (only in builds of LLVM with assertions,
+// which abort if it is inconsistent)
+typedef struct LLVMOpaqueMemorySSA *LLVMMemorySSARef;
+void LLVMExtraMemorySSAVerify(LLVMMemorySSARef MSSA);
+
+// Custom loop passes, which run in a loop pass manager (`loop(...)` or `loop-mssa(...)`),
+// or on their own if their name is the first of a pipeline (like LLVM's loop passes). The
+// callback receives the loop, the loop analysis manager, the standard analysis results of
+// the loop pass manager, the updater of its worklist, and an output object that it sets
+// (with `LLVMExtraSetLoopPreservedAnalyses`) to the analyses that remain valid. It starts
+// out as preserving nothing but MemorySSA (when the loop pass manager uses it), which is
+// what a pass that failed should report: the loop pass manager aborts the process if a
+// pass does not preserve MemorySSA. Once a custom pass failed (see
+// `LLVMExtraPassBuilderExtensionsAbort`), the callback is not called anymore.
+typedef struct LLVMOpaqueLoopAnalysisManager *LLVMLoopAnalysisManagerRef;
+typedef struct LLVMOpaqueLoopStandardAnalysisResults *LLVMLoopStandardAnalysisResultsRef;
+typedef struct LLVMOpaqueLPMUpdater *LLVMLPMUpdaterRef;
+typedef void (*LLVMJuliaLoopPassCallback)(LLVMLoopRef L, LLVMLoopAnalysisManagerRef AM,
+                                          LLVMLoopStandardAnalysisResultsRef AR,
+                                          LLVMLPMUpdaterRef U, LLVMPreservedAnalysesRef PA,
+                                          void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterLoopPass(LLVMPassBuilderExtensionsRef Extensions,
+                                                    const char *PassName,
+                                                    LLVMJuliaLoopPassCallback Callback,
+                                                    void *Thunk, LLVMBool Required);
+// like the parametrized module and function passes
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaLoopPassCallback Callback, LLVMJuliaPassParametersCallback ParametersCallback,
+    void *Thunk, LLVMBool Required);
+// the standard analyses that the loop pass manager provides to loop passes, of which it
+// keeps the ones that are always available up to date with the help of the passes
+typedef enum {
+  LLVMExtraLoopAAResults,
+  LLVMExtraLoopAssumptionCache,
+  LLVMExtraLoopDominatorTree,
+  LLVMExtraLoopLoopInfo,
+  LLVMExtraLoopScalarEvolution,
+  LLVMExtraLoopTargetLibraryInfo,
+  LLVMExtraLoopTargetTransformInfo,
+  // only available before LLVM 22, and only when requested by a pass of the pipeline
+  LLVMExtraLoopBlockFrequencyInfo,
+  LLVMExtraLoopBranchProbabilityInfo,
+  // only available in a `loop-mssa` pipeline
+  LLVMExtraLoopMemorySSA,
+} LLVMExtraLoopStandardAnalysis;
+// the result of one of the standard analyses (e.g. a `DominatorTree *`), or NULL if it is
+// not available
+void *LLVMExtraLoopStandardAnalysisResultsGet(LLVMLoopStandardAnalysisResultsRef AR,
+                                              LLVMExtraLoopStandardAnalysis Analysis);
+// set the analyses preserved by a loop pass: everything (`All`), or the analyses that a
+// loop pass that changed the loop keeps up to date (`getLoopPassPreservedAnalyses()`: the
+// dominator tree, loop info and scalar evolution), together with the CFG analyses and
+// MemorySSA if requested, or nothing at all (if no argument is set)
+void LLVMExtraSetLoopPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                       LLVMBool LoopAnalyses, LLVMBool CFG, LLVMBool MSSA);
 
 // dominance of uses and blocks
 LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,

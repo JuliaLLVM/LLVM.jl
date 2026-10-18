@@ -6,6 +6,7 @@
 #include <llvm/Analysis/DomTreeUpdater.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/MemorySSA.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Analysis/ValueTracking.h>
@@ -36,6 +37,7 @@ DEFINE_STDCXX_CONVERSION_FUNCTIONS(LazyValueInfo, LLVMLazyValueInfoRef)
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(ScalarEvolution, LLVMScalarEvolutionRef)
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(LoopInfo, LLVMLoopInfoRef)
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(Loop, LLVMLoopRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(MemorySSA, LLVMMemorySSARef)
 
 static const SCEV *unwrap(LLVMSCEVRef S) { return reinterpret_cast<const SCEV *>(S); }
 static LLVMSCEVRef wrap(const SCEV *S) {
@@ -887,6 +889,23 @@ LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
   return true;
 }
 
+void LLVMExtraScalarEvolutionForgetValue(LLVMScalarEvolutionRef SE, LLVMValueRef V) {
+  unwrap(SE)->forgetValue(unwrap(V));
+}
+
+void LLVMExtraScalarEvolutionForgetLoop(LLVMScalarEvolutionRef SE, LLVMLoopRef L) {
+  unwrap(SE)->forgetLoop(unwrap(L));
+}
+
+void LLVMExtraScalarEvolutionForgetLoopDispositions(LLVMScalarEvolutionRef SE) {
+#if LLVM_VERSION_MAJOR >= 16
+  unwrap(SE)->forgetLoopDispositions();
+#else
+  // the loop argument was unused, as dispositions are always forgotten for all loops
+  unwrap(SE)->forgetLoopDispositions(nullptr);
+#endif
+}
+
 LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef CxtI,
                                                LLVMAssumptionCacheRef AC,
                                                LLVMDominatorTreeRef DT) {
@@ -899,3 +918,5 @@ LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef C
   return isSafeToSpeculativelyExecute(I, Ctx, unwrap(DT));
 #endif
 }
+
+void LLVMExtraMemorySSAVerify(LLVMMemorySSARef MSSA) { unwrap(MSSA)->verifyMemorySSA(); }

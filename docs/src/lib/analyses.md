@@ -18,6 +18,7 @@ dominates
 recalculate!
 split_block!
 split_block_and_insert_if_then!
+split_block_and_insert_if_then_else!
 ```
 
 ## Constant folding and simplification

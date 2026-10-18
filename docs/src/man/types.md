@@ -179,6 +179,36 @@ Structure types support a number of queries:
 - `isempty`: whether the structure is empty.
 
 
+## Target extension types
+
+Target extension types represent values that only a specific target knows how to handle,
+like the image and sampler types of SPIR-V. LLVM treats them as opaque: they are identified
+by a name, a list of type parameters and a list of integer parameters. They are available
+with LLVM 16 and later:
+
+```jldoctest
+julia> ty = LLVM.TargetExtType("spirv.Image", [LLVM.VoidType()], [0, 0, 0, 0, 0, 0, 0])
+target("spirv.Image", void, 0, 0, 0, 0, 0, 0, 0)
+
+julia> ty.name
+"spirv.Image"
+
+julia> ty.type_parameters
+1-element Vector{LLVMType}:
+ void
+
+julia> ty.int_parameters
+7-element Vector{Int64}:
+ 0
+ 0
+ 0
+ 0
+ 0
+ 0
+ 0
+```
+
+
 ## Other types
 
 There are a few other types that do not fit in a specific category:
@@ -187,6 +217,9 @@ There are a few other types that do not fit in a specific category:
 - `LLVM.LabelType`: the `label` type.
 - `LLVM.MetadataType`: the `metadata` type.
 - `LLVM.TokenType`: the `token` type.
+- `LLVM.X86AMXType`: the `x86_amx` type, for tiles of the x86 Advanced Matrix Extensions.
+- `LLVM.X86MMXType`: the `x86_mmx` type, for x86 MMX registers (before LLVM 20, which
+  replaced it by `<1 x i64>`).
 
 
 ## Named types

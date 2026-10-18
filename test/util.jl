@@ -253,4 +253,75 @@ end
 
 end
 
+@testset "function cloning with target-specific and scalable types" begin
+    # types that only some targets know about, and scalable vectors, can be mapped like
+    # other types, e.g., by a type mapper that leaves them alone while it changes the types
+    # that contain pointers
+    event = LLVM.version() >= v"16" ? "target(\"spirv.Event\")" : "i64"
+    ir = """
+        declare $event @g(ptr addrspace(1), $event)
+        declare x86_amx @llvm.x86.tileloadd64.internal(i16, i16, ptr, i64)
+        declare <256 x i32> @llvm.x86.cast.tile.to.vector.v256i32(x86_amx)
+
+        define <256 x i32> @f(ptr addrspace(1) %p, $event %e, ptr %q, <vscale x 4 x i32> %sv) {
+          %e2 = call $event @g(ptr addrspace(1) %p, $event %e)
+          %t = call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, ptr %q, i64 64)
+          %v = call <256 x i32> @llvm.x86.cast.tile.to.vector.v256i32(x86_amx %t)
+          %sv2 = add <vscale x 4 x i32> %sv, %sv
+          ret <256 x i32> %v
+        }"""
+    @dispose ctx=Context(; opaque_pointers=true) mod=parse(LLVM.Module, ir) begin
+        seen = LLVMType[]
+        function type_mapper(typ)
+            push!(seen, typ)
+            typ isa LLVM.PointerType && return LLVM.PointerType()
+            typ isa LLVM.FunctionType &&
+                return LLVM.FunctionType(type_mapper(typ.return_type),
+                                         map(type_mapper, typ.parameters))
+            return typ
+        end
+        function remap(f, name; type_mapper)
+            vmap = Dict{LLVM.Value,LLVM.Value}()
+            for g in collect(mod.functions)
+                g == f && continue
+                ft = g.function_type
+                new_ft = type_mapper(ft)
+                vmap[g] = new_ft == ft ? g : LLVM.Function(mod, g.name * ".new", new_ft)
+            end
+            new_f = LLVM.Function(mod, name, type_mapper(f.function_type))
+            for (arg, new_arg) in zip(f.parameters, new_f.parameters)
+                new_arg.name = arg.name
+                vmap[arg] = new_arg
+            end
+            clone_into!(new_f, f; value_map=vmap, type_mapper,
+                        changes=LLVM.API.LLVMCloneFunctionChangeTypeGlobalChanges)
+            return new_f
+        end
+
+        f = mod.functions["f"]
+        new_f = remap(f, "f.mapped"; type_mapper)
+        @test any(typ -> typ isa LLVM.X86AMXType, seen)
+        @test any(typ -> typ isa LLVM.ScalableVectorType, seen)
+        if LLVM.version() >= v"16"
+            @test any(typ -> typ isa LLVM.TargetExtType, seen)
+            T_event = LLVM.TargetExtType("spirv.Event")
+            @test new_f.parameters[2].value_type == T_event
+        end
+        @test new_f.parameters[4].value_type == LLVM.ScalableVectorType(LLVM.Int32Type(), 4)
+        insts = collect(new_f.entry.instructions)
+        @test insts[1].called_operand == mod.functions["g.new"]
+        @test insts[1].value_type == f.parameters[2].value_type
+        @test insts[2].value_type isa LLVM.X86AMXType
+        @test insts[4].value_type isa LLVM.ScalableVectorType
+        @test !occursin("addrspace", string(new_f))
+        @test verify(mod) === nothing
+
+        # mapping every type to itself clones the function as it is
+        new_f = remap(f, "f.identity"; type_mapper=identity)
+        @test new_f.function_type == f.function_type
+        @test replace(string(new_f), "@f.identity(" => "@f(") == string(f)
+        @test verify(mod) === nothing
+    end
+end
+
 end

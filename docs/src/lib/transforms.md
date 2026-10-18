@@ -22,6 +22,7 @@ page.
 
 ```@docs
 DefaultPipeline
+print_pipeline
 ```
 
 ## Custom passes

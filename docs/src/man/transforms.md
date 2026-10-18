@@ -69,6 +69,19 @@ pipeline). Instead, the pipeline can be tuned through pipeline tuning keyword ar
 have to be set on the `PassBuilder` object. Refer to the `PassBuilder` docstrings
 for more details.
 
+To see what a pipeline consists of, `print_pipeline` prints it as LLVM parses it, like
+`opt -print-pipeline-passes` does: with the pass managers that LLVM inserts, every pass under
+its name, and the options of passes that take them. Pipelines like `default<O2>` are
+printed as the passes they consist of.
+
+```jldoctest
+julia> @dispose pb=PassBuilder() begin
+         add!(pb, "globaldce,instsimplify,dce")
+         print_pipeline(pb)
+       end
+globaldce,function(instsimplify),function(dce)
+```
+
 
 ## Pass managers
 

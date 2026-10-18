@@ -1527,8 +1527,12 @@ function LLVMExtraDominatorTreeRecalculate(Tree, F)
     ccall((:LLVMExtraDominatorTreeRecalculate, libLLVMExtra), Cvoid, (LLVMDominatorTreeRef, LLVMValueRef), Tree, F)
 end
 
-function LLVMExtraSplitBlockAndInsertIfThen(Cond, SplitBefore, Unreachable, Tree)
-    ccall((:LLVMExtraSplitBlockAndInsertIfThen, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMBool, LLVMDominatorTreeRef), Cond, SplitBefore, Unreachable, Tree)
+function LLVMExtraSplitBlockAndInsertIfThen(Cond, SplitBefore, Unreachable, BranchWeights, NumBranchWeights, Tree)
+    ccall((:LLVMExtraSplitBlockAndInsertIfThen, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMBool, Ptr{Cuint}, Cuint, LLVMDominatorTreeRef), Cond, SplitBefore, Unreachable, BranchWeights, NumBranchWeights, Tree)
+end
+
+function LLVMExtraSplitBlockAndInsertIfThenElse(Cond, SplitBefore, BranchWeights, NumBranchWeights, Tree, ThenTerm, ElseTerm)
+    ccall((:LLVMExtraSplitBlockAndInsertIfThenElse, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, LLVMDominatorTreeRef, Ptr{LLVMValueRef}, Ptr{LLVMValueRef}), Cond, SplitBefore, BranchWeights, NumBranchWeights, Tree, ThenTerm, ElseTerm)
 end
 
 function LLVMExtraIsInstructionTriviallyDead(Inst)

@@ -1091,6 +1091,13 @@ LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L);
 // whether a value is defined outside of a loop
 LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V);
 
+// whether an instruction can be executed without the conditions that guard it, i.e., it
+// has no side effects and cannot trap; the context instruction, assumption cache (only
+// used since LLVM 16) and dominator tree are optional
+LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef CxtI,
+                                               LLVMAssumptionCacheRef AC,
+                                               LLVMDominatorTreeRef DT);
+
 // dominance of uses and blocks
 LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,
                                                        LLVMValueRef Inst, LLVMUseRef U);

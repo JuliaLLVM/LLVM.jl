@@ -78,3 +78,9 @@ is_loop_invariant
 backedge_taken_count
 step_recurrence
 ```
+
+## Speculation
+
+```@docs
+is_safe_to_speculatively_execute
+```

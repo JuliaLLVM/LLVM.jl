@@ -1238,6 +1238,10 @@ function LLVMExtraLoopIsLoopInvariant(L, V)
     ccall((:LLVMExtraLoopIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMValueRef), L, V)
 end
 
+function LLVMExtraIsSafeToSpeculativelyExecute(Inst, CxtI, AC, DT)
+    ccall((:LLVMExtraIsSafeToSpeculativelyExecute, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMAssumptionCacheRef, LLVMDominatorTreeRef), Inst, CxtI, AC, DT)
+end
+
 function LLVMExtraDominatorTreeInstructionDominatesUse(Tree, Inst, U)
     ccall((:LLVMExtraDominatorTreeInstructionDominatesUse, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMUseRef), Tree, Inst, U)
 end

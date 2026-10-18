@@ -886,3 +886,16 @@ LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
   *Result = wrap(ConstantFoldCastOperand(Op, Const, Ty, *unwrap(TD)));
   return true;
 }
+
+LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef CxtI,
+                                               LLVMAssumptionCacheRef AC,
+                                               LLVMDominatorTreeRef DT) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  Instruction *Ctx = CxtI ? unwrap<Instruction>(CxtI) : nullptr;
+#if LLVM_VERSION_MAJOR >= 16
+  return isSafeToSpeculativelyExecute(I, Ctx, unwrap(AC), unwrap(DT));
+#else
+  // the assumption cache is only used since LLVM 16
+  return isSafeToSpeculativelyExecute(I, Ctx, unwrap(DT));
+#endif
+}

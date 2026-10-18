@@ -13,6 +13,7 @@ comes_before
 may_read_from_memory
 may_write_to_memory
 may_have_side_effects
+iscommutative
 ```
 
 ## Creating instructions
@@ -180,6 +181,7 @@ tryparse(::Type{LLVM.API.LLVMAtomicRMWBinOp}, ::AbstractString)
 LLVM.irname
 LLVM.isfloatingpoint
 mmra!
+supports_mmra
 copy_atomic_metadata!
 ```
 

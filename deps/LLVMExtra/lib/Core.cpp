@@ -27,6 +27,9 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
+#if LLVM_VERSION_MAJOR >= 19
+#include <llvm/IR/MemoryModelRelaxationAnnotations.h>
+#endif
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/IR/ReplaceConstant.h>
@@ -1509,6 +1512,16 @@ LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst) {
 LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst) {
   return unwrap<Instruction>(Inst)->mayHaveSideEffects();
 }
+
+LLVMBool LLVMExtraIsCommutative(LLVMValueRef Inst) {
+  return unwrap<Instruction>(Inst)->isCommutative();
+}
+
+#if LLVM_VERSION_MAJOR >= 19
+LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst) {
+  return canInstructionHaveMMRAs(*unwrap<Instruction>(Inst));
+}
+#endif
 
 
 //

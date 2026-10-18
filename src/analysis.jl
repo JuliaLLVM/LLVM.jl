@@ -1007,6 +1007,31 @@ function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
 end
 
 
+## speculation
+
+@vocabulary Analysis is_safe_to_speculatively_execute
+
+"""
+    is_safe_to_speculatively_execute(inst::Instruction; at=nothing, assumptions=nothing,
+                                     domtree=nothing)
+
+Check whether the instruction can be executed without the conditions that guard it, e.g.,
+moved out of a loop or a conditional block: it has no side effects, and cannot trap or
+cause undefined behavior. The optional context instruction `at` (where the instruction
+would be executed), and the assumption cache and dominator tree that are used to reason
+about it, can prove more instructions safe (the assumption cache is only used since LLVM
+16). This does not check that the operands of the instruction are available, and for
+instructions that read memory (e.g., a load that is known to be dereferenceable), that
+moving them does not change the value they read.
+"""
+is_safe_to_speculatively_execute(inst::Instruction; at::Union{Nothing,Instruction}=nothing,
+                                 assumptions::Union{Nothing,AssumptionCache}=nothing,
+                                 domtree::Union{Nothing,DomTree}=nothing) =
+    API.LLVMExtraIsSafeToSpeculativelyExecute(inst, something(at, C_NULL),
+                                              something(assumptions, C_NULL),
+                                              something(domtree, C_NULL)) |> Bool
+
+
 ## constant folding
 
 @vocabulary IR constant_fold_cast

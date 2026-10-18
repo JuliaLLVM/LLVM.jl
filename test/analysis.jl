@@ -868,4 +868,28 @@ end
     end
 end
 
+@testset "speculation safety" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i64 @g(i64 %a, i64 %b, i1 %c) {
+        entry:
+          %add = add i64 %a, %b
+          %div = udiv i64 %a, %b
+          %safe = udiv i64 %a, 7
+          br i1 %c, label %then, label %exit
+        then:
+          call void @llvm.assume(i1 %c)
+          ret i64 %div
+        exit:
+          ret i64 %add
+        }
+        declare void @llvm.assume(i1)""") begin
+        add, div, safe = collect(mod.functions["g"].entry.instructions)[1:3]
+        @test is_safe_to_speculatively_execute(add)
+        @test !is_safe_to_speculatively_execute(div)
+        @test is_safe_to_speculatively_execute(safe)
+        @test is_safe_to_speculatively_execute(add; at=add)
+        @test_throws MethodError is_safe_to_speculatively_execute(ConstantInt(Int64(1)))
+    end
+end
+
 end

@@ -175,8 +175,13 @@ a pipeline. Exceptions thrown by the parser are rethrown as `PassException` by `
 
 Before using a custom pass, it must be registered with a pass builder using `register!`.
 LLVM.jl catches exceptions from these callbacks and rethrows them as `PassException`
-after control has returned from LLVM. Callbacks registered directly through the
-`LLVM.API.LLVMPassBuilderExtensionsRegister*Pass` APIs must provide an equivalent exception
+after control has returned from LLVM. The optional passes that remain to run in the
+pipeline are skipped then, as are custom passes even if they are required, since the IR may
+be inconsistent. This is not a guarantee that nothing uses it: LLVM's required passes (like
+the pass managers and adaptors, which skip the passes they contain) still run, and with
+`verify_each`, LLVM verifies the IR after the failing pass and aborts if it is invalid.
+Callbacks registered directly through the `LLVM.API.LLVMPassBuilderExtensionsRegister*Pass`
+APIs must provide an equivalent exception
 barrier: Julia exceptions must not escape a callback, because they bypass C++ destructors in
 LLVM's pass runner.
 
@@ -216,8 +221,19 @@ mutable struct CustomPassState
     pass::Union{Nothing,CustomPass}
     occurrences::Vector{Any}
 
-    CustomPassState(callback) = new(callback, nothing, nothing, [])
-    CustomPassState(pass::CustomPass) = new(pass.callback, nothing, pass, [])
+    # the extensions of the run, to abort it when the callback fails
+    exts::API.LLVMPassBuilderExtensionsRef
+
+    CustomPassState(callback) = new(callback, nothing, nothing, [], C_NULL)
+    CustomPassState(pass::CustomPass, exts=C_NULL) = new(pass.callback, nothing, pass, [], exts)
+end
+
+# record an exception thrown by a callback, and skip the rest of the pipeline, which could
+# otherwise run on inconsistent IR or analyses
+function fail_pass!(state::CustomPassState, err)
+    _capture_callback_exception!(state, err)
+    state.exts == C_NULL || API.LLVMExtraPassBuilderExtensionsAbort(state.exts)
+    return
 end
 
 # an occurrence of a pass with options in a pipeline
@@ -262,7 +278,7 @@ function module_callback(ref::API.LLVMModuleRef, thunk::Ptr{Cvoid})
         mod = LLVM.Module(ref)
         return state.callback(mod)::Bool
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
         # The callback may have changed IR before throwing. Invalidate all
         # analyses before surfacing the exception after LLVM returns.
         return true
@@ -276,7 +292,7 @@ function function_callback(ref::API.LLVMValueRef, thunk::Ptr{Cvoid})
         fun = LLVM.Function(ref)
         return state.callback(fun)::Bool
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
         # The callback may have changed IR before throwing. Invalidate all
         # analyses before surfacing the exception after LLVM returns.
         return true
@@ -296,7 +312,7 @@ function function_callback_with_analyses(ref::API.LLVMValueRef,
         preserved = state.callback(fun, FunctionAnalysisManager(am, fun))
         set_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
@@ -311,7 +327,7 @@ function module_callback_with_analyses(ref::API.LLVMModuleRef,
         preserved = state.callback(mod, ModuleAnalysisManager(am, mod))
         set_module_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
@@ -326,7 +342,7 @@ function parse_options_callback(params::Cstring, thunk::Ptr{Cvoid})
         push!(state.occurrences, occurrence)
         return pointer_from_objref(occurrence)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
         return C_NULL
     end
 end
@@ -346,7 +362,7 @@ function module_callback_with_options(ref::API.LLVMModuleRef,
         end
         set_module_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
@@ -366,7 +382,7 @@ function function_callback_with_options(ref::API.LLVMValueRef,
         end
         set_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
@@ -970,7 +986,7 @@ function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                      target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
                      pipeline::String, aa_pipeline::Union{Nothing,String})
     # Create state objects to hold callbacks and any caught exceptions
-    states = [CustomPassState(pass) for pass in pb.custom_passes]
+    states = [CustomPassState(pass, exts) for pass in pb.custom_passes]
     tti_state = pb.custom_tti === nothing ? nothing :
                 install_custom_tti!(exts, pb.custom_tti)
     ctx = context(target)
@@ -1179,7 +1195,9 @@ the passes themselves.
 The alias analyses, the target transform info and the instrumentation are those of the
 enclosing pipeline: the pass builder's options for them (like `verify_each` or
 `debug_logging`) have no effect, and it cannot have an [`AAManager`](@ref), a custom target
-transform info or collect remarks.
+transform info or collect remarks. If one of the passes fails, the passes that remain are
+skipped, and `run!` throws a `PassException`, which fails the calling pass unless it catches
+it.
 
 For example, a pass that unrolls loops, and cleans up after that if it changed anything:
 
@@ -1204,8 +1222,8 @@ function run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
         throw(ArgumentError("Passes that run from a pass use the alias analyses, target transform info and remarks of the enclosing pipeline"))
     isempty(pb.passes) && return PreservedAnalyses(AllAnalyses)
 
-    states = [CustomPassState(pass) for pass in pb.custom_passes]
     exts = API.LLVMCreatePassBuilderExtensions()
+    states = [CustomPassState(pass, exts) for pass in pb.custom_passes]
     try
         GC.@preserve states begin
             register_extensions!(exts, pb, states)

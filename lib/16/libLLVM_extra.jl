@@ -596,6 +596,10 @@ function LLVMPassBuilderExtensionsPushRegistrationCallbacks(Options, Registratio
     ccall((:LLVMPassBuilderExtensionsPushRegistrationCallbacks, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Ptr{Cvoid}), Options, RegistrationCallback)
 end
 
+function LLVMExtraPassBuilderExtensionsAbort(Extensions)
+    ccall((:LLVMExtraPassBuilderExtensionsAbort, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef,), Extensions)
+end
+
 # typedef LLVMBool ( * LLVMJuliaModulePassCallback ) ( LLVMModuleRef M , void * Thunk )
 const LLVMJuliaModulePassCallback = Ptr{Cvoid}
 

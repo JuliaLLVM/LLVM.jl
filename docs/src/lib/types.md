@@ -62,6 +62,15 @@ isopaque(::LLVM.StructType)
 elements!
 ```
 
+## Target extension types
+
+Available with LLVM 16 and later.
+
+```@autodocs
+Modules = [LLVM]
+Filter = t -> isdefined(LLVM, :TargetExtType) && t === LLVM.TargetExtType
+```
+
 ## Other types
 
 ```@docs
@@ -69,4 +78,12 @@ LLVM.VoidType
 LLVM.LabelType
 LLVM.MetadataType
 LLVM.TokenType
+LLVM.X86AMXType
+```
+
+`LLVM.X86MMXType` (LLVM 19 and earlier):
+
+```@autodocs
+Modules = [LLVM]
+Filter = t -> isdefined(LLVM, :X86MMXType) && t === LLVM.X86MMXType
 ```

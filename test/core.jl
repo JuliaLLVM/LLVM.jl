@@ -290,6 +290,68 @@ end
     typ = LLVM.TokenType()
     @test context(typ) == ctx
 end
+@dispose ctx=Context() begin
+    typ = LLVM.X86AMXType()
+    @test context(typ) == ctx
+    @test string(typ) == "x86_amx"
+    @test typ == LLVM.X86AMXType()
+end
+if LLVM.version() < v"20"
+    @dispose ctx=Context() begin
+        typ = LLVM.X86MMXType()
+        @test context(typ) == ctx
+        @test string(typ) == "x86_mmx"
+        @test typ == LLVM.X86MMXType()
+    end
+end
+# x86_amx types are recognized when encountered
+@dispose ctx=Context(; opaque_pointers=true) mod=parse(LLVM.Module, """
+        declare x86_amx @llvm.x86.tileloadd64.internal(i16, i16, ptr, i64)""") begin
+    f = mod.functions["llvm.x86.tileloadd64.internal"]
+    @test f.function_type.return_type isa LLVM.X86AMXType
+end
+
+# target extension types
+if LLVM.version() >= v"16"
+    @dispose ctx=Context() begin
+        typ = LLVM.TargetExtType("spirv.Image", [LLVM.VoidType()], [0, 1, 2])
+        @test typ isa LLVM.TargetExtType
+        @test context(typ) == ctx
+        @test typ.name == "spirv.Image"
+        @test typ.type_parameters == [LLVM.VoidType()]
+        @test typ.int_parameters == [0, 1, 2]
+        @test string(typ) == "target(\"spirv.Image\", void, 0, 1, 2)"
+
+        # types are uniqued by name and parameters
+        @test typ == LLVM.TargetExtType("spirv.Image", [LLVM.VoidType()], [0, 1, 2])
+        @test typ != LLVM.TargetExtType("spirv.Image", [LLVM.VoidType()], [0, 1, 3])
+        @test typ != LLVM.TargetExtType("spirv.Image", [LLVM.Int32Type()], [0, 1, 2])
+
+        let typ = LLVM.TargetExtType("spirv.Event")
+            @test typ.name == "spirv.Event"
+            @test isempty(typ.type_parameters)
+            @test isempty(typ.int_parameters)
+            @test string(typ) == "target(\"spirv.Event\")"
+        end
+    end
+
+    # target extension types are recognized when encountered
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+            define target("spirv.Event") @f(target("spirv.Image", void, 0, 0, 0, 0, 0, 0, 0) %img) {
+              ret target("spirv.Event") poison
+            }""") begin
+        f = mod.functions["f"]
+        ft = f.function_type
+        @test ft.return_type isa LLVM.TargetExtType
+        @test ft.return_type.name == "spirv.Event"
+        img = ft.parameters[1]
+        @test img isa LLVM.TargetExtType
+        @test img.int_parameters == zeros(Int, 7)
+        @test f.parameters[1].value_type == img
+        ret = f.entry.terminator
+        @test ret.operands[1].value_type == ft.return_type
+    end
+end
 
 # type iteration
 @dispose ctx=Context() begin

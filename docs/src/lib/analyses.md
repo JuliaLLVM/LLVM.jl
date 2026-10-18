@@ -80,6 +80,7 @@ ConstantRange(::ScalarEvolution, ::SCEV)
 is_loop_invariant
 backedge_taken_count
 step_recurrence
+reverse_postorder
 ```
 
 Passes that change loops or values keep scalar evolution up to date by making it forget

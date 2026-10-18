@@ -9,6 +9,7 @@
 #include <llvm/Analysis/InstructionSimplify.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/LoopIterator.h>
 #include <llvm/Analysis/MemorySSA.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
@@ -1040,3 +1041,10 @@ LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef C
 }
 
 void LLVMExtraMemorySSAVerify(LLVMMemorySSARef MSSA) { unwrap(MSSA)->verifyMemorySSA(); }
+
+unsigned LLVMExtraLoopGetBlocksRPO(LLVMLoopRef L, LLVMLoopInfoRef LI,
+                                   LLVMBasicBlockRef *Blocks) {
+  LoopBlocksRPO RPO(unwrap(L));
+  RPO.perform(unwrap(LI));
+  return writeRefs(RPO, Blocks);
+}

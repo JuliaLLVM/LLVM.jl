@@ -879,6 +879,21 @@ end
 Base.show(io::IO, loop::Loop) =
     print(io, "Loop(header=", repr(header(loop).name), ", depth=", depth(loop), ")")
 
+@vocabulary Analysis reverse_postorder
+
+"""
+    reverse_postorder(loop::Loop, li::LoopInfo)
+
+The blocks of a loop (including those of nested loops) in reverse post-order of a
+depth-first search from its header that does not follow its back edges, using LLVM's
+`LoopBlocksRPO`: every block comes after the blocks that it is reachable from within an
+iteration of the loop, e.g., a block after the blocks that dominate it. `li` is the loop
+info that `loop` is part of.
+"""
+reverse_postorder(loop::Loop, li::LoopInfo) =
+    BasicBlock[BasicBlock(ref) for ref in
+               read_refs(API.LLVMExtraLoopGetBlocksRPO, API.LLVMBasicBlockRef, loop, li)]
+
 
 ## scalar evolution
 

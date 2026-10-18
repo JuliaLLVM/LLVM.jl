@@ -44,6 +44,7 @@ ConstantArray
 ConstantArray(::LLVMType, ::AbstractArray{<:LLVM.Constant,N}) where {N}
 ConstantArray(::AbstractArray)
 ConstantVector
+ConstantVector(::AbstractVector{<:LLVM.Constant})
 ConstantAggregateZero
 LLVM.ConstantAggregate
 InlineAsm

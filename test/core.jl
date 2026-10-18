@@ -746,6 +746,31 @@ end
 
     end
 
+    @testset "vector aggregate constants" begin
+
+    # elements that aren't simple data
+    @dispose mod=LLVM.Module("vectors") begin
+        gv = GlobalVariable(mod, LLVM.Int64Type(), "vector_element")
+        elems = [const_ptrtoint(gv, LLVM.Int64Type()), ConstantInt(Int64(1))]
+        cv = ConstantVector(elems)
+        @test cv isa ConstantVector
+        @test cv.value_type == LLVM.VectorType(LLVM.Int64Type(), 2)
+        @test collect(cv.elements) == elems
+    end
+
+    # like `ConstantVector::get`, simple data and zeros give other kinds of constants
+    let cv = ConstantVector([ConstantInt(Int32(1)), ConstantInt(Int32(2))])
+        @test cv isa ConstantDataVector
+        @test [convert(Int, x) for x in cv.elements] == [1, 2]
+    end
+    @test ConstantVector([ConstantInt(Int32(0)), ConstantInt(Int32(0))]) isa
+          ConstantAggregateZero
+
+    @test_throws ArgumentError ConstantVector(Constant[])
+    @test_throws ArgumentError ConstantVector([ConstantInt(Int32(1)), ConstantInt(Int64(1))])
+
+    end
+
     @testset "struct aggregate constants" begin
 
     # from Julia values

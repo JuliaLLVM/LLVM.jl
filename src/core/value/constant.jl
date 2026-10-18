@@ -711,6 +711,24 @@ the `elements` property, see [`LLVM.ConstantAggregate`](@ref).
 end
 register(ConstantVector, API.LLVMConstantVectorValueKind)
 
+"""
+    ConstantVector(elements::AbstractVector{<:Constant})
+
+Create a constant vector of the given elements, which must be of the same type, like
+C++'s `ConstantVector::get`.
+
+!!! note
+
+    This constructor can return another constant kind, such as
+    [`ConstantDataVector`](@ref), `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
+"""
+function ConstantVector(elements::AbstractVector{<:Constant})
+    isempty(elements) && throw(ArgumentError("Cannot create a vector without elements"))
+    all(e -> value_type(e) == value_type(first(elements)), elements) ||
+        throw(ArgumentError("The elements of a vector must have the same type"))
+    return Value(API.LLVMConstVector(as_vector(elements), length(elements)))::Constant
+end
+
 
 ## aggregate elements
 

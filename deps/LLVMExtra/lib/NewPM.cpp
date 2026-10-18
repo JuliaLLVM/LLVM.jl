@@ -16,6 +16,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Transforms/IPO/Internalize.h>
+#include <llvm/Transforms/Vectorize/VectorCombine.h>
 #include <llvm/Support/CBindingWrapping.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/Regex.h>
@@ -987,6 +988,34 @@ static void registerExtensions(PassBuilder &PB, TargetMachine *Machine,
       Machine->registerDefaultAliasAnalyses(AA);
     return true;
   });
+#if LLVM_VERSION_MAJOR >= 16
+  // LLVM's pipelines use `VectorCombinePass(/*TryEarlyFoldsOnly=*/true)`, which its parser
+  // cannot express (before LLVM 16, the flag had a different meaning). LLVM prints it like
+  // the full pass, so name it after its parameters to print it as it is parsed.
+  PB.registerPipelineParsingCallback(
+      [](StringRef Name, FunctionPassManager &PM,
+         ArrayRef<PassBuilder::PipelineElement> InnerPipeline) {
+        StringRef Params;
+        if (!InnerPipeline.empty() ||
+            !matchParametrizedPassName(Name, "vector-combine", Params))
+          return false;
+        bool Early = false;
+        while (!Params.empty()) {
+          StringRef Param;
+          std::tie(Param, Params) = Params.split(';');
+          if (Param == "early")
+            Early = true;
+          else if (Param == "no-early")
+            Early = false;
+          else
+            return false;
+        }
+        PM.addPass(NamedPass("VectorCombinePass",
+                             Early ? "vector-combine<early>" : "vector-combine", false,
+                             VectorCombinePass(Early)));
+        return true;
+      });
+#endif
 #if LLVM_VERSION_MAJOR < 21
   // `expand-reductions` is only registered with the new pass manager since LLVM 21
   // (llvm/llvm-project#148109), but the pass itself is available

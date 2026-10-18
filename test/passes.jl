@@ -461,6 +461,50 @@ end
     end
 end
 
+@testset "early vector combine" begin
+    @test VectorCombinePass() == "vector-combine"
+    if LLVM.version() < v"16"
+        @test_throws ArgumentError VectorCombinePass(; early=true)
+    else
+        @test VectorCombinePass(; early=true) == "vector-combine<early>"
+
+        # unlike LLVM, which prints both as `vector-combine`, the parameter is printed
+        @dispose pb=PassBuilder() begin
+            add!(pb, "function(vector-combine<early>,vector-combine<no-early>,vector-combine)")
+            @test sprint(print_pipeline, pb) ==
+                  "function(vector-combine<early>,vector-combine,vector-combine)"
+        end
+
+        # the early folds don't include scalarizing extracted operands
+        if :X86 in LLVM.backends()
+            LLVM.InitializeX86Target()
+            LLVM.InitializeX86TargetInfo()
+            LLVM.InitializeX86TargetMC()
+            triple = "x86_64-unknown-linux-gnu"
+            ir = """
+                target triple = "$triple"
+                define i32 @f(<4 x i32> %x, <4 x i32> %y) {
+                  %a = extractelement <4 x i32> %x, i32 0
+                  %b = extractelement <4 x i32> %y, i32 0
+                  %r = add i32 %a, %b
+                  ret i32 %r
+                }"""
+            @dispose tm=LLVM.TargetMachine(LLVM.Target(; triple), triple) begin
+                for (early, folded) in ((false, true), (true, false))
+                    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+                        run!(VectorCombinePass(; early), mod, tm)
+                        @test occursin("add <4 x i32>", string(mod)) == folded
+                    end
+                end
+            end
+        end
+
+        @dispose ctx=Context() mod=test_module() begin
+            @test_throws LLVM.LLVMException run!("vector-combine<invalid>", mod)
+        end
+    end
+end
+
 @testset "internalize" begin
     # preserving global values requires LLVM 19 (or Julia's LLVM 18), but works on all versions
     ir = """

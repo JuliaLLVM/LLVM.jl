@@ -82,8 +82,22 @@ backedge_taken_count
 step_recurrence
 ```
 
+Passes that change loops or values keep scalar evolution up to date by making it forget
+what changed:
+
+```@docs
+forget!
+forget_loop_dispositions!
+```
+
 ## Speculation
 
 ```@docs
 is_safe_to_speculatively_execute
+```
+
+## Memory SSA
+
+```@docs
+MemorySSA
 ```

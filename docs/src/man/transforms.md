@@ -316,6 +316,59 @@ name that its instrumentation reports (e.g., the passes that `debug_logging=true
 and that its command-line options for debugging pipelines select passes with, e.g.,
 `-print-before=print-limit` to print the IR before each occurrence of the pass above.
 
+Loop passes run on each loop of a function, innermost loops first, in a loop pass manager:
+a `loop(...)` pipeline, or a `loop-mssa(...)` pipeline that also maintains MemorySSA. A
+custom loop pass is created using `LoopPass`, and its callback is given the loop and the
+`LoopAnalysisResults` of the loop pass manager, which provide the analyses that loop
+passes use. Like LLVM's loop passes, it can also be named on its own at the start of a
+pipeline:
+
+```jldoctest custom_pass
+julia> function count_blocks!(loop::Loop, ar::LoopAnalysisResults)
+         se = ar[ScalarEvolution]
+         println(loop.header.name, ": ", length(loop.blocks), " block(s), ",
+                 backedge_taken_count(se, loop), " backedges taken")
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia> counted = parse(LLVM.Module, """
+         define void @counted() {
+         entry:
+           br label %loop
+         loop:
+           %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+           %i.next = add i32 %i, 1
+           %c = icmp ult i32 %i.next, 10
+           br i1 %c, label %loop, label %exit
+         exit:
+           ret void
+         }""");
+
+julia> @dispose pb=PassBuilder() begin
+         register!(pb, LoopPass("count-blocks", count_blocks!))
+         add!(pb, "count-blocks")
+         run!(pb, counted)
+       end
+loop: 1 block(s), SCEVConstant(9) backedges taken
+```
+
+The analyses that a loop pass is given are shared by the whole loop pipeline, which relies
+on every pass to keep them valid: a pass that changes a loop needs to update the dominator
+tree, loop info and scalar evolution (e.g., using `forget!` for values and loops whose
+scalar evolution changed), and in a `loop-mssa` pipeline, MemorySSA. It then returns
+`PreservedAnalyses(LoopAnalyses)`, together with `CFGAnalyses` if it did not change the
+control-flow graph and `MemorySSA` if it kept MemorySSA valid, which LLVM requires in a
+`loop-mssa` pipeline. The loop pass manager runs the `loop-simplify` and `lcssa` passes
+before the loop passes, so loops normally have a preheader, but that can fail, so a pass
+that needs one should check that `loop.preheader !== nothing`. See [`LoopPass`](@ref) for
+the details.
+
+If a custom pass throws an exception, the optional passes that remain in the pipeline and
+all custom passes are skipped, as the IR and the analyses that the pipeline relies on may
+be inconsistent, and `run!` throws a `PassException`. This is best-effort containment:
+LLVM's required passes, like the pass managers, still run, so a pass should avoid leaving
+the IR inconsistent.
+
 Passes that are implemented in C++ can be used as well, by registering a native callback
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:
 

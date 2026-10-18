@@ -99,7 +99,7 @@ LoopPassManager(; use_memory_ssa=false) =
 
 ## custom passes
 
-@vocabulary Passes ModulePass, FunctionPass
+@vocabulary Passes ModulePass, FunctionPass, LoopPass
 
 """
     ModulePass(name, callback; required=false, analyses=false, parse_options=nothing)
@@ -211,6 +211,61 @@ ModulePass(name, callback; required::Bool=false, analyses::Bool=false,
 FunctionPass(name, callback; required::Bool=false, analyses::Bool=false,
              parse_options=nothing) =
     CustomPass(:function, name, callback, required, analyses, parse_options)
+
+"""
+    LoopPass(name, callback; required=false, analyses=true, parse_options=nothing)
+
+Create a custom loop pass, which runs on each loop of a function (innermost loops first) in
+a loop pass manager, i.e., in a `loop(...)` or `loop-mssa(...)` pipeline. Like LLVM's loop
+passes, it can also be used on its own (without MemorySSA) if its name is the first of a
+pipeline, e.g., `add!(pb, "my-loop-pass")`.
+
+The `callback` is called with the [`Loop`](@ref) and the [`LoopAnalysisResults`](@ref) of
+the loop pass manager, which provide the analyses that loop passes use (e.g.,
+`ar[ScalarEvolution]`). It returns the [`PreservedAnalyses`](@ref) describing the analyses
+that remain valid, typically `PreservedAnalyses(AllAnalyses)` if the pass did not change
+anything, and `PreservedAnalyses(LoopAnalyses)` (plus `CFGAnalyses` and `MemorySSA` as
+appropriate) if it did. With `analyses=false`, the callback is only called with the loop,
+and returns a boolean indicating whether it changed anything, like other custom passes.
+
+```julia
+function hoist!(loop::Loop, ar::LoopAnalysisResults)
+    se = ar[ScalarEvolution]
+    changed = ...
+    changed || return PreservedAnalyses(AllAnalyses)
+    return PreservedAnalyses(LoopAnalyses, CFGAnalyses, MemorySSA)
+end
+LoopPass("hoist", hoist!)
+```
+
+Loop passes need to respect the contract of LLVM's loop pass manager, which shares its
+analyses between all passes of the pipeline:
+
+- the dominator tree, loop info and scalar evolution of the function must be kept valid
+  by the pass (for scalar evolution, e.g., using [`forget!`](@ref)), as the loop pass
+  manager treats them as preserved, whatever the pass returns;
+- in a `loop-mssa` pipeline, MemorySSA must be kept valid as well, and the pass must
+  preserve it (`MemorySSA` or `AllAnalyses`); returning anything else is an error;
+- the pass should only change the loop it is called with (and the loops nested in it),
+  and not delete loops, as it cannot notify the loop pass manager of that;
+- the loop pass manager runs LLVM's `loop-simplify` and `lcssa` passes before the loop
+  passes, so loops are normally in their canonical form, which a pass should keep. That
+  can fail (e.g., for loops entered through an `indirectbr`), so a pass that needs a
+  preheader should check that `loop.preheader !== nothing`, like Julia's loop passes do.
+
+`required` and `parse_options` work like for [`FunctionPass`](@ref). If the callback
+throws an exception, the remaining passes of the pipeline are skipped as described for
+[`FunctionPass`](@ref), since the analyses that the loop pass manager shares may be stale,
+and `run!` throws a `PassException`. To keep the loop pass manager from aborting the
+process, a failing pass in a `loop-mssa` pipeline is reported to preserve MemorySSA. This
+is best-effort containment, not recovery from an arbitrary partial change of the IR:
+LLVM's required passes, like the pass managers and adaptors, still run and use analyses.
+
+See also: [`register!`](@ref), [`LoopAnalysisResults`](@ref)
+"""
+LoopPass(name, callback; required::Bool=false, analyses::Bool=true,
+         parse_options=nothing) =
+    CustomPass(:loop, name, callback, required, analyses, parse_options)
 
 # State struct to store callback and any caught exception
 mutable struct CustomPassState
@@ -388,10 +443,51 @@ function function_callback_with_options(ref::API.LLVMValueRef,
 end
 
 
+function loop_callback(ref::API.LLVMLoopRef, am::API.LLVMLoopAnalysisManagerRef,
+                       ar::API.LLVMLoopStandardAnalysisResultsRef, u::API.LLVMLPMUpdaterRef,
+                       pa::API.LLVMPreservedAnalysesRef, thunk::Ptr{Cvoid})
+    state = Base.unsafe_pointer_to_objref(thunk)::CustomPassState
+    run_loop_callback(state, (), ref, ar, u, pa)
+    return
+end
+
+function loop_callback_with_options(ref::API.LLVMLoopRef,
+                                    am::API.LLVMLoopAnalysisManagerRef,
+                                    ar::API.LLVMLoopStandardAnalysisResultsRef,
+                                    u::API.LLVMLPMUpdaterRef,
+                                    pa::API.LLVMPreservedAnalysesRef, thunk::Ptr{Cvoid})
+    occurrence = Base.unsafe_pointer_to_objref(thunk)::CustomPassOccurrence
+    run_loop_callback(occurrence.state, (occurrence.options,), ref, ar, u, pa)
+    return
+end
+
+function run_loop_callback(state::CustomPassState, options::Tuple, ref::API.LLVMLoopRef,
+                           ar::API.LLVMLoopStandardAnalysisResultsRef,
+                           u::API.LLVMLPMUpdaterRef, pa::API.LLVMPreservedAnalysesRef)
+    # the output object starts out as what LLVM should see if the pass fails
+    state.exception === nothing || return
+    loop = Loop(ref)
+    results = LoopAnalysisResults(ar, LPMUpdater(u), parent(header(loop)))
+    try
+        preserved = if state.pass.analyses
+            state.callback(loop, results, options...)
+        else
+            state.callback(loop, options...)::Bool
+        end
+        set_loop_preserved!(pa, preserved, results)
+    catch err
+        fail_pass!(state, err)
+    finally
+        results.valid = false
+    end
+    return
+end
+
 ## analysis managers
 
-@vocabulary Passes FunctionAnalysisManager, ModuleAnalysisManager, PreservedAnalyses,
-                   AllAnalyses, CFGAnalyses, FunctionAnalyses, invalidate!
+@vocabulary Passes FunctionAnalysisManager, ModuleAnalysisManager, LoopAnalysisResults,
+                   LPMUpdater, PreservedAnalyses, AllAnalyses, CFGAnalyses,
+                   FunctionAnalyses, LoopAnalyses, invalidate!
 
 """
     FunctionAnalysisManager
@@ -517,15 +613,88 @@ Base.getindex(am::ModuleAnalysisManager, T::Type) =
     throw(ArgumentError("$T is not a supported module analysis"))
 
 """
+    LPMUpdater
+
+The updater of a loop pass manager, through which a loop pass notifies the loop pass
+manager of changes to the loop nest. It is available as `ar.updater` from the
+[`LoopAnalysisResults`](@ref) of a custom loop pass, and like those, it must not be used
+after the pass returns. No operations are supported yet.
+"""
+struct LPMUpdater
+    ref::API.LLVMLPMUpdaterRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMLPMUpdaterRef}, u::LPMUpdater) = u.ref
+
+"""
+    LoopAnalysisResults
+
+The analyses that the loop pass manager of a pipeline provides to a custom loop pass
+(created using [`LoopPass`](@ref)), for the function containing the loop. These are the
+results of function analyses that the loop pass manager computes before running the loop
+passes, and keeps valid while they run, with the help of the passes:
+
+- `ar[T]`: the result of the analysis `T`, which is one of [`DomTree`](@ref),
+  [`LoopInfo`](@ref), [`ScalarEvolution`](@ref), [`AssumptionCache`](@ref) and
+  [`MemorySSA`](@ref). MemorySSA is only available in a `loop-mssa(...)` pipeline;
+- `get(ar, T, nothing)`: the same, or `nothing` if the result is not available (i.e., for
+  MemorySSA outside of a `loop-mssa(...)` pipeline);
+- `ar.updater`: the [`LPMUpdater`](@ref) of the loop pass manager.
+
+The results, and the object itself, are borrowed from the loop pass manager: they must not
+be used after the pass returns. Unlike the results that a function pass obtains, they are
+shared by all passes of the loop pipeline, so the pass must keep them up to date when it
+changes the IR (see [`LoopPass`](@ref)).
+"""
+mutable struct LoopAnalysisResults
+    const ref::API.LLVMLoopStandardAnalysisResultsRef
+    const updater::LPMUpdater
+    const fun::Function
+    valid::Bool
+end
+
+LoopAnalysisResults(ref::API.LLVMLoopStandardAnalysisResultsRef, updater, fun) =
+    LoopAnalysisResults(ref, updater, fun, true)
+
+Base.unsafe_convert(::Type{API.LLVMLoopStandardAnalysisResultsRef},
+                    ar::LoopAnalysisResults) = ar.ref
+
+Base.show(io::IO, ar::LoopAnalysisResults) = print(io, "LoopAnalysisResults()")
+
+loop_analysis_id(T::Type) =
+    throw(ArgumentError("$T is not an analysis that the loop pass manager provides"))
+loop_analysis_id(::Type{DomTree}) = API.LLVMExtraLoopDominatorTree
+loop_analysis_id(::Type{LoopInfo}) = API.LLVMExtraLoopLoopInfo
+loop_analysis_id(::Type{ScalarEvolution}) = API.LLVMExtraLoopScalarEvolution
+loop_analysis_id(::Type{AssumptionCache}) = API.LLVMExtraLoopAssumptionCache
+loop_analysis_id(::Type{MemorySSA}) = API.LLVMExtraLoopMemorySSA
+
+function Base.get(ar::LoopAnalysisResults, T::Type, default)
+    ar.valid || throw(ArgumentError("Loop analysis results cannot be used after the pass returned"))
+    ptr = API.LLVMExtraLoopStandardAnalysisResultsGet(ar, loop_analysis_id(T))
+    return ptr == C_NULL ? default : borrow_analysis(T, ptr)
+end
+
+function Base.getindex(ar::LoopAnalysisResults, T::Type)
+    result = get(ar, T, nothing)
+    result === nothing &&
+        throw(ArgumentError("$T is not available; MemorySSA requires a loop-mssa pipeline"))
+    return result
+end
+
+"""
     AllAnalyses
     CFGAnalyses
     FunctionAnalyses
+    LoopAnalyses
 
 Markers for sets of analyses, used with [`PreservedAnalyses`](@ref): `AllAnalyses` for every
 analysis, `CFGAnalyses` for the analyses that only depend on the control-flow graph of
 a function (like `DomTree` and `PostDomTree`), i.e., on its blocks and their terminators,
-and `FunctionAnalyses` for the function analyses of the function (for a function pass), or
-of every function of the module (for a module pass).
+`FunctionAnalyses` for the function analyses of the function (for a function pass), or
+of every function of the module (for a module pass), and `LoopAnalyses` (only for loop
+passes) for the analyses that a loop pass keeps valid when it changes a loop: the dominator
+tree, loop info and scalar evolution of the function.
 """
 struct AllAnalyses end
 
@@ -535,13 +704,17 @@ struct CFGAnalyses end
 @doc (@doc AllAnalyses)
 struct FunctionAnalyses end
 
+@doc (@doc AllAnalyses)
+struct LoopAnalyses end
+
 """
     PreservedAnalyses(analyses...)
 
 The set of analyses that remain valid after a custom pass, returned by a pass created using
-`FunctionPass(...; analyses=true)` or `ModulePass(...; analyses=true)`. Each argument is
-either an analysis (e.g. `DomTree`), or a marker for a set of analyses
-([`AllAnalyses`](@ref), [`CFGAnalyses`](@ref) or [`FunctionAnalyses`](@ref)):
+`FunctionPass(...; analyses=true)`, `ModulePass(...; analyses=true)` or `LoopPass`. Each
+argument is either an analysis (e.g. `DomTree`), or a marker for a set of analyses
+([`AllAnalyses`](@ref), [`CFGAnalyses`](@ref), [`FunctionAnalyses`](@ref) or
+[`LoopAnalyses`](@ref)):
 
 - `PreservedAnalyses()`: no analysis is preserved (like returning `true`);
 - `PreservedAnalyses(AllAnalyses)`: every analysis is preserved (like returning `false`);
@@ -564,30 +737,39 @@ The analyses that are preserved by two passes that run one after the other are
 `intersect(a, b)`, like for LLVM's `PreservedAnalyses::intersect`: an analysis or set of
 analyses is preserved when both preserve it, or when one of them preserves all analyses.
 
+A loop pass can only preserve sets of analyses and MemorySSA: `PreservedAnalyses(AllAnalyses)`
+if it did not change anything, or `PreservedAnalyses(LoopAnalyses)` if it did, together
+with `CFGAnalyses` if it did not change the control-flow graph, and `MemorySSA` if it kept
+MemorySSA up to date (which is required in a `loop-mssa(...)` pipeline). See
+[`LoopPass`](@ref).
+
 See also: [`FunctionAnalysisManager`](@ref), [`invalidate!`](@ref)
 """
 struct PreservedAnalyses
     all::Bool
     functions::Bool
+    loop::Bool
     cfg::Bool
     analyses::Vector{Type}
 
     function PreservedAnalyses(analyses::Type...)
-        all = functions = cfg = false
+        all = functions = loop = cfg = false
         individual = Type[]
         for T in analyses
             if T === AllAnalyses
                 all = true
             elseif T === FunctionAnalyses
                 functions = true
+            elseif T === LoopAnalyses
+                loop = true
             elseif T === CFGAnalyses
                 cfg = true
             else
-                analysis_id(T)  # validate
+                T === MemorySSA || analysis_id(T)  # validate
                 T in individual || push!(individual, T)
             end
         end
-        return new(all, functions, cfg, individual)
+        return new(all, functions, loop, cfg, individual)
     end
 end
 
@@ -595,6 +777,7 @@ function Base.show(io::IO, pa::PreservedAnalyses)
     print(io, "PreservedAnalyses(")
     names = Any[pa.analyses...]
     pa.cfg && pushfirst!(names, CFGAnalyses)
+    pa.loop && pushfirst!(names, LoopAnalyses)
     pa.functions && pushfirst!(names, FunctionAnalyses)
     pa.all && pushfirst!(names, AllAnalyses)
     join(io, names, ", ")
@@ -602,7 +785,7 @@ function Base.show(io::IO, pa::PreservedAnalyses)
 end
 
 Base.:(==)(a::PreservedAnalyses, b::PreservedAnalyses) =
-    a.all == b.all && a.functions == b.functions && a.cfg == b.cfg &&
+    a.all == b.all && a.functions == b.functions && a.loop == b.loop && a.cfg == b.cfg &&
     issetequal(a.analyses, b.analyses)
 
 Base.convert(::Type{PreservedAnalyses}, changed::Bool) =
@@ -613,6 +796,7 @@ function Base.intersect(a::PreservedAnalyses, b::PreservedAnalyses)
     b.all && return a
     sets = Type[]
     a.functions && b.functions && push!(sets, FunctionAnalyses)
+    a.loop && b.loop && push!(sets, LoopAnalyses)
     a.cfg && b.cfg && push!(sets, CFGAnalyses)
     return PreservedAnalyses(sets..., intersect(a.analyses, b.analyses)...)
 end
@@ -640,6 +824,7 @@ end
 # pass a set of preserved function analyses to a C function
 # `f(args..., all, functions, cfg, ids, nids)`
 function with_preserved(f, pa::PreservedAnalyses, args...)
+    check_not_loop_preserved(pa)
     ids = API.LLVMExtraFunctionAnalysis[analysis_id(T) for T in pa.analyses]
     f(args..., pa.all, pa.functions, pa.cfg, ids, length(ids))
 end
@@ -648,11 +833,34 @@ set_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved) =
     with_preserved(API.LLVMExtraSetPreservedAnalyses,
                    convert(PreservedAnalyses, preserved)::PreservedAnalyses, ref)
 
+function check_not_loop_preserved(pa::PreservedAnalyses)
+    (pa.loop || MemorySSA in pa.analyses) &&
+        throw(ArgumentError("LoopAnalyses and MemorySSA can only be preserved by a loop pass"))
+end
+
 function set_module_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved)
     pa = convert(PreservedAnalyses, preserved)::PreservedAnalyses
+    check_not_loop_preserved(pa)
     ids = API.LLVMExtraFunctionAnalysis[analysis_id(T) for T in pa.analyses]
     API.LLVMExtraSetModulePreservedAnalyses(ref, pa.all, pa.functions, pa.cfg, ids,
                                             length(ids))
+end
+
+function set_loop_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved,
+                             ar::LoopAnalysisResults)
+    pa = convert(PreservedAnalyses, preserved)::PreservedAnalyses
+    pa.functions &&
+        throw(ArgumentError("FunctionAnalyses cannot be preserved by a loop pass"))
+    for T in pa.analyses
+        T === MemorySSA ||
+            throw(ArgumentError("A loop pass cannot preserve $T on its own; use LoopAnalyses"))
+    end
+    mssa = MemorySSA in pa.analyses
+    # the loop pass manager reports a fatal error otherwise
+    if !pa.all && !mssa && get(ar, MemorySSA, nothing) !== nothing
+        throw(ArgumentError("A loop pass in a loop-mssa pipeline needs to preserve MemorySSA"))
+    end
+    API.LLVMExtraSetLoopPreservedAnalyses(ref, pa.all, pa.loop, pa.cfg, mssa)
 end
 
 """
@@ -677,12 +885,28 @@ end
 
 @vocabulary Passes remark!, Remark
 
+# the kind of a remark, by name
+function remark_kind(kind::Symbol)
+    if kind === :passed
+        API.LLVMExtraRemarkPassed
+    elseif kind === :missed
+        API.LLVMExtraRemarkMissed
+    elseif kind === :analysis
+        API.LLVMExtraRemarkAnalysis
+    else
+        throw(ArgumentError("Invalid kind of remark :$kind; expected :passed, :missed or :analysis"))
+    end
+end
+
 """
     remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name, remark_name,
             inst::Instruction, message)
+    remark!(ar::LoopAnalysisResults, kind::Symbol, pass_name, remark_name,
+            inst::Instruction, message)
 
-Emit an optimization remark about the instruction `inst` of the function of `am`, like
-LLVM's passes do using an `OptimizationRemarkEmitter`: with `kind=:passed` for an
+Emit an optimization remark about the instruction `inst` of the function of `am` (or of a
+loop pass, given its [`LoopAnalysisResults`](@ref)), like LLVM's passes do using an
+`OptimizationRemarkEmitter`: with `kind=:passed` for an
 optimization that the pass performed, `kind=:missed` for one that it could not perform,
 or `kind=:analysis` for a fact that explains a decision. The `pass_name` and the
 `remark_name` identify the remark, and `message` describes it.
@@ -694,20 +918,22 @@ as debug messages.
 """
 function remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name::AbstractString,
                  remark_name::AbstractString, inst::Instruction, message::AbstractString)
-    api_kind = if kind === :passed
-        API.LLVMExtraRemarkPassed
-    elseif kind === :missed
-        API.LLVMExtraRemarkMissed
-    elseif kind === :analysis
-        API.LLVMExtraRemarkAnalysis
-    else
-        throw(ArgumentError("Invalid kind of remark :$kind; expected :passed, :missed or :analysis"))
-    end
+    api_kind = remark_kind(kind)
     bb = parent(inst)
     bb !== nothing && parent(bb) == am.fun ||
         throw(ArgumentError("Instruction is not part of function $(am.fun.name)"))
     API.LLVMExtraFunctionAnalysisManagerEmitRemark(am, api_kind, pass_name, remark_name,
                                                    inst, message)
+    return
+end
+
+function remark!(ar::LoopAnalysisResults, kind::Symbol, pass_name::AbstractString,
+                 remark_name::AbstractString, inst::Instruction, message::AbstractString)
+    ar.valid || throw(ArgumentError("Loop analysis results cannot be used after the pass returned"))
+    bb = parent(inst)
+    bb !== nothing && parent(bb) == ar.fun ||
+        throw(ArgumentError("Instruction is not part of function $(ar.fun.name)"))
+    API.LLVMExtraEmitRemark(remark_kind(kind), pass_name, remark_name, inst, message)
     return
 end
 
@@ -1067,6 +1293,13 @@ function register_extensions!(exts::API.LLVMPassBuilderExtensionsRef, pb::PassBu
                                 (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
                                  API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
                 api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass
+            elseif pass.type === :loop
+                cb = @cfunction(loop_callback_with_options, Cvoid,
+                                (API.LLVMLoopRef, API.LLVMLoopAnalysisManagerRef,
+                                 API.LLVMLoopStandardAnalysisResultsRef,
+                                 API.LLVMLPMUpdaterRef, API.LLVMPreservedAnalysesRef,
+                                 Ptr{Cvoid}))
+                api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass
             else
                 throw(ArgumentError("invalid pass type $(pass.type)"))
             end
@@ -1088,6 +1321,13 @@ function register_extensions!(exts::API.LLVMPassBuilderExtensionsRef, pb::PassBu
         elseif pass.type === :function
             cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Cvoid}))
             api = API.LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired
+        elseif pass.type === :loop
+            cb = @cfunction(loop_callback, Cvoid,
+                            (API.LLVMLoopRef, API.LLVMLoopAnalysisManagerRef,
+                             API.LLVMLoopStandardAnalysisResultsRef,
+                             API.LLVMLPMUpdaterRef, API.LLVMPreservedAnalysesRef,
+                             Ptr{Cvoid}))
+            api = API.LLVMExtraPassBuilderExtensionsRegisterLoopPass
         else
             throw(ArgumentError("invalid pass type $(pass.type)"))
         end
@@ -1266,8 +1506,9 @@ end
 Run a single custom pass on a module or a function, using a temporary pass builder that
 is created with the given keyword arguments (see [`PassBuilder`](@ref)). A function pass
 that runs on a module runs on each of its functions, while a module pass cannot run on a
-function. Like for passes that run in a pipeline, exceptions thrown by the pass are
-rethrown as a [`PassException`](@ref).
+function. A loop pass runs on each loop of the function(s) in a `loop(...)` pipeline,
+i.e., without MemorySSA. Like for passes that run in a pipeline, exceptions thrown by the
+pass are rethrown as a [`PassException`](@ref).
 """
 function run!(pass::CustomPass, target::Union{Module,Function},
               tm::Union{Nothing,TargetMachine}=nothing; kwargs...)
@@ -1279,6 +1520,16 @@ function run!(pass::CustomPass, target::Union{Module,Function},
         if pass.type === :function && target isa Module
             add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, pass)
+            end
+        elseif pass.type === :loop
+            lpm = LoopPassManager()
+            add!(lpm, pass)
+            if target isa Module
+                add!(pb, FunctionPassManager()) do fpm
+                    add!(fpm, lpm)
+                end
+            else
+                add!(pb, lpm)
             end
         else
             add!(pb, pass)

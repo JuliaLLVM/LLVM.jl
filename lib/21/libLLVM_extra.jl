@@ -1100,3 +1100,7 @@ end
 function LLVMExtraSimplifyInstruction(Inst)
     ccall((:LLVMExtraSimplifyInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
 end
+
+function LLVMExtraSplitBasicBlock(BB, Before, Head, Name)
+    ccall((:LLVMExtraSplitBasicBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMBasicBlockRef, LLVMValueRef, LLVMBool, Cstring), BB, Before, Head, Name)
+end

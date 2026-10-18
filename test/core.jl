@@ -215,6 +215,25 @@ end
 
     @test vectyp.length == 2
 end
+@dispose ctx=Context() begin
+    eltyp = LLVM.Int32Type()
+
+    vectyp = LLVM.ScalableVectorType(eltyp, 4)
+    @test vectyp isa LLVM.ScalableVectorType
+    @test vectyp.element_type == eltyp
+    @test vectyp.min_length == 4
+    @test context(vectyp) == ctx
+    @test string(vectyp) == "<vscale x 4 x i32>"
+    @test vectyp != LLVM.VectorType(eltyp, 4)
+
+    # scalable vector types are recognized when encountered
+    @dispose mod=parse(LLVM.Module, "declare <vscale x 2 x i64> @f(<vscale x 2 x i64>)") begin
+        ft = mod.functions["f"].function_type
+        @test ft.return_type isa LLVM.ScalableVectorType
+        @test ft.parameters[1] == LLVM.ScalableVectorType(LLVM.Int64Type(), 2)
+        @test null(ft.return_type).value_type == ft.return_type
+    end
+end
 
 # structure
 @dispose ctx=Context() begin

@@ -1326,6 +1326,10 @@ function LLVMExtraMemorySSAVerify(MSSA)
     ccall((:LLVMExtraMemorySSAVerify, libLLVMExtra), Cvoid, (LLVMMemorySSARef,), MSSA)
 end
 
+function LLVMExtraLoopGetBlocksRPO(L, LI, Blocks)
+    ccall((:LLVMExtraLoopGetBlocksRPO, libLLVMExtra), Cuint, (LLVMLoopRef, LLVMLoopInfoRef, Ptr{LLVMBasicBlockRef}), L, LI, Blocks)
+end
+
 mutable struct LLVMOpaqueLoopAnalysisManager end
 
 const LLVMLoopAnalysisManagerRef = Ptr{LLVMOpaqueLoopAnalysisManager}

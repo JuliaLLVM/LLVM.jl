@@ -839,6 +839,10 @@ function LLVMExtraDropUnknownNonDebugMetadata(Inst, KnownIDs, NumKnownIDs)
     ccall((:LLVMExtraDropUnknownNonDebugMetadata, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{Cuint}, Cuint), Inst, KnownIDs, NumKnownIDs)
 end
 
+function LLVMExtraConstantExprGetAsInstruction(CE)
+    ccall((:LLVMExtraConstantExprGetAsInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), CE)
+end
+
 function LLVMExtraTakeName(Val, From)
     ccall((:LLVMExtraTakeName, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Val, From)
 end

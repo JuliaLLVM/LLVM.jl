@@ -268,6 +268,41 @@ function move!(inst::Instruction, pos::InsertionPoint{Instruction};
 end
 
 
+"""
+    Instruction(ce::ConstantExpr)
+
+Create a new instruction that computes the same value as the constant expression `ce`, from
+the same operands, like C++'s `ConstantExpr::getAsInstruction`. For example, a
+`getelementptr` constant expression becomes a `getelementptr` instruction. The instruction
+is not part of a basic block: insert it with [`move!`](@ref), or delete it with
+[`erase!`](@ref). The constant expression is not changed: replace its uses by the
+instruction where needed, e.g., with `replace_uses!` or by assigning to the operands of the
+users.
+"""
+Instruction(ce::ConstantExpr) =
+    Instruction(API.LLVMExtraConstantExprGetAsInstruction(ce))
+
+"""
+    Instruction(pos::InsertionPoint{Instruction}, ce::ConstantExpr, name::AbstractString="")
+
+Create a new instruction that computes the same value as the constant expression `ce`, like
+[`Instruction(::ConstantExpr)`](@ref), insert it at `pos` with the given name, and return
+it, e.g., `Instruction(LLVM.before(user), ce)`.
+"""
+function Instruction(pos::InsertionPoint{Instruction}, ce::ConstantExpr,
+                     name::AbstractString="")
+    inst = Instruction(ce)
+    try
+        move!(inst, pos)
+    catch
+        API.LLVMDeleteInstruction(inst)
+        rethrow()
+    end
+    isempty(name) || name!(inst, name)
+    return inst
+end
+
+
 ## basic blocks
 
 function before(bb::BasicBlock)

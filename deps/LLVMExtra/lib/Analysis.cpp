@@ -8,6 +8,7 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/LoopIterator.h>
 #include <llvm/Analysis/MemorySSA.h>
+#include <llvm/Analysis/MemorySSAUpdater.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Analysis/ValueTracking.h>
@@ -39,6 +40,8 @@ DEFINE_STDCXX_CONVERSION_FUNCTIONS(ScalarEvolution, LLVMScalarEvolutionRef)
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(LoopInfo, LLVMLoopInfoRef)
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(Loop, LLVMLoopRef)
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(MemorySSA, LLVMMemorySSARef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(MemoryAccess, LLVMMemoryAccessRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(MemorySSAUpdater, LLVMMemorySSAUpdaterRef)
 
 static const SCEV *unwrap(LLVMSCEVRef S) { return reinterpret_cast<const SCEV *>(S); }
 static LLVMSCEVRef wrap(const SCEV *S) {
@@ -921,6 +924,186 @@ LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef C
 }
 
 void LLVMExtraMemorySSAVerify(LLVMMemorySSARef MSSA) { unwrap(MSSA)->verifyMemorySSA(); }
+
+LLVMMemoryAccessRef LLVMExtraMemorySSAGetInstructionAccess(LLVMMemorySSARef MSSA,
+                                                           LLVMValueRef Inst) {
+  return wrap(unwrap(MSSA)->getMemoryAccess(unwrap<Instruction>(Inst)));
+}
+
+LLVMMemoryAccessRef LLVMExtraMemorySSAGetBlockPhi(LLVMMemorySSARef MSSA,
+                                                  LLVMBasicBlockRef BB) {
+  return wrap(unwrap(MSSA)->getMemoryAccess(unwrap(BB)));
+}
+
+LLVMMemoryAccessRef LLVMExtraMemorySSAGetLiveOnEntryDef(LLVMMemorySSARef MSSA) {
+  return wrap(unwrap(MSSA)->getLiveOnEntryDef());
+}
+
+unsigned LLVMExtraMemorySSAGetBlockAccesses(LLVMMemorySSARef MSSA, LLVMBasicBlockRef BB,
+                                            LLVMMemoryAccessRef *Accesses) {
+  auto *List = unwrap(MSSA)->getBlockAccesses(unwrap(BB));
+  if (!List)
+    return 0;
+  unsigned N = 0;
+  for (const MemoryAccess &MA : *List) {
+    if (Accesses)
+      Accesses[N] = wrap(const_cast<MemoryAccess *>(&MA));
+    N++;
+  }
+  return N;
+}
+
+LLVMExtraMemoryAccessKind LLVMExtraMemoryAccessGetKind(LLVMMemoryAccessRef MA) {
+  MemoryAccess *Access = unwrap(MA);
+  if (isa<MemoryUse>(Access))
+    return LLVMExtraMemoryUse;
+  if (isa<MemoryDef>(Access))
+    return LLVMExtraMemoryDef;
+  return LLVMExtraMemoryPhi;
+}
+
+LLVMBasicBlockRef LLVMExtraMemoryAccessGetBlock(LLVMMemoryAccessRef MA) {
+  return wrap(unwrap(MA)->getBlock());
+}
+
+LLVMValueRef LLVMExtraMemoryUseOrDefGetInstruction(LLVMMemoryAccessRef MA) {
+  return wrap(cast<MemoryUseOrDef>(unwrap(MA))->getMemoryInst());
+}
+
+LLVMMemoryAccessRef LLVMExtraMemoryUseOrDefGetDefiningAccess(LLVMMemoryAccessRef MA) {
+  return wrap(cast<MemoryUseOrDef>(unwrap(MA))->getDefiningAccess());
+}
+
+unsigned LLVMExtraMemoryPhiGetNumIncoming(LLVMMemoryAccessRef MA) {
+  return cast<MemoryPhi>(unwrap(MA))->getNumIncomingValues();
+}
+
+LLVMMemoryAccessRef LLVMExtraMemoryPhiGetIncomingAccess(LLVMMemoryAccessRef MA,
+                                                       unsigned Index) {
+  return wrap(cast<MemoryPhi>(unwrap(MA))->getIncomingValue(Index));
+}
+
+LLVMBasicBlockRef LLVMExtraMemoryPhiGetIncomingBlock(LLVMMemoryAccessRef MA, unsigned Index) {
+  return wrap(cast<MemoryPhi>(unwrap(MA))->getIncomingBlock(Index));
+}
+
+char *LLVMExtraPrintMemoryAccessToString(LLVMMemoryAccessRef MA) {
+  std::string Buf;
+  raw_string_ostream OS(Buf);
+  unwrap(MA)->print(OS);
+  OS.flush();
+  return strdup(Buf.c_str());
+}
+
+LLVMMemorySSAUpdaterRef LLVMExtraCreateMemorySSAUpdater(LLVMMemorySSARef MSSA) {
+  return wrap(new MemorySSAUpdater(unwrap(MSSA)));
+}
+
+void LLVMExtraDisposeMemorySSAUpdater(LLVMMemorySSAUpdaterRef U) { delete unwrap(U); }
+
+static MemorySSA::InsertionPlace unwrap(LLVMExtraMemorySSAInsertionPlace Place) {
+  switch (Place) {
+  case LLVMExtraMemorySSABeginning:
+    return MemorySSA::Beginning;
+  case LLVMExtraMemorySSAEnd:
+    return MemorySSA::End;
+  case LLVMExtraMemorySSABeforeTerminator:
+    return MemorySSA::BeforeTerminator;
+  }
+  llvm_unreachable("unknown MemorySSA insertion place");
+}
+
+void LLVMExtraMemorySSAUpdaterRemoveMemoryAccess(LLVMMemorySSAUpdaterRef U,
+                                                 LLVMMemoryAccessRef MA,
+                                                 LLVMBool OptimizePhis) {
+  unwrap(U)->removeMemoryAccess(unwrap(MA), OptimizePhis);
+}
+
+void LLVMExtraMemorySSAUpdaterMoveToPlace(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef What,
+                                          LLVMBasicBlockRef BB,
+                                          LLVMExtraMemorySSAInsertionPlace Place) {
+  unwrap(U)->moveToPlace(cast<MemoryUseOrDef>(unwrap(What)), unwrap(BB), unwrap(Place));
+}
+
+void LLVMExtraMemorySSAUpdaterMoveBefore(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef What,
+                                         LLVMMemoryAccessRef Where) {
+  unwrap(U)->moveBefore(cast<MemoryUseOrDef>(unwrap(What)),
+                        cast<MemoryUseOrDef>(unwrap(Where)));
+}
+
+void LLVMExtraMemorySSAUpdaterMoveAfter(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef What,
+                                        LLVMMemoryAccessRef Where) {
+  unwrap(U)->moveAfter(cast<MemoryUseOrDef>(unwrap(What)),
+                       cast<MemoryUseOrDef>(unwrap(Where)));
+}
+
+// whether MemorySSA may model an instruction as accessing memory, i.e., whether creating
+// an access for it can succeed: `MemorySSA::createNewAccess` also skips instructions that
+// alias analysis finds not to access memory, which this does not check. Creating an access
+// that is not created fails an assertion, or crashes, except in `createMemoryAccessInBB`
+// since LLVM 19.
+static bool mayHaveMemoryAccess(Instruction *I) {
+  if (auto *II = dyn_cast<IntrinsicInst>(I)) {
+    switch (II->getIntrinsicID()) {
+    default:
+      break;
+#if LLVM_VERSION_MAJOR >= 19
+    case Intrinsic::allow_runtime_check:
+    case Intrinsic::allow_ubsan_check:
+#endif
+    case Intrinsic::assume:
+    case Intrinsic::experimental_noalias_scope_decl:
+    case Intrinsic::pseudoprobe:
+      return false;
+    }
+  }
+  return I->mayReadFromMemory() || I->mayWriteToMemory();
+}
+
+LLVMMemoryAccessRef LLVMExtraMemorySSAUpdaterCreateMemoryAccessInBB(
+    LLVMMemorySSAUpdaterRef U, LLVMValueRef Inst, LLVMMemoryAccessRef Definition,
+    LLVMBasicBlockRef BB, LLVMExtraMemorySSAInsertionPlace Place) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  if (!mayHaveMemoryAccess(I))
+    return nullptr;
+#if LLVM_VERSION_MAJOR >= 19
+  return wrap(unwrap(U)->createMemoryAccessInBB(I, unwrap(Definition), unwrap(BB),
+                                                unwrap(Place),
+                                                /*CreationMustSucceed=*/false));
+#else
+  return wrap(unwrap(U)->createMemoryAccessInBB(I, unwrap(Definition), unwrap(BB),
+                                                unwrap(Place)));
+#endif
+}
+
+LLVMMemoryAccessRef LLVMExtraMemorySSAUpdaterCreateMemoryAccessBefore(
+    LLVMMemorySSAUpdaterRef U, LLVMValueRef Inst, LLVMMemoryAccessRef Definition,
+    LLVMMemoryAccessRef InsertPt) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  if (!mayHaveMemoryAccess(I))
+    return nullptr;
+  return wrap(unwrap(U)->createMemoryAccessBefore(I, unwrap(Definition),
+                                                  cast<MemoryUseOrDef>(unwrap(InsertPt))));
+}
+
+LLVMMemoryAccessRef LLVMExtraMemorySSAUpdaterCreateMemoryAccessAfter(
+    LLVMMemorySSAUpdaterRef U, LLVMValueRef Inst, LLVMMemoryAccessRef Definition,
+    LLVMMemoryAccessRef InsertPt) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  if (!mayHaveMemoryAccess(I))
+    return nullptr;
+  return wrap(unwrap(U)->createMemoryAccessAfter(I, unwrap(Definition), unwrap(InsertPt)));
+}
+
+void LLVMExtraMemorySSAUpdaterInsertDef(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef Def,
+                                        LLVMBool RenameUses) {
+  unwrap(U)->insertDef(cast<MemoryDef>(unwrap(Def)), RenameUses);
+}
+
+void LLVMExtraMemorySSAUpdaterInsertUse(LLVMMemorySSAUpdaterRef U, LLVMMemoryAccessRef Use,
+                                        LLVMBool RenameUses) {
+  unwrap(U)->insertUse(cast<MemoryUse>(unwrap(Use)), RenameUses);
+}
 
 unsigned LLVMExtraLoopGetBlocksRPO(LLVMLoopRef L, LLVMLoopInfoRef LI,
                                    LLVMBasicBlockRef *Blocks) {

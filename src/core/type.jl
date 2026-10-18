@@ -437,7 +437,8 @@ isemptytype(@nospecialize(T::ArrayType)) =
     LLVM.VectorType <: LLVMType
 
 A vector type, representing a fixed-size vector of identically-typed elements. Typically
-used for SIMD operations.
+used for SIMD operations. See [`ScalableVectorType`](@ref LLVM.ScalableVectorType) for
+vectors whose size is only known at run time.
 
 # Properties
 
@@ -470,9 +471,50 @@ vector_length(vectyp::VectorType) = Int(API.LLVMGetVectorSize(vectyp))
 
 @property VectorType length => vector_length
 
-element_type(typ::Union{ArrayType,VectorType}) = LLVMType(API.LLVMGetElementType(typ))
+"""
+    LLVM.ScalableVectorType <: LLVMType
 
-@property Union{ArrayType,VectorType} element_type
+A scalable vector type, representing a vector of identically-typed elements whose number is
+a multiple of a minimum number, the multiple (`vscale`) being a constant that is only known
+at run time (e.g., `<vscale x 4 x i32>`). Used for scalable SIMD extensions like SVE or
+the RISC-V vector extension.
+
+# Properties
+
+    vectyp.element_type
+
+The type of the elements of the vector type.
+
+    vectyp.min_length
+
+The minimum number of elements of the vector type, i.e., the number of elements when
+`vscale` is 1.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
+"""
+@checked struct ScalableVectorType <: LLVMType
+    ref::API.LLVMTypeRef
+end
+@vocabulary IR ScalableVectorType
+register(ScalableVectorType, API.LLVMScalableVectorTypeKind)
+
+"""
+    ScalableVectorType(eltyp::LLVMType, min_count)
+
+Create a scalable vector type with a multiple of `min_count` elements of type `eltyp`.
+"""
+function ScalableVectorType(eltyp::LLVMType, min_count)
+    return ScalableVectorType(API.LLVMScalableVectorType(eltyp, min_count))
+end
+
+min_length(vectyp::ScalableVectorType) = Int(API.LLVMGetVectorSize(vectyp))
+
+@property ScalableVectorType min_length
+
+element_type(typ::Union{ArrayType,VectorType,ScalableVectorType}) =
+    LLVMType(API.LLVMGetElementType(typ))
+
+@property Union{ArrayType,VectorType,ScalableVectorType} element_type
 
 
 ## structure types
@@ -606,6 +648,70 @@ function Base.collect(iter::StructTypeElementSet)
 end
 
 
+## target extension types
+
+if version() >= v"16"
+    @checked struct TargetExtType <: LLVMType
+        ref::API.LLVMTypeRef
+    end
+    @doc """
+        LLVM.TargetExtType <: LLVMType
+
+    A target extension type, representing a type that is only meaningful to a specific
+    target, e.g., `target("spirv.Image", void, 0, 0, 0, 0, 0, 0, 0)`. It is identified by a
+    name, a list of type parameters and a list of integer parameters, and is opaque to the
+    rest of LLVM. Requires LLVM 16+.
+
+    # Properties
+
+        typ.name
+
+    The name of the target extension type.
+
+        typ.type_parameters
+
+    The type parameters of the target extension type.
+
+        typ.int_parameters
+
+    The integer parameters of the target extension type.
+
+    The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
+    """ TargetExtType
+    @vocabulary IR TargetExtType
+    register(TargetExtType, API.LLVMTargetExtTypeKind)
+
+    @doc """
+        LLVM.TargetExtType(name::AbstractString, types::LLVMType[]=[], ints::Integer[]=[])
+
+    Create a target extension type with the given `name`, `types` type parameters and
+    `ints` integer parameters.
+    """
+    function TargetExtType(name::AbstractString,
+                           types::AbstractVector{<:LLVMType}=LLVMType[],
+                           ints::AbstractVector{<:Integer}=Cuint[])
+        return TargetExtType(API.LLVMTargetExtTypeInContext(context(), name,
+                                                            as_vector(types), length(types),
+                                                            Vector{Cuint}(ints),
+                                                            length(ints)))
+    end
+
+    name(typ::TargetExtType) = unsafe_string(API.LLVMGetTargetExtTypeName(typ))
+
+    type_parameters(typ::TargetExtType) =
+        LLVMType[LLVMType(API.LLVMGetTargetExtTypeTypeParam(typ, i-1))
+                 for i in 1:API.LLVMGetTargetExtTypeNumTypeParams(typ)]
+
+    int_parameters(typ::TargetExtType) =
+        Int[API.LLVMGetTargetExtTypeIntParam(typ, i-1)
+            for i in 1:API.LLVMGetTargetExtTypeNumIntParams(typ)]
+
+    @property TargetExtType name
+    @property TargetExtType type_parameters
+    @property TargetExtType int_parameters
+end
+
+
 ## other
 
 """
@@ -674,6 +780,43 @@ register(TokenType, API.LLVMTokenTypeKind)
 Create a token type.
 """
 TokenType() = TokenType(API.LLVMTokenTypeInContext(context()))
+
+"""
+    LLVM.X86AMXType <: LLVMType
+
+The `x86_amx` type, representing a tile of the x86 Advanced Matrix Extensions.
+
+    LLVM.X86AMXType()
+
+Create the `x86_amx` type in the active context.
+"""
+@checked struct X86AMXType <: LLVMType
+    ref::API.LLVMTypeRef
+end
+@vocabulary IR X86AMXType
+register(X86AMXType, API.LLVMX86_AMXTypeKind)
+
+X86AMXType() = X86AMXType(API.LLVMX86AMXTypeInContext(context()))
+
+if version() < v"20"
+    @checked struct X86MMXType <: LLVMType
+        ref::API.LLVMTypeRef
+    end
+    @doc """
+        LLVM.X86MMXType <: LLVMType
+
+    The `x86_mmx` type, representing a value in an x86 MMX register. Only available before
+    LLVM 20, which removed this type in favor of `<1 x i64>`.
+
+        LLVM.X86MMXType()
+
+    Create the `x86_mmx` type in the active context.
+    """ X86MMXType
+    @vocabulary IR X86MMXType
+    register(X86MMXType, API.LLVMX86_MMXTypeKind)
+
+    X86MMXType() = X86MMXType(API.LLVMX86MMXTypeInContext(context()))
+end
 
 
 ## type iteration

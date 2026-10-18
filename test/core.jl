@@ -2483,6 +2483,28 @@ end
     @test LLVM.Function(mod, "h", ft).value_type.addrspace == 2
 end
 
+# remangling overloaded intrinsics after changing their signature
+@dispose ctx=Context(; opaque_pointers=true) mod=LLVM.Module("SomeModule") begin
+    T_ptr10 = LLVM.PointerType(10)
+    T_ptr = LLVM.PointerType()
+    args = [LLVM.Int64Type(), LLVM.Int1Type()]
+    bad = LLVM.Function(mod, "llvm.memcpy.p10.p10.i64",
+                        LLVM.FunctionType(LLVM.VoidType(), [T_ptr, T_ptr, args...]))
+    good = remangle_intrinsic(bad)
+    @test good isa LLVM.Function
+    @test good.name == "llvm.memcpy.p0.p0.i64"
+    @test good.function_type == bad.function_type
+    @test isintrinsic(good, Intrinsic("llvm.memcpy"))
+    @test remangle_intrinsic(good) === nothing
+
+    # functions that aren't (overloaded) intrinsics
+    @test remangle_intrinsic(LLVM.Function(mod, "foo", LLVM.FunctionType(LLVM.VoidType()))) === nothing
+    @test remangle_intrinsic(LLVM.Function(mod, Intrinsic("llvm.trap"))) === nothing
+    ok = LLVM.Function(mod, Intrinsic("llvm.memcpy"), [T_ptr10, T_ptr10, LLVM.Int32Type()])
+    @test ok.name == "llvm.memcpy.p10.p10.i32"
+    @test remangle_intrinsic(ok) === nothing
+end
+
 # personalities can be other constants referring to a function
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())

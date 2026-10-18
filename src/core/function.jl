@@ -560,7 +560,7 @@ end
 
 # intrinsics
 
-@vocabulary IR isintrinsic, Intrinsic, isoverloaded
+@vocabulary IR isintrinsic, Intrinsic, isoverloaded, remangle_intrinsic
 @public overloaded_name, overload_types
 
 """
@@ -628,6 +628,22 @@ LLVM in use doesn't know it. This is the same as [`Intrinsic(name)`](@ref LLVM.I
 Base.parse(::Type{Intrinsic}, name::AbstractString) = Intrinsic(name)
 
 intrinsic(f::Function) = isintrinsic(f) ? Intrinsic(f) : nothing
+
+"""
+    remangle_intrinsic(f::LLVM.Function)
+
+Get the declaration of the overloaded intrinsic declared by `f` that is named after the
+types of the signature of `f`, if the name of `f` doesn't match them, e.g., after
+changing the address spaces of its pointer parameters, which turns
+`llvm.memcpy.p10.p10.i64` into `llvm.memcpy.p0.p0.i64`. Returns `nothing` if the name of `f`
+is correct, or if `f` isn't an overloaded intrinsic. The declaration is created if it
+doesn't exist yet (renaming another global value that has its name, but not its type); `f`
+is not changed, so replace its uses and delete it to switch to the returned declaration.
+"""
+function remangle_intrinsic(f::Function)
+    ref = API.LLVMExtraRemangleIntrinsicFunction(f)
+    ref == C_NULL ? nothing : Function(ref)
+end
 
 @property Function intrinsic
 

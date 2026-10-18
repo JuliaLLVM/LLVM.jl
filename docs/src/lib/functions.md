@@ -44,6 +44,7 @@ tryparse(::Type{Intrinsic}, ::AbstractString)
 parse(::Type{Intrinsic}, ::AbstractString)
 isintrinsic
 isoverloaded
+remangle_intrinsic
 LLVM.overloaded_name
 LLVM.Function(::LLVM.Module, ::Intrinsic, ::Vector{<:LLVMType})
 LLVM.overload_types

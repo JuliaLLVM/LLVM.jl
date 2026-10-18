@@ -773,6 +773,10 @@ function LLVMExtraGetComdatName(C, Len)
     ccall((:LLVMExtraGetComdatName, libLLVMExtra), Cstring, (LLVMComdatRef, Ptr{Csize_t}), C, Len)
 end
 
+function LLVMExtraRemangleIntrinsicFunction(Fn)
+    ccall((:LLVMExtraRemangleIntrinsicFunction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Fn)
+end
+
 function LLVMExtraStructSetName(StructTy, Name)
     ccall((:LLVMExtraStructSetName, libLLVMExtra), Cvoid, (LLVMTypeRef, Cstring), StructTy, Name)
 end

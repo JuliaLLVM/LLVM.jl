@@ -769,6 +769,10 @@ void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias);
 void LLVMExtraGlobalAddMetadata(LLVMValueRef Global, unsigned KindID, LLVMMetadataRef MD);
 const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len);
 
+// the declaration of an overloaded intrinsic named after the types of its signature, if
+// its name doesn't match them (e.g., after changing address spaces), or NULL
+LLVMValueRef LLVMExtraRemangleIntrinsicFunction(LLVMValueRef Fn);
+
 // types
 void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name);
 

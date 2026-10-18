@@ -1603,6 +1603,12 @@ const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len) {
   return Name.data();
 }
 
+LLVMValueRef LLVMExtraRemangleIntrinsicFunction(LLVMValueRef Fn) {
+  if (auto Remangled = Intrinsic::remangleIntrinsicFunction(unwrap<Function>(Fn)))
+    return wrap(*Remangled);
+  return nullptr;
+}
+
 LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV) {
   return unwrap<GlobalValue>(GV)->isInterposable();
 }

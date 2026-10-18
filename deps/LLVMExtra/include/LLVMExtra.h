@@ -366,6 +366,16 @@ void LLVMExtraOptimizationRemarkAppendUnsigned(LLVMOptimizationRemarkRef R,
 void LLVMExtraOptimizationRemarkAppendBool(LLVMOptimizationRemarkRef R, const char *Key,
                                            LLVMBool B);
 
+// write the optimization remarks emitted in a context to a file, in a format LLVM supports
+// (`yaml` or `bitstream`), optionally only those of passes matching a regular expression,
+// like the -pass-remarks-output option of opt. Returns NULL and sets the error message on
+// failure. Disposing of the handle finishes the file and stops writing remarks to it.
+typedef struct LLVMOpaqueRemarkFile *LLVMRemarkFileRef;
+LLVMRemarkFileRef LLVMExtraCreateRemarkFile(LLVMContextRef C, const char *Filename,
+                                            const char *Passes, const char *Format,
+                                            char **ErrorMessage);
+void LLVMExtraDisposeRemarkFile(LLVMRemarkFileRef F);
+
 // NewPM extensions
 typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
 LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
@@ -458,7 +468,8 @@ void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM, LL
 // OptimizationRemarkEmitter of its function that the analysis manager caches, or, if AM
 // is NULL, through one that isn't cached, e.g., in a loop pass (which has no access to
 // function analyses that the loop pass manager does not provide). Either way, it is
-// passed to the diagnostic handler of the context.
+// passed to the diagnostic handler of the context, and written to its remark file if it
+// has one.
 void LLVMExtraEmitOptimizationRemark(LLVMOptimizationRemarkRef R,
                                      LLVMFunctionAnalysisManagerRef AM);
 

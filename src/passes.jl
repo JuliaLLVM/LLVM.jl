@@ -883,7 +883,7 @@ end
 
 ## optimization remarks
 
-@vocabulary Passes remark!, remark_enabled, Remark
+@vocabulary Passes remark!, remark_enabled, Remark, RemarkFile
 
 # the kind of a remark, by name
 function remark_kind(kind::Symbol)
@@ -905,7 +905,9 @@ Whether remarks of the given `kind` (`:passed`, `:missed` or `:analysis`) emitte
 pass `pass_name` are wanted in the context `ctx`: because they are collected using the
 `remarks` keyword argument of [`PassBuilder`](@ref) or `run!`, enabled for that pass
 using LLVM's `-pass-remarks`, `-pass-remarks-missed` or `-pass-remarks-analysis` options
-(see [`LLVM.clopts`](@ref)), or written to a remark file that accepts the pass.
+(see [`LLVM.clopts`](@ref)), or written to a [`RemarkFile`](@ref) that accepts the pass.
+A `remarks` callback wants all remarks of every pass, while LLVM's own passes only build
+theirs when they are enabled using these options or a remark file.
 
 The do-block form of [`remark!`](@ref) uses this to only build remarks that are wanted.
 A pass can also use it to skip work whose only purpose is to explain a decision in a
@@ -997,7 +999,8 @@ argument `key => value` whose value is a value, a type, a string or an integer, 
 they read like those of its own passes: a value as its name if it is an argument or a
 global, a constant as an operand, an intrinsic call as `call` and the name of the
 intrinsic (on LLVM 21 and later), and any other instruction as its opcode. The remark
-also carries the arguments separately, with the source location of a value that has one.
+also carries the arguments separately, with the source location of a value that has one,
+as can be seen in a [`RemarkFile`](@ref).
 
 In the preferred do-block form, `f()` returns the message, as a single part or as a
 collection of parts, and is only called when remarks of this kind are wanted for the pass
@@ -1014,8 +1017,9 @@ Otherwise, the remark is always emitted, with the parts of the message passed as
 final arguments.
 
 Remarks are passed to the diagnostic handler of the context, where they can be collected
-using the `remarks` keyword argument of [`PassBuilder`](@ref) (also accepted by `run!`).
-Otherwise, they are logged as debug messages.
+using the `remarks` keyword argument of [`PassBuilder`](@ref) (also accepted by `run!`),
+or written to a file using a [`RemarkFile`](@ref). Otherwise, they are logged as debug
+messages.
 """
 function remark!(am::Union{FunctionAnalysisManager,LoopAnalysisResults}, kind::Symbol,
                  pass_name::AbstractString, remark_name::AbstractString,
@@ -1087,6 +1091,43 @@ function Base.show(io::IO, remark::Remark)
           repr(remark.name), ", ", repr(remark.function_name), ", ", repr(remark.message),
           ")")
 end
+
+"""
+    RemarkFile(path; passes="", format="yaml")
+    RemarkFile(f, path; kwargs...)
+
+Write the optimization remarks emitted in the current context to the file at `path`,
+like the `-pass-remarks-output` option of LLVM's tools, until the remark file is disposed
+of. The `format` is any that LLVM supports for remark files: `"yaml"`, or, on LLVM 22 and
+later, `"bitstream"` (older versions of LLVM write bitstream remarks for a string table
+that is stored elsewhere, in an object file). `passes` is a regular expression that limits
+the remarks to those of the passes whose name it matches. Remarks are written regardless of whether they are
+enabled using `-pass-remarks` options, also by LLVM's own passes, and still passed to the
+diagnostic handler of the context (e.g., the `remarks` callback of a [`PassBuilder`](@ref)).
+
+A context can only write remarks to one file at a time, and the remark file needs to be
+disposed of before the context, e.g., using the do-block form.
+"""
+mutable struct RemarkFile
+    ref::API.LLVMRemarkFileRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMRemarkFileRef}, file::RemarkFile) = mark_use(file).ref
+
+function RemarkFile(path::AbstractString; passes::AbstractString="",
+                    format::AbstractString="yaml")
+    ctx = context()
+    error_ref = Ref{Cstring}()
+    ref = API.LLVMExtraCreateRemarkFile(ctx, path, passes, format, error_ref)
+    ref == C_NULL && throw(LLVMException(unsafe_message(error_ref[])))
+    # not owned by the context, which doesn't dispose of it
+    mark_alloc(RemarkFile(ref))
+end
+
+RemarkFile(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, RemarkFile(args...; kwargs...))
+
+dispose(file::RemarkFile) = mark_dispose(API.LLVMExtraDisposeRemarkFile, file)
 
 
 ## pass builder

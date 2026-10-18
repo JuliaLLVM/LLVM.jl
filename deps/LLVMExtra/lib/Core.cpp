@@ -24,6 +24,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMRemarkStreamer.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
@@ -32,8 +33,11 @@
 #include <llvm/IR/ReplaceConstant.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
+#include <llvm/Remarks/RemarkFormat.h>
 #include <llvm/Remarks/RemarkStreamer.h>
+#include <llvm/Support/Regex.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 
@@ -1666,4 +1670,78 @@ LLVMBool LLVMExtraIsRemarkEnabled(LLVMContextRef C, LLVMExtraRemarkKind Kind,
     return DH->isAnalysisRemarkEnabled(PassName);
   }
   return false;
+}
+
+
+//
+// remark files
+//
+
+struct LLVMOpaqueRemarkFile {
+  LLVMContext *Context;
+#if LLVM_VERSION_MAJOR >= 22
+  LLVMRemarkFileHandle File;
+#else
+  std::unique_ptr<ToolOutputFile> File;
+#endif
+};
+
+LLVMRemarkFileRef LLVMExtraCreateRemarkFile(LLVMContextRef C, const char *Filename,
+                                            const char *Passes, const char *Format,
+                                            char **ErrorMessage) {
+  LLVMContext &Ctx = *unwrap(C);
+  // setting up another file would destroy the streamer that writes to the current one
+  if (Ctx.getMainRemarkStreamer()) {
+    *ErrorMessage = strdup("the context already writes optimization remarks to a file");
+    return nullptr;
+  }
+  if (!*Filename) {
+    *ErrorMessage = strdup("no file name given for the optimization remarks");
+    return nullptr;
+  }
+#if LLVM_VERSION_MAJOR < 22
+  // before LLVM 22, remark files are written for a string table that is emitted elsewhere
+  // (in an object file), except in the YAML format
+  Expected<remarks::Format> FormatOrErr = remarks::parseFormat(Format);
+  if (Error E = FormatOrErr.takeError()) {
+    *ErrorMessage = strdup(toString(std::move(E)).c_str());
+    return nullptr;
+  }
+  if (*FormatOrErr != remarks::Format::YAML) {
+    *ErrorMessage = strdup(("LLVM " LLVM_VERSION_STRING " can only write remark files in "
+                            "the yaml format, not in " + std::string(Format))
+                               .c_str());
+    return nullptr;
+  }
+  // and the pass filter is only checked after the context was set up to stream remarks
+  // to the file, which isn't undone when that fails
+  if (*Passes) {
+    std::string RegexError;
+    if (!Regex(Passes).isValid(RegexError)) {
+      *ErrorMessage = strdup(RegexError.c_str());
+      return nullptr;
+    }
+  }
+#endif
+  auto FileOrErr = setupLLVMOptimizationRemarks(Ctx, Filename, Passes, Format,
+                                                /*RemarksWithHotness=*/false);
+  if (Error E = FileOrErr.takeError()) {
+    *ErrorMessage = strdup(toString(std::move(E)).c_str());
+    return nullptr;
+  }
+  return new LLVMOpaqueRemarkFile{&Ctx, std::move(*FileOrErr)};
+}
+
+void LLVMExtraDisposeRemarkFile(LLVMRemarkFileRef F) {
+  // the remark streamer needs to be finished, and removed from the context, before the
+  // file that its serializer writes to is closed
+#if LLVM_VERSION_MAJOR >= 22
+  std::unique_ptr<ToolOutputFile> File = F->File.releaseFile();
+#else
+  std::unique_ptr<ToolOutputFile> File = std::move(F->File);
+  F->Context->setLLVMRemarkStreamer(nullptr);
+  F->Context->setMainRemarkStreamer(nullptr);
+#endif
+  File->keep();
+  delete F;
 }

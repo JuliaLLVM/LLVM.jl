@@ -31,7 +31,7 @@ end
 """
     ModulePassManager()
     CGSCCPassManager()
-    FunctionPassManager()
+    FunctionPassManager(; eager_invalidate=false)
     LoopPassManager(; use_memory_ssa=false)
     AAManager()
 
@@ -49,6 +49,12 @@ end
 ```
 
 This form does not add pass managers that are left empty.
+
+With `eager_invalidate=true`, the analyses of each function are invalidated as soon as the
+passes of a function pass manager have run on it, rather than kept for the passes that come
+later (`function<eager-inv>`), which LLVM's pipelines do to save memory. With
+`use_memory_ssa=true`, a loop pass manager maintains MemorySSA for passes that require it
+(`loop-mssa`).
 
 An `AAManager` selects the alias analyses that passes use (in order), instead of LLVM's
 default ones, and can only be added to a pass builder. Unlike other pass managers, it is
@@ -83,7 +89,8 @@ ModulePassManager() = PassManager("module")
 CGSCCPassManager() = PassManager("cgscc")
 
 @doc (@doc PassManager)
-FunctionPassManager() = PassManager("function")
+FunctionPassManager(; eager_invalidate::Bool=false) =
+    PassManager(eager_invalidate ? "function<eager-inv>" : "function")
 
 @doc (@doc PassManager)
 LoopPassManager(; use_memory_ssa=false) =

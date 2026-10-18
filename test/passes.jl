@@ -148,6 +148,25 @@ end
 
             @test run!(pb, mod) === nothing
         end
+
+        # pass managers with options
+        @dispose pb=PassBuilder(debug_logging=true) mod=test_module() begin
+            add!(pb, FunctionPassManager(; eager_invalidate=true)) do fpm
+                add!(fpm, "require<domtree>")
+                add!(fpm, LoopPassManager(; use_memory_ssa=true)) do lpm
+                    add!(lpm, "no-op-loop")
+                end
+            end
+            @test string(pb) ==
+                  "function<eager-inv>(require<domtree>,loop-mssa(no-op-loop))"
+            @test sprint(print_pipeline, pb) == string(pb)
+
+            # the dominator tree is invalidated after the function pass manager
+            io = IOCapture.capture() do
+                run!(pb, mod)
+            end
+            @test contains(io.output, "Invalidating analysis: DominatorTreeAnalysis")
+        end
     end
 end
 

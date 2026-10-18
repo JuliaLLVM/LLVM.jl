@@ -371,6 +371,10 @@ function LLVMExtraGetAtomicRMWBinOp(AtomicRMWInst)
     ccall((:LLVMExtraGetAtomicRMWBinOp, libLLVMExtra), Cuint, (LLVMValueRef,), AtomicRMWInst)
 end
 
+function LLVMExtraSetAtomicRMWBinOp(AtomicRMWInst, op)
+    ccall((:LLVMExtraSetAtomicRMWBinOp, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint), AtomicRMWInst, op)
+end
+
 function LLVMExtraGetOrdering(MemAccessInst)
     ccall((:LLVMExtraGetOrdering, libLLVMExtra), LLVMAtomicOrdering, (LLVMValueRef,), MemAccessInst)
 end

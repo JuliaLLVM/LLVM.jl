@@ -894,6 +894,10 @@ unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef Inst) {
     default: return LLVMGetAtomicRMWBinOp(Inst);
   }
 }
+
+void LLVMExtraSetAtomicRMWBinOp(LLVMValueRef Inst, unsigned op) {
+  unwrap<AtomicRMWInst>(Inst)->setOperation(mapFromLLVMRMWBinOp(op));
+}
 #endif
 
 #if LLVM_VERSION_MAJOR < 18

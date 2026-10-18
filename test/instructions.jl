@@ -434,6 +434,27 @@
     end
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpAdd)
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpUIncWrap) == (LLVM.version() >= v"16")
+
+    # changing the operation, also to ones that are newer than the C API
+    rmw = atomic_rmw!(builder, LLVM.API.LLVMAtomicRMWBinOpXchg, ptr1, int1,
+                      LLVM.API.LLVMAtomicOrderingMonotonic)
+    rmw.binop = LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test rmw.binop == LLVM.API.LLVMAtomicRMWBinOpAdd
+    @test occursin("atomicrmw add", string(rmw))
+    for op in (LLVM.API.LLVMAtomicRMWBinOpUIncWrap, LLVM.API.LLVMAtomicRMWBinOpUDecWrap,
+               LLVM.API.LLVMAtomicRMWBinOpUSubCond, LLVM.API.LLVMAtomicRMWBinOpUSubSat)
+        if LLVM.isavailable(op)
+            rmw.binop = op
+            @test rmw.binop == op
+            @test occursin("atomicrmw $(LLVM.irname(op)) ", string(rmw))
+        else
+            @test_throws ArgumentError rmw.binop = op
+        end
+    end
+    # the operation must support the type of the value
+    @test_throws ArgumentError rmw.binop = LLVM.API.LLVMAtomicRMWBinOpFAdd
+    @test rmw.binop != LLVM.API.LLVMAtomicRMWBinOpFAdd
+    erase!(rmw)
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximum) == (LLVM.version() >= v"21")
     @test LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOpFMaximumNum) == (LLVM.version() >= v"23")
     @test !LLVM.isavailable(LLVM.API.LLVMAtomicRMWBinOp(1000))

@@ -1047,6 +1047,10 @@ LLVMBool LLVMExtraPromoteMemToReg(LLVMValueRef *Allocas, unsigned NumAllocas,
 LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
                                           LLVMTypeRef DestTy, LLVMTargetDataRef TD,
                                           LLVMValueRef *Result);
+// simplify an instruction, like InstSimplify, without changing it: returns a simpler value
+// that it is equivalent to, or NULL
+LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst);
+
 
 LLVM_C_EXTERN_C_END
 #endif

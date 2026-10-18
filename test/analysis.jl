@@ -868,4 +868,29 @@ end
     end
 end
 
+
+@testset "simplify_instruction" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %x, i32 %y, i1 %c) {
+          %a = add i32 %x, 0
+          %b = and i1 %c, false
+          %d = add i32 %x, %y
+          %e = sub i32 %d, %y
+          ret i32 %e
+        }""") begin
+        f = mod.functions["f"]
+        a, b, d, e, ret = f.entry.instructions
+        x, y, c = f.parameters
+        @test simplify_instruction(a) == x
+        @test simplify_instruction(b) == ConstantInt(false)
+        @test simplify_instruction(d) === nothing
+        @test simplify_instruction(e) == x
+        # the IR is unchanged
+        @test collect(f.entry.instructions) == [a, b, d, e, ret]
+
+        a2 = copy(a)
+        @test_throws ArgumentError simplify_instruction(a2)
+        erase!(a2)
+    end
+end
 end

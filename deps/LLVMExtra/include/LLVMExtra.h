@@ -769,6 +769,9 @@ void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias);
 void LLVMExtraGlobalAddMetadata(LLVMValueRef Global, unsigned KindID, LLVMMetadataRef MD);
 const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len);
 
+// types
+void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name);
+
 // constants
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
 

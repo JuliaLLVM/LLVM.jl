@@ -1609,6 +1609,15 @@ LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV) {
 
 
 //
+// types
+//
+
+void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name) {
+  unwrap<StructType>(StructTy)->setName(Name);
+}
+
+
+//
 // constants
 //
 

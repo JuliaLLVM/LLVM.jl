@@ -252,6 +252,22 @@ end
         @test collect(st.elements) == elem
         @test !isopaque(st)
     end
+
+    let st = LLVM.StructType("bar"), lit = LLVM.StructType(elem)
+        @test !isliteral(st)
+        @test isliteral(lit)
+        st.name = "baz"
+        @test st.name == "baz"
+        @test ctx.types["baz"] == st
+        @test !haskey(ctx.types, "bar")
+        # names are unique
+        other = LLVM.StructType("qux")
+        other.name = "baz"
+        @test other.name != "baz"
+        @test_throws ArgumentError lit.name = "lit"
+        # unnamed identified structures
+        @test !isliteral(LLVM.StructType(""))
+    end
 end
 
 # other

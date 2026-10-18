@@ -58,6 +58,7 @@ LLVM.VectorType
 LLVM.StructType
 ispacked
 isopaque(::LLVM.StructType)
+isliteral
 elements!
 ```
 

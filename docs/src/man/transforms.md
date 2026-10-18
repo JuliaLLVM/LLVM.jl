@@ -263,6 +263,11 @@ diamond: 42
 diamond: 10
 ```
 
+LLVM knows custom passes by their name, like it knows its own passes by theirs. This is the
+name that its instrumentation reports (e.g., the passes that `debug_logging=true` lists),
+and that its command-line options for debugging pipelines select passes with, e.g.,
+`-print-before=print-limit` to print the IR before each occurrence of the pass above.
+
 Passes that are implemented in C++ can be used as well, by registering a native callback
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:
 

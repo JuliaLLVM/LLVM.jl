@@ -96,6 +96,10 @@ run. The function should take a single argument, the module or function to be pr
 and return a boolean indicating whether the pass made any changes.
 Set `required=true` for a pass needed for correctness; LLVM then does not skip it on
 `optnone` functions or under `-opt-bisect-limit`.
+LLVM's instrumentation also knows the pass by its name, e.g., when listing the passes that
+run (with `debug_logging=true`), or when selecting passes to print the IR of (with LLVM's
+`-print-before=name` option). That does not work for a name that is also the class name of
+one of LLVM's passes, like `InstCombinePass`, which LLVM already knows by its own name.
 
 With `analyses=true`, a pass can use LLVM's analyses: the callback is then called with two
 arguments, the function and its [`FunctionAnalysisManager`](@ref) (for a function pass),

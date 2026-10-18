@@ -83,6 +83,57 @@
             end
         end
 
+        # parsing and walking IR, like compilers built on LLVM.jl do (the module is written
+        # without pointers, whose syntax depends on the LLVM version)
+        @dispose ctx=Context() begin
+            mod = parse(LLVM.Module, """
+                declare i64 @callee(i64) nounwind
+
+                define i64 @caller(i64 %x, i1 %c) #0 {
+                entry:
+                  %a = add i64 %x, 1, !annotation !0
+                  br i1 %c, label %then, label %exit
+                then:
+                  %b = call i64 @callee(i64 %a) #0
+                  br label %exit
+                exit:
+                  %r = phi i64 [ %a, %entry ], [ %b, %then ]
+                  ret i64 %r
+                }
+
+                attributes #0 = { nounwind "frame-pointer"="all" }
+                !0 = !{!"walk"}""")
+            n = 0
+            for f in mod.functions
+                n += haskey(f.function_attributes, :nounwind)
+                for attr in f.function_attributes
+                    n += attr.kind === :nounwind
+                end
+                for bb in f.blocks, inst in bb.instructions
+                    n += inst.opcode == API.LLVMCall
+                    n += length(inst.name)
+                    if inst isa CallBase
+                        n += inst.called_function === nothing
+                        n += length(inst.arguments)
+                        n += inst.called_type isa FunctionType
+                    end
+                    for op in inst.operands
+                        n += op isa ConstantInt
+                        n += op isa Instruction && op.parent == bb
+                        n += op.value_type isa IntegerType
+                    end
+                    for use in inst.uses
+                        n += use.user isa PHIInst
+                    end
+                    for (kind, md) in inst.metadata
+                        n += md isa MDNode && length(md.operands)
+                    end
+                end
+            end
+            string(mod)
+            dispose(mod)
+        end
+
         # ORC JIT
         tm = JITTargetMachine()
         jit = LLJIT(; tm=JITTargetMachine())

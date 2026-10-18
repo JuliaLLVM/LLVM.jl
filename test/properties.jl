@@ -240,6 +240,13 @@ end
         sum_refs(vals) = sum(v -> UInt(v.ref), vals)
         measure(f, x) = (f(x); @allocated f(x))
         @test measure(sum_refs, vals) == 0
+
+        # their properties are inferred from the types that have them
+        @test only(Base.return_types(v -> v.operands, (Value,))) == LLVM.UserOperandSet
+        @test only(Base.return_types(v -> v.called_type, (Instruction,))) == LLVMType
+        @test only(Base.return_types(v -> v.parent, (Instruction,))) ==
+              Union{Nothing,BasicBlock}
+        @test_throws "has no property `foo`" (v -> v.foo)(vals[1])
     end
 end
 

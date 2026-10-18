@@ -789,6 +789,7 @@ abstract type SCEV end
 end
 
 @inline propref(@nospecialize(x::SCEV)) = Base.unsafe_convert(API.LLVMSCEVRef, x)
+getprop(@nospecialize(x::SCEV), ::Val{S}) where {S} = property_error(x, S)
 
 Base.cconvert(::Type{API.LLVMSCEVRef}, @nospecialize(obj::SCEV)) = obj
 

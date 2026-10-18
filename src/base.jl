@@ -304,7 +304,10 @@ end
 # (type, name) pairs, to implement `propertynames`
 const property_registry = Tuple{Type,Symbol}[]
 
-# fall back to the object's fields, or error with a list of the available properties
+# fall back to the object's fields, or error with a list of the available properties.
+# hierarchies of wrappers that consist of nothing but their reference (values, types,
+# metadata, ...) only error, so that a property of an abstractly-typed object is inferred
+# as the union of what the types that have it return, instead of as `Any`.
 @inline function getprop(x, ::Val{S}) where {S}
     hasfield(typeof(x), S) || property_error(x, S)
     getfield(x, S)

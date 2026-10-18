@@ -1696,6 +1696,32 @@ end
     end
 end
 
+# dropping the metadata that may not hold elsewhere
+@dispose ctx=Context() mod=parse(LLVM.Module, let ptr = supports_typed_pointers() ? "i64*" : "ptr"; """
+    define i64 @f($ptr %p) !dbg !4 {
+      %v = load i64, $ptr %p, !range !0, !noundef !1, !custom !1, !dbg !7
+      ret i64 %v
+    }
+    !llvm.module.flags = !{!3}
+    !llvm.dbg.cu = !{!2}
+    !0 = !{i64 0, i64 10}
+    !1 = !{}
+    !2 = distinct !DICompileUnit(language: DW_LANG_C99, file: !5, emissionKind: FullDebug)
+    !3 = !{i32 2, !"Debug Info Version", i32 3}
+    !4 = distinct !DISubprogram(name: "f", scope: !5, file: !5, type: !6, unit: !2, spFlags: DISPFlagDefinition)
+    !5 = !DIFile(filename: "f.c", directory: "/")
+    !6 = !DISubroutineType(types: !{})
+    !7 = !DILocation(line: 1, scope: !4)""" end) begin
+    load = first(mod.functions["f"].entry.instructions)
+    @test drop_unknown_metadata!(load, [MD_noundef, "custom"]) == load
+    @test haskey(load.metadata, MD_noundef)
+    @test haskey(load.metadata, "custom")
+    @test !haskey(load.metadata, MD_range)
+    @test drop_unknown_metadata!(load) == load
+    @test collect(keys(load.metadata)) == [MD_dbg]
+    @test load.debug_location !== nothing
+end
+
 @dispose ctx=Context() begin
     str = MDString("foo")
     @test convert(String, str) == "foo"

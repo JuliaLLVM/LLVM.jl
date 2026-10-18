@@ -554,6 +554,23 @@ end
 
 Base.length(md::InstructionMetadataDict) = count(Returns(true), md)
 
+@vocabulary IR drop_unknown_metadata!
+
+"""
+    drop_unknown_metadata!(inst::Instruction, known=())
+
+Drop the metadata of an instruction, except for its debug location and other debug
+metadata, and the metadata of the `known` kinds (metadata kinds or their names), using
+LLVM's `Instruction::dropUnknownNonDebugMetadata`. Passes do this when they move an
+instruction to where metadata that depends on the instruction's original position (e.g.,
+`!range` or `!nonnull` on a load that a condition guarded) may not hold anymore.
+"""
+function drop_unknown_metadata!(inst::Instruction, known=())
+    ids = Cuint[md_kind(inst, kind) for kind in known]
+    API.LLVMExtraDropUnknownNonDebugMetadata(inst, ids, length(ids))
+    return inst
+end
+
 # global objects (using Metadata values)
 
 struct GlobalMetadataDict <: AbstractDict{MDKind,Metadata}

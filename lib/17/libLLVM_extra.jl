@@ -815,6 +815,10 @@ function LLVMExtraIsCommutative(Inst)
     ccall((:LLVMExtraIsCommutative, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
+function LLVMExtraDropUnknownNonDebugMetadata(Inst, KnownIDs, NumKnownIDs)
+    ccall((:LLVMExtraDropUnknownNonDebugMetadata, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{Cuint}, Cuint), Inst, KnownIDs, NumKnownIDs)
+end
+
 function LLVMExtraTakeName(Val, From)
     ccall((:LLVMExtraTakeName, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Val, From)
 end

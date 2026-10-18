@@ -1533,6 +1533,12 @@ LLVMBool LLVMExtraIsCommutative(LLVMValueRef Inst) {
   return unwrap<Instruction>(Inst)->isCommutative();
 }
 
+void LLVMExtraDropUnknownNonDebugMetadata(LLVMValueRef Inst, const unsigned *KnownIDs,
+                                          unsigned NumKnownIDs) {
+  unwrap<Instruction>(Inst)->dropUnknownNonDebugMetadata(
+      ArrayRef<unsigned>(KnownIDs, NumKnownIDs));
+}
+
 #if LLVM_VERSION_MAJOR >= 19
 LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst) {
   return canInstructionHaveMMRAs(*unwrap<Instruction>(Inst));

@@ -742,6 +742,10 @@ LLVMBool LLVMExtraMayReadFromMemory(LLVMValueRef Inst);
 LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst);
 LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst);
 LLVMBool LLVMExtraIsCommutative(LLVMValueRef Inst);
+// drop the metadata of an instruction, except for its debug location and other debug
+// metadata (`Instruction::dropUnknownNonDebugMetadata`), and the given kinds
+void LLVMExtraDropUnknownNonDebugMetadata(LLVMValueRef Inst, const unsigned *KnownIDs,
+                                          unsigned NumKnownIDs);
 #if LLVM_VERSION_MAJOR >= 19
 LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst);
 #endif

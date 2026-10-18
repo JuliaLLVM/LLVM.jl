@@ -35,6 +35,7 @@ Value(::Metadata)
 ```@docs
 NamedMDNode
 MDKind
+drop_unknown_metadata!
 ```
 
 ```@docs

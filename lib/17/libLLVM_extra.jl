@@ -542,12 +542,24 @@ function LLVMExtraFunctionAnalysisManagerGetCachedResult(AM, F, Analysis)
     ccall((:LLVMExtraFunctionAnalysisManagerGetCachedResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
 end
 
-function LLVMExtraSetPreservedAnalyses(PA, All, CFG, Analyses, NumAnalyses)
-    ccall((:LLVMExtraSetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, CFG, Analyses, NumAnalyses)
+function LLVMExtraSetPreservedAnalyses(PA, All, Functions, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraSetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, Functions, CFG, Analyses, NumAnalyses)
 end
 
-function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, CFG, Analyses, NumAnalyses)
-    ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, CFG, Analyses, NumAnalyses)
+function LLVMExtraGetPreservedAnalyses(PA, All, Functions, CFG)
+    ccall((:LLVMExtraGetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, Ptr{LLVMBool}, Ptr{LLVMBool}, Ptr{LLVMBool}), PA, All, Functions, CFG)
+end
+
+function LLVMExtraPreservedAnalysesIsPreserved(PA, Analysis)
+    ccall((:LLVMExtraPreservedAnalysesIsPreserved, libLLVMExtra), LLVMBool, (LLVMPreservedAnalysesRef, LLVMExtraFunctionAnalysis), PA, Analysis)
+end
+
+function LLVMExtraDisposePreservedAnalyses(PA)
+    ccall((:LLVMExtraDisposePreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef,), PA)
+end
+
+function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, Functions, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, Functions, CFG, Analyses, NumAnalyses)
 end
 
 function LLVMExtraFunctionAnalysisManagerClear(AM, F)
@@ -606,6 +618,10 @@ end
 
 function LLVMRunJuliaPassesOnFunction(F, Passes, TM, Options, Extensions)
     ccall((:LLVMRunJuliaPassesOnFunction, libLLVMExtra), LLVMErrorRef, (LLVMValueRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef), F, Passes, TM, Options, Extensions)
+end
+
+function LLVMExtraRunJuliaPassesWithAnalyses(F, Passes, TM, Options, Extensions, AM, PA)
+    ccall((:LLVMExtraRunJuliaPassesWithAnalyses, libLLVMExtra), LLVMErrorRef, (LLVMValueRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef, LLVMFunctionAnalysisManagerRef, Ptr{LLVMPreservedAnalysesRef}), F, Passes, TM, Options, Extensions, AM, PA)
 end
 
 function LLVMExtraPrintJuliaPasses(Passes, TM, Options, Extensions, Pipeline)

@@ -128,9 +128,29 @@ end
 
 # LLVM's attribute kinds are an enum that is not part of the C API, so we identify them by
 # their name, as used in textual IR. these are the integer IDs that the C API works with.
+# looking up a kind by name is a string switch in LLVM, and getting its name back requires
+# a string, so all kinds are tabulated when LLVM.jl is loaded (see `init_attribute_kinds`).
+const attribute_kind_names = Symbol[]                   # by ID
+const attribute_kind_categories = Symbol[]              # by ID, see `attribute_kind_category`
+const attribute_kind_ids = Dict{Symbol,Cuint}()
+
+function init_attribute_kinds()
+    empty!(attribute_kind_names)
+    empty!(attribute_kind_categories)
+    empty!(attribute_kind_ids)
+    len = Ref{Csize_t}()
+    for id in Cuint(1):(API.LLVMGetLastEnumAttributeKind() - Cuint(1))
+        data = API.LLVMExtraGetAttributeKindName(id, len)
+        name = data == C_NULL ? Symbol() :
+                                Symbol(unsafe_string(convert(Ptr{UInt8}, data), len[]))
+        push!(attribute_kind_names, name)
+        push!(attribute_kind_categories, lookup_attribute_kind_category(id))
+        name == Symbol() || (attribute_kind_ids[name] = id)
+    end
+end
+
 attribute_kind_id(attr::Attribute) = API.LLVMGetEnumAttributeKind(attr)
-attribute_kind_id(name::Symbol) =
-    API.LLVMGetEnumAttributeKindForName(name, ccall(:strlen, Csize_t, (Cstring,), name))
+attribute_kind_id(name::Symbol) = get(attribute_kind_ids, name, Cuint(0))
 function attribute_kind_id(name::AbstractString)
     name = String(name)
     API.LLVMGetEnumAttributeKindForName(name, ncodeunits(name))
@@ -138,6 +158,10 @@ end
 
 # the category of an attribute kind, which determines the kind of attribute it is used for
 function attribute_kind_category(id::Integer)
+    1 <= id <= length(attribute_kind_categories) || return :other
+    return @inbounds attribute_kind_categories[id]
+end
+function lookup_attribute_kind_category(id::Integer)
     Bool(API.LLVMExtraIsEnumAttributeKind(id)) && return :enum
     Bool(API.LLVMExtraIsIntAttributeKind(id)) && return :int
     Bool(API.LLVMExtraIsTypeAttributeKind(id)) && return :type
@@ -166,10 +190,10 @@ function checked_attribute_kind_id(name::Union{Symbol,AbstractString},
 end
 
 function attribute_kind_name(id::Integer)
-    len = Ref{Csize_t}()
-    data = API.LLVMExtraGetAttributeKindName(id, len)
-    data == C_NULL && error("Unknown attribute kind ID $id")
-    return Symbol(unsafe_string(convert(Ptr{UInt8}, data), len[]))
+    name = 1 <= id <= length(attribute_kind_names) ? @inbounds(attribute_kind_names[id]) :
+                                                     Symbol()
+    name == Symbol() && error("Unknown attribute kind ID $id")
+    return name
 end
 
 
@@ -344,6 +368,13 @@ Base.haskey(iter::AttributeSet, kind::Union{Symbol,AbstractString}) =
 function Base.get(iter::AttributeSet, kind::Union{Symbol,AbstractString}, default)
     ref = attribute_ref(iter, kind)
     ref == C_NULL ? default : Attribute(ref)
+end
+
+# attributes are uniqued, so an attribute is in a set if the set's attribute of that kind
+# is the same object
+function Base.in(attr::Attribute, iter::AttributeSet)
+    key = attr isa StringAttribute ? kind(attr) : attribute_kind_id(attr)
+    return attribute_ref(iter, key) == propref(attr)
 end
 
 function Base.getindex(iter::AttributeSet, kind::Union{Symbol,AbstractString})
@@ -527,7 +558,7 @@ function Base.show(io::IO, effects::MemoryEffects)
     print(io, ")")
 end
 
-memory_kind() = API.LLVMGetEnumAttributeKindForName("memory", 6)
+memory_kind() = attribute_kind_id(:memory)
 
 """
     EnumAttribute(effects::MemoryEffects)

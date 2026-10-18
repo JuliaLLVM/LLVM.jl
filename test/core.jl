@@ -2755,6 +2755,16 @@ end
     @test sprint(show, StringAttribute("foo")) == "StringAttribute(\"foo\")"
     @test sprint(show, StringAttribute("foo", "bar")) == "StringAttribute(\"foo\", \"bar\")"
 
+    # every kind of attribute can be looked up by name and ID
+    for id in 1:(LLVM.API.LLVMGetLastEnumAttributeKind() - 1)
+        name = LLVM.attribute_kind_name(id)
+        @test LLVM.attribute_kind_id(name) == id
+        @test LLVM.attribute_kind_id(String(name)) == id
+        @test LLVM.attribute_kind_category(id) == LLVM.lookup_attribute_kind_category(id)
+    end
+    @test LLVM.attribute_kind_id(:nonexisting) == 0
+    @test_throws ErrorException LLVM.attribute_kind_name(0)
+
     # attributes of a kind only known at run time are converted without dynamic dispatch
     let attrs = LLVM.Attribute[EnumAttribute(:nounwind), StringAttribute("foo"),
                                TypeAttribute(:byval, LLVM.Int32Type())]
@@ -2774,6 +2784,10 @@ end
         @test haskey(attrs, "nounwind")
         @test attrs[:nounwind] == EnumAttribute(:nounwind)
         @test attrs["nounwind"].value == "foo"
+        @test EnumAttribute(:nounwind) in attrs
+        @test StringAttribute("nounwind", "foo") in attrs
+        @test !(StringAttribute("nounwind", "bar") in attrs)
+        @test !(EnumAttribute(:noinline) in attrs)
 
         @test !haskey(attrs, :noinline)
         @test !haskey(attrs, :nonexisting)

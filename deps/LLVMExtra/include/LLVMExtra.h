@@ -1048,5 +1048,26 @@ LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
                                           LLVMTypeRef DestTy, LLVMTargetDataRef TD,
                                           LLVMValueRef *Result);
 
+// target triples, parsed like llvm::Triple(Str) (without normalizing them). The names of
+// the components are those of llvm::Triple::get*TypeName.
+const char *LLVMExtraTripleGetArchTypeName(const char *Triple);
+const char *LLVMExtraTripleGetVendorTypeName(const char *Triple);
+const char *LLVMExtraTripleGetOSTypeName(const char *Triple);
+const char *LLVMExtraTripleGetEnvironmentTypeName(const char *Triple);
+const char *LLVMExtraTripleGetObjectFormatTypeName(const char *Triple);
+LLVMBool LLVMExtraTripleIsX86(const char *Triple);
+LLVMBool LLVMExtraTripleIsAArch64(const char *Triple);
+LLVMBool LLVMExtraTripleIsARM(const char *Triple);
+LLVMBool LLVMExtraTripleIsThumb(const char *Triple);
+LLVMBool LLVMExtraTripleIsRISCV(const char *Triple);
+LLVMBool LLVMExtraTripleIsPPC(const char *Triple);
+LLVMBool LLVMExtraTripleIsNVPTX(const char *Triple);
+LLVMBool LLVMExtraTripleIsAMDGPU(const char *Triple);
+LLVMBool LLVMExtraTripleIsSPIRV(const char *Triple);
+LLVMBool LLVMExtraTripleIsWasm(const char *Triple);
+LLVMBool LLVMExtraTripleIsOSDarwin(const char *Triple);
+LLVMBool LLVMExtraTripleIsOSWindows(const char *Triple);
+LLVMBool LLVMExtraTripleIsOSLinux(const char *Triple);
+
 LLVM_C_EXTERN_C_END
 #endif

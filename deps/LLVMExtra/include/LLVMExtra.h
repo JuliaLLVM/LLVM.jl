@@ -693,6 +693,10 @@ LLVMValueRef LLVMExtraStripAndAccumulateConstantOffsets(LLVMValueRef V, LLVMTarg
 // move an instruction to an insertion point, or insert it there if it isn't part of a block
 void LLVMExtraMoveInstruction(LLVMValueRef Inst, LLVMBasicBlockRef BB, LLVMValueRef Before,
                               LLVMBool Head);
+// the same, but taking the debug records that are attached to the instruction along, like
+// moveBeforePreserving (which is the same as moveBefore before LLVM 19)
+void LLVMExtraMoveInstructionPreserving(LLVMValueRef Inst, LLVMBasicBlockRef BB,
+                                        LLVMValueRef Before, LLVMBool Head);
 // move a basic block before `Before` (NULL for the end) in the given function, which may
 // differ from its current one, or insert it there if it isn't part of a function
 void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlockRef Before);

@@ -201,3 +201,166 @@ end
 end
 
 end
+
+
+@testset "subtargets" begin
+
+LLVM.InitializeAllTargetInfos()
+LLVM.InitializeAllTargetMCs()
+
+# what LLVM prints to stderr while running f
+function llvm_stderr(f)
+    mktemp() do path, io
+        redirect_stderr(f, io)
+        close(io)
+        read(path, String)
+    end
+end
+
+if :X86 in LLVM.backends()
+    LLVM.InitializeX86Target()
+    x86 = LLVM.Target(triple="x86_64-unknown-linux-gnu")
+    x86_triple = LLVM.Triple("x86_64-unknown-linux-gnu")
+
+    let sti = LLVM.SubtargetInfo(x86, x86_triple)
+        @test sti.triple == "x86_64-unknown-linux-gnu"
+        @test sti.cpu isa String
+        @test sti.features isa String
+        @test propertynames(sti) == (:triple, :cpu, :features)
+
+        names = LLVM.processor_features(sti)
+        @test issorted(names)
+        @test "avx2" in names
+        @test "fma" in names
+
+        # the generic CPU has the x86-64 baseline
+        @test LLVM.hasfeature(sti, "sse2")
+        @test !LLVM.hasfeature(sti, "avx2")
+        @test LLVM.hasfeatures(sti, "+sse2,-avx2")
+        @test !LLVM.hasfeatures(sti, "+sse2,+avx2")
+        @test LLVM.hasfeatures(sti, "")
+        @test LLVM.hasfeatures(sti, ",+sse2,")
+
+        # every flag is checked by itself, also on versions of LLVM whose checkFeatures
+        # requires the features that `avx` implies, like `sse2`, to be disabled too
+        @test LLVM.hasfeatures(sti, "-avx")
+
+        # unknown features and malformed flags
+        @test_throws ArgumentError LLVM.hasfeature(sti, "bogus")
+        @test_throws ArgumentError LLVM.hasfeature(sti, "+sse2")
+        @test_throws ArgumentError LLVM.hasfeatures(sti, "sse2")
+        @test_throws ArgumentError LLVM.hasfeatures(sti, "+bogus")
+        @test_throws ArgumentError LLVM.hasfeatures(sti, "+avx2,+bogus")
+
+        dispose(sti)
+    end
+
+    # CPU tables
+    LLVM.SubtargetInfo(x86, "x86_64-unknown-linux-gnu"; cpu="haswell") do sti
+        @test sti.cpu == "haswell"
+        @test LLVM.hasfeature(sti, "avx2")
+        @test LLVM.hasfeature(sti, "fma")
+        @test !LLVM.hasfeature(sti, "avx512f")
+    end
+
+    has(features, name; cpu="") =
+        LLVM.SubtargetInfo(sti -> LLVM.hasfeature(sti, name), x86, x86_triple; cpu, features)
+
+    # implied features
+    @test has("+avx2", "avx")
+    @test !has("+avx2", "fma")
+    @test has("+avx512f", "fma")
+    LLVM.SubtargetInfo(x86, x86_triple; features="+avx2") do sti
+        @test occursin("+avx2", sti.features)
+        @test LLVM.hasfeatures(sti, "+avx2,+avx,-fma")
+    end
+
+    # the last setting wins, and disabling a feature disables the features that imply it
+    @test !has("+fma,-fma", "fma")
+    @test has("-fma,+fma", "fma")
+    @test !has("+avx2,-avx", "avx2")
+    @test !has("-fma", "fma"; cpu="haswell")
+
+    # unknown features and CPUs are ignored, with a warning
+    let output = llvm_stderr() do
+            @test !has("+bogus", "avx")
+        end
+        @test occursin("'+bogus' is not a recognized feature", output)
+    end
+    let output = llvm_stderr() do
+            @test has("", "sse2"; cpu="bogus")
+        end
+        @test occursin("'bogus' is not a recognized processor", output)
+    end
+
+    # the subtarget of a function under a target machine
+    @dispose ctx=Context() tm=LLVM.TargetMachine(x86, string(x86_triple); cpu="haswell",
+                                                 features="+avx512f") mod=parse(LLVM.Module, """
+            define void @plain() {
+              ret void
+            }
+            define void @with_cpu() #0 {
+              ret void
+            }
+            define void @with_features() #1 {
+              ret void
+            }
+            attributes #0 = { "target-cpu"="x86-64" }
+            attributes #1 = { "target-features"="+sse4.1" }""") begin
+        let sti = LLVM.SubtargetInfo(tm, mod.functions["plain"])
+            @test sti.triple == "x86_64-unknown-linux-gnu"
+            @test sti.cpu == "haswell"
+            @test LLVM.hasfeature(sti, "avx512f")
+            @test LLVM.hasfeature(sti, "bmi2")
+            # it belongs to the target machine
+            dispose(sti)
+            @test sti.cpu == "haswell"
+        end
+
+        # the function's attributes replace the target machine's CPU and features
+        let sti = LLVM.SubtargetInfo(tm, mod.functions["with_cpu"])
+            @test sti.cpu == "x86-64"
+            @test LLVM.hasfeature(sti, "avx512f")
+            @test !LLVM.hasfeature(sti, "bmi2")     # a feature of haswell
+        end
+        let sti = LLVM.SubtargetInfo(tm, mod.functions["with_features"])
+            @test sti.cpu == "haswell"
+            @test LLVM.hasfeature(sti, "sse4.1")
+            @test LLVM.hasfeature(sti, "avx2")  # from the CPU
+            @test !LLVM.hasfeature(sti, "avx512f")
+        end
+    end
+end
+
+if :AArch64 in LLVM.backends()
+    LLVM.InitializeAArch64Target()
+    aarch64 = LLVM.Target(triple="aarch64-unknown-linux-gnu")
+
+    LLVM.SubtargetInfo(aarch64, "aarch64-unknown-linux-gnu") do sti
+        @test "neon" in LLVM.processor_features(sti)
+        @test LLVM.hasfeature(sti, "neon")
+    end
+    LLVM.SubtargetInfo(aarch64, "aarch64-unknown-linux-gnu"; features="-neon") do sti
+        @test !LLVM.hasfeature(sti, "neon")
+    end
+end
+
+if :NVPTX in LLVM.backends()
+    nvptx = LLVM.Target(triple="nvptx64-nvidia-cuda")
+
+    LLVM.SubtargetInfo(nvptx, "nvptx64-nvidia-cuda"; cpu="sm_70", features="+ptx64") do sti
+        @test sti.triple == "nvptx64-nvidia-cuda"
+        @test sti.cpu == "sm_70"
+        @test LLVM.hasfeature(sti, "sm_70")
+        @test LLVM.hasfeature(sti, "ptx64")
+        @test !LLVM.hasfeature(sti, "sm_80")
+        # features of other targets aren't known
+        @test "fma" ∉ LLVM.processor_features(sti)
+        @test_throws ArgumentError LLVM.hasfeature(sti, "fma")
+    end
+end
+
+# targets that aren't registered
+@test_throws ArgumentError LLVM.Target(triple="bogus-unknown-unknown")
+
+end

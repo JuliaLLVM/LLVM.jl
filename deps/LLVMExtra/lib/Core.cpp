@@ -11,6 +11,7 @@
 #include <llvm/ADT/SetVector.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/CodeGen/TargetSubtargetInfo.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
@@ -32,7 +33,10 @@
 #include <llvm/IR/ReplaceConstant.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
+#include <llvm/MC/MCSubtargetInfo.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 
@@ -1708,3 +1712,98 @@ TRIPLE_PREDICATE(IsOSDarwin, isOSDarwin)
 TRIPLE_PREDICATE(IsOSWindows, isOSWindows)
 TRIPLE_PREDICATE(IsOSLinux, isOSLinux)
 #undef TRIPLE_PREDICATE
+
+
+//
+// Subtarget information
+//
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(MCSubtargetInfo, LLVMMCSubtargetInfoRef)
+
+#if LLVM_VERSION_MAJOR >= 18
+static ArrayRef<SubtargetFeatureKV> getProcessorFeatures(const MCSubtargetInfo &STI) {
+  return STI.getAllProcessorFeatures();
+}
+#else
+// before LLVM 18, the feature table is a private member without an accessor. names in an
+// explicit template instantiation aren't subject to access checks, so instantiating this
+// template with a pointer to that member gives a function that returns it.
+namespace {
+using ProcessorFeaturesMember = ArrayRef<SubtargetFeatureKV> MCSubtargetInfo::*;
+ProcessorFeaturesMember getProcessorFeaturesMember();
+template <ProcessorFeaturesMember Member> struct ProcessorFeaturesAccess {
+  friend ProcessorFeaturesMember getProcessorFeaturesMember() { return Member; }
+};
+template struct ProcessorFeaturesAccess<&MCSubtargetInfo::ProcFeatures>;
+} // namespace
+static ArrayRef<SubtargetFeatureKV> getProcessorFeatures(const MCSubtargetInfo &STI) {
+  return STI.*getProcessorFeaturesMember();
+}
+#endif
+
+static const char *getFeatureKey(const SubtargetFeatureKV &KV) {
+#if LLVM_VERSION_MAJOR >= 23
+  return KV.key();
+#else
+  return KV.Key;
+#endif
+}
+
+LLVMMCSubtargetInfoRef LLVMExtraCreateMCSubtargetInfo(LLVMTargetRef T, const char *TT,
+                                                      const char *CPU, const char *Features) {
+  auto *TheTarget = reinterpret_cast<const Target *>(T);
+#if LLVM_VERSION_MAJOR >= 22
+  return wrap(TheTarget->createMCSubtargetInfo(Triple(Twine(TT)), CPU, Features));
+#else
+  return wrap(TheTarget->createMCSubtargetInfo(TT, CPU, Features));
+#endif
+}
+
+void LLVMExtraDisposeMCSubtargetInfo(LLVMMCSubtargetInfoRef STI) { delete unwrap(STI); }
+
+LLVMMCSubtargetInfoRef LLVMExtraGetTargetMachineSubtargetInfo(LLVMTargetMachineRef TM,
+                                                              LLVMValueRef F) {
+  auto *Machine = reinterpret_cast<TargetMachine *>(TM);
+  const MCSubtargetInfo *STI = Machine->getSubtargetImpl(*unwrap<Function>(F));
+  return wrap(const_cast<MCSubtargetInfo *>(STI));
+}
+
+// these strings are members of the subtarget, so they are null-terminated
+const char *LLVMExtraMCSubtargetInfoGetTriple(LLVMMCSubtargetInfoRef STI) {
+  return unwrap(STI)->getTargetTriple().getTriple().c_str();
+}
+
+const char *LLVMExtraMCSubtargetInfoGetCPU(LLVMMCSubtargetInfoRef STI) {
+  return unwrap(STI)->getCPU().data();
+}
+
+const char *LLVMExtraMCSubtargetInfoGetFeatureString(LLVMMCSubtargetInfoRef STI) {
+  return unwrap(STI)->getFeatureString().data();
+}
+
+unsigned LLVMExtraMCSubtargetInfoGetNumProcessorFeatures(LLVMMCSubtargetInfoRef STI) {
+  return getProcessorFeatures(*unwrap(STI)).size();
+}
+
+const char *LLVMExtraMCSubtargetInfoGetProcessorFeatureName(LLVMMCSubtargetInfoRef STI,
+                                                            unsigned Index) {
+  return getFeatureKey(getProcessorFeatures(*unwrap(STI))[Index]);
+}
+
+LLVMBool LLVMExtraMCSubtargetInfoLookupFeature(LLVMMCSubtargetInfoRef STI, const char *Name,
+                                               LLVMBool *Enabled) {
+  // the table is sorted by name, like MCSubtargetInfo's own lookups assume. this doesn't
+  // use checkFeatures, which aborts on unknown names since LLVM 21, and before that
+  // ignored them and also checked the features that a feature implies.
+  ArrayRef<SubtargetFeatureKV> Table = getProcessorFeatures(*unwrap(STI));
+  StringRef Key(Name);
+  const SubtargetFeatureKV *Entry =
+      std::lower_bound(Table.begin(), Table.end(), Key,
+                       [](const SubtargetFeatureKV &KV, StringRef Key) {
+                         return StringRef(getFeatureKey(KV)) < Key;
+                       });
+  if (Entry == Table.end() || StringRef(getFeatureKey(*Entry)) != Key)
+    return false;
+  *Enabled = unwrap(STI)->getFeatureBits().test(Entry->Value);
+  return true;
+}

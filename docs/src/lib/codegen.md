@@ -44,6 +44,16 @@ LLVM.emit
 LLVM.JITTargetMachine
 ```
 
+## Subtargets
+
+```@docs
+LLVM.SubtargetInfo
+dispose(::LLVM.SubtargetInfo)
+LLVM.processor_features
+LLVM.hasfeature
+LLVM.hasfeatures
+```
+
 ## Data layout
 
 ```@docs

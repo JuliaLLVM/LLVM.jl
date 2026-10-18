@@ -1069,5 +1069,26 @@ LLVMBool LLVMExtraTripleIsOSDarwin(const char *Triple);
 LLVMBool LLVMExtraTripleIsOSWindows(const char *Triple);
 LLVMBool LLVMExtraTripleIsOSLinux(const char *Triple);
 
+// subtarget information (llvm::MCSubtargetInfo): the CPU and features of a target, as
+// LLVM's tables for that target describe them. A subtarget that is created has to be
+// disposed of; the subtarget of a function under a target machine belongs to the target
+// machine. The strings that are returned live as long as the subtarget.
+typedef struct LLVMOpaqueMCSubtargetInfo *LLVMMCSubtargetInfoRef;
+LLVMMCSubtargetInfoRef LLVMExtraCreateMCSubtargetInfo(LLVMTargetRef T, const char *Triple,
+                                                      const char *CPU, const char *Features);
+void LLVMExtraDisposeMCSubtargetInfo(LLVMMCSubtargetInfoRef STI);
+LLVMMCSubtargetInfoRef LLVMExtraGetTargetMachineSubtargetInfo(LLVMTargetMachineRef TM,
+                                                              LLVMValueRef F);
+const char *LLVMExtraMCSubtargetInfoGetTriple(LLVMMCSubtargetInfoRef STI);
+const char *LLVMExtraMCSubtargetInfoGetCPU(LLVMMCSubtargetInfoRef STI);
+const char *LLVMExtraMCSubtargetInfoGetFeatureString(LLVMMCSubtargetInfoRef STI);
+unsigned LLVMExtraMCSubtargetInfoGetNumProcessorFeatures(LLVMMCSubtargetInfoRef STI);
+const char *LLVMExtraMCSubtargetInfoGetProcessorFeatureName(LLVMMCSubtargetInfoRef STI,
+                                                            unsigned Index);
+// whether the target has a feature of the given name (without a '+' or '-' flag), and if
+// so, whether the subtarget has it enabled
+LLVMBool LLVMExtraMCSubtargetInfoLookupFeature(LLVMMCSubtargetInfoRef STI, const char *Name,
+                                               LLVMBool *Enabled);
+
 LLVM_C_EXTERN_C_END
 #endif

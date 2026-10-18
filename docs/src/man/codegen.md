@@ -149,6 +149,39 @@ julia> String(LLVM.emit(tm, mod, LLVM.CodeGenFileType.Assembly)) |> println
 ```
 
 
+## Subtargets
+
+What a CPU supports, and what a feature string like `"+avx2,-fma"` amounts to, is described
+by the target's tables in LLVM: features imply other features (AVX2 implies AVX), CPUs come
+with features, and a later setting in a feature string overrides an earlier one. An
+`LLVM.SubtargetInfo` interprets a triple, CPU and feature string using those tables. It only
+needs the target's machine code layer, not a target machine:
+
+```jldoctest subtarget
+julia> LLVM.InitializeX86TargetInfo(); LLVM.InitializeX86TargetMC();
+
+julia> x86 = LLVM.Target(; triple="x86_64-unknown-linux-gnu");
+
+julia> sti = LLVM.SubtargetInfo(x86, "x86_64-unknown-linux-gnu"; features="+avx2,-fma");
+
+julia> LLVM.hasfeature(sti, "avx"), LLVM.hasfeature(sti, "fma")
+(true, false)
+
+julia> LLVM.hasfeatures(sti, "+avx,-fma")
+true
+
+julia> dispose(sti)
+```
+
+`LLVM.hasfeature` and `LLVM.hasfeatures` throw an `ArgumentError` for names that the
+target doesn't know about; `LLVM.processor_features` lists the names it knows.
+
+When generating code, a target machine uses a subtarget for every function, which is
+derived from the function's `"target-cpu"` and `"target-features"` attributes (when
+present) instead of the target machine's own CPU and features. That subtarget is available
+as `LLVM.SubtargetInfo(tm, f)`, and belongs to the target machine.
+
+
 ## Data layout
 
 Data layouts are used to describe the memory layout for a given target. It's the

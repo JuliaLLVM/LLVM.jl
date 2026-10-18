@@ -296,6 +296,13 @@ end
 #   function (`subprogram!` creates a subprogram using a `DIBuilder`). If the underlying API
 #   cannot implement assignment semantics, add the missing functionality to LLVMExtra (as
 #   done to replace fast-math flags), or keep the property read-only.
+# - Accessors of properties that abstractly-typed objects commonly have (e.g., the
+#   `value_type` of a `Value`, the `parent` of an `Instruction`) and that don't depend on
+#   the concrete type take that argument `@nospecialize`. Otherwise reading the property
+#   of an object whose concrete type is only known at run time can dispatch dynamically,
+#   and compile a separate specialization of the accessor for every concrete type. Mark
+#   small accessors like these `@inline` too, or callers that know the concrete type may
+#   need to box the object to pass it.
 
 # the reference of wrapper objects (overridden for hierarchies whose concrete type is only
 # known at run time, to access it without dispatch)

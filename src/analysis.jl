@@ -830,13 +830,13 @@ function SCEV(ref::API.LLVMSCEVRef)
     return unsafe_wrap_ref(scev_kinds[API.LLVMExtraSCEVGetKind(ref)], ref)::SCEV
 end
 
-function type(s::SCEV)
+@inline function type(@nospecialize(s::SCEV))
     s isa SCEVCouldNotCompute &&
         throw(ArgumentError("A could-not-compute expression has no type"))
     return LLVMType(API.LLVMExtraSCEVGetType(s))
 end
 
-function operands(s::SCEV)
+function operands(@nospecialize(s::SCEV))
     n = API.LLVMExtraSCEVGetOperands(s, C_NULL)
     refs = Vector{API.LLVMSCEVRef}(undef, n)
     API.LLVMExtraSCEVGetOperands(s, refs)

@@ -1236,7 +1236,8 @@ parent(val::GlobalValue) = Module(API.LLVMGetGlobalParent(val))
 
 @property GlobalValue parent
 
-global_value_type(val::GlobalValue) = LLVMType(API.LLVMGetGlobalValueType(val))
+@inline global_value_type(@nospecialize(val::GlobalValue)) =
+    LLVMType(API.LLVMGetGlobalValueType(val))
 
 @property GlobalValue global_value_type
 

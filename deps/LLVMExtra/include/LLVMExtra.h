@@ -330,6 +330,41 @@ LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *K
                                 char **PassName, char **RemarkName, char **FunctionName,
                                 char **Message, char **File, unsigned *Line,
                                 unsigned *Column);
+// the arguments of a diagnostic that is an optimization remark, which make up its message:
+// the key of each (`String` for plain text) and its value as rendered by LLVM. The strings
+// are copies, to be disposed of with LLVMDisposeMessage.
+unsigned LLVMExtraGetRemarkNumArguments(LLVMDiagnosticInfoRef DI);
+void LLVMExtraGetRemarkArgument(LLVMDiagnosticInfoRef DI, unsigned Index, char **Key,
+                                char **Value);
+// whether a pass emitting remarks of this kind should build them, i.e., whether the
+// diagnostic handler of the context enables them for the pass (e.g., using -pass-remarks)
+// or the context writes remarks of the pass to a file. This is what
+// OptimizationRemarkEmitter checks before building a remark, but per kind and pass.
+LLVMBool LLVMExtraIsRemarkEnabled(LLVMContextRef C, LLVMExtraRemarkKind Kind,
+                                  const char *PassName);
+
+// an optimization remark under construction: its message is made of arguments, either
+// plain text or named values, which LLVM renders like the `ore::NV` arguments of its
+// passes.
+typedef struct LLVMOpaqueOptimizationRemark *LLVMOptimizationRemarkRef;
+LLVMOptimizationRemarkRef LLVMExtraCreateOptimizationRemark(LLVMExtraRemarkKind Kind,
+                                                            const char *PassName,
+                                                            const char *RemarkName,
+                                                            LLVMValueRef Inst);
+void LLVMExtraDisposeOptimizationRemark(LLVMOptimizationRemarkRef R);
+void LLVMExtraOptimizationRemarkAppendString(LLVMOptimizationRemarkRef R, const char *Str);
+void LLVMExtraOptimizationRemarkAppendNamedString(LLVMOptimizationRemarkRef R,
+                                                  const char *Key, const char *Str);
+void LLVMExtraOptimizationRemarkAppendValue(LLVMOptimizationRemarkRef R, const char *Key,
+                                            LLVMValueRef V);
+void LLVMExtraOptimizationRemarkAppendType(LLVMOptimizationRemarkRef R, const char *Key,
+                                           LLVMTypeRef T);
+void LLVMExtraOptimizationRemarkAppendInt(LLVMOptimizationRemarkRef R, const char *Key,
+                                          int64_t N);
+void LLVMExtraOptimizationRemarkAppendUnsigned(LLVMOptimizationRemarkRef R,
+                                               const char *Key, uint64_t N);
+void LLVMExtraOptimizationRemarkAppendBool(LLVMOptimizationRemarkRef R, const char *Key,
+                                           LLVMBool B);
 
 // NewPM extensions
 typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
@@ -419,18 +454,13 @@ void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef A
 // forcibly remove all cached analysis results of a function, including those that survive
 // invalidation, e.g., before the function is deleted
 void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM, LLVMValueRef F);
-// emit an optimization remark about an instruction of the function, through the function's
-// OptimizationRemarkEmitter. It is passed to the diagnostic handler of the context.
-void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
-                                                LLVMExtraRemarkKind Kind,
-                                                const char *PassName,
-                                                const char *RemarkName, LLVMValueRef Inst,
-                                                const char *Message);
-// emit an optimization remark about an instruction through an OptimizationRemarkEmitter
-// for its function that is not cached by an analysis manager, e.g., in a loop pass (which
-// has no access to function analyses that the loop pass manager does not provide)
-void LLVMExtraEmitRemark(LLVMExtraRemarkKind Kind, const char *PassName,
-                         const char *RemarkName, LLVMValueRef Inst, const char *Message);
+// emit an optimization remark, and dispose of it. It is emitted through the
+// OptimizationRemarkEmitter of its function that the analysis manager caches, or, if AM
+// is NULL, through one that isn't cached, e.g., in a loop pass (which has no access to
+// function analyses that the loop pass manager does not provide). Either way, it is
+// passed to the diagnostic handler of the context.
+void LLVMExtraEmitOptimizationRemark(LLVMOptimizationRemarkRef R,
+                                     LLVMFunctionAnalysisManagerRef AM);
 
 // Custom module passes that use analyses. The callback receives the module analysis manager
 // of the pipeline, from which the function analysis manager can be obtained, and an output

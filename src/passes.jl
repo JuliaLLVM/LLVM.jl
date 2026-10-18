@@ -883,7 +883,7 @@ end
 
 ## optimization remarks
 
-@vocabulary Passes remark!, Remark
+@vocabulary Passes remark!, remark_enabled, Remark
 
 # the kind of a remark, by name
 function remark_kind(kind::Symbol)
@@ -899,42 +899,139 @@ function remark_kind(kind::Symbol)
 end
 
 """
-    remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name, remark_name,
-            inst::Instruction, message)
-    remark!(ar::LoopAnalysisResults, kind::Symbol, pass_name, remark_name,
-            inst::Instruction, message)
+    remark_enabled(ctx::Context, kind::Symbol, pass_name) -> Bool
 
-Emit an optimization remark about the instruction `inst` of the function of `am` (or of a
-loop pass, given its [`LoopAnalysisResults`](@ref)), like LLVM's passes do using an
-`OptimizationRemarkEmitter`: with `kind=:passed` for an
-optimization that the pass performed, `kind=:missed` for one that it could not perform,
-or `kind=:analysis` for a fact that explains a decision. The `pass_name` and the
-`remark_name` identify the remark, and `message` describes it.
+Whether remarks of the given `kind` (`:passed`, `:missed` or `:analysis`) emitted by the
+pass `pass_name` are wanted in the context `ctx`: because they are collected using the
+`remarks` keyword argument of [`PassBuilder`](@ref) or `run!`, enabled for that pass
+using LLVM's `-pass-remarks`, `-pass-remarks-missed` or `-pass-remarks-analysis` options
+(see [`LLVM.clopts`](@ref)), or written to a remark file that accepts the pass.
 
-Remarks are passed to the diagnostic handler of the context, where they can be collected
-using the `remarks` keyword argument of [`PassBuilder`](@ref) (also accepted by `run!`), or
-written to a file using LLVM's `-pass-remarks-output` option. Otherwise, they are logged
-as debug messages.
+The do-block form of [`remark!`](@ref) uses this to only build remarks that are wanted.
+A pass can also use it to skip work whose only purpose is to explain a decision in a
+remark, like LLVM's passes do using `OptimizationRemarkEmitter::allowExtraAnalysis`.
 """
-function remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name::AbstractString,
-                 remark_name::AbstractString, inst::Instruction, message::AbstractString)
+function remark_enabled(ctx::Context, kind::Symbol, pass_name::AbstractString)
     api_kind = remark_kind(kind)
-    bb = parent(inst)
-    bb !== nothing && parent(bb) == am.fun ||
-        throw(ArgumentError("Instruction is not part of function $(am.fun.name)"))
-    API.LLVMExtraFunctionAnalysisManagerEmitRemark(am, api_kind, pass_name, remark_name,
-                                                   inst, message)
+    state = diagnostic_state(ctx)
+    state !== nothing && state.remark_callback !== nothing && return true
+    return API.LLVMExtraIsRemarkEnabled(ctx, api_kind, pass_name) |> Bool
+end
+
+# check the parts of a remark's message before creating it, so that it isn't leaked
+check_remark_part(part::AbstractString) = nothing
+check_remark_part(part::Pair{<:AbstractString}) = check_remark_value(part.second)
+check_remark_part(part) =
+    throw(ArgumentError("Invalid part of a remark message: $(repr(part)); expected a string or a `key => value` pair"))
+check_remark_value(::Union{Value,LLVMType,AbstractString,Bool,Integer}) = nothing
+check_remark_value(value) =
+    throw(ArgumentError("Invalid value of a remark argument: $(repr(value)); expected a value, a type, a string or an integer"))
+
+append_remark_part!(ref, part::AbstractString) =
+    API.LLVMExtraOptimizationRemarkAppendString(ref, part)
+append_remark_part!(ref, part::Pair) = append_remark_arg!(ref, part.first, part.second)
+append_remark_arg!(ref, key, value::Value) =
+    API.LLVMExtraOptimizationRemarkAppendValue(ref, key, value)
+append_remark_arg!(ref, key, value::LLVMType) =
+    API.LLVMExtraOptimizationRemarkAppendType(ref, key, value)
+append_remark_arg!(ref, key, value::AbstractString) =
+    API.LLVMExtraOptimizationRemarkAppendNamedString(ref, key, value)
+append_remark_arg!(ref, key, value::Bool) =
+    API.LLVMExtraOptimizationRemarkAppendBool(ref, key, value)
+append_remark_arg!(ref, key, value::Signed) =
+    API.LLVMExtraOptimizationRemarkAppendInt(ref, key, Int64(value))
+append_remark_arg!(ref, key, value::Unsigned) =
+    API.LLVMExtraOptimizationRemarkAppendUnsigned(ref, key, UInt64(value))
+append_remark_arg!(ref, key, value::Integer) =
+    value < 0 ? API.LLVMExtraOptimizationRemarkAppendInt(ref, key, Int64(value)) :
+                API.LLVMExtraOptimizationRemarkAppendUnsigned(ref, key, UInt64(value))
+
+function emit_remark(am, kind::Symbol, pass_name::AbstractString,
+                     remark_name::AbstractString, inst::Instruction, parts)
+    api_kind = remark_kind(kind)
+    foreach(check_remark_part, parts)
+    ref = API.LLVMExtraCreateOptimizationRemark(api_kind, pass_name, remark_name, inst)
+    try
+        foreach(part -> append_remark_part!(ref, part), parts)
+    catch
+        API.LLVMExtraDisposeOptimizationRemark(ref)
+        rethrow()
+    end
+    # this disposes of the remark
+    API.LLVMExtraEmitOptimizationRemark(ref, am)
     return
 end
 
-function remark!(ar::LoopAnalysisResults, kind::Symbol, pass_name::AbstractString,
-                 remark_name::AbstractString, inst::Instruction, message::AbstractString)
-    ar.valid || throw(ArgumentError("Loop analysis results cannot be used after the pass returned"))
+function check_remark_inst(fun::Function, inst::Instruction)
     bb = parent(inst)
-    bb !== nothing && parent(bb) == ar.fun ||
-        throw(ArgumentError("Instruction is not part of function $(ar.fun.name)"))
-    API.LLVMExtraEmitRemark(remark_kind(kind), pass_name, remark_name, inst, message)
-    return
+    bb !== nothing && parent(bb) == fun ||
+        throw(ArgumentError("Instruction is not part of function $(fun.name)"))
+end
+check_remark_target(am::FunctionAnalysisManager, inst::Instruction) =
+    check_remark_inst(am.fun, inst)
+function check_remark_target(ar::LoopAnalysisResults, inst::Instruction)
+    ar.valid || throw(ArgumentError("Loop analysis results cannot be used after the pass returned"))
+    check_remark_inst(ar.fun, inst)
+end
+
+# loop passes have no access to the function's cached remark emitter
+remark_emitter(am::FunctionAnalysisManager) = am
+remark_emitter(ar::LoopAnalysisResults) = C_NULL
+
+"""
+    remark!(f, am::FunctionAnalysisManager, kind::Symbol, pass_name, remark_name,
+            inst::Instruction)
+    remark!(f, ar::LoopAnalysisResults, kind::Symbol, pass_name, remark_name,
+            inst::Instruction)
+    remark!(am_or_ar, kind::Symbol, pass_name, remark_name, inst::Instruction, message...)
+
+Emit an optimization remark about the instruction `inst` of the function of `am` (or of a
+loop pass, given its [`LoopAnalysisResults`](@ref)), like LLVM's passes do using an
+`OptimizationRemarkEmitter`: with `kind=:passed` for an optimization that the pass
+performed, `kind=:missed` for one that it could not perform, or `kind=:analysis` for a
+fact that explains a decision. The `pass_name` and the `remark_name` identify the remark.
+
+The message of the remark is made of parts, each of which is either a string, or an
+argument `key => value` whose value is a value, a type, a string or an integer, like the
+`ore::NV(key, value)` arguments of LLVM's remarks. LLVM renders these arguments, so that
+they read like those of its own passes: a value as its name if it is an argument or a
+global, a constant as an operand, an intrinsic call as `call` and the name of the
+intrinsic (on LLVM 21 and later), and any other instruction as its opcode. The remark
+also carries the arguments separately, with the source location of a value that has one.
+
+In the preferred do-block form, `f()` returns the message, as a single part or as a
+collection of parts, and is only called when remarks of this kind are wanted for the pass
+(see [`remark_enabled`](@ref)), so passes don't pay for building remarks that are
+discarded:
+
+```julia
+remark!(am, :passed, "my-pass", "Hoisted", inst) do
+    "hoisting ", "Inst" => inst, " out of the loop"
+end
+```
+
+Otherwise, the remark is always emitted, with the parts of the message passed as the
+final arguments.
+
+Remarks are passed to the diagnostic handler of the context, where they can be collected
+using the `remarks` keyword argument of [`PassBuilder`](@ref) (also accepted by `run!`).
+Otherwise, they are logged as debug messages.
+"""
+function remark!(am::Union{FunctionAnalysisManager,LoopAnalysisResults}, kind::Symbol,
+                 pass_name::AbstractString, remark_name::AbstractString,
+                 inst::Instruction, message...)
+    check_remark_target(am, inst)
+    emit_remark(remark_emitter(am), kind, pass_name, remark_name, inst, message)
+end
+
+function remark!(f::Base.Callable, am::Union{FunctionAnalysisManager,LoopAnalysisResults},
+                 kind::Symbol, pass_name::AbstractString, remark_name::AbstractString,
+                 inst::Instruction)
+    check_remark_target(am, inst)
+    remark_enabled(context(inst), kind, pass_name) || return
+    message = f()
+    parts = message isa Union{AbstractString,Pair} ? (message,) : message
+    emit_remark(remark_emitter(am), kind, pass_name, remark_name, inst, parts)
 end
 
 """
@@ -949,7 +1046,9 @@ LLVM's passes. Its fields are:
 - `function_name`: the name of the function the remark is about;
 - `message`: the message of the remark;
 - `file`, `line`, `column`: the source location of the remark, from debug information,
-  or an empty file name if it is unknown.
+  or an empty file name if it is unknown;
+- `arguments`: the parts that make up the message, as `key => value` pairs of strings,
+  with the key `"String"` for plain text, and LLVM's rendering of other values.
 """
 struct Remark
     kind::Symbol
@@ -960,6 +1059,7 @@ struct Remark
     file::String
     line::Int
     column::Int
+    arguments::Vector{Pair{String,String}}
 end
 
 # the remark of a diagnostic, or nothing if it isn't an optimization remark
@@ -972,8 +1072,14 @@ function Remark(di::DiagnosticInfo)
     pass_name, name, function_name, message, file = map(ref -> unsafe_message(ref[]), strs)
     kind_sym = kind[] == API.LLVMExtraRemarkPassed ? :passed :
                kind[] == API.LLVMExtraRemarkMissed ? :missed : :analysis
+    arguments = map(0:Int(API.LLVMExtraGetRemarkNumArguments(di))-1) do i
+        key = Ref{Cstring}()
+        value = Ref{Cstring}()
+        API.LLVMExtraGetRemarkArgument(di, i, key, value)
+        unsafe_message(key[]) => unsafe_message(value[])
+    end
     return Remark(kind_sym, pass_name, name, function_name, message, file, line[],
-                  column[])
+                  column[], arguments)
 end
 
 function Base.show(io::IO, remark::Remark)

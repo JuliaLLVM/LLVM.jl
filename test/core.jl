@@ -2755,6 +2755,15 @@ end
     @test sprint(show, StringAttribute("foo")) == "StringAttribute(\"foo\")"
     @test sprint(show, StringAttribute("foo", "bar")) == "StringAttribute(\"foo\", \"bar\")"
 
+    # attributes of a kind only known at run time are converted without dynamic dispatch
+    let attrs = LLVM.Attribute[EnumAttribute(:nounwind), StringAttribute("foo"),
+                               TypeAttribute(:byval, LLVM.Int32Type())]
+        @test all(a -> Base.unsafe_convert(LLVM.API.LLVMAttributeRef, a) === a.ref, attrs)
+        nstrings(attrs) = count(a -> Bool(LLVM.API.LLVMIsStringAttribute(a)), attrs)
+        @test nstrings(attrs) == 1
+        @test @allocated(nstrings(attrs)) == 0
+    end
+
     for (attrs, params) in ((fn.function_attributes, fn.parameter_attributes),
                             (instr.function_attributes, instr.argument_attributes))
         # an enum attribute and a string attribute with the same name are different

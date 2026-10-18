@@ -31,7 +31,18 @@ value), a string for string attributes, a type for type attributes, and a
 abstract type Attribute end
 @properties Attribute
 
-Base.unsafe_convert(::Type{API.LLVMAttributeRef}, attr::Attribute) = attr.ref
+# subtypes must be immutable structs with a single `ref::API.LLVMAttributeRef` field (see
+# `check_layout`), so that attributes whose kind is only known at run time (e.g., those of a
+# function) are converted without dynamic dispatch, as values are
+@inline function Base.unsafe_convert(::Type{API.LLVMAttributeRef},
+                                      @nospecialize(attr::Attribute))
+    typecheck_enabled && check_layout(typeof(attr), API.LLVMAttributeRef)
+    unsafe_load_ref(API.LLVMAttributeRef, attr)
+end
+
+@inline propref(@nospecialize(x::Attribute)) = Base.unsafe_convert(API.LLVMAttributeRef, x)
+
+Base.cconvert(::Type{API.LLVMAttributeRef}, @nospecialize(obj::Attribute)) = obj
 
 @checked struct EnumAttribute <: Attribute
     ref::API.LLVMAttributeRef
@@ -69,6 +80,10 @@ They can't be created using LLVM's C API.
 @checked struct ConstantRangeListAttribute <: Attribute
     ref::API.LLVMAttributeRef
 end
+
+foreach(T -> check_layout(T, API.LLVMAttributeRef),
+        (EnumAttribute, StringAttribute, TypeAttribute, ConstantRangeAttribute,
+         ConstantRangeListAttribute))
 
 # TODO: make the identify mechanism flexible enough to cover cases like this one,
 #       and not only Value and Type

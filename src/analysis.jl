@@ -780,7 +780,17 @@ that obtained them returns, or after the analysis was invalidated.
 abstract type SCEV end
 @properties SCEV
 
-Base.unsafe_convert(::Type{API.LLVMSCEVRef}, s::SCEV) = s.ref
+# subtypes are immutable structs with a single `ref::API.LLVMSCEVRef` field (see
+# `check_layout`), so that expressions whose kind is only known at run time are wrapped and
+# converted without dynamic dispatch, as values are
+@inline function Base.unsafe_convert(::Type{API.LLVMSCEVRef}, @nospecialize(s::SCEV))
+    typecheck_enabled && check_layout(typeof(s), API.LLVMSCEVRef)
+    unsafe_load_ref(API.LLVMSCEVRef, s)
+end
+
+@inline propref(@nospecialize(x::SCEV)) = Base.unsafe_convert(API.LLVMSCEVRef, x)
+
+Base.cconvert(::Type{API.LLVMSCEVRef}, @nospecialize(obj::SCEV)) = obj
 
 const scev_kinds = Dict{API.LLVMExtraSCEVKind,Type{<:SCEV}}()
 
@@ -806,6 +816,7 @@ for (T, kind) in [(:SCEVConstant, :LLVMExtraSCEVConstantKind),
         @checked struct $T <: SCEV
             ref::API.LLVMSCEVRef
         end
+        check_layout($T, API.LLVMSCEVRef)
         scev_kinds[API.$kind] = $T
         scev_kind(::Type{$T}) = API.$kind
         @doc (@doc SCEV) $T
@@ -815,7 +826,7 @@ end
 # wrap an expression in the type corresponding to its kind
 function SCEV(ref::API.LLVMSCEVRef)
     ref == C_NULL && throw(UndefRefError())
-    return scev_kinds[API.LLVMExtraSCEVGetKind(ref)](ref)
+    return unsafe_wrap_ref(scev_kinds[API.LLVMExtraSCEVGetKind(ref)], ref)::SCEV
 end
 
 function type(s::SCEV)

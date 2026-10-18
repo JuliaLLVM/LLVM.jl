@@ -508,8 +508,8 @@ Base.getindex(am::ModuleAnalysisManager, T::Type) =
 Markers for sets of analyses, used with [`PreservedAnalyses`](@ref): `AllAnalyses` for every
 analysis, `CFGAnalyses` for the analyses that only depend on the control-flow graph of
 a function (like `DomTree` and `PostDomTree`), i.e., on its blocks and their terminators,
-and `FunctionAnalyses` (only for module passes) for the function analyses of every
-function of the module.
+and `FunctionAnalyses` for the function analyses of the function (for a function pass), or
+of every function of the module (for a module pass).
 """
 struct AllAnalyses end
 
@@ -537,6 +537,16 @@ of the module, while all other analyses of the module are invalidated. A module 
 invalidated the analyses of the functions it changed itself (using
 `invalidate!(am[f])`) can return `PreservedAnalyses(FunctionAnalyses)`, which keeps the
 cached function analyses of all other functions.
+
+A function pass that changed the function, but invalidated the analyses that it did not
+preserve itself, can similarly return `PreservedAnalyses(FunctionAnalyses)`: the function's
+analyses are then kept, while LLVM still knows that the function changed. This is what
+running passes from a function pass with [`run!(pb, f, am)`](@ref run!(::PassBuilder,
+::LLVM.Function, ::FunctionAnalysisManager)) returns when they changed the function.
+
+The analyses that are preserved by two passes that run one after the other are
+`intersect(a, b)`, like for LLVM's `PreservedAnalyses::intersect`: an analysis or set of
+analyses is preserved when both preserve it, or when one of them preserves all analyses.
 
 See also: [`FunctionAnalysisManager`](@ref), [`invalidate!`](@ref)
 """
@@ -582,12 +592,40 @@ Base.:(==)(a::PreservedAnalyses, b::PreservedAnalyses) =
 Base.convert(::Type{PreservedAnalyses}, changed::Bool) =
     changed ? PreservedAnalyses() : PreservedAnalyses(AllAnalyses)
 
-# pass a set of preserved function analyses to a C function `f(args..., all, cfg, ids, nids)`
+function Base.intersect(a::PreservedAnalyses, b::PreservedAnalyses)
+    a.all && return b
+    b.all && return a
+    sets = Type[]
+    a.functions && b.functions && push!(sets, FunctionAnalyses)
+    a.cfg && b.cfg && push!(sets, CFGAnalyses)
+    return PreservedAnalyses(sets..., intersect(a.analyses, b.analyses)...)
+end
+
+# the analyses that the function analysis manager knows, in the terms of `PreservedAnalyses`
+const function_analyses = (DomTree, PostDomTree, AssumptionCache, LazyValueInfo,
+                           ScalarEvolution, LoopInfo)
+
+# the preserved analyses of an LLVM `PreservedAnalyses` object, as far as they can be
+# expressed using the analyses that LLVM.jl knows
+function PreservedAnalyses(ref::API.LLVMPreservedAnalysesRef)
+    all, functions, cfg = Ref{API.LLVMBool}(), Ref{API.LLVMBool}(), Ref{API.LLVMBool}()
+    API.LLVMExtraGetPreservedAnalyses(ref, all, functions, cfg)
+    all[] == 1 && return PreservedAnalyses(AllAnalyses)
+    preserved = Type[]
+    functions[] == 1 && push!(preserved, FunctionAnalyses)
+    cfg[] == 1 && push!(preserved, CFGAnalyses)
+    for T in function_analyses
+        API.LLVMExtraPreservedAnalysesIsPreserved(ref, analysis_id(T)) == 1 &&
+            push!(preserved, T)
+    end
+    return PreservedAnalyses(preserved...)
+end
+
+# pass a set of preserved function analyses to a C function
+# `f(args..., all, functions, cfg, ids, nids)`
 function with_preserved(f, pa::PreservedAnalyses, args...)
-    pa.functions &&
-        throw(ArgumentError("FunctionAnalyses can only be preserved by a module pass"))
     ids = API.LLVMExtraFunctionAnalysis[analysis_id(T) for T in pa.analyses]
-    f(args..., pa.all, pa.cfg, ids, length(ids))
+    f(args..., pa.all, pa.functions, pa.cfg, ids, length(ids))
 end
 
 set_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved) =
@@ -1113,6 +1151,88 @@ function print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine
         API.LLVMDisposePassBuilderExtensions(exts)
     end
     return
+end
+
+"""
+    run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager, [tm::TargetMachine])
+    run!(pipeline::AbstractString, f, am, [tm])
+    run!(pass::CustomPass, f, am, [tm])
+        -> PreservedAnalyses
+
+Run the passes of a pass builder on a function, from a custom function pass that runs on
+it with the function analysis manager `am` (see [`FunctionPass`](@ref)). The passes run as
+part of the enclosing pipeline: like the passes of a nested function pass manager, they use
+and update the analyses of that pipeline, and its instrumentation reports them. The
+pipeline is parsed as a function pipeline, with the passes that were registered with the
+pass builder and those of the target machine `tm`.
+
+Returns the analyses that the passes preserved, which LLVM computes like for a nested
+function pass manager: the analyses that a pass did not preserve have been invalidated
+after it ran, so when the passes changed the function, this preserves
+[`FunctionAnalyses`](@ref AllAnalyses). This can be returned by the custom pass, or
+intersected with what the rest of the pass preserves (see [`PreservedAnalyses`](@ref)).
+`PreservedAnalyses` only describes the analyses that LLVM.jl knows, so analyses that the
+passes preserve individually, but that are not among them, are not preserved by what is
+returned. As a result, LLVM may recompute more analyses after the custom pass than after
+the passes themselves.
+
+The alias analyses, the target transform info and the instrumentation are those of the
+enclosing pipeline: the pass builder's options for them (like `verify_each` or
+`debug_logging`) have no effect, and it cannot have an [`AAManager`](@ref), a custom target
+transform info or collect remarks.
+
+For example, a pass that unrolls loops, and cleans up after that if it changed anything:
+
+```julia
+function unroll_and_clean_up!(f::LLVM.Function, am::LLVM.FunctionAnalysisManager)
+    preserved = run!(LoopUnrollPass(), f, am)
+    preserved == PreservedAnalyses(AllAnalyses) && return preserved
+    @dispose pb=PassBuilder() begin
+        add!(pb, SimplifyCFGPass())
+        add!(pb, InstCombinePass())
+        return intersect(preserved, run!(pb, f, am))
+    end
+end
+FunctionPass("unroll-and-clean-up", unroll_and_clean_up!; analyses=true)
+```
+"""
+function run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
+              tm::Union{Nothing,TargetMachine}=nothing)
+    am.fun == f ||
+        throw(ArgumentError("The analysis manager belongs to function $(am.fun.name), not $(f.name)"))
+    isempty(pb.aa_passes) && pb.custom_tti === nothing && pb.remarks === nothing ||
+        throw(ArgumentError("Passes that run from a pass use the alias analyses, target transform info and remarks of the enclosing pipeline"))
+    isempty(pb.passes) && return PreservedAnalyses(AllAnalyses)
+
+    states = [CustomPassState(pass) for pass in pb.custom_passes]
+    exts = API.LLVMCreatePassBuilderExtensions()
+    try
+        GC.@preserve states begin
+            register_extensions!(exts, pb, states)
+            ref = Ref{API.LLVMPreservedAnalysesRef}()
+            err = API.LLVMExtraRunJuliaPassesWithAnalyses(f, string(pb), something(tm, C_NULL),
+                                                          pb, exts, am, ref)
+            try
+                check_custom_passes(err, states)
+                return PreservedAnalyses(ref[])
+            finally
+                ref[] == C_NULL || API.LLVMExtraDisposePreservedAnalyses(ref[])
+            end
+        end
+    finally
+        API.LLVMDisposePassBuilderExtensions(exts)
+    end
+end
+
+function run!(pass::CustomPass, f::Function, am::FunctionAnalysisManager,
+              tm::Union{Nothing,TargetMachine}=nothing; kwargs...)
+    pass.type === :function ||
+        throw(ArgumentError("Cannot run $(pass.type) pass $(pass.name) on a function"))
+    @dispose pb=PassBuilder(; kwargs...) begin
+        register!(pb, pass)
+        add!(pb, pass)
+        run!(pb, f, am, tm)
+    end
 end
 
 function run!(pass::AbstractString, args...; kwargs...)

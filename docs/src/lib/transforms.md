@@ -39,6 +39,7 @@ register_callbacks!
 ```@docs
 FunctionAnalysisManager
 ModuleAnalysisManager
+run!(::PassBuilder, ::LLVM.Function, ::FunctionAnalysisManager)
 PreservedAnalyses
 AllAnalyses
 invalidate!

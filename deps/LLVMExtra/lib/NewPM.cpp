@@ -1,4 +1,5 @@
 #include "LLVMExtra.h"
+#include <llvm/ADT/StringSet.h>
 
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/AssumptionCache.h>
@@ -512,12 +513,15 @@ void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManage
   llvm_unreachable("unknown function analysis");
 }
 
-static PreservedAnalyses buildPreservedAnalyses(LLVMBool All, LLVMBool CFG,
+static PreservedAnalyses buildPreservedAnalyses(LLVMBool All, LLVMBool Functions,
+                                                LLVMBool CFG,
                                                 const LLVMExtraFunctionAnalysis *Analyses,
                                                 unsigned NumAnalyses) {
   if (All)
     return PreservedAnalyses::all();
   PreservedAnalyses PA;
+  if (Functions)
+    PA.preserveSet<AllAnalysesOn<Function>>();
   if (CFG)
     PA.preserveSet<CFGAnalyses>();
   for (unsigned I = 0; I < NumAnalyses; ++I) {
@@ -545,18 +549,52 @@ static PreservedAnalyses buildPreservedAnalyses(LLVMBool All, LLVMBool CFG,
   return PA;
 }
 
-void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All, LLVMBool CFG,
+void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                   LLVMBool Functions, LLVMBool CFG,
                                    const LLVMExtraFunctionAnalysis *Analyses,
                                    unsigned NumAnalyses) {
-  *unwrap(PA) = buildPreservedAnalyses(All, CFG, Analyses, NumAnalyses);
+  *unwrap(PA) = buildPreservedAnalyses(All, Functions, CFG, Analyses, NumAnalyses);
 }
 
+void LLVMExtraGetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool *All,
+                                   LLVMBool *Functions, LLVMBool *CFG) {
+  *All = unwrap(PA)->areAllPreserved();
+  *Functions = unwrap(PA)->allAnalysesInSetPreserved<AllAnalysesOn<Function>>();
+  *CFG = unwrap(PA)->allAnalysesInSetPreserved<CFGAnalyses>();
+}
+
+template <typename AnalysisT> static bool isPreserved(const PreservedAnalyses &PA) {
+  return PA.getChecker<AnalysisT>().preserved();
+}
+
+LLVMBool LLVMExtraPreservedAnalysesIsPreserved(LLVMPreservedAnalysesRef PA,
+                                               LLVMExtraFunctionAnalysis Analysis) {
+  switch (Analysis) {
+  case LLVMExtraDominatorTreeAnalysis:
+    return isPreserved<DominatorTreeAnalysis>(*unwrap(PA));
+  case LLVMExtraPostDominatorTreeAnalysis:
+    return isPreserved<PostDominatorTreeAnalysis>(*unwrap(PA));
+  case LLVMExtraAssumptionAnalysis:
+    return isPreserved<AssumptionAnalysis>(*unwrap(PA));
+  case LLVMExtraLazyValueAnalysis:
+    return isPreserved<LazyValueAnalysis>(*unwrap(PA));
+  case LLVMExtraScalarEvolutionAnalysis:
+    return isPreserved<ScalarEvolutionAnalysis>(*unwrap(PA));
+  case LLVMExtraLoopAnalysis:
+    return isPreserved<LoopAnalysis>(*unwrap(PA));
+  }
+  llvm_unreachable("unknown function analysis");
+}
+
+void LLVMExtraDisposePreservedAnalyses(LLVMPreservedAnalysesRef PA) { delete unwrap(PA); }
+
 void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef AM,
-                                                LLVMValueRef F, LLVMBool All, LLVMBool CFG,
+                                                LLVMValueRef F, LLVMBool All,
+                                                LLVMBool Functions, LLVMBool CFG,
                                                 const LLVMExtraFunctionAnalysis *Analyses,
                                                 unsigned NumAnalyses) {
   unwrap(AM)->invalidate(*unwrap<Function>(F),
-                         buildPreservedAnalyses(All, CFG, Analyses, NumAnalyses));
+                         buildPreservedAnalyses(All, Functions, CFG, Analyses, NumAnalyses));
 }
 
 
@@ -652,10 +690,9 @@ void LLVMExtraSetModulePreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool A
   }
   // preserving the proxy makes the module pass manager invalidate each function's results
   // with this set, instead of clearing all of them
-  PreservedAnalyses Result = buildPreservedAnalyses(false, CFG, Analyses, NumAnalyses);
+  PreservedAnalyses Result =
+      buildPreservedAnalyses(false, Functions, CFG, Analyses, NumAnalyses);
   Result.preserve<FunctionAnalysisManagerModuleProxy>();
-  if (Functions)
-    Result.preserveSet<AllAnalysesOn<Function>>();
   *unwrap(PA) = std::move(Result);
 }
 
@@ -938,17 +975,48 @@ void registerCallbackParsing(PassBuilder &PB) {
 // is passed and crashes. Avoid that by calling libLLVM's instantiation of `run` through an
 // opaque function pointer.
 template <typename IRUnitT>
-static void runPassManager(PassManager<IRUnitT> &PM, IRUnitT &IR,
-                           AnalysisManager<IRUnitT> &AM) {
+static PreservedAnalyses runPassManager(PassManager<IRUnitT> &PM, IRUnitT &IR,
+                                        AnalysisManager<IRUnitT> &AM) {
 #if LLVM_VERSION_MAJOR < 20
   using RunFn =
       PreservedAnalyses (PassManager<IRUnitT>::*)(IRUnitT &, AnalysisManager<IRUnitT> &);
   static RunFn volatile Run = &PassManager<IRUnitT>::run;
-  (PM.*Run)(IR, AM);
+  return (PM.*Run)(IR, AM);
 #else
-  PM.run(IR, AM);
+  return PM.run(IR, AM);
 #endif
 }
+
+// The instrumentation of a pipeline, which also instruments the passes that a custom pass
+// runs with the pipeline's analysis manager (see `LLVMExtraRunJuliaPassesWithAnalyses`).
+struct PipelineInstrumentation {
+  PassInstrumentationCallbacks *PIC;
+  // The names of the custom passes of such nested runs. The instrumentation refers to the
+  // names it is given (without copying them, since LLVM 19), so they need to live as long
+  // as the pipeline, rather than as long as the extensions of the nested run.
+  StringSet<> NestedPassNames;
+};
+
+// An analysis that provides the instrumentation of the pipeline that a function analysis
+// manager belongs to.
+struct PipelineInstrumentationAnalysis
+    : AnalysisInfoMixin<PipelineInstrumentationAnalysis> {
+  struct Result {
+    PipelineInstrumentation *PI;
+    bool invalidate(Function &, const PreservedAnalyses &,
+                    FunctionAnalysisManager::Invalidator &) {
+      return false;
+    }
+  };
+  PipelineInstrumentation *PI;
+  explicit PipelineInstrumentationAnalysis(PipelineInstrumentation *PI) : PI(PI) {}
+  Result run(Function &, FunctionAnalysisManager &) { return {PI}; }
+
+private:
+  friend AnalysisInfoMixin<PipelineInstrumentationAnalysis>;
+  static AnalysisKey Key;
+};
+AnalysisKey PipelineInstrumentationAnalysis::Key;
 
 static PassBuilder createPassBuilder(TargetMachine *Machine, LLVMPassBuilderOptions *PassOpts,
                                      PassInstrumentationCallbacks *PIC) {
@@ -963,15 +1031,19 @@ static PassBuilder createPassBuilder(TargetMachine *Machine, LLVMPassBuilderOpti
 // that LLVMExtra adds to those of LLVM.
 static void registerExtensions(PassBuilder &PB, TargetMachine *Machine,
                                PassInstrumentationCallbacks *PIC,
-                               LLVMPassBuilderExtensions *PassExts) {
+                               LLVMPassBuilderExtensions *PassExts,
+                               StringSet<> *NameStorage = nullptr) {
   for (auto &Callback : PassExts->RegistrationCallbacks)
     Callback(&PB);
   // instrumentation selects passes by their pipeline name, e.g. `-print-before=NAME`, which
   // it looks up by class name. custom passes are reported under their own name, so map
-  // that to itself.
+  // that to itself. the names need to outlive the instrumentation, which refers to them:
+  // those of the extensions do, unless they are of a nested run (see `NameStorage`).
   if (PIC)
-    for (auto &Name : PassExts->CustomPassNames)
-      PIC->addClassToPassName(Name, Name);
+    for (auto &Name : PassExts->CustomPassNames) {
+      StringRef Stored = NameStorage ? NameStorage->insert(Name).first->getKey() : Name;
+      PIC->addClassToPassName(Stored, Stored);
+    }
   for (auto &Callback : PassExts->ModulePipelineParsingCallbacks)
     PB.registerPipelineParsingCallback(Callback);
   for (auto &Callback : PassExts->FunctionPipelineParsingCallbacks)
@@ -1061,6 +1133,7 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
   bool VerifyEach = PassOpts->VerifyEach;
 
   PassInstrumentationCallbacks PIC;
+  PipelineInstrumentation PI{&PIC, {}};
   PassBuilder PB = createPassBuilder(Machine, PassOpts, &PIC);
 
   registerExtensions(PB, Machine, &PIC, PassExts);
@@ -1105,6 +1178,7 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
     }
     FAM.registerPass([&] { return std::move(AA); });
   }
+  FAM.registerPass([&] { return PipelineInstrumentationAnalysis(&PI); });
   PB.registerLoopAnalyses(LAM);
   PB.registerFunctionAnalyses(FAM);
   PB.registerCGSCCAnalyses(CGAM);
@@ -1158,6 +1232,29 @@ LLVMErrorRef LLVMRunJuliaPasses(LLVMModuleRef M, const char *Passes,
   LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
   Module *Mod = unwrap(M);
   return runJuliaPasses(Mod, nullptr, Passes, Machine, PassOpts, PassExts);
+}
+
+LLVMErrorRef LLVMExtraRunJuliaPassesWithAnalyses(LLVMValueRef F, const char *Passes,
+                                                LLVMTargetMachineRef TM,
+                                                LLVMPassBuilderOptionsRef Options,
+                                                LLVMPassBuilderExtensionsRef Extensions,
+                                                LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMPreservedAnalysesRef *PA) {
+  *PA = nullptr;
+  Function &Fun = *unwrap<Function>(F);
+  FunctionAnalysisManager &FAM = *unwrap(AM);
+  // the passes are instrumented by the analysis manager's instrumentation, i.e., that of
+  // the pipeline that the analysis manager belongs to, which needs to know the names of
+  // the custom passes
+  PipelineInstrumentation *PI = FAM.getResult<PipelineInstrumentationAnalysis>(Fun).PI;
+  PassBuilder PB = createPassBuilder(unwrap(TM), unwrap(Options), nullptr);
+  registerExtensions(PB, unwrap(TM), PI->PIC, unwrap(Extensions), &PI->NestedPassNames);
+
+  FunctionPassManager FPM;
+  if (auto Err = PB.parsePassPipeline(FPM, Passes))
+    return wrap(std::move(Err));
+  *PA = wrap(new PreservedAnalyses(runPassManager(FPM, Fun, FAM)));
+  return LLVMErrorSuccess;
 }
 
 #if LLVM_VERSION_MAJOR < 19

@@ -274,6 +274,7 @@ LLVMValueRef LLVMExtraBuildAtomicRMWSyncScope(LLVMBuilderRef B, unsigned op, LLV
                                               LLVMValueRef Val, LLVMAtomicOrdering ordering,
                                               unsigned SSID);
 unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef AtomicRMWInst);
+void LLVMExtraSetAtomicRMWBinOp(LLVMValueRef AtomicRMWInst, unsigned op);
 #endif
 
 // orderings of fences and atomicrmw instructions

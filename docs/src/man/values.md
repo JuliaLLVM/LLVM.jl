@@ -286,6 +286,8 @@ couple of additional APIs:
   section and DLL storage class of the global value.
 - `gv.unnamed_addr`: whether the address of the global value is significant, e.g.,
   `LLVM.UnnamedAddr.Global` for an `unnamed_addr` global.
+- `gv.dso_local`: whether the global value resolves to a definition in the same linkage
+  unit (`dso_local`).
 - `isdeclaration(gv)`: whether the global value is a declaration, i.e., it does not have a
   body.
 

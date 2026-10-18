@@ -25,6 +25,8 @@ const enum_scopes = [
      "LLVM", "UnnamedAddr", ()),
     (:ThreadLocalMode, :LLVMThreadLocalMode, "the thread-local storage model of global variables",
      "LLVM", "TLSModel", ()),
+    (:ComdatSelectionKind, :LLVMComdatSelectionKind, "how the linker selects COMDATs",
+     "LLVM", "ComdatSelectionKind", ()),
     (:CallConv, :LLVMCallConv, "calling conventions",
      "LLVM", "CallConv", ()),
     (:IntPredicate, :LLVMIntPredicate, "the predicates of integer comparisons",

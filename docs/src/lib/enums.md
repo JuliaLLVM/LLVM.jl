@@ -10,6 +10,7 @@ LLVM.Visibility
 LLVM.DLLStorageClass
 LLVM.UnnamedAddr
 LLVM.ThreadLocalMode
+LLVM.ComdatSelectionKind
 LLVM.CallConv
 LLVM.IntPredicate
 LLVM.RealPredicate

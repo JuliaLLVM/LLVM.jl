@@ -763,10 +763,52 @@ LLVMBool LLVMExtraDoesNotCapture(LLVMValueRef V, int ArgNo);
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 
 // functions and global variables
+// Dst and Src are functions, global variables, aliases or ifuncs, of the same kind
 void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src);
+LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV);
+// whether a global value is known to resolve to a definition in the same linkage unit
+// (dso_local), and set that
+LLVMBool LLVMExtraIsDSOLocal(LLVMValueRef GV);
+void LLVMExtraSetDSOLocal(LLVMValueRef GV, LLVMBool Local);
+// like LLVMAddFunction, but in the given address space instead of the program one
+LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
+                                                LLVMTypeRef FunctionTy, unsigned AddrSpace);
+// like LLVMAddAlias2, but Aliasee may be NULL
+LLVMValueRef LLVMExtraAddAlias(LLVMModuleRef M, LLVMTypeRef ValueTy, unsigned AddrSpace,
+                               LLVMValueRef Aliasee, const char *Name);
+void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias);
+// attach metadata to a global object, keeping existing attachments of the same kind (unlike
+// LLVMGlobalSetMetadata, which replaces them)
+void LLVMExtraGlobalAddMetadata(LLVMValueRef Global, unsigned KindID, LLVMMetadataRef MD);
+const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len);
+
+// the declaration of an overloaded intrinsic named after the types of its signature, if
+// its name doesn't match them (e.g., after changing address spaces), or NULL
+LLVMValueRef LLVMExtraRemangleIntrinsicFunction(LLVMValueRef Fn);
+
+// types
+void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name);
 
 // constants
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
+// a constant expression like CE, but with the given operands and type (or that of CE if
+// Ty is NULL); SrcTy is the source element type of a GEP (NULL to keep that of CE)
+LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef *Ops,
+                                                  unsigned NumOps, LLVMTypeRef Ty,
+                                                  LLVMTypeRef SrcTy);
+// Constants that refer to a global value, which the C API reports as instructions or
+// doesn't expose the global value of: returns the kind of constant, and the global value
+// (and the block of a blockaddress) it refers to.
+typedef enum {
+  LLVMExtraNoGlobalReference = 0,
+  LLVMExtraBlockAddressReference = 1,
+  LLVMExtraDSOLocalEquivalentReference = 2,
+  LLVMExtraNoCFIValueReference = 3
+} LLVMExtraGlobalReferenceKind;
+LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMValueRef *GV,
+                                                         LLVMValueRef *BB);
+LLVMValueRef LLVMExtraGetDSOLocalEquivalent(LLVMValueRef GV);
+LLVMValueRef LLVMExtraGetNoCFIValue(LLVMValueRef GV);
 
 // verify a function, returning true and the verifier's message (to be disposed of using
 // LLVMDisposeMessage) if it is broken

@@ -71,3 +71,10 @@ LLVM.collect_flat_address_operands
 clone_into!
 clone
 ```
+
+## Inlining
+
+```@docs
+inline!
+inline_viability
+```

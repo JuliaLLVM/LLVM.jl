@@ -980,4 +980,116 @@ end
         erase!(a2)
     end
 end
+
+@testset "inline!" begin
+    @dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i32*" : "ptr"
+    mod = parse(LLVM.Module, """
+        declare i32 @external(i32)
+
+        define i32 @callee(i32 %x) sspstrong {
+          %p = alloca i32
+          store i32 %x, $ptr %p
+          %v = load i32, $ptr %p
+          %r = add i32 %v, 1
+          ret i32 %r
+        }
+
+        define i32 @caller(i32 %x) ssp {
+          %a = call i32 @callee(i32 %x)
+          %b = call i32 @callee(i32 %a)
+          %c = call i32 @external(i32 %b)
+          %d = call i32 @callee(i32 %c)
+          ret i32 %d
+        }""")
+    caller, callee = mod.functions["caller"], mod.functions["callee"]
+    a, b, c, d, ret = caller.entry.instructions
+    calls(f, prefix) = count(inst -> inst isa LLVM.CallInst &&
+                                     startswith(inst.called_operand.name, prefix),
+                             [inst for bb in f.blocks for inst in bb.instructions])
+
+    # calls of declarations can't be inlined, and are left alone
+    reason = inline!(c)
+    @test reason isa String && !isempty(reason)
+    @test c.parent == caller.entry
+
+    # by default, allocas are marked using lifetime intrinsics
+    @test inline!(a) === nothing
+    @test calls(caller, "callee") == 2
+    @test calls(caller, "llvm.lifetime.start") == 1
+    @test !haskey(caller.function_attributes, :sspstrong)
+    verify(caller)
+
+    # without lifetime intrinsics, and merging the attributes of the functions
+    @test inline!(b; insert_lifetime=false, merge_attributes=true) === nothing
+    @test calls(caller, "callee") == 1
+    @test calls(caller, "llvm.lifetime.start") == 1
+    @test haskey(caller.function_attributes, :sspstrong)
+    verify(caller)
+
+    # the result of the call is replaced
+    @test inline!(d) === nothing
+    @test calls(caller, "callee") == 0
+    @test ret.operands[1] isa LLVM.AddInst
+    verify(mod)
+
+    c2 = copy(c)
+    @test_throws ArgumentError inline!(c2)
+    erase!(c2)
+    dispose(mod)
+    end
+
+    # InlineFunction doesn't check whether the body of the callee can be inlined
+    @dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i8*" : "ptr"
+    va_start = LLVM.version() >= v"19" ? "llvm.va_start.p0" : "llvm.va_start"
+    mod = parse(LLVM.Module, """
+        declare void @$va_start($ptr)
+
+        define i32 @variadic(i32 %n, ...) {
+          %ap = alloca i8, i32 32
+          call void @$va_start($ptr %ap)
+          ret i32 %n
+        }
+
+        define i32 @fixed(i32 %n) {
+          ret i32 %n
+        }
+
+        define i32 @caller(i32 %x) {
+          %a = call i32 (i32, ...) @variadic(i32 %x)
+          %b = call i32 @fixed(i32 %a)
+          ret i32 %b
+        }""")
+    variadic, fixed = mod.functions["variadic"], mod.functions["fixed"]
+    @test occursin("va_start", inline_viability(variadic))
+    @test inline_viability(fixed) === nothing
+    @test_throws ArgumentError inline_viability(mod.functions[va_start])
+    verify(mod)
+    dispose(mod)
+    end
+
+    # a failure leaves the IR unchanged, also where InlineFunction changes it before failing
+    @dispose ctx=Context() begin
+    pers(f) = supports_typed_pointers(ctx) ? "i8* bitcast (i32 (...)* @$f to i8*)" : "ptr @$f"
+    mod = parse(LLVM.Module, """
+        declare i32 @pers1(...)
+        declare i32 @pers2(...)
+
+        define void @callee() gc "statepoint-example" personality $(pers("pers1")) {
+          ret void
+        }
+
+        define void @caller() personality $(pers("pers2")) {
+          call void @callee()
+          ret void
+        }""")
+    ir = string(mod)
+    call = first(mod.functions["caller"].entry.instructions)
+    @test occursin("personality", inline!(call))
+    @test string(mod) == ir
+    dispose(mod)
+    end
+end
+
 end

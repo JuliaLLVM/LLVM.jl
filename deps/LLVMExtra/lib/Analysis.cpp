@@ -4,6 +4,7 @@
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/ConstantFolding.h>
 #include <llvm/Analysis/DomTreeUpdater.h>
+#include <llvm/Analysis/InlineCost.h>
 #include <llvm/Analysis/InstructionSimplify.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
@@ -25,6 +26,7 @@
 #include <llvm/IR/Operator.h>
 #include <llvm/Support/KnownBits.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/Local.h>
 #include <llvm/Transforms/Utils/PromoteMemToReg.h>
 
@@ -903,4 +905,45 @@ LLVMBasicBlockRef LLVMExtraSplitBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Be
   It.setHeadBit(Head);
 #endif
   return wrap(unwrap(BB)->splitBasicBlock(It, Name));
+}
+
+
+// Inlining
+
+LLVMBool LLVMExtraInlineFunction(LLVMValueRef Call, LLVMBool MergeAttributes,
+                                 LLVMBool InsertLifetime, char **FailureReason) {
+  CallBase *CB = unwrap<CallBase>(Call);
+  Function *Caller = CB->getCaller();
+  InlineFunctionInfo IFI;
+#if LLVM_VERSION_MAJOR < 22
+  // before checking the personality functions, InlineFunction gives a caller without a GC
+  // strategy the one of the callee, which it doesn't undo when it then fails. it changes
+  // nothing else before failing (it only sets the personality function of a caller that
+  // has none, after which it can't fail anymore), so undo that to leave the IR unchanged.
+  bool CallerHadGC = Caller->hasGC();
+#endif
+#if LLVM_VERSION_MAJOR >= 16
+  InlineResult Result =
+      InlineFunction(*CB, IFI, MergeAttributes, /*CalleeAAR=*/nullptr, InsertLifetime);
+#else
+  // InlineFunction doesn't merge the attributes yet, which its callers did instead
+  Function *Callee = CB->getCalledFunction();
+  InlineResult Result = InlineFunction(*CB, IFI, /*CalleeAAR=*/nullptr, InsertLifetime);
+  if (Result.isSuccess() && MergeAttributes)
+    AttributeFuncs::mergeAttributesForInlining(*Caller, *Callee);
+#endif
+#if LLVM_VERSION_MAJOR < 22
+  if (!Result.isSuccess() && !CallerHadGC)
+    Caller->clearGC();
+#endif
+  if (FailureReason)
+    *FailureReason = Result.isSuccess() ? nullptr : strdup(Result.getFailureReason());
+  return Result.isSuccess();
+}
+
+LLVMBool LLVMExtraIsInlineViable(LLVMValueRef Fn, char **FailureReason) {
+  InlineResult Result = isInlineViable(*unwrap<Function>(Fn));
+  if (FailureReason)
+    *FailureReason = Result.isSuccess() ? nullptr : strdup(Result.getFailureReason());
+  return Result.isSuccess();
 }

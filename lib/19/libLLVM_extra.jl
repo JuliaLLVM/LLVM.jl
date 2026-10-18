@@ -1212,6 +1212,14 @@ function LLVMExtraSplitBasicBlock(BB, Before, Head, Name)
     ccall((:LLVMExtraSplitBasicBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMBasicBlockRef, LLVMValueRef, LLVMBool, Cstring), BB, Before, Head, Name)
 end
 
+function LLVMExtraInlineFunction(Call, MergeAttributes, InsertLifetime, FailureReason)
+    ccall((:LLVMExtraInlineFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMBool, Ptr{Cstring}), Call, MergeAttributes, InsertLifetime, FailureReason)
+end
+
+function LLVMExtraIsInlineViable(Fn, FailureReason)
+    ccall((:LLVMExtraIsInlineViable, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, FailureReason)
+end
+
 function LLVMExtraTripleGetArchTypeName(Triple)
     ccall((:LLVMExtraTripleGetArchTypeName, libLLVMExtra), Cstring, (Cstring,), Triple)
 end

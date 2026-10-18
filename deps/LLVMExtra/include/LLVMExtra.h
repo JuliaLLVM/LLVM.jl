@@ -1107,6 +1107,17 @@ LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst);
 // original one branches to, like BasicBlock::splitBasicBlock. Returns the new block.
 LLVMBasicBlockRef LLVMExtraSplitBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Before,
                                            LLVMBool Head, const char *Name);
+// inline a call site, like InlineFunction (without updating a call graph or using alias
+// analysis). Returns whether the call was inlined; if not, nothing is changed, and if
+// FailureReason is not NULL, it is set to a message (to be disposed of using
+// LLVMDisposeMessage) that describes why. Like InlineFunction, this doesn't check whether
+// the body of the called function can be inlined (see LLVMExtraIsInlineViable).
+LLVMBool LLVMExtraInlineFunction(LLVMValueRef Call, LLVMBool MergeAttributes,
+                                 LLVMBool InsertLifetime, char **FailureReason);
+// whether the body of a function can be inlined into other functions, like isInlineViable;
+// if not, and FailureReason is not NULL, it is set to a message (to be disposed of using
+// LLVMDisposeMessage) that describes why.
+LLVMBool LLVMExtraIsInlineViable(LLVMValueRef Fn, char **FailureReason);
 
 // target triples, parsed like llvm::Triple(Str) (without normalizing them). The names of
 // the components are those of llvm::Triple::get*TypeName.

@@ -214,6 +214,68 @@ function split_block_and_insert_if_then!(cond::Value, at::Instruction;
 end
 
 
+## inlining
+
+@vocabulary IR inline!, inline_viability
+
+"""
+    inline!(call::CallBase; merge_attributes=false, insert_lifetime=true)
+
+Inline the function that is called by a `call` or `invoke` instruction at this call site:
+the body of the function is copied into the calling function, replacing the call. Returns
+`nothing` if the call was inlined, after which the call instruction is erased, or a message
+that describes why it could not be inlined, in which case the IR is unchanged:
+
+```julia
+reason = inline!(call)
+reason === nothing || @debug "Could not inline \$call" reason
+```
+
+This is LLVM's `InlineFunction`, which only refuses call sites that it cannot transform:
+indirect calls and calls of declarations, `callbr` instructions, calls with operand bundles
+it doesn't support, and callers whose garbage collector or exception-handling personality
+is incompatible with that of the called function. It does not check whether the body of the
+called function can be inlined at all: e.g., inlining a function that calls `llvm.va_start`
+into a function without variadic arguments results in invalid IR. Check that first with
+[`inline_viability`](@ref), unless the functions are known to be fine. Whether inlining
+is worth it (its cost, `noinline` attributes, or a definition that may be replaced at link
+or load time) is up to the caller as well.
+
+With `merge_attributes=true`, the attributes of the calling function are updated for the
+inlined code (e.g., to combine their target features or stack protection). With
+`insert_lifetime=true`, the static allocas of the inlined function are marked with lifetime
+intrinsics. No call graph is updated, and no alias analysis is used.
+"""
+function inline!(call::CallBase; merge_attributes::Bool=false, insert_lifetime::Bool=true)
+    bb = API.LLVMGetInstructionParent(check_attached(call))
+    API.LLVMGetBasicBlockParent(bb) == C_NULL &&
+        throw(ArgumentError("Call is not part of a function"))
+    reason = Ref{Cstring}(C_NULL)
+    API.LLVMExtraInlineFunction(call, merge_attributes, insert_lifetime, reason) |> Bool &&
+        return nothing
+    return unsafe_message(reason[])
+end
+
+"""
+    inline_viability(f::LLVM.Function)
+
+Check whether the body of a function can be inlined into other functions: returns `nothing`
+if it can, or a message that describes why not, e.g., because it calls `llvm.va_start`,
+uses `indirectbr` or `blockaddress`, calls itself, or calls a `returns_twice` function like
+`setjmp`. This is what [`inline!`](@ref) expects the caller to check. The check is
+conservative: a rejected function can sometimes still be inlined correctly (e.g., one level
+of a recursive function).
+
+This uses LLVM's `isInlineViable`.
+"""
+function inline_viability(f::Function)
+    isdeclaration(f) && throw(ArgumentError("Function is a declaration"))
+    reason = Ref{Cstring}(C_NULL)
+    API.LLVMExtraIsInlineViable(f, reason) |> Bool && return nothing
+    return unsafe_message(reason[])
+end
+
+
 ## post-dominance
 
 @vocabulary IR PostDomTree

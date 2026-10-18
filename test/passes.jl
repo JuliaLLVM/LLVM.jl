@@ -1479,7 +1479,7 @@ end
         @test_throws LLVM.PassException run!(FunctionPass("fun",
             (f, am) -> PreservedAnalyses(LoopAnalyses); analyses=true), mod)
         @test_throws LLVM.PassException run!(ModulePass("mod",
-            (m, am) -> PreservedAnalyses(MemorySSA); analyses=true), mod)
+            (m, am) -> PreservedAnalyses(LoopAnalyses); analyses=true), mod)
 
         # the results are only valid during the pass
         escaped = Ref{Any}()
@@ -1579,6 +1579,410 @@ end
     result.success || println(result.err)
     @test result.success
     @test occursin("mul i64 %a, %b", result.out)
+end
+
+@testset "MemorySSA" begin
+    # describe MemorySSA by the instructions and blocks of its accesses, to compare it with
+    # one that is computed for the same IR
+    function access_name(access)
+        access isa MemoryPhi && return "phi($(access.block.name))"
+        inst = access.instruction
+        return inst === nothing ? "liveOnEntry" : strip(string(inst))
+    end
+    function describe(mssa::MemorySSA, f::LLVM.Function)
+        lines = String[]
+        for bb in f.blocks, access in memory_accesses(mssa, bb)
+            if access isa MemoryPhi
+                incoming = ["$(access_name(a)) from $(pred.name)" for (a, pred) in access.incoming]
+                push!(lines, "$(bb.name): phi [$(join(sort(incoming), ", "))]")
+            else
+                push!(lines, "$(bb.name): $(access_name(access)) <- $(access_name(access.defining_access))")
+            end
+        end
+        return lines
+    end
+    # MemorySSA as computed for the current IR of a function
+    function fresh_description(mod::LLVM.Module, name::String)
+        result = Ref{Vector{String}}()
+        run!(FunctionPass("fresh", (f, am) -> begin
+            f.name == name && (result[] = describe(am[MemorySSA], f))
+            return false
+        end; analyses=true), mod)
+        return result[]
+    end
+
+    ptr = Context(supports_typed_pointers) ? "i64*" : "ptr"
+
+    # querying MemorySSA
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        declare void @g()
+        define i64 @f($ptr %p, $ptr %q, i1 %c) {
+        entry:
+          %x = load i64, $ptr %q
+          br i1 %c, label %then, label %join
+        then:
+          store i64 %x, $ptr %p
+          br label %join
+        join:
+          %y = add i64 %x, 1
+          call void @g()
+          %z = load i64, $ptr %p
+          ret i64 %z
+        }""") begin
+        checked = Ref(false)
+        run!(FunctionPass("query", (f, am) -> begin
+            @test get(am, MemorySSA, nothing) === nothing
+            mssa = am[MemorySSA]
+            @test get(am, MemorySSA, nothing) == mssa
+            verify(mssa)
+            entry, then, join = collect(f.blocks)
+            x = first(entry.instructions)
+            store = first(then.instructions)
+            y, call, z = collect(join.instructions)[1:3]
+
+            live = live_on_entry(mssa)
+            @test live isa MemoryDef
+            @test live.instruction === nothing
+            @test live.defining_access === nothing
+            @test live.block == entry
+
+            ax = memory_access(mssa, x)
+            @test ax isa MemoryUse && ax isa MemoryUseOrDef && ax isa MemoryAccess
+            @test ax.instruction == x
+            @test ax.block == entry
+            @test ax.defining_access == live
+            @test memory_access(mssa, y) === nothing
+            @test memory_access(mssa, entry) === nothing
+
+            astore = memory_access(mssa, store)
+            @test astore isa MemoryDef
+            @test astore.defining_access == live
+            phi = memory_access(mssa, join)
+            @test phi isa MemoryPhi
+            @test phi.block == join
+            @test issetequal(phi.incoming, [(live, entry), (astore, then)])
+            acall = memory_access(mssa, call)
+            @test acall isa MemoryDef
+            @test acall.defining_access == phi
+            az = memory_access(mssa, z)
+            @test az.defining_access == acall
+            @test memory_accesses(mssa, join) == [phi, acall, az]
+            @test memory_accesses(mssa, entry) == [ax]
+            @test occursin("MemoryUse", sprint(show, ax))
+            @test occursin("MemoryPhi", string(phi))
+
+            # phis cannot be removed, as LLVM can't remove one that merges several states
+            MemorySSAUpdater(mssa) do u
+                @test_throws MethodError remove_access!(u, phi)
+            end
+            @test memory_access(mssa, join) == phi
+
+            checked[] = true
+            return PreservedAnalyses(AllAnalyses)
+        end; analyses=true), mod)
+        @test checked[]
+
+        # preserving MemorySSA, which also requires preserving the dominator tree
+        for (preserved, expected) in [PreservedAnalyses() => false,
+                                      PreservedAnalyses(AllAnalyses) => true,
+                                      PreservedAnalyses(CFGAnalyses) => false,
+                                      PreservedAnalyses(MemorySSA) => false,
+                                      PreservedAnalyses(MemorySSA, DomTree) => true,
+                                      PreservedAnalyses(MemorySSA, CFGAnalyses) => true]
+            # by function passes
+            cached = Ref{Bool}()
+            @dispose pb=PassBuilder() begin
+                register!(pb, FunctionPass("compute", (f, am) -> (am[MemorySSA]; preserved);
+                                           analyses=true))
+                register!(pb, FunctionPass("check", (f, am) -> begin
+                    cached[] = get(am, MemorySSA, nothing) !== nothing
+                    return false
+                end; analyses=true))
+                add!(pb, "function(compute,check)")
+                run!(pb, mod)
+            end
+            @test cached[] == expected
+
+            # and by module passes
+            cached[] = !expected
+            @dispose pb=PassBuilder() begin
+                register!(pb, ModulePass("compute", (mod, am) -> begin
+                    am[mod.functions["f"]][MemorySSA]
+                    return preserved
+                end; analyses=true))
+                register!(pb, ModulePass("check", (mod, am) -> begin
+                    cached[] = get(am[mod.functions["f"]], MemorySSA, nothing) !== nothing
+                    return false
+                end; analyses=true))
+                add!(pb, "compute,check")
+                run!(pb, mod)
+            end
+            @test cached[] == expected
+        end
+    end
+
+    # updating MemorySSA in a function pass, and comparing the result with MemorySSA as
+    # computed for the changed IR
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        declare void @g()
+        define i64 @f($ptr %p, $ptr %q, i64 %v) {
+        entry:
+          store i64 %v, $ptr %p
+          %a = load i64, $ptr %q
+          %s = add i64 %a, 1
+          br label %next
+        next:
+          call void @g()
+          %b = load i64, $ptr %p
+          store i64 %b, $ptr %q
+          ret i64 %b
+        }""") begin
+        updated = Ref{Vector{String}}()
+        run!(FunctionPass("update", (f, am) -> begin
+            mssa = am[MemorySSA]
+            entry, next = collect(f.blocks)
+            store1, a, s = collect(entry.instructions)[1:3]
+            call, b, store2 = collect(next.instructions)[1:3]
+            MemorySSAUpdater(mssa) do u
+                @test u isa MemorySSAUpdater
+
+                # an instruction that does not access memory has no access
+                @test create_access_in_block!(u, s, entry, :end) === nothing
+
+                # a new store before the load of %p, inserted as a definition
+                new_store = @dispose builder=IRBuilder() begin
+                    position!(builder, LLVM.before(b))
+                    store!(builder, s, f.parameters[1])
+                end
+                def = create_access_before!(u, new_store, memory_access(mssa, b))
+                @test def isa MemoryDef
+                insert_def!(u, def; rename=true)
+                @test def.defining_access == memory_access(mssa, call)
+                @test memory_access(mssa, b).defining_access == def
+
+                # a new load at the end of the entry block, inserted as a use
+                new_load = @dispose builder=IRBuilder() begin
+                    position!(builder, LLVM.before(entry.terminator))
+                    load!(builder, LLVM.Int64Type(), f.parameters[2])
+                end
+                use = create_access_in_block!(u, new_load, entry, :end)
+                @test use isa MemoryUse
+                insert_use!(u, use)
+                @test use.defining_access == memory_access(mssa, store1)
+
+                # a new load after the call, with a known defining access
+                load2 = @dispose builder=IRBuilder() begin
+                    position!(builder, LLVM.before(new_store))
+                    load!(builder, LLVM.Int64Type(), f.parameters[2])
+                end
+                use2 = create_access_after!(u, load2, memory_access(mssa, call);
+                                            definition=memory_access(mssa, call))
+                @test use2.defining_access == memory_access(mssa, call)
+
+                # moving the first store after the load of %q, and then to the next block
+                move!(store1, LLVM.after(a))
+                move_after!(u, memory_access(mssa, store1), memory_access(mssa, a))
+                @test memory_accesses(mssa, entry)[1] == memory_access(mssa, a)
+                move!(store1, LLVM.before(call))
+                move_to_place!(u, memory_access(mssa, store1), next, :beginning)
+                @test memory_accesses(mssa, next)[1] == memory_access(mssa, store1)
+                @test memory_access(mssa, call).defining_access ==
+                      memory_access(mssa, store1)
+                move!(store1, LLVM.before(new_load))
+                move_before!(u, memory_access(mssa, store1), use)
+                @test memory_access(mssa, store1).block == entry
+                @test use.defining_access == memory_access(mssa, store1)
+                @test memory_access(mssa, call).defining_access ==
+                      memory_access(mssa, store1)
+
+                # removing the last store
+                remove_access!(u, store2)
+                erase!(store2)
+                @test length(memory_accesses(mssa, next)) == 4
+                # instructions without an access are ignored
+                @test remove_access!(u, s) === u
+
+                # invalid updates
+                @test_throws ArgumentError move_to_place!(u, memory_access(mssa, b), entry, :end)
+                @test_throws ArgumentError move_to_place!(u, memory_access(mssa, b), next, :middle)
+                @test_throws ArgumentError create_access_in_block!(u, s, next, :end)
+                @test_throws ArgumentError remove_access!(u, live_on_entry(mssa))
+                @test_throws ArgumentError insert_def!(u, live_on_entry(mssa))
+                @test_throws ArgumentError create_access_before!(u, new_load,
+                                                                 memory_access(mssa, b))
+                @test_throws MethodError insert_def!(u, use)
+                @test_throws TypeError create_access_in_block!(u, new_load, entry, :end;
+                                                               definition=use)
+            end
+            verify(mssa)
+            updated[] = describe(mssa, f)
+            return PreservedAnalyses(MemorySSA)
+        end; analyses=true), mod)
+        @test verify(mod) === nothing
+        @test updated[] == fresh_description(mod, "f")
+    end
+
+    # a loop pass that changes memory operations the way Julia's JuliaLICM does: it hoists
+    # a call, a load and a store, and an allocation, which it clears using a new memset,
+    # and sinks a call to the exits of the loop, cloning it
+    licm_ir = """
+        declare void @begin($ptr)
+        declare void @end($ptr)
+        declare $ptr @alloc(i64)
+        declare void @use($ptr)
+        define void @f($ptr %p, $ptr %q, i64 %n, i1 %c) {
+        entry:
+          br label %loop
+        loop:
+          %i = phi i64 [ 0, %entry ], [ %i.next, %latch ]
+          call void @begin($ptr %p)
+          %v = load i64, $ptr %q
+          store i64 %v, $ptr %p
+          %a = call $ptr @alloc(i64 8)
+          call void @use($ptr %a)
+          call void @end($ptr %p)
+          br i1 %c, label %exit1, label %latch
+        latch:
+          %i.next = add i64 %i, 1
+          %cmp = icmp ult i64 %i.next, %n
+          br i1 %cmp, label %loop, label %exit2
+        exit1:
+          ret void
+        exit2:
+          ret void
+        }"""
+    # the pass is also run in a separate process, so it is defined from its source code
+    licm_code = raw"""
+        function licm!(loop::Loop, ar::LoopAnalysisResults; update::Bool=true)
+            mssa = get(ar, MemorySSA, nothing)
+            se = ar[ScalarEvolution]
+            preheader = loop.preheader
+            preheader === nothing && return PreservedAnalyses(AllAnalyses)
+            u = mssa === nothing ? nothing : MemorySSAUpdater(mssa)
+            try
+                function move_before(inst, dest, where=:before_terminator)
+                    move!(inst, LLVM.before(dest))
+                    if u !== nothing && update
+                        access = memory_access(mssa, inst)
+                        access === nothing || move_to_place!(u, access, LLVM.parent(dest), where)
+                    end
+                    forget!(se, inst)
+                end
+                function create_access(new, ref, where)
+                    (u === nothing || memory_access(mssa, ref) === nothing) && return
+                    access = create_access_in_block!(u, new, LLVM.parent(new), where)
+                    if access isa MemoryDef
+                        insert_def!(u, access; rename=true)
+                    elseif access isa MemoryUse
+                        insert_use!(u, access; rename=true)
+                    end
+                end
+                invariant(inst) = all(op -> is_loop_invariant(loop, op), inst.operands)
+                calls(inst, name) = inst isa CallInst &&
+                                    inst.called_operand.name == name
+                for bb in reverse_postorder(loop, ar[LoopInfo]), inst in collect(bb.instructions)
+                    if (calls(inst, "begin") || inst isa LoadInst || inst isa StoreInst) &&
+                       invariant(inst)
+                        move_before(inst, preheader.terminator)
+                    elseif calls(inst, "alloc") && invariant(inst)
+                        move_before(inst, preheader.terminator)
+                        memset = @dispose builder=IRBuilder() begin
+                            position!(builder, LLVM.before(preheader.terminator))
+                            memset!(builder, inst, ConstantInt(Int8(0)), inst.operands[1];
+                                    align=8)
+                        end
+                        if u !== nothing
+                            access = create_access_in_block!(u, memset, preheader,
+                                                             :before_terminator)
+                            insert_def!(u, access; rename=true)
+                        end
+                    elseif calls(inst, "end")
+                        exits = collect(loop.exit_blocks)
+                        move_before(inst, first(exits[1].instructions), :beginning)
+                        for exit in exits[2:end]
+                            clone = copy(inst)
+                            move!(clone, LLVM.after_phis(exit))
+                            create_access(clone, inst, :beginning)
+                        end
+                    end
+                end
+            finally
+                u === nothing || dispose(u)
+            end
+            # MemorySSA is only consistent with the IR if it was updated
+            (mssa === nothing || !update) || verify(mssa)
+            forget_loop_dispositions!(se)
+            return PreservedAnalyses(LoopAnalyses, CFGAnalyses, MemorySSA)
+        end
+        """
+    licm! = include_string(@__MODULE__, licm_code)
+
+    # MemorySSA after the pass is what it would be for the new IR, and it remains usable
+    # by LLVM's loop passes that follow
+    for pipeline in ["function(loop-mssa(jl-licm))", "function(loop-mssa(jl-licm,licm))",
+                     "function(loop(jl-licm))"]
+        @dispose ctx=Context() mod=parse(LLVM.Module, licm_ir) begin
+            updated = Ref{Any}(nothing)
+            @dispose pb=PassBuilder() begin
+                register!(pb, LoopPass("jl-licm", (loop, ar) -> begin
+                    preserved = licm!(loop, ar)
+                    mssa = get(ar, MemorySSA, nothing)
+                    mssa === nothing || (updated[] = describe(mssa, LLVM.parent(loop.header)))
+                    return preserved
+                end))
+                add!(pb, pipeline)
+                run!(pb, mod)
+            end
+            @test verify(mod) === nothing
+            f = mod.functions["f"]
+            entry, loop, latch, exit1, exit2 = collect(f.blocks)
+            callees = [inst.called_operand.name for inst in entry.instructions
+                       if inst isa CallInst]
+            @test callees[1:2] == ["begin", "alloc"]
+            @test startswith(callees[3], "llvm.memset")
+            @test count(inst -> inst isa LoadInst || inst isa StoreInst,
+                        collect(entry.instructions)) == 2
+            @test occursin("call void @end", string(first(exit1.instructions)))
+            @test occursin("call void @end", string(first(exit2.instructions)))
+            @test !occursin("@end", string(loop))
+            if pipeline == "function(loop-mssa(jl-licm))"
+                @test updated[] == fresh_description(mod, "f")
+            end
+        end
+    end
+
+    # without the updates, MemorySSA does not match the IR anymore
+    @dispose ctx=Context() mod=parse(LLVM.Module, licm_ir) begin
+        updated = Ref{Any}(nothing)
+        @dispose pb=PassBuilder() begin
+            register!(pb, LoopPass("jl-licm", (loop, ar) -> begin
+                preserved = licm!(loop, ar; update=false)
+                updated[] = describe(ar[MemorySSA], LLVM.parent(loop.header))
+                return preserved
+            end))
+            add!(pb, "function(loop-mssa(jl-licm))")
+            run!(pb, mod)
+        end
+        @test updated[] != fresh_description(mod, "f")
+    end
+
+    # LLVM verifies MemorySSA after every pass of a loop-mssa pipeline, with assertions
+    result = execute_code("""
+        using LLVM.Analysis
+        LLVM.clopts("-verify-memoryssa")
+        @dispose ctx=Context() begin
+            mod = parse(LLVM.Module, $(repr(licm_ir)))
+            licm! = include_string(Main, $(repr(licm_code)))
+            @dispose pb=PassBuilder() begin
+                register!(pb, LoopPass("jl-licm", licm!))
+                add!(pb, "function(loop-mssa(jl-licm,licm))")
+                run!(pb, mod)
+            end
+            println(string(mod))
+        end""")
+    result.success || println(result.err)
+    @test result.success
+    @test occursin("memset", result.out)
 end
 
 @testset "julia" begin

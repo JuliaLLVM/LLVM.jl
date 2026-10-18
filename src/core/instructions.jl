@@ -369,9 +369,12 @@ instruction, which belongs to the context of the instruction. A scope can be ass
 name (e.g., `inst.syncscope = "agent"`), which is looked up in the instruction's context.
 
     rmw.binop
+    rmw.binop = op::LLVM.AtomicRMWBinOp.T
 
 The binary operation of an atomic read-modify-write instruction, e.g.,
-`LLVM.AtomicRMWBinOp.Add`.
+`LLVM.AtomicRMWBinOp.Add`. The operation that is assigned must support the type of the
+value operand (e.g., `fadd` requires a floating-point value), and be supported by the
+version of LLVM in use (see [`LLVM.isavailable`](@ref)).
 
     cmpxchg.weak
     cmpxchg.weak = flag::Bool
@@ -767,7 +770,18 @@ function binop(inst::AtomicRMWInst)
     end
 end
 
-@property AtomicRMWInst binop
+# not `binop!`, which builds binary operators
+function set_binop!(inst::AtomicRMWInst, op::API.LLVMAtomicRMWBinOp)
+    check_available(op)
+    check_rmw_type(op, value_type(value_operand(inst)))
+    @static if v"16" <= version() < v"19"
+        API.LLVMExtraSetAtomicRMWBinOp(inst, Integer(op))
+    else
+        API.LLVMSetAtomicRMWBinOp(inst, op)
+    end
+end
+
+@property AtomicRMWInst binop set_binop!
 
 # the LLVM version that introduced each atomicrmw operation, indexed by its C API value
 const ATOMIC_RMW_BINOP_SINCE = (

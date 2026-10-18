@@ -1650,6 +1650,35 @@ LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef 
                                     /*OnlyIfReduced=*/false, SourceTy));
 }
 
+LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMValueRef *GV,
+                                                         LLVMValueRef *BB) {
+  Value *V = unwrap(C);
+  *GV = nullptr;
+  *BB = nullptr;
+  if (auto *BA = dyn_cast<BlockAddress>(V)) {
+    *GV = wrap(BA->getFunction());
+    *BB = wrap(static_cast<Value *>(BA->getBasicBlock()));
+    return LLVMExtraBlockAddressReference;
+  }
+  if (auto *E = dyn_cast<DSOLocalEquivalent>(V)) {
+    *GV = wrap(E->getGlobalValue());
+    return LLVMExtraDSOLocalEquivalentReference;
+  }
+  if (auto *NC = dyn_cast<NoCFIValue>(V)) {
+    *GV = wrap(NC->getGlobalValue());
+    return LLVMExtraNoCFIValueReference;
+  }
+  return LLVMExtraNoGlobalReference;
+}
+
+LLVMValueRef LLVMExtraGetDSOLocalEquivalent(LLVMValueRef GV) {
+  return wrap(DSOLocalEquivalent::get(unwrap<GlobalValue>(GV)));
+}
+
+LLVMValueRef LLVMExtraGetNoCFIValue(LLVMValueRef GV) {
+  return wrap(NoCFIValue::get(unwrap<GlobalValue>(GV)));
+}
+
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C) {
   Constant *Const = unwrap<Constant>(C);
 #if LLVM_VERSION_MAJOR >= 21 // llvm/llvm-project#137313

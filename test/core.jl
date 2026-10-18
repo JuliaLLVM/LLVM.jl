@@ -1269,6 +1269,25 @@ end
         end
     end
 
+    # references to global values, which the C API reports as instructions
+    @dispose ctx=Context(; opaque_pointers=true) mod=parse(LLVM.Module, """
+        declare void @f()
+        @dso = global ptr dso_local_equivalent @f
+        @nocfi = global ptr no_cfi @f""") begin
+        f = mod.functions["f"]
+        dso = mod.globals["dso"].initializer
+        @test dso isa DSOLocalEquivalent
+        @test dso.global_value == f
+        @test DSOLocalEquivalent(f) == dso
+        @test string(dso) == "ptr dso_local_equivalent @f"
+        nocfi = mod.globals["nocfi"].initializer
+        @test nocfi isa NoCFIValue
+        @test nocfi.global_value == f
+        @test NoCFIValue(f) == nocfi
+        @test string(nocfi) == "ptr no_cfi @f"
+        @test first(f.uses).user isa Union{DSOLocalEquivalent,NoCFIValue}
+    end
+
     # every kind of value that can be reached through the C API has a wrapper type, so
     # that LLVM.jl doesn't throw when it encounters one (the MemorySSA kinds can't)
     memoryssa = (LLVM.API.LLVMMemoryUseValueKind, LLVM.API.LLVMMemoryDefValueKind,

@@ -1753,3 +1753,64 @@ function resolver!(ifunc::GlobalIFunc, val::Constant)
 end
 
 @property GlobalIFunc resolver resolver!
+
+
+## references to global values
+
+@vocabulary IR DSOLocalEquivalent, NoCFIValue
+
+"""
+    DSOLocalEquivalent <: LLVM.Constant
+    DSOLocalEquivalent(gv::LLVM.GlobalValue)
+
+A function that is equivalent to the function `gv`, but is known to be in the same linkage
+unit, `dso_local_equivalent @f` in LLVM IR.
+
+# Properties
+
+    c.global_value
+
+The global value that the constant refers to.
+"""
+@checked struct DSOLocalEquivalent <: Constant
+    ref::API.LLVMValueRef
+end
+
+DSOLocalEquivalent(gv::GlobalValue) =
+    DSOLocalEquivalent(API.LLVMExtraGetDSOLocalEquivalent(gv))
+
+"""
+    NoCFIValue <: LLVM.Constant
+    NoCFIValue(gv::LLVM.GlobalValue)
+
+The function `gv` without control-flow integrity checks, `no_cfi @f` in LLVM IR.
+
+# Properties
+
+    c.global_value
+
+The global value that the constant refers to.
+"""
+@checked struct NoCFIValue <: Constant
+    ref::API.LLVMValueRef
+end
+
+NoCFIValue(gv::GlobalValue) = NoCFIValue(API.LLVMExtraGetNoCFIValue(gv))
+
+# the C API reports these as instructions (see `identify_unknown_value`)
+function refcheck(::Type{T}, ref::API.LLVMValueRef) where {T<:Union{DSOLocalEquivalent,
+                                                                    NoCFIValue}}
+    ref == C_NULL && throw(UndefRefError())
+    if typecheck_enabled
+        T′ = identify(Instruction, ref)
+        T == T′ || error("invalid conversion of $T′ value reference to $T")
+    end
+end
+
+function global_value(c::Union{DSOLocalEquivalent,NoCFIValue})
+    gv, bb = Ref{API.LLVMValueRef}(), Ref{API.LLVMValueRef}()
+    API.LLVMExtraGetGlobalReference(c, gv, bb)
+    return Value(gv[])
+end
+
+@property Union{DSOLocalEquivalent,NoCFIValue} global_value

@@ -794,6 +794,25 @@ function LLVMExtraConstantExprGetWithOperands(CE, Ops, NumOps, Ty, SrcTy)
     ccall((:LLVMExtraConstantExprGetWithOperands, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMTypeRef, LLVMTypeRef), CE, Ops, NumOps, Ty, SrcTy)
 end
 
+@cenum LLVMExtraGlobalReferenceKind::UInt32 begin
+    LLVMExtraNoGlobalReference = 0
+    LLVMExtraBlockAddressReference = 1
+    LLVMExtraDSOLocalEquivalentReference = 2
+    LLVMExtraNoCFIValueReference = 3
+end
+
+function LLVMExtraGetGlobalReference(C, GV, BB)
+    ccall((:LLVMExtraGetGlobalReference, libLLVMExtra), LLVMExtraGlobalReferenceKind, (LLVMValueRef, Ptr{LLVMValueRef}, Ptr{LLVMValueRef}), C, GV, BB)
+end
+
+function LLVMExtraGetDSOLocalEquivalent(GV)
+    ccall((:LLVMExtraGetDSOLocalEquivalent, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), GV)
+end
+
+function LLVMExtraGetNoCFIValue(GV)
+    ccall((:LLVMExtraGetNoCFIValue, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), GV)
+end
+
 function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
 end

@@ -787,6 +787,19 @@ void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
 LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef *Ops,
                                                   unsigned NumOps, LLVMTypeRef Ty,
                                                   LLVMTypeRef SrcTy);
+// Constants that refer to a global value, which the C API reports as instructions or
+// doesn't expose the global value of: returns the kind of constant, and the global value
+// (and the block of a blockaddress) it refers to.
+typedef enum {
+  LLVMExtraNoGlobalReference = 0,
+  LLVMExtraBlockAddressReference = 1,
+  LLVMExtraDSOLocalEquivalentReference = 2,
+  LLVMExtraNoCFIValueReference = 3
+} LLVMExtraGlobalReferenceKind;
+LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMValueRef *GV,
+                                                         LLVMValueRef *BB);
+LLVMValueRef LLVMExtraGetDSOLocalEquivalent(LLVMValueRef GV);
+LLVMValueRef LLVMExtraGetNoCFIValue(LLVMValueRef GV);
 
 // verify a function, returning true and the verifier's message (to be disposed of using
 // LLVMDisposeMessage) if it is broken

@@ -579,6 +579,7 @@ end
     LLVMExtraLazyValueAnalysis = 3
     LLVMExtraScalarEvolutionAnalysis = 4
     LLVMExtraLoopAnalysis = 5
+    LLVMExtraMemorySSAAnalysis = 6
 end
 
 function LLVMExtraFunctionAnalysisManagerGetResult(AM, F, Analysis)
@@ -1386,6 +1387,118 @@ const LLVMMemorySSARef = Ptr{LLVMOpaqueMemorySSA}
 
 function LLVMExtraMemorySSAVerify(MSSA)
     ccall((:LLVMExtraMemorySSAVerify, libLLVMExtra), Cvoid, (LLVMMemorySSARef,), MSSA)
+end
+
+mutable struct LLVMOpaqueMemoryAccess end
+
+const LLVMMemoryAccessRef = Ptr{LLVMOpaqueMemoryAccess}
+
+@cenum LLVMExtraMemoryAccessKind::UInt32 begin
+    LLVMExtraMemoryUse = 0
+    LLVMExtraMemoryDef = 1
+    LLVMExtraMemoryPhi = 2
+end
+
+function LLVMExtraMemorySSAGetInstructionAccess(MSSA, Inst)
+    ccall((:LLVMExtraMemorySSAGetInstructionAccess, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemorySSARef, LLVMValueRef), MSSA, Inst)
+end
+
+function LLVMExtraMemorySSAGetBlockPhi(MSSA, BB)
+    ccall((:LLVMExtraMemorySSAGetBlockPhi, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemorySSARef, LLVMBasicBlockRef), MSSA, BB)
+end
+
+function LLVMExtraMemorySSAGetLiveOnEntryDef(MSSA)
+    ccall((:LLVMExtraMemorySSAGetLiveOnEntryDef, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemorySSARef,), MSSA)
+end
+
+function LLVMExtraMemorySSAGetBlockAccesses(MSSA, BB, Accesses)
+    ccall((:LLVMExtraMemorySSAGetBlockAccesses, libLLVMExtra), Cuint, (LLVMMemorySSARef, LLVMBasicBlockRef, Ptr{LLVMMemoryAccessRef}), MSSA, BB, Accesses)
+end
+
+function LLVMExtraMemoryAccessGetKind(MA)
+    ccall((:LLVMExtraMemoryAccessGetKind, libLLVMExtra), LLVMExtraMemoryAccessKind, (LLVMMemoryAccessRef,), MA)
+end
+
+function LLVMExtraMemoryAccessGetBlock(MA)
+    ccall((:LLVMExtraMemoryAccessGetBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMMemoryAccessRef,), MA)
+end
+
+function LLVMExtraMemoryUseOrDefGetInstruction(MA)
+    ccall((:LLVMExtraMemoryUseOrDefGetInstruction, libLLVMExtra), LLVMValueRef, (LLVMMemoryAccessRef,), MA)
+end
+
+function LLVMExtraMemoryUseOrDefGetDefiningAccess(MA)
+    ccall((:LLVMExtraMemoryUseOrDefGetDefiningAccess, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemoryAccessRef,), MA)
+end
+
+function LLVMExtraMemoryPhiGetNumIncoming(MA)
+    ccall((:LLVMExtraMemoryPhiGetNumIncoming, libLLVMExtra), Cuint, (LLVMMemoryAccessRef,), MA)
+end
+
+function LLVMExtraMemoryPhiGetIncomingAccess(MA, Index)
+    ccall((:LLVMExtraMemoryPhiGetIncomingAccess, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemoryAccessRef, Cuint), MA, Index)
+end
+
+function LLVMExtraMemoryPhiGetIncomingBlock(MA, Index)
+    ccall((:LLVMExtraMemoryPhiGetIncomingBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMMemoryAccessRef, Cuint), MA, Index)
+end
+
+function LLVMExtraPrintMemoryAccessToString(MA)
+    ccall((:LLVMExtraPrintMemoryAccessToString, libLLVMExtra), Cstring, (LLVMMemoryAccessRef,), MA)
+end
+
+mutable struct LLVMOpaqueMemorySSAUpdater end
+
+const LLVMMemorySSAUpdaterRef = Ptr{LLVMOpaqueMemorySSAUpdater}
+
+@cenum LLVMExtraMemorySSAInsertionPlace::UInt32 begin
+    LLVMExtraMemorySSABeginning = 0
+    LLVMExtraMemorySSAEnd = 1
+    LLVMExtraMemorySSABeforeTerminator = 2
+end
+
+function LLVMExtraCreateMemorySSAUpdater(MSSA)
+    ccall((:LLVMExtraCreateMemorySSAUpdater, libLLVMExtra), LLVMMemorySSAUpdaterRef, (LLVMMemorySSARef,), MSSA)
+end
+
+function LLVMExtraDisposeMemorySSAUpdater(U)
+    ccall((:LLVMExtraDisposeMemorySSAUpdater, libLLVMExtra), Cvoid, (LLVMMemorySSAUpdaterRef,), U)
+end
+
+function LLVMExtraMemorySSAUpdaterRemoveMemoryAccess(U, MA, OptimizePhis)
+    ccall((:LLVMExtraMemorySSAUpdaterRemoveMemoryAccess, libLLVMExtra), Cvoid, (LLVMMemorySSAUpdaterRef, LLVMMemoryAccessRef, LLVMBool), U, MA, OptimizePhis)
+end
+
+function LLVMExtraMemorySSAUpdaterMoveToPlace(U, What, BB, Place)
+    ccall((:LLVMExtraMemorySSAUpdaterMoveToPlace, libLLVMExtra), Cvoid, (LLVMMemorySSAUpdaterRef, LLVMMemoryAccessRef, LLVMBasicBlockRef, LLVMExtraMemorySSAInsertionPlace), U, What, BB, Place)
+end
+
+function LLVMExtraMemorySSAUpdaterMoveBefore(U, What, Where)
+    ccall((:LLVMExtraMemorySSAUpdaterMoveBefore, libLLVMExtra), Cvoid, (LLVMMemorySSAUpdaterRef, LLVMMemoryAccessRef, LLVMMemoryAccessRef), U, What, Where)
+end
+
+function LLVMExtraMemorySSAUpdaterMoveAfter(U, What, Where)
+    ccall((:LLVMExtraMemorySSAUpdaterMoveAfter, libLLVMExtra), Cvoid, (LLVMMemorySSAUpdaterRef, LLVMMemoryAccessRef, LLVMMemoryAccessRef), U, What, Where)
+end
+
+function LLVMExtraMemorySSAUpdaterCreateMemoryAccessInBB(U, Inst, Definition, BB, Place)
+    ccall((:LLVMExtraMemorySSAUpdaterCreateMemoryAccessInBB, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemorySSAUpdaterRef, LLVMValueRef, LLVMMemoryAccessRef, LLVMBasicBlockRef, LLVMExtraMemorySSAInsertionPlace), U, Inst, Definition, BB, Place)
+end
+
+function LLVMExtraMemorySSAUpdaterCreateMemoryAccessBefore(U, Inst, Definition, InsertPt)
+    ccall((:LLVMExtraMemorySSAUpdaterCreateMemoryAccessBefore, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemorySSAUpdaterRef, LLVMValueRef, LLVMMemoryAccessRef, LLVMMemoryAccessRef), U, Inst, Definition, InsertPt)
+end
+
+function LLVMExtraMemorySSAUpdaterCreateMemoryAccessAfter(U, Inst, Definition, InsertPt)
+    ccall((:LLVMExtraMemorySSAUpdaterCreateMemoryAccessAfter, libLLVMExtra), LLVMMemoryAccessRef, (LLVMMemorySSAUpdaterRef, LLVMValueRef, LLVMMemoryAccessRef, LLVMMemoryAccessRef), U, Inst, Definition, InsertPt)
+end
+
+function LLVMExtraMemorySSAUpdaterInsertDef(U, Def, RenameUses)
+    ccall((:LLVMExtraMemorySSAUpdaterInsertDef, libLLVMExtra), Cvoid, (LLVMMemorySSAUpdaterRef, LLVMMemoryAccessRef, LLVMBool), U, Def, RenameUses)
+end
+
+function LLVMExtraMemorySSAUpdaterInsertUse(U, Use, RenameUses)
+    ccall((:LLVMExtraMemorySSAUpdaterInsertUse, libLLVMExtra), Cvoid, (LLVMMemorySSAUpdaterRef, LLVMMemoryAccessRef, LLVMBool), U, Use, RenameUses)
 end
 
 function LLVMExtraLoopGetBlocksRPO(L, LI, Blocks)

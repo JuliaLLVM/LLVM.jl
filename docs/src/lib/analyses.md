@@ -101,4 +101,24 @@ is_safe_to_speculatively_execute
 
 ```@docs
 MemorySSA
+MemoryAccess
+MemoryUseOrDef
+MemoryUse
+MemoryDef
+MemoryPhi
+memory_access
+memory_accesses
+live_on_entry
+```
+
+Passes that move, create or remove memory operations keep MemorySSA up to date using an
+updater:
+
+```@docs
+MemorySSAUpdater
+dispose(::MemorySSAUpdater)
+remove_access!
+move_to_place!
+create_access_in_block!
+insert_def!
 ```

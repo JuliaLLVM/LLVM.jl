@@ -749,7 +749,7 @@ end
 
 ## constant expressions
 
-@vocabulary IR ConstantExpr
+@vocabulary IR ConstantExpr, with_operands
 @vocabulary Build const_neg, const_nswneg, const_not, const_add, const_nswadd,
                   const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_xor, const_gep,
                   const_inbounds_gep, const_trunc, const_ptrtoint, const_inttoptr,
@@ -1100,6 +1100,26 @@ let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
         isdefined(@__MODULE__, f) || continue
         @eval @doc (@doc $other) $f
     end
+end
+
+"""
+    with_operands(ce::ConstantExpr, ops::AbstractVector{<:Constant};
+                  [type::LLVMType], [source_type::LLVMType])
+
+Create a constant expression like `ce`, but with the operands `ops` and the result type
+`type` (by default that of `ce`), like C++'s `ConstantExpr::getWithOperands`, e.g., to
+rebuild a constant expression after mapping its operands. For a `getelementptr`
+expression, `source_type` is the type it indexes into (by default that of `ce`). The result
+may be folded into another kind of constant.
+"""
+function with_operands(ce::ConstantExpr, ops::AbstractVector{<:Constant};
+                       type::Union{LLVMType,Nothing}=nothing,
+                       source_type::Union{LLVMType,Nothing}=nothing)
+    length(ops) == length(operands(ce)) ||
+        throw(ArgumentError("Expected $(length(operands(ce))) operands, got $(length(ops))"))
+    Value(API.LLVMExtraConstantExprGetWithOperands(ce, as_vector(ops), length(ops),
+                                                   something(type, C_NULL),
+                                                   something(source_type, C_NULL)))
 end
 
 # TODO: alignof, sizeof

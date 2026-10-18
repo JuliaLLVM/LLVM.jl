@@ -1627,6 +1627,23 @@ void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name) {
 // constants
 //
 
+LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef *Ops,
+                                                  unsigned NumOps, LLVMTypeRef Ty,
+                                                  LLVMTypeRef SrcTy) {
+  ConstantExpr *Expr = unwrap<ConstantExpr>(CE);
+  SmallVector<Constant *, 4> Operands;
+  for (unsigned I = 0; I < NumOps; I++)
+    Operands.push_back(unwrap<Constant>(Ops[I]));
+  // LLVM only infers the source element type of a GEP if its pointer operand keeps its
+  // type (asserted), so pass it explicitly like ValueMapper does.
+  Type *SourceTy = SrcTy ? unwrap(SrcTy) : nullptr;
+  if (!SourceTy)
+    if (auto *GEP = dyn_cast<GEPOperator>(Expr))
+      SourceTy = GEP->getSourceElementType();
+  return wrap(Expr->getWithOperands(Operands, Ty ? unwrap(Ty) : Expr->getType(),
+                                    /*OnlyIfReduced=*/false, SourceTy));
+}
+
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C) {
   Constant *Const = unwrap<Constant>(C);
 #if LLVM_VERSION_MAJOR >= 21 // llvm/llvm-project#137313

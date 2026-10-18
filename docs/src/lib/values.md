@@ -60,6 +60,7 @@ remove_dead_constant_users!
 
 ```@docs
 LLVM.ConstantExpr
+with_operands
 ```
 
 ```@autodocs

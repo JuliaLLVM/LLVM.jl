@@ -1139,6 +1139,37 @@ end
     end
 end
 
+# rebuilding constant expressions
+@dispose ctx=Context(; opaque_pointers=true) mod=LLVM.Module("SomeModule") begin
+    T_ptr10 = LLVM.PointerType(10)
+    gv = GlobalVariable(mod, LLVM.Int64Type(), "gv")
+    gv10 = GlobalVariable(mod, LLVM.Int64Type(), "gv10", 10)
+
+    ce = const_ptrtoint(gv, LLVM.Int64Type())
+    new = with_operands(ce, [gv10])
+    @test new isa ConstantExpr
+    @test new.opcode == LLVM.Opcode.PtrToInt
+    @test new.operands[1] == gv10
+    @test new.value_type == LLVM.Int64Type()
+
+    # with another type
+    ce = const_addrspacecast(gv, T_ptr10)
+    new = with_operands(ce, [gv10]; type=LLVM.PointerType())
+    @test new.opcode == LLVM.Opcode.AddrSpaceCast
+    @test new.value_type == LLVM.PointerType()
+
+    # getelementptr, with another source element type
+    ce = const_inbounds_gep(LLVM.Int64Type(), gv, [ConstantInt(Int64(1))])
+    new = with_operands(ce, [gv10, ConstantInt(Int64(2))]; type=T_ptr10)
+    @test new.source_element_type == LLVM.Int64Type()
+    @test new.operands[1] == gv10
+    @test new.value_type == T_ptr10
+    new = with_operands(ce, [gv, ConstantInt(Int64(2))]; source_type=LLVM.Int32Type())
+    @test new.source_element_type == LLVM.Int32Type()
+
+    @test_throws ArgumentError with_operands(ce, [gv])
+end
+
 # other constants
 @dispose ctx=Context() begin
     @testset "other constants" begin

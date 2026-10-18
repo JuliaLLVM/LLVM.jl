@@ -899,6 +899,10 @@ function LLVMExtraRemoveDeadConstantUsers(C)
     ccall((:LLVMExtraRemoveDeadConstantUsers, libLLVMExtra), Cvoid, (LLVMValueRef,), C)
 end
 
+function LLVMExtraConstantExprGetWithOperands(CE, Ops, NumOps, Ty, SrcTy)
+    ccall((:LLVMExtraConstantExprGetWithOperands, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMTypeRef, LLVMTypeRef), CE, Ops, NumOps, Ty, SrcTy)
+end
+
 function LLVMExtraVerifyFunction(Fn, OutMessage)
     ccall((:LLVMExtraVerifyFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, OutMessage)
 end

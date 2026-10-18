@@ -778,6 +778,11 @@ void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name);
 
 // constants
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
+// a constant expression like CE, but with the given operands and type (or that of CE if
+// Ty is NULL); SrcTy is the source element type of a GEP (NULL to keep that of CE)
+LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef *Ops,
+                                                  unsigned NumOps, LLVMTypeRef Ty,
+                                                  LLVMTypeRef SrcTy);
 
 // verify a function, returning true and the verifier's message (to be disposed of using
 // LLVMDisposeMessage) if it is broken

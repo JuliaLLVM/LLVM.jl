@@ -632,48 +632,91 @@ void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM,
   unwrap(AM)->clear(Fn, Fn.getName());
 }
 
-static void emitRemark(OptimizationRemarkEmitter &ORE, LLVMExtraRemarkKind Kind,
-                       const char *PassName, const char *RemarkName, Instruction *I,
-                       const char *Message) {
-  // remarks keep a pointer to the pass name, and are passed to the diagnostic handler
-  // before `emit` returns
-  switch (Kind) {
-  case LLVMExtraRemarkPassed: {
-    OptimizationRemark R(PassName, RemarkName, I);
-    R << Message;
-    ORE.emit(R);
-    break;
-  }
-  case LLVMExtraRemarkMissed: {
-    OptimizationRemarkMissed R(PassName, RemarkName, I);
-    R << Message;
-    ORE.emit(R);
-    break;
-  }
-  case LLVMExtraRemarkAnalysis: {
-    OptimizationRemarkAnalysis R(PassName, RemarkName, I);
-    R << Message;
-    ORE.emit(R);
-    break;
-  }
-  }
+struct LLVMOpaqueOptimizationRemark {
+  LLVMExtraRemarkKind Kind;
+  // remarks keep pointers to their pass and remark names
+  std::string PassName;
+  std::string RemarkName;
+  Instruction *Inst;
+  // the arguments are rendered when they are appended, while the values they render exist
+  SmallVector<DiagnosticInfoOptimizationBase::Argument, 4> Args;
+};
+
+LLVMOptimizationRemarkRef LLVMExtraCreateOptimizationRemark(LLVMExtraRemarkKind Kind,
+                                                            const char *PassName,
+                                                            const char *RemarkName,
+                                                            LLVMValueRef Inst) {
+  return new LLVMOpaqueOptimizationRemark{Kind, PassName, RemarkName,
+                                          unwrap<Instruction>(Inst), {}};
 }
 
-void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
-                                                LLVMExtraRemarkKind Kind,
-                                                const char *PassName,
-                                                const char *RemarkName, LLVMValueRef Inst,
-                                                const char *Message) {
-  Instruction *I = unwrap<Instruction>(Inst);
-  auto &ORE = unwrap(AM)->getResult<OptimizationRemarkEmitterAnalysis>(*I->getFunction());
-  emitRemark(ORE, Kind, PassName, RemarkName, I, Message);
+void LLVMExtraDisposeOptimizationRemark(LLVMOptimizationRemarkRef R) { delete R; }
+
+void LLVMExtraOptimizationRemarkAppendString(LLVMOptimizationRemarkRef R, const char *Str) {
+  R->Args.emplace_back(StringRef(Str));
 }
 
-void LLVMExtraEmitRemark(LLVMExtraRemarkKind Kind, const char *PassName,
-                         const char *RemarkName, LLVMValueRef Inst, const char *Message) {
-  Instruction *I = unwrap<Instruction>(Inst);
-  OptimizationRemarkEmitter ORE(I->getFunction());
-  emitRemark(ORE, Kind, PassName, RemarkName, I, Message);
+void LLVMExtraOptimizationRemarkAppendNamedString(LLVMOptimizationRemarkRef R,
+                                                  const char *Key, const char *Str) {
+  R->Args.emplace_back(Key, StringRef(Str));
+}
+
+void LLVMExtraOptimizationRemarkAppendValue(LLVMOptimizationRemarkRef R, const char *Key,
+                                            LLVMValueRef V) {
+  R->Args.emplace_back(Key, static_cast<const Value *>(unwrap(V)));
+}
+
+void LLVMExtraOptimizationRemarkAppendType(LLVMOptimizationRemarkRef R, const char *Key,
+                                           LLVMTypeRef T) {
+  R->Args.emplace_back(Key, static_cast<const Type *>(unwrap(T)));
+}
+
+void LLVMExtraOptimizationRemarkAppendInt(LLVMOptimizationRemarkRef R, const char *Key,
+                                          int64_t N) {
+  R->Args.emplace_back(Key, static_cast<long long>(N));
+}
+
+void LLVMExtraOptimizationRemarkAppendUnsigned(LLVMOptimizationRemarkRef R,
+                                               const char *Key, uint64_t N) {
+  R->Args.emplace_back(Key, static_cast<unsigned long long>(N));
+}
+
+void LLVMExtraOptimizationRemarkAppendBool(LLVMOptimizationRemarkRef R, const char *Key,
+                                           LLVMBool B) {
+  R->Args.emplace_back(Key, static_cast<bool>(B));
+}
+
+template <typename RemarkT>
+static void emitRemark(OptimizationRemarkEmitter &ORE, LLVMOptimizationRemarkRef R) {
+  RemarkT Remark(R->PassName.c_str(), R->RemarkName, R->Inst);
+  for (auto &Arg : R->Args)
+    Remark.insert(Arg);
+  ORE.emit(Remark);
+}
+
+void LLVMExtraEmitOptimizationRemark(LLVMOptimizationRemarkRef R,
+                                     LLVMFunctionAnalysisManagerRef AM) {
+  std::unique_ptr<LLVMOpaqueOptimizationRemark> Owned(R);
+  Function &F = *R->Inst->getFunction();
+  std::optional<OptimizationRemarkEmitter> OwnORE;
+  OptimizationRemarkEmitter *ORE;
+  if (AM) {
+    ORE = &unwrap(AM)->getResult<OptimizationRemarkEmitterAnalysis>(F);
+  } else {
+    OwnORE.emplace(&F);
+    ORE = &*OwnORE;
+  }
+  switch (R->Kind) {
+  case LLVMExtraRemarkPassed:
+    emitRemark<OptimizationRemark>(*ORE, R);
+    break;
+  case LLVMExtraRemarkMissed:
+    emitRemark<OptimizationRemarkMissed>(*ORE, R);
+    break;
+  case LLVMExtraRemarkAnalysis:
+    emitRemark<OptimizationRemarkAnalysis>(*ORE, R);
+    break;
+  }
 }
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ModuleAnalysisManager, LLVMModuleAnalysisManagerRef)

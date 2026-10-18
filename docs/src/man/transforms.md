@@ -279,19 +279,26 @@ diamond: PreservedAnalyses(AllAnalyses)
 ```
 
 Passes with analyses can report what they did, or why they didn't, using optimization
-remarks, like LLVM's passes do. These can be collected using the `remarks` keyword argument
-of the pass builder (or of `run!`):
+remarks, like LLVM's passes do. A remark's message is made of strings and named
+arguments, `key => value`, whose values LLVM renders like in the remarks of its own passes
+(e.g., an instruction as its opcode). In the do-block form of `remark!`, the message is
+only built when remarks of the pass are wanted, e.g., because they are collected using
+the `remarks` keyword argument of the pass builder (or of `run!`):
 
 ```jldoctest custom_pass
 julia> function report!(f::LLVM.Function, am)
-         remark!(am, :missed, "report", "NoChange", f.entry.terminator, "nothing to do")
+         remark!(am, :missed, "report", "NoChange", f.entry.terminator) do
+           "nothing to do before ", "Inst" => f.entry.terminator
+         end
          return false
        end;
 
 julia> run!(FunctionPass("report", report!; analyses=true), diamond;
             remarks = r -> println(r.function_name, ": ", r.message))
-diamond: nothing to do
+diamond: nothing to do before br
 ```
+
+Remarks can also be enabled using LLVM's `-pass-remarks` options.
 
 Custom passes can also take options, which are written in a pipeline like those of LLVM's
 passes, e.g., `my-pass<limit=10>`. To support them, pass a function that parses the text

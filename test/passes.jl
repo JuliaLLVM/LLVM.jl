@@ -1361,6 +1361,130 @@ end
             return false
         end; analyses=true), mod)
     end
+
+    # messages made of arguments, which LLVM renders like those of its own passes
+    ir_dbg = """
+        declare void @llvm.assume(i1)
+        declare void @julia.foo()
+
+        define i32 @f(i32 %x, i1 %c) !dbg !3 {
+          call void @llvm.assume(i1 %c)
+          call void @julia.foo()
+          %y = add i32 %x, 1, !dbg !6
+          ret i32 %y
+        }
+
+        !llvm.module.flags = !{!0}
+        !llvm.dbg.cu = !{!1}
+        !0 = !{i32 2, !"Debug Info Version", i32 3}
+        !1 = distinct !DICompileUnit(language: DW_LANG_C, file: !2, emissionKind: FullDebug)
+        !2 = !DIFile(filename: "file.jl", directory: "/dir")
+        !3 = distinct !DISubprogram(name: "f", scope: !2, file: !2, line: 1, scopeLine: 2,
+                                    type: !4, unit: !1, spFlags: DISPFlagDefinition)
+        !4 = !DISubroutineType(types: !5)
+        !5 = !{}
+        !6 = !DILocation(line: 3, column: 7, scope: !3)"""
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir_dbg) begin
+        f = mod.functions["f"]
+        intrinsic, call, add, ret = collect(f.entry.instructions)
+        x, c = LLVM.parameters(f)
+        built = Ref(0)
+        pass = FunctionPass("arguments", (f, am) -> begin
+            remark!(am, :passed, "arguments", "Values", add) do
+                built[] += 1
+                ("values: ", "Intrinsic" => intrinsic, ", ", "Call" => call, ", ",
+                 "Inst" => add, ", ", "Arg" => x, ", ", "Const" => ConstantInt(Int32(42)),
+                 ", ", "Func" => f)
+            end
+            remark!(am, :missed, "arguments", "Others", ret) do
+                built[] += 1
+                ("Type" => LLVM.value_type(add), "Int" => -1, "UInt" => UInt8(2),
+                 "Bool" => true, "Str" => "text")
+            end
+            remark!(am, :analysis, "arguments", "Single", ret) do
+                built[] += 1
+                "a single string"
+            end
+            remark!(am, :passed, "arguments", "Eager", ret, "eager ", "Inst" => ret)
+            return false
+        end; analyses=true)
+
+        # lazily built remarks are only built when they are wanted
+        @test !remark_enabled(ctx, :passed, "arguments")
+        run!(pass, mod)
+        @test built[] == 0
+
+        remarks = Remark[]
+        run!(pass, mod; remarks=r -> push!(remarks, r))
+        @test built[] == 3
+        @test [r.name for r in remarks] == ["Values", "Others", "Single", "Eager"]
+        @test [r.kind for r in remarks] == [:passed, :missed, :analysis, :passed]
+
+        # since LLVM 21, intrinsic calls are rendered with the name of the intrinsic
+        intrinsic_str = LLVM.version() >= v"21" ? "call llvm.assume" : "call"
+        @test remarks[1].message ==
+              "values: $intrinsic_str, call, add, x, 42, f"
+        @test remarks[1].arguments == ["String" => "values: ", "Intrinsic" => intrinsic_str,
+                                       "String" => ", ", "Call" => "call",
+                                       "String" => ", ", "Inst" => "add",
+                                       "String" => ", ", "Arg" => "x",
+                                       "String" => ", ", "Const" => "42",
+                                       "String" => ", ", "Func" => "f"]
+        @test remarks[2].file == ""
+        @test remarks[2].arguments == ["Type" => "i32", "Int" => "-1", "UInt" => "2",
+                                       "Bool" => "true", "Str" => "text"]
+        @test remarks[2].message == "i32-12truetext"
+        @test remarks[3].arguments == ["String" => "a single string"]
+        @test remarks[4].arguments == ["String" => "eager ", "Inst" => "ret"]
+
+        # the remark of an instruction with a debug location has that location
+        run!(FunctionPass("located", (f, am) -> begin
+            remark!(() -> "located", am, :passed, "located", "Located", add)
+            return false
+        end; analyses=true), mod; remarks=r -> push!(remarks, r))
+        @test remarks[end].file == joinpath("/dir", "file.jl")
+        @test remarks[end].line == 3
+        @test remarks[end].column == 7
+
+        # invalid parts are rejected before building the remark
+        @test_throws LLVM.PassException run!(FunctionPass("bad-part", (f, am) -> begin
+            remark!(() -> ("ok", 42), am, :passed, "bad-part", "Bad", ret)
+            return false
+        end; analyses=true), mod; remarks=r -> nothing)
+        @test_throws LLVM.PassException run!(FunctionPass("bad-value", (f, am) -> begin
+            remark!(am, :passed, "bad-value", "Bad", ret, "Float" => 1.5)
+            return false
+        end; analyses=true), mod)
+        @test_throws ArgumentError remark_enabled(ctx, :bogus, "arguments")
+    end
+
+    # remarks enabled using LLVM's command-line options
+    let (; out, err, success) = execute_code("""
+            ir = "define void @f() { ret void }"
+            @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+                LLVM.clopts("-pass-remarks-missed=^cl-missed\\\$",
+                            "-pass-remarks-analysis=cl-")
+                println("missed: ", remark_enabled(ctx, :missed, "cl-missed"), " ",
+                        remark_enabled(ctx, :passed, "cl-missed"), " ",
+                        remark_enabled(ctx, :missed, "cl-missed-other"))
+                println("analysis: ", remark_enabled(ctx, :analysis, "cl-other"), " ",
+                        remark_enabled(ctx, :analysis, "other"))
+                built = String[]
+                run!(FunctionPass("cl-missed", (f, am) -> begin
+                    for (kind, pass) in [(:missed, "cl-missed"), (:passed, "cl-missed"),
+                                         (:analysis, "cl-other"), (:missed, "cl-other")]
+                        remark!(() -> push!(built, "\$kind \$pass")[end], am, kind, pass,
+                                "Name", f.entry.terminator)
+                    end
+                    return false
+                end; analyses=true), mod)
+                println("built: ", join(built, ", "))
+            end""")
+        @test success
+        @test occursin("missed: true false false", out)
+        @test occursin("analysis: true false", out)
+        @test occursin("built: missed cl-missed, analysis cl-other", out)
+    end
 end
 
 @testset "custom pass exceptions" begin
@@ -1749,6 +1873,31 @@ end
         @test remarks[1].pass_name == "hoist"
         @test remarks[1].function_name == "f"
         @test remarks[1].message == "hoisted hoisted"
+    end
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        built = Ref(0)
+        pass = LoopPass("lazy", (loop, ar) -> begin
+            remark!(ar, :analysis, "lazy", "Header", loop.header.terminator) do
+                built[] += 1
+                "header ends in ", "Inst" => loop.header.terminator
+            end
+            return false
+        end)
+        remarks = Remark[]
+        @dispose pb=PassBuilder() begin
+            register!(pb, pass)
+            add!(pb, "function(loop(lazy))")
+            run!(pb, mod)
+        end
+        @test built[] == 0
+        @dispose pb=PassBuilder(; remarks=r -> push!(remarks, r)) begin
+            register!(pb, pass)
+            add!(pb, "function(loop(lazy))")
+            run!(pb, mod)
+        end
+        @test built[] == 1
+        @test only(remarks).message == "header ends in br"
+        @test only(remarks).arguments == ["String" => "header ends in ", "Inst" => "br"]
     end
 
     # what a loop pass can return

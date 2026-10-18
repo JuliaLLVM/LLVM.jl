@@ -515,6 +515,8 @@ void *LLVMExtraFunctionAnalysisManagerGetResult(LLVMFunctionAnalysisManagerRef A
     return &FAM.getResult<ScalarEvolutionAnalysis>(Fn);
   case LLVMExtraLoopAnalysis:
     return &FAM.getResult<LoopAnalysis>(Fn);
+  case LLVMExtraMemorySSAAnalysis:
+    return &FAM.getResult<MemorySSAAnalysis>(Fn).getMSSA();
   }
   llvm_unreachable("unknown function analysis");
 }
@@ -537,6 +539,10 @@ void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManage
     return FAM.getCachedResult<ScalarEvolutionAnalysis>(Fn);
   case LLVMExtraLoopAnalysis:
     return FAM.getCachedResult<LoopAnalysis>(Fn);
+  case LLVMExtraMemorySSAAnalysis: {
+    auto *Result = FAM.getCachedResult<MemorySSAAnalysis>(Fn);
+    return Result ? &Result->getMSSA() : nullptr;
+  }
   }
   llvm_unreachable("unknown function analysis");
 }
@@ -571,6 +577,9 @@ static PreservedAnalyses buildPreservedAnalyses(LLVMBool All, LLVMBool Functions
       break;
     case LLVMExtraLoopAnalysis:
       PA.preserve<LoopAnalysis>();
+      break;
+    case LLVMExtraMemorySSAAnalysis:
+      PA.preserve<MemorySSAAnalysis>();
       break;
     }
   }
@@ -610,6 +619,8 @@ LLVMBool LLVMExtraPreservedAnalysesIsPreserved(LLVMPreservedAnalysesRef PA,
     return isPreserved<ScalarEvolutionAnalysis>(*unwrap(PA));
   case LLVMExtraLoopAnalysis:
     return isPreserved<LoopAnalysis>(*unwrap(PA));
+  case LLVMExtraMemorySSAAnalysis:
+    return isPreserved<MemorySSAAnalysis>(*unwrap(PA));
   }
   llvm_unreachable("unknown function analysis");
 }

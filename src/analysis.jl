@@ -1076,16 +1076,38 @@ is_safe_to_speculatively_execute(inst::Instruction; at::Union{Nothing,Instructio
 
 ## memory SSA
 
-@vocabulary Analysis MemorySSA
+@vocabulary Analysis MemorySSA, MemoryAccess, MemoryUseOrDef, MemoryUse, MemoryDef,
+                     MemoryPhi, memory_access, memory_accesses, live_on_entry,
+                     MemorySSAUpdater, remove_access!, move_to_place!, move_before!,
+                     move_after!, create_access_in_block!, create_access_before!,
+                     create_access_after!, insert_def!, insert_use!
 
 """
     MemorySSA
 
 LLVM's MemorySSA analysis, which represents the memory operations of a function and the
-dependences between them in SSA form. It is provided to custom loop passes in a
-`loop-mssa(...)` pipeline (`ar[MemorySSA]`, see [`LoopAnalysisResults`](@ref)), which need
-to keep it up to date when they move or change memory operations.
+dependences between them in SSA form: every instruction that may write memory defines a
+new state of memory (a [`MemoryDef`](@ref)), which depends on the previous one, every
+instruction that only reads memory uses a state (a [`MemoryUse`](@ref)), and a
+[`MemoryPhi`](@ref) merges the states that reach a block from its predecessors.
 
+It is provided to custom loop passes in a `loop-mssa(...)` pipeline (`ar[MemorySSA]`, see
+[`LoopAnalysisResults`](@ref)), which need to keep it up to date when they move, create or
+remove memory operations, using a [`MemorySSAUpdater`](@ref). Function passes can get it
+from their analysis manager (`am[MemorySSA]`, see [`FunctionAnalysisManager`](@ref)). In
+both cases, it is borrowed from the analysis manager, and must not be used after the pass
+returns.
+
+MemorySSA depends on the dominator tree, and is invalidated with it: a function or module
+pass that kept MemorySSA up to date preserves it with `PreservedAnalyses(MemorySSA,
+CFGAnalyses)` if it did not change the control-flow graph, or `PreservedAnalyses(MemorySSA,
+DomTree)` if it updated the dominator tree as well. `PreservedAnalyses(MemorySSA)` on its own
+does not keep MemorySSA.
+
+- `memory_access(mssa, inst)`: the access of an instruction, or the phi of a block (see
+  [`memory_access`](@ref));
+- `memory_accesses(mssa, bb)`: the accesses of a block, in order;
+- `live_on_entry(mssa)`: the definition of the state of memory on entry of the function;
 - `verify(mssa)`: check that it is consistent with the IR. This only checks something
   with a build of LLVM that has assertions enabled, which aborts if it is not.
 """
@@ -1096,6 +1118,348 @@ end
 Base.unsafe_convert(::Type{API.LLVMMemorySSARef}, mssa::MemorySSA) = mssa.ref
 
 verify(mssa::MemorySSA) = (API.LLVMExtraMemorySSAVerify(mssa); nothing)
+
+"""
+    MemoryAccess
+
+An access of [`MemorySSA`](@ref): a [`MemoryUse`](@ref) or [`MemoryDef`](@ref) (both
+[`MemoryUseOrDef`](@ref)) of an instruction, or a [`MemoryPhi`](@ref) of a block. Accesses
+are owned by MemorySSA: they must not be used after it is no longer valid, or after they
+were removed from it (e.g., using [`remove_access!`](@ref)).
+
+# Properties
+
+- `access.block`: the block that the access is in;
+- `access.instruction` (for uses and definitions): the instruction that accesses memory,
+  or `nothing` for the live-on-entry definition;
+- `access.defining_access` (for uses and definitions): the access that defines the state
+  of memory that the instruction uses or changes (a `MemoryDef` or `MemoryPhi`), or
+  `nothing` for the live-on-entry definition.
+
+- `phi.incoming` (for phis): the states of memory that reach the block of the phi, as a
+  vector of `(access, block)` tuples of the incoming access and the predecessor that it
+  comes from.
+"""
+abstract type MemoryAccess end
+@properties MemoryAccess
+
+"""
+    MemoryUseOrDef <: MemoryAccess
+
+The access of an instruction: a [`MemoryUse`](@ref) or a [`MemoryDef`](@ref).
+"""
+abstract type MemoryUseOrDef <: MemoryAccess end
+
+"""
+    MemoryUse <: MemoryUseOrDef
+
+The access of an instruction that reads memory, but does not write it.
+"""
+@checked struct MemoryUse <: MemoryUseOrDef
+    ref::API.LLVMMemoryAccessRef
+end
+
+"""
+    MemoryDef <: MemoryUseOrDef
+
+The access of an instruction that may write memory (or that MemorySSA otherwise orders
+like one, e.g., a volatile load), which defines a new state of memory. The live-on-entry
+definition of a function (see [`live_on_entry`](@ref)) is a `MemoryDef` without an
+instruction.
+"""
+@checked struct MemoryDef <: MemoryUseOrDef
+    ref::API.LLVMMemoryAccessRef
+end
+
+"""
+    MemoryPhi <: MemoryAccess
+
+The state of memory at the start of a block where different states reach it from its
+predecessors.
+"""
+@checked struct MemoryPhi <: MemoryAccess
+    ref::API.LLVMMemoryAccessRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMMemoryAccessRef}, access::MemoryAccess) = access.ref
+
+function MemoryAccess(ref::API.LLVMMemoryAccessRef)
+    kind = API.LLVMExtraMemoryAccessGetKind(ref)
+    return kind == API.LLVMExtraMemoryUse ? MemoryUse(ref) :
+           kind == API.LLVMExtraMemoryDef ? MemoryDef(ref) : MemoryPhi(ref)
+end
+
+access_or_nothing(ref::API.LLVMMemoryAccessRef) = ref == C_NULL ? nothing : MemoryAccess(ref)
+
+block(access::MemoryAccess) = BasicBlock(API.LLVMExtraMemoryAccessGetBlock(access))
+function instruction(access::MemoryUseOrDef)
+    ref = API.LLVMExtraMemoryUseOrDefGetInstruction(access)
+    return ref == C_NULL ? nothing : Instruction(ref)
+end
+defining_access(access::MemoryUseOrDef) =
+    access_or_nothing(API.LLVMExtraMemoryUseOrDefGetDefiningAccess(access))
+
+@property MemoryAccess block
+@property MemoryUseOrDef instruction
+@property MemoryUseOrDef defining_access
+
+function incoming(phi::MemoryPhi)
+    n = API.LLVMExtraMemoryPhiGetNumIncoming(phi)
+    return Tuple{MemoryAccess,BasicBlock}[
+        (MemoryAccess(API.LLVMExtraMemoryPhiGetIncomingAccess(phi, i)),
+         BasicBlock(API.LLVMExtraMemoryPhiGetIncomingBlock(phi, i))) for i in 0:n-1]
+end
+
+@property MemoryPhi incoming
+
+Base.string(access::MemoryAccess) =
+    unsafe_message(API.LLVMExtraPrintMemoryAccessToString(access))
+Base.show(io::IO, access::MemoryAccess) =
+    print(io, nameof(typeof(access)), "(", string(access), ")")
+
+"""
+    memory_access(mssa::MemorySSA, inst::Instruction)
+    memory_access(mssa::MemorySSA, bb::BasicBlock)
+
+The [`MemoryUse`](@ref) or [`MemoryDef`](@ref) of an instruction, or `nothing` if it does
+not access memory (as far as MemorySSA knows, e.g., since it was created after MemorySSA
+was computed); or the [`MemoryPhi`](@ref) of a block, or `nothing` if it has none.
+"""
+memory_access(mssa::MemorySSA, inst::Instruction) =
+    access_or_nothing(API.LLVMExtraMemorySSAGetInstructionAccess(mssa, inst))
+memory_access(mssa::MemorySSA, bb::BasicBlock) =
+    access_or_nothing(API.LLVMExtraMemorySSAGetBlockPhi(mssa, bb))
+
+"""
+    memory_accesses(mssa::MemorySSA, bb::BasicBlock)
+
+The accesses of a block (a vector of [`MemoryAccess`](@ref)), in the order of their
+instructions, starting with its [`MemoryPhi`](@ref) (if any).
+"""
+memory_accesses(mssa::MemorySSA, bb::BasicBlock) =
+    MemoryAccess[MemoryAccess(ref) for ref in
+                 read_refs(API.LLVMExtraMemorySSAGetBlockAccesses, API.LLVMMemoryAccessRef,
+                           mssa, bb)]
+
+"""
+    live_on_entry(mssa::MemorySSA)
+
+The [`MemoryDef`](@ref) of the state of memory on entry of the function, which has no
+instruction: the defining access of the instructions that no other one in the function
+can have written the memory of.
+"""
+live_on_entry(mssa::MemorySSA) = MemoryDef(API.LLVMExtraMemorySSAGetLiveOnEntryDef(mssa))
+
+"""
+    MemorySSAUpdater(mssa::MemorySSA)
+    MemorySSAUpdater(f, mssa::MemorySSA)
+
+Create an updater for `mssa`, which keeps it valid while a pass changes the memory
+operations of a function, using LLVM's `MemorySSAUpdater`. A pass first changes the IR,
+e.g., moves an instruction, and then the corresponding access:
+
+- [`move_to_place!`](@ref): move the access of an instruction that was moved;
+- [`create_access_in_block!`](@ref) followed by [`insert_def!`](@ref) or
+  [`insert_use!`](@ref): add an access for a new instruction;
+- [`remove_access!`](@ref): remove the access of an instruction that is about to be
+  erased.
+
+The updater refers to `mssa`, so it can only be used while that is valid: a pass that is
+given MemorySSA creates the updater, and disposes of it before it returns (e.g., using the
+do-block form). It keeps state between operations, which the operations of a pass share
+by using the same updater, like the C++ passes do.
+
+This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
+"""
+@checked struct MemorySSAUpdater
+    ref::API.LLVMMemorySSAUpdaterRef
+    mssa::MemorySSA
+end
+
+Base.unsafe_convert(::Type{API.LLVMMemorySSAUpdaterRef}, u::MemorySSAUpdater) =
+    mark_use(u).ref
+
+MemorySSAUpdater(mssa::MemorySSA) =
+    mark_alloc(MemorySSAUpdater(API.LLVMExtraCreateMemorySSAUpdater(mssa), mssa))
+
+MemorySSAUpdater(f::Core.Function, mssa::MemorySSA) = with_disposal(f, MemorySSAUpdater(mssa))
+
+"""
+    dispose(updater::MemorySSAUpdater)
+
+Dispose of a MemorySSA updater. This does not affect MemorySSA.
+"""
+dispose(u::MemorySSAUpdater) = mark_dispose(API.LLVMExtraDisposeMemorySSAUpdater, u)
+
+Base.show(io::IO, ::MemorySSAUpdater) = print(io, "MemorySSAUpdater()")
+
+function insertion_place(where::Symbol)
+    where === :beginning && return API.LLVMExtraMemorySSABeginning
+    where === :end && return API.LLVMExtraMemorySSAEnd
+    where === :before_terminator && return API.LLVMExtraMemorySSABeforeTerminator
+    throw(ArgumentError("Invalid MemorySSA insertion place :$where; expected :beginning, :end or :before_terminator"))
+end
+
+# MemorySSA's operations require the instruction of an access to be where the access is
+# put, which LLVM only asserts
+function check_access_block(inst::Instruction, bb::BasicBlock)
+    parent = API.LLVMGetInstructionParent(inst)
+    parent == propref(bb) ||
+        throw(ArgumentError("The instruction is not in block $(bb.name); move or insert it first"))
+    return
+end
+
+function check_instruction(access::MemoryUseOrDef)
+    inst = instruction(access)
+    inst === nothing &&
+        throw(ArgumentError("The live-on-entry definition cannot be changed"))
+    return inst
+end
+
+"""
+    remove_access!(updater::MemorySSAUpdater, access::MemoryUseOrDef; optimize_phis=false)
+    remove_access!(updater::MemorySSAUpdater, inst::Instruction; optimize_phis=false)
+
+Remove the access of an instruction from MemorySSA, e.g., of an instruction that is about
+to be erased, replacing its uses by its defining access. Given an instruction without an
+access, this does nothing. With `optimize_phis=true`, phis that become trivial (i.e., merge
+a single state) are removed as well.
+
+Phis cannot be removed this way: LLVM can only remove a phi that is unused or merges a
+single state, and otherwise leaves its users without a defining access.
+"""
+function remove_access!(u::MemorySSAUpdater, access::MemoryUseOrDef;
+                        optimize_phis::Bool=false)
+    check_instruction(access)
+    API.LLVMExtraMemorySSAUpdaterRemoveMemoryAccess(u, access, optimize_phis)
+    return u
+end
+
+function remove_access!(u::MemorySSAUpdater, inst::Instruction; optimize_phis::Bool=false)
+    access = memory_access(u.mssa, inst)
+    access === nothing || remove_access!(u, access; optimize_phis)
+    return u
+end
+
+"""
+    move_to_place!(updater::MemorySSAUpdater, access::MemoryUseOrDef, bb::BasicBlock, where::Symbol)
+
+Update MemorySSA for an instruction that was moved to the block `bb`: move its `access`
+to the given place among the accesses of the block, which is `:beginning`, `:end`, or
+`:before_terminator` (which is `:end`, unless the terminator itself has an access, e.g.,
+an `invoke`). The instruction must have been moved to that place first, e.g., to the
+beginning of the block (after its phis), or before its terminator. The accesses that used
+the moved access, and the access itself, are then updated, like when it is created
+there.
+
+`move_before!` and `move_after!` move an access next to another one instead, after its
+instruction was moved next to the other's.
+"""
+function move_to_place!(u::MemorySSAUpdater, access::MemoryUseOrDef, bb::BasicBlock,
+                        where::Symbol)
+    check_access_block(check_instruction(access), bb)
+    API.LLVMExtraMemorySSAUpdaterMoveToPlace(u, access, bb, insertion_place(where))
+    return u
+end
+
+function move_before!(u::MemorySSAUpdater, access::MemoryUseOrDef, where::MemoryUseOrDef)
+    check_access_block(check_instruction(access), parent(check_instruction(where)))
+    API.LLVMExtraMemorySSAUpdaterMoveBefore(u, access, where)
+    return u
+end
+
+function move_after!(u::MemorySSAUpdater, access::MemoryUseOrDef, where::MemoryUseOrDef)
+    check_access_block(check_instruction(access), parent(check_instruction(where)))
+    API.LLVMExtraMemorySSAUpdaterMoveAfter(u, access, where)
+    return u
+end
+
+@doc (@doc move_to_place!) move_before!
+@doc (@doc move_to_place!) move_after!
+
+"""
+    create_access_in_block!(updater::MemorySSAUpdater, inst::Instruction, bb::BasicBlock,
+                            where::Symbol; definition=nothing)
+    create_access_before!(updater::MemorySSAUpdater, inst::Instruction,
+                          access::MemoryUseOrDef; definition=nothing)
+    create_access_after!(updater::MemorySSAUpdater, inst::Instruction,
+                         access::MemoryAccess; definition=nothing)
+
+Create the access of a new instruction in the block `bb` that it was inserted in, at a
+place among the accesses of the block (`:beginning`, `:end` or `:before_terminator`, see
+[`move_to_place!`](@ref)), or before or after another access in its block, and return it:
+a [`MemoryUse`](@ref) or [`MemoryDef`](@ref), depending on how the instruction accesses
+memory. The instruction must be at the corresponding place in the block.
+
+Returns `nothing` if the instruction does not read or write memory, in which case
+MemorySSA does not need an access for it. MemorySSA also leaves out instructions that
+alias analysis finds not to access memory (e.g., a call to a function that only accesses
+memory that is not otherwise accessible), which this only detects for a place in a block
+on LLVM 19 and later: creating an access for such an instruction is invalid otherwise.
+
+The access is created with `definition` as its defining access (a [`MemoryDef`](@ref) or
+[`MemoryPhi`](@ref)), which is not checked. Unless that is known to be correct, e.g., when
+the instruction replaces another one in the same place, leave it out and insert the access
+afterwards using [`insert_def!`](@ref) or [`insert_use!`](@ref), which find its defining
+access and update the accesses that depend on it.
+
+Creating an access for an instruction that already has one leaves the existing access
+inaccessible, and it must be removed using [`remove_access!`](@ref).
+"""
+function create_access_in_block!(u::MemorySSAUpdater, inst::Instruction, bb::BasicBlock,
+                                 where::Symbol;
+                                 definition::Union{Nothing,MemoryDef,MemoryPhi}=nothing)
+    check_access_block(check_attached(inst), bb)
+    ref = API.LLVMExtraMemorySSAUpdaterCreateMemoryAccessInBB(
+        u, inst, something(definition, C_NULL), bb, insertion_place(where))
+    return access_or_nothing(ref)
+end
+
+function create_access_before!(u::MemorySSAUpdater, inst::Instruction,
+                               access::MemoryUseOrDef;
+                               definition::Union{Nothing,MemoryDef,MemoryPhi}=nothing)
+    check_instruction(access)
+    check_access_block(check_attached(inst), block(access))
+    ref = API.LLVMExtraMemorySSAUpdaterCreateMemoryAccessBefore(
+        u, inst, something(definition, C_NULL), access)
+    return access_or_nothing(ref)
+end
+
+function create_access_after!(u::MemorySSAUpdater, inst::Instruction, access::MemoryAccess;
+                              definition::Union{Nothing,MemoryDef,MemoryPhi}=nothing)
+    access isa MemoryUseOrDef && check_instruction(access)
+    check_access_block(check_attached(inst), block(access))
+    ref = API.LLVMExtraMemorySSAUpdaterCreateMemoryAccessAfter(
+        u, inst, something(definition, C_NULL), access)
+    return access_or_nothing(ref)
+end
+
+@doc (@doc create_access_in_block!) create_access_before!
+@doc (@doc create_access_in_block!) create_access_after!
+
+"""
+    insert_def!(updater::MemorySSAUpdater, def::MemoryDef; rename=false)
+    insert_use!(updater::MemorySSAUpdater, use::MemoryUse; rename=false)
+
+Insert a new access (created using [`create_access_in_block!`](@ref)) into MemorySSA: find its
+defining access, and for a definition, make the accesses that now see the state it
+defines use it, adding phis where needed. With `rename=true`, the uses of the states that
+the access dominates are updated as well, which is needed unless they cannot be affected,
+e.g., when the access was created at the end of a block with no other accesses after it.
+Julia's and LLVM's passes pass `rename=true` when they move or clone memory operations.
+"""
+function insert_def!(u::MemorySSAUpdater, def::MemoryDef; rename::Bool=false)
+    check_instruction(def)
+    API.LLVMExtraMemorySSAUpdaterInsertDef(u, def, rename)
+    return u
+end
+
+function insert_use!(u::MemorySSAUpdater, use::MemoryUse; rename::Bool=false)
+    API.LLVMExtraMemorySSAUpdaterInsertUse(u, use, rename)
+    return u
+end
+
+@doc (@doc insert_def!) insert_use!
 
 
 ## constant folding

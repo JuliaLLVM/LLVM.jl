@@ -157,6 +157,14 @@ FunctionAnalyses
 ```
 
 ```@docs
+move_before!
+move_after!
+create_access_before!
+create_access_after!
+insert_use!
+```
+
+```@docs
 is_known_positive
 is_known_non_zero
 ```

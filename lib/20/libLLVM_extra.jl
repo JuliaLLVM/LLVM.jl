@@ -471,6 +471,18 @@ function LLVMExtraOptimizationRemarkAppendBool(R, Key, B)
     ccall((:LLVMExtraOptimizationRemarkAppendBool, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, LLVMBool), R, Key, B)
 end
 
+mutable struct LLVMOpaqueRemarkFile end
+
+const LLVMRemarkFileRef = Ptr{LLVMOpaqueRemarkFile}
+
+function LLVMExtraCreateRemarkFile(C, Filename, Passes, Format, ErrorMessage)
+    ccall((:LLVMExtraCreateRemarkFile, libLLVMExtra), LLVMRemarkFileRef, (LLVMContextRef, Cstring, Cstring, Cstring, Ptr{Cstring}), C, Filename, Passes, Format, ErrorMessage)
+end
+
+function LLVMExtraDisposeRemarkFile(F)
+    ccall((:LLVMExtraDisposeRemarkFile, libLLVMExtra), Cvoid, (LLVMRemarkFileRef,), F)
+end
+
 mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}

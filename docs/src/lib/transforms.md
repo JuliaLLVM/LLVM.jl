@@ -50,6 +50,7 @@ invalidate!
 remark!
 remark_enabled
 Remark
+RemarkFile
 ```
 
 ## Custom target info

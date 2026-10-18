@@ -298,7 +298,8 @@ julia> run!(FunctionPass("report", report!; analyses=true), diamond;
 diamond: nothing to do before br
 ```
 
-Remarks can also be enabled using LLVM's `-pass-remarks` options.
+Remarks can also be enabled using LLVM's `-pass-remarks` options, or written to a file
+using a `RemarkFile`, like the `-pass-remarks-output` option of LLVM's tools does.
 
 Custom passes can also take options, which are written in a pipeline like those of LLVM's
 passes, e.g., `my-pass<limit=10>`. To support them, pass a function that parses the text

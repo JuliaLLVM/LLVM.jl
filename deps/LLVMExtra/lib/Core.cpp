@@ -1963,3 +1963,77 @@ LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *K
   }
   return true;
 }
+
+
+//
+// Target triples
+//
+
+#if LLVM_VERSION_MAJOR < 17
+// Triple::getObjectFormatTypeName is only public since LLVM 17; these are the same names
+static StringRef getObjectFormatTypeName(Triple::ObjectFormatType Kind) {
+  switch (Kind) {
+  case Triple::UnknownObjectFormat:
+    return "";
+  case Triple::COFF:
+    return "coff";
+  case Triple::ELF:
+    return "elf";
+  case Triple::GOFF:
+    return "goff";
+  case Triple::MachO:
+    return "macho";
+  case Triple::Wasm:
+    return "wasm";
+  case Triple::XCOFF:
+    return "xcoff";
+  case Triple::DXContainer:
+    return "dxcontainer";
+  case Triple::SPIRV:
+    return "spirv";
+  }
+  llvm_unreachable("unknown object format type");
+}
+#else
+static StringRef getObjectFormatTypeName(Triple::ObjectFormatType Kind) {
+  return Triple::getObjectFormatTypeName(Kind);
+}
+#endif
+
+// the type names are string literals, so they are null-terminated
+const char *LLVMExtraTripleGetArchTypeName(const char *T) {
+  return Triple::getArchTypeName(Triple(Twine(T)).getArch()).data();
+}
+
+const char *LLVMExtraTripleGetVendorTypeName(const char *T) {
+  return Triple::getVendorTypeName(Triple(Twine(T)).getVendor()).data();
+}
+
+const char *LLVMExtraTripleGetOSTypeName(const char *T) {
+  return Triple::getOSTypeName(Triple(Twine(T)).getOS()).data();
+}
+
+const char *LLVMExtraTripleGetEnvironmentTypeName(const char *T) {
+  return Triple::getEnvironmentTypeName(Triple(Twine(T)).getEnvironment()).data();
+}
+
+const char *LLVMExtraTripleGetObjectFormatTypeName(const char *T) {
+  return getObjectFormatTypeName(Triple(Twine(T)).getObjectFormat()).data();
+}
+
+#define TRIPLE_PREDICATE(Name, Method)                                                     \
+  LLVMBool LLVMExtraTriple##Name(const char *T) { return Triple(Twine(T)).Method(); }
+TRIPLE_PREDICATE(IsX86, isX86)
+TRIPLE_PREDICATE(IsAArch64, isAArch64)
+TRIPLE_PREDICATE(IsARM, isARM)
+TRIPLE_PREDICATE(IsThumb, isThumb)
+TRIPLE_PREDICATE(IsRISCV, isRISCV)
+TRIPLE_PREDICATE(IsPPC, isPPC)
+TRIPLE_PREDICATE(IsNVPTX, isNVPTX)
+TRIPLE_PREDICATE(IsAMDGPU, isAMDGPU)
+TRIPLE_PREDICATE(IsSPIRV, isSPIRV)
+TRIPLE_PREDICATE(IsWasm, isWasm)
+TRIPLE_PREDICATE(IsOSDarwin, isOSDarwin)
+TRIPLE_PREDICATE(IsOSWindows, isOSWindows)
+TRIPLE_PREDICATE(IsOSLinux, isOSLinux)
+#undef TRIPLE_PREDICATE

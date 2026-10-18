@@ -64,6 +64,37 @@ With these objects, a number of APIs are available:
 - `LLVM.hasasmbackend`: whether the target has an assembly backend, to emit object files
 
 
+
+## Target triples
+
+Target triples are strings like `"x86_64-unknown-linux-gnu"`. To find out what LLVM makes
+of one, wrap it in an `LLVM.Triple`: its properties `arch`, `vendor`, `os`, `environment`
+and `object_format` are the components that LLVM recognizes, as symbols, and predicates
+like `LLVM.isx86`, `LLVM.isaarch64` or `LLVM.iswindows` classify it like the predicates of
+C++'s `llvm::Triple`:
+
+```jldoctest
+julia> triple = LLVM.Triple("aarch64-apple-darwin");
+
+julia> triple.arch, triple.os, triple.object_format
+(:aarch64, :darwin, :macho)
+
+julia> LLVM.isaarch64(triple), LLVM.isdarwin(triple)
+(true, true)
+```
+
+The string is interpreted as it is, without normalizing it, like the C++ passes that do
+`Triple(M.getTargetTriple())`. Some spellings are only understood after normalization:
+
+```jldoctest
+julia> LLVM.iswindows(LLVM.Triple("x86_64-w64-mingw32"))
+false
+
+julia> LLVM.normalize(LLVM.Triple("x86_64-w64-mingw32"))
+LLVM.Triple("x86_64-w64-windows-gnu")
+```
+
+
 ## Target machines
 
 Starting from a target and a triple, it's possible to create a target machine for native

@@ -769,6 +769,10 @@ function LLVMExtraIsCommutative(Inst)
     ccall((:LLVMExtraIsCommutative, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
+function LLVMExtraDropUnknownNonDebugMetadata(Inst, KnownIDs, NumKnownIDs)
+    ccall((:LLVMExtraDropUnknownNonDebugMetadata, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{Cuint}, Cuint), Inst, KnownIDs, NumKnownIDs)
+end
+
 function LLVMExtraCanInstructionHaveMMRAs(Inst)
     ccall((:LLVMExtraCanInstructionHaveMMRAs, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end

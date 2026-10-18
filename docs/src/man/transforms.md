@@ -123,6 +123,21 @@ julia> @dispose pb=PassBuilder() begin
        end
 ```
 
+An empty `AAManager` disables alias analysis. LLVM's default alias analyses include those
+that the target machine provides, e.g., ones that know about the address spaces of a GPU.
+To use them together with other alias analyses, list them using `TargetAA()`:
+
+```julia
+@dispose pb=PassBuilder() begin
+    add!(pb, AAManager()) do aam
+        add!(aam, BasicAA())
+        add!(aam, TargetAA())
+    end
+    add!(pb, "gvn")
+    run!(pb, mod, tm)
+end
+```
+
 
 ## Custom passes
 

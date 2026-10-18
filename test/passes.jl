@@ -1559,6 +1559,55 @@ end
         @test !contains(io.output, "Running analysis: TypeBasedAA")
         @test !contains(io.output, "Running analysis: ScopedNoAliasAA")
     end
+
+    # an empty pipeline disables alias analysis
+    for empty_aa! in (pb -> add!(pb, AAManager()), pb -> add!(aam -> nothing, pb, AAManager()))
+        @dispose ctx=Context() mod=test_module() pb=PassBuilder(debug_logging=true) begin
+            empty_aa!(pb)
+            add!(pb, "aa-eval")
+
+            io = IOCapture.capture() do
+                run!(pb, mod)
+            end
+
+            @test contains(io.output, "Running analysis: AAManager")
+            @test !contains(io.output, "Running analysis: BasicAA")
+            @test !contains(io.output, "Running analysis: TypeBasedAA")
+        end
+    end
+
+    # the target machine's alias analyses are part of the default pipeline, and can be
+    # added to others
+    if :AMDGPU in LLVM.backends()
+        LLVM.InitializeAMDGPUTarget()
+        LLVM.InitializeAMDGPUTargetInfo()
+        LLVM.InitializeAMDGPUTargetMC()
+        triple = "amdgcn-amd-amdhsa"
+        @dispose tm=LLVM.TargetMachine(LLVM.Target(; triple), triple) begin
+            function aa_log(aa_passes...; tm=tm)
+                @dispose ctx=Context() mod=test_module() pb=PassBuilder(debug_logging=true) begin
+                    if !isempty(aa_passes)
+                        add!(pb, AAManager()) do aam
+                            foreach(aa -> add!(aam, aa), aa_passes)
+                        end
+                    end
+                    add!(pb, "aa-eval")
+                    IOCapture.capture() do
+                        run!(pb, mod, tm)
+                    end.output
+                end
+            end
+            @test contains(aa_log(), "Running analysis: AMDGPUAA")
+            @test !contains(aa_log(BasicAA()), "Running analysis: AMDGPUAA")
+            let log = aa_log(BasicAA(), TargetAA())
+                @test contains(log, "Running analysis: BasicAA")
+                @test contains(log, "Running analysis: AMDGPUAA")
+            end
+            @test !contains(aa_log(TargetAA()), "Running analysis: BasicAA")
+            # without a target machine, there are no target alias analyses
+            @test !contains(aa_log(TargetAA(); tm=nothing), "AMDGPUAA")
+        end
+    end
 end
 
 @static if LLVM.version() >= v"17"

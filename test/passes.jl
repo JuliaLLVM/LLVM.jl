@@ -256,6 +256,27 @@ end
         @test function_pass_calls == 1
     end
 
+    # custom passes are known to LLVM by their own name, e.g. when it logs the passes it runs
+    @dispose ctx=Context() mod=test_module() pb=PassBuilder(debug_logging=true) begin
+        register!(pb, CustomModulePass())
+        register!(pb, CustomFunctionPass())
+        register!(pb, FunctionPass("custom_pass_with_options", (f, am, opts) -> false;
+                                   analyses=true, parse_options=identity))
+        add!(pb, CustomModulePass())
+        add!(pb, FunctionPassManager()) do fpm
+            add!(fpm, CustomFunctionPass())
+            add!(fpm, "custom_pass_with_options<some-option>")
+        end
+
+        io = IOCapture.capture() do
+            run!(pb, mod)
+        end
+        @test contains(io.output, "Running pass: custom_module_pass on [module]")
+        @test contains(io.output, "Running pass: custom_function_pass on SomeFunction")
+        @test contains(io.output, "Running pass: custom_pass_with_options on SomeFunction")
+        @test !contains(io.output, "JuliaCustom")
+    end
+
     # running a single custom pass
     @dispose ctx=Context() mod=test_module() begin
         module_pass_calls = 0
@@ -1400,8 +1421,8 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
         @test success
         @test occursin("IR Dump After NoOpModulePass on [module]", err)
         @test occursin("IR Dump After NoOpFunctionPass on SomeFunction", err)
-        # custom passes are reported by the name of the C++ class wrapping them
-        @test occursin("IR Dump After JuliaCustomFunctionPass on SomeFunction", err)
+        # custom passes are reported by their own name
+        @test occursin("IR Dump After custom-pass on SomeFunction", err)
         @test occursin("IR Dump After EarlyCSEPass on SomeFunction", err)
         @test !occursin("on dead_func", err)
     end
@@ -1414,6 +1435,14 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
         @test occursin("IR Dump Before GlobalDCEPass on [module]", err)
         @test occursin("IR Deleted After GlobalDCEPass on [module]", err)
         @test !occursin("NoOpModulePass", err)
+    end
+
+    # which also works for custom passes
+    let (; err, success) = instrument("--print-before=custom-pass",
+                                      "--filter-print-funcs=SomeFunction")
+        @test success
+        @test occursin("IR Dump Before custom-pass on SomeFunction", err)
+        @test !occursin("NoOpFunctionPass", err)
     end
 end
 end

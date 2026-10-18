@@ -638,6 +638,115 @@ end
     end
 end
 
+@testset "conditional control flow" begin
+    ir = """
+        define i32 @f(i32 %a, i1 %c) !dbg !4 {
+        entry:
+          %d = add i32 %a, 1, !dbg !7
+          ret i32 %d
+        }
+
+        !llvm.dbg.cu = !{!1}
+        !llvm.module.flags = !{!3}
+        !1 = distinct !DICompileUnit(language: DW_LANG_Julia, file: !2, producer: "julia", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
+        !2 = !DIFile(filename: "f.jl", directory: ".")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !4 = distinct !DISubprogram(name: "f", scope: !2, file: !2, line: 1, type: !5, scopeLine: 1, spFlags: DISPFlagDefinition, unit: !1)
+        !5 = !DISubroutineType(types: !6)
+        !6 = !{}
+        !7 = !DILocation(line: 2, scope: !4)"""
+
+    # if-then, with and without branch weights
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+        f = mod.functions["f"]
+        entry = f.entry
+        d = first(entry.instructions)
+        c = f.parameters[2]
+        term = split_block_and_insert_if_then!(c, d; weights=(1, 9))
+        br = entry.terminator
+        @test br.condition == c
+        @test collect(br.successors) == [term.parent, d.parent]
+        prof = br.metadata[LLVM.MD_prof]
+        @test endswith(string(prof), "!{!\"branch_weights\", i32 1, i32 9}")
+        @test term.debug_location == d.debug_location
+
+        term2 = split_block_and_insert_if_then!(c, d)
+        head2 = only(term2.parent.predecessors)
+        @test !haskey(head2.terminator.metadata, LLVM.MD_prof)
+        @test verify(f) === nothing
+
+        @test_throws ArgumentError split_block_and_insert_if_then!(c, d; weights=(1, 2, 3))
+        @test_throws InexactError split_block_and_insert_if_then!(c, d; weights=(-1, 1))
+    end
+
+    # if-then-else, updating a dominator tree
+    @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, ir) begin
+        f = mod.functions["f"]
+        entry = f.entry
+        d = first(entry.instructions)
+        c = f.parameters[2]
+        @dispose domtree=DomTree(f) begin
+            then_term, else_term = split_block_and_insert_if_then_else!(c, d; weights=(9, 1),
+                                                                        domtree)
+            then, els, tail = then_term.parent, else_term.parent, d.parent
+            br = entry.terminator
+            @test br.condition == c
+            @test collect(br.successors) == [then, els]
+            @test only(then_term.successors) == tail
+            @test only(else_term.successors) == tail
+            @test collect(f.blocks) == [entry, then, els, tail]
+            @test endswith(string(br.metadata[LLVM.MD_prof]),
+                           "!{!\"branch_weights\", i32 9, i32 1}")
+            @test then_term.debug_location == d.debug_location
+            @test else_term.debug_location == d.debug_location
+
+            @test dominates(domtree, entry, tail)
+            @test !dominates(domtree, then, tail)
+            @test !dominates(domtree, els, tail)
+            @dispose fresh=DomTree(f) begin
+                for x in f.blocks, y in f.blocks
+                    @test dominates(domtree, x, y) == dominates(fresh, x, y)
+                end
+            end
+
+            # select a value in the new blocks
+            position!(builder, LLVM.before(then_term))
+            x = add!(builder, f.parameters[1], ConstantInt(Int32(2)))
+            position!(builder, LLVM.at_begin(tail))
+            p = phi!(builder, LLVM.Int32Type())
+            push!(p.incoming, (x, then))
+            push!(p.incoming, (f.parameters[1], els))
+            d.operands[1] = p
+            @test verify(f) === nothing
+        end
+
+        # without weights
+        then_term, _ = split_block_and_insert_if_then_else!(c, d)
+        head = only(then_term.parent.predecessors)
+        @test !haskey(head.terminator.metadata, LLVM.MD_prof)
+        @test verify(f) === nothing
+
+        @test_throws ArgumentError split_block_and_insert_if_then_else!(f.parameters[1], d)
+        @test_throws ArgumentError split_block_and_insert_if_then_else!(c, d; weights=(1,))
+    end
+
+    # the dominator tree must be one of the function that is changed
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i1 %c) {
+          ret void
+        }
+        define void @g() {
+          ret void
+        }""") begin
+        f, g = mod.functions["f"], mod.functions["g"]
+        @dispose domtree=DomTree(g) begin
+            @test_throws ArgumentError split_block_and_insert_if_then_else!(
+                f.parameters[1], f.entry.terminator; domtree)
+            @test length(collect(f.blocks)) == 1
+        end
+    end
+end
+
 @testset "preserving the dominator tree across control flow changes" begin
     @dispose ctx=Context() mod=parse(LLVM.Module, """
         define i32 @f(i32 %a, i32 %b) {

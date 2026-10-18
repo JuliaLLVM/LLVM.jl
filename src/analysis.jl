@@ -128,7 +128,8 @@ end
 
 ## control flow
 
-@vocabulary IR split_block!, split_block_and_insert_if_then!
+@vocabulary IR split_block!, split_block_and_insert_if_then!,
+               split_block_and_insert_if_then_else!
 
 """
     split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
@@ -170,7 +171,7 @@ split_block!(inst::Instruction, name::AbstractString="") = split_block!(before(i
 
 """
     split_block_and_insert_if_then!(cond::Value, at::Instruction; unreachable=false,
-                                    domtree=nothing)
+                                    weights=nothing, domtree=nothing)
 
 Split the block containing the instruction `at` before it, and make the first part branch
 on the `i1` value `cond` to a new block, which branches to the second part, the tail (or,
@@ -186,17 +187,76 @@ tail:                            ; `at` and the rest of the original block
 ```
 
 Returns the terminator of the new block, before which instructions can be inserted. The
-instruction `at` must not be a PHI node or an exception-handling pad.
+instruction `at` must not be a PHI node or an exception-handling pad. The new branches get
+the debug location of `at`.
+
+The `weights` of the conditional branch, a pair of integers for when `cond` is true and
+when it is false (e.g., `(1, 9)` when the new block is rarely executed), are attached to it
+as `!prof` branch-weight metadata.
 
 If a dominator tree of the function containing `at` is passed as `domtree`, it is updated
 for the new control flow, so that a pass can preserve it (e.g., with
 `PreservedAnalyses(DomTree)`).
 Other analyses, like [`LoopInfo`](@ref), are not updated, and the control-flow graph has
 changed, so `CFGAnalyses` are not preserved.
+
+This uses LLVM's `SplitBlockAndInsertIfThen`.
+
+See also: [`split_block_and_insert_if_then_else!`](@ref).
 """
 function split_block_and_insert_if_then!(cond::Value, at::Instruction;
-                                         unreachable::Bool=false,
+                                         unreachable::Bool=false, weights=nothing,
                                          domtree::Union{Nothing,DomTree}=nothing)
+    check_conditional_split(cond, at)
+    ws = branch_weights(weights)
+    term = API.LLVMExtraSplitBlockAndInsertIfThen(cond, at, unreachable, ws, length(ws),
+                                                  something(domtree, C_NULL))
+    term == C_NULL && throw(ArgumentError(stale_domtree_message))
+    return Instruction(term)
+end
+
+"""
+    split_block_and_insert_if_then_else!(cond::Value, at::Instruction; weights=nothing,
+                                         domtree=nothing)
+
+Split the block containing the instruction `at` before it, and make the first part branch
+on the `i1` value `cond` to one of two new blocks, which both branch to the second part,
+the tail:
+
+```
+head:                            ; the original block, up to `at`
+  br i1 %cond, label %then, label %else
+then:
+  br label %tail                 ; the first returned terminator
+else:
+  br label %tail                 ; the second returned terminator
+tail:                            ; `at` and the rest of the original block
+  ...
+```
+
+Returns the terminators of the new blocks, `(then, else)`, before which instructions can
+be inserted. The `weights` and `domtree` arguments, and the requirements on `at`, are as
+for [`split_block_and_insert_if_then!`](@ref).
+
+This uses LLVM's `SplitBlockAndInsertIfThenElse`.
+"""
+function split_block_and_insert_if_then_else!(cond::Value, at::Instruction;
+                                              weights=nothing,
+                                              domtree::Union{Nothing,DomTree}=nothing)
+    check_conditional_split(cond, at)
+    ws = branch_weights(weights)
+    then_term, else_term = Ref{API.LLVMValueRef}(), Ref{API.LLVMValueRef}()
+    API.LLVMExtraSplitBlockAndInsertIfThenElse(cond, at, ws, length(ws),
+                                               something(domtree, C_NULL),
+                                               then_term, else_term) |> Bool ||
+        throw(ArgumentError(stale_domtree_message))
+    return Instruction(then_term[]), Instruction(else_term[])
+end
+
+const stale_domtree_message =
+    "The dominator tree is not one of the function containing the instruction, or it is out of date"
+
+function check_conditional_split(cond::Value, at::Instruction)
     ty = value_type(cond)
     ty isa IntegerType && width(ty) == 1 ||
         throw(ArgumentError("The condition must be an i1 value"))
@@ -206,11 +266,14 @@ function split_block_and_insert_if_then!(cond::Value, at::Instruction;
         throw(ArgumentError("Cannot split a basic block without a terminator"))
     at isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,CatchSwitchInst} &&
         throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
-    term = API.LLVMExtraSplitBlockAndInsertIfThen(cond, at, unreachable,
-                                                  something(domtree, C_NULL))
-    term == C_NULL &&
-        throw(ArgumentError("The dominator tree is not one of the function containing the instruction, or it is out of date"))
-    return Instruction(term)
+    return
+end
+
+branch_weights(::Nothing) = Cuint[]
+function branch_weights(weights)
+    length(weights) == 2 ||
+        throw(ArgumentError("Branch weights must be a pair of weights, for when the condition is true and when it is false"))
+    return Cuint[weights...]
 end
 
 

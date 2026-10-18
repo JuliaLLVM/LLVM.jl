@@ -1152,8 +1152,12 @@ function LLVMExtraDominatorTreeRecalculate(Tree, F)
     ccall((:LLVMExtraDominatorTreeRecalculate, libLLVMExtra), Cvoid, (LLVMDominatorTreeRef, LLVMValueRef), Tree, F)
 end
 
-function LLVMExtraSplitBlockAndInsertIfThen(Cond, SplitBefore, Unreachable, Tree)
-    ccall((:LLVMExtraSplitBlockAndInsertIfThen, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMBool, LLVMDominatorTreeRef), Cond, SplitBefore, Unreachable, Tree)
+function LLVMExtraSplitBlockAndInsertIfThen(Cond, SplitBefore, Unreachable, BranchWeights, NumBranchWeights, Tree)
+    ccall((:LLVMExtraSplitBlockAndInsertIfThen, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMBool, Ptr{Cuint}, Cuint, LLVMDominatorTreeRef), Cond, SplitBefore, Unreachable, BranchWeights, NumBranchWeights, Tree)
+end
+
+function LLVMExtraSplitBlockAndInsertIfThenElse(Cond, SplitBefore, BranchWeights, NumBranchWeights, Tree, ThenTerm, ElseTerm)
+    ccall((:LLVMExtraSplitBlockAndInsertIfThenElse, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, Ptr{Cuint}, Cuint, LLVMDominatorTreeRef, Ptr{LLVMValueRef}, Ptr{LLVMValueRef}), Cond, SplitBefore, BranchWeights, NumBranchWeights, Tree, ThenTerm, ElseTerm)
 end
 
 function LLVMExtraIsInstructionTriviallyDead(Inst)
@@ -1178,4 +1182,20 @@ end
 
 function LLVMExtraConstantFoldCastOperand(Opcode, C, DestTy, TD, Result)
     ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), Opcode, C, DestTy, TD, Result)
+end
+
+function LLVMExtraSimplifyInstruction(Inst)
+    ccall((:LLVMExtraSimplifyInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraSplitBasicBlock(BB, Before, Head, Name)
+    ccall((:LLVMExtraSplitBasicBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMBasicBlockRef, LLVMValueRef, LLVMBool, Cstring), BB, Before, Head, Name)
+end
+
+function LLVMExtraInlineFunction(Call, MergeAttributes, InsertLifetime, FailureReason)
+    ccall((:LLVMExtraInlineFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMBool, Ptr{Cstring}), Call, MergeAttributes, InsertLifetime, FailureReason)
+end
+
+function LLVMExtraIsInlineViable(Fn, FailureReason)
+    ccall((:LLVMExtraIsInlineViable, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, FailureReason)
 end

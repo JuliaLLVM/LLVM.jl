@@ -1083,12 +1083,24 @@ LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBas
 void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F);
 // split the block containing `SplitBefore` before it, and insert a conditional branch on
 // `Cond` to a new block that ends with a branch to the tail of the split block (or with an
-// unreachable). Returns the terminator of the new block. If `Tree` is not NULL, it is
+// unreachable). Returns the terminator of the new block. The conditional branch gets
+// `!prof` branch weights if NumBranchWeights is not 0. If `Tree` is not NULL, it is
 // updated for the changes to the CFG; returns NULL (without changing anything) if it is
 // not a tree for the current entry block of the function containing `SplitBefore`.
 LLVMValueRef LLVMExtraSplitBlockAndInsertIfThen(LLVMValueRef Cond, LLVMValueRef SplitBefore,
                                                 LLVMBool Unreachable,
+                                                const unsigned *BranchWeights,
+                                                unsigned NumBranchWeights,
                                                 LLVMDominatorTreeRef Tree);
+// like LLVMExtraSplitBlockAndInsertIfThen, but branching to one of two new blocks, whose
+// terminators are written to ThenTerm and ElseTerm. Returns false (without changing
+// anything) if `Tree` is not a tree for the function containing `SplitBefore`.
+LLVMBool LLVMExtraSplitBlockAndInsertIfThenElse(LLVMValueRef Cond, LLVMValueRef SplitBefore,
+                                                const unsigned *BranchWeights,
+                                                unsigned NumBranchWeights,
+                                                LLVMDominatorTreeRef Tree,
+                                                LLVMValueRef *ThenTerm,
+                                                LLVMValueRef *ElseTerm);
 
 // whether an instruction is unused and has no side effects, and delete such an instruction
 // together with the operands that become trivially dead (returns false if the instruction
@@ -1114,6 +1126,26 @@ LLVMBool LLVMExtraPromoteMemToReg(LLVMValueRef *Allocas, unsigned NumAllocas,
 LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
                                           LLVMTypeRef DestTy, LLVMTargetDataRef TD,
                                           LLVMValueRef *Result);
+// simplify an instruction, like InstSimplify, without changing it: returns a simpler value
+// that it is equivalent to, or NULL
+LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst);
+
+// split a basic block before an instruction (with the head bit of the iterator, as for
+// LLVMExtraMoveInstruction), moving the instructions from there on to a new block that the
+// original one branches to, like BasicBlock::splitBasicBlock. Returns the new block.
+LLVMBasicBlockRef LLVMExtraSplitBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Before,
+                                           LLVMBool Head, const char *Name);
+// inline a call site, like InlineFunction (without updating a call graph or using alias
+// analysis). Returns whether the call was inlined; if not, nothing is changed, and if
+// FailureReason is not NULL, it is set to a message (to be disposed of using
+// LLVMDisposeMessage) that describes why. Like InlineFunction, this doesn't check whether
+// the body of the called function can be inlined (see LLVMExtraIsInlineViable).
+LLVMBool LLVMExtraInlineFunction(LLVMValueRef Call, LLVMBool MergeAttributes,
+                                 LLVMBool InsertLifetime, char **FailureReason);
+// whether the body of a function can be inlined into other functions, like isInlineViable;
+// if not, and FailureReason is not NULL, it is set to a message (to be disposed of using
+// LLVMDisposeMessage) that describes why.
+LLVMBool LLVMExtraIsInlineViable(LLVMValueRef Fn, char **FailureReason);
 
 LLVM_C_EXTERN_C_END
 #endif

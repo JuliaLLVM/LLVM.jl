@@ -1622,6 +1622,28 @@ end
     @test verify(mod) === nothing
 end
 
+# aliases that don't refer to anything yet
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeAS2Global", 2)
+    gv.initializer = ConstantInt(Int32(42))
+
+    ga = GlobalAlias(mod, LLVM.Int32Type(), "SomeAlias"; addrspace=2)
+    @test ga.global_value_type == LLVM.Int32Type()
+    @test ga.value_type.addrspace == 2
+    @test ga.aliasee === nothing
+    ga.aliasee = gv
+    @test ga.aliasee == gv
+    @test verify(mod) === nothing
+
+    # dropping the aliasee releases the use of the global
+    ga.aliasee = nothing
+    @test ga.aliasee === nothing
+    @test isempty(gv.uses)
+    erase!(ga)
+    erase!(gv)
+    @test isempty(mod.globals)
+end
+
 # comdats
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")

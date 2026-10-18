@@ -1572,6 +1572,17 @@ void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src) {
     unwrap<GlobalVariable>(Dst)->copyAttributesFrom(unwrap<GlobalVariable>(Src));
 }
 
+LLVMValueRef LLVMExtraAddAlias(LLVMModuleRef M, LLVMTypeRef ValueTy, unsigned AddrSpace,
+                               LLVMValueRef Aliasee, const char *Name) {
+  return wrap(GlobalAlias::create(unwrap(ValueTy), AddrSpace, GlobalValue::ExternalLinkage,
+                                  Name, Aliasee ? unwrap<Constant>(Aliasee) : nullptr,
+                                  unwrap(M)));
+}
+
+void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias) {
+  unwrap<GlobalAlias>(Alias)->eraseFromParent();
+}
+
 const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len) {
   StringRef Name = unwrap(C)->getName();
   *Len = Name.size();

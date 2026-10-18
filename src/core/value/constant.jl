@@ -1519,7 +1519,7 @@ end
 
 ## global aliases
 
-@vocabulary IR GlobalAlias
+@vocabulary IR GlobalAlias, erase!
 
 """
     GlobalAlias <: LLVM.GlobalValue
@@ -1529,10 +1529,12 @@ A global alias, i.e., a new symbol for an existing global value or constant expr
 # Properties
 
     alias.aliasee
-    alias.aliasee = val::LLVM.Constant
+    alias.aliasee = val::Union{LLVM.Constant,Nothing}
 
-The value that the global alias refers to. The type of an assigned value must match that of
-the alias.
+The value that the global alias refers to, or `nothing` if it doesn't refer to anything
+(yet). The type of an assigned value must match that of the alias. Assigning `nothing`
+drops the reference to the current aliasee, e.g., before deleting it; the alias then has to
+be given another aliasee, or be deleted.
 
     alias.next
     alias.prev
@@ -1577,7 +1579,20 @@ value `aliasee`. The value type and address space of the alias are taken from `a
 GlobalAlias(mod::Module, aliasee::GlobalValue, name::AbstractString) =
     GlobalAlias(mod, global_value_type(aliasee), aliasee, name)
 
-aliasee(alias::GlobalAlias) = Value(API.LLVMAliasGetAliasee(alias))
+"""
+    GlobalAlias(mod::LLVM.Module, typ::LLVM.Type, name::AbstractString; addrspace=0)
+
+Create a global alias in the given module, with the given value type, name and address
+space, that doesn't refer to anything yet. Assign its `aliasee` property before using the
+module, e.g., when an alias needs to exist before what it refers to.
+"""
+GlobalAlias(mod::Module, typ::LLVMType, name::AbstractString; addrspace::Integer=0) =
+    GlobalAlias(API.LLVMExtraAddAlias(mod, typ, addrspace, C_NULL, name))
+
+function aliasee(alias::GlobalAlias)
+    ref = API.LLVMAliasGetAliasee(alias)
+    ref == C_NULL ? nothing : Value(ref)
+end
 
 function aliasee!(alias::GlobalAlias, val::Constant)
     if value_type(val) != value_type(alias)
@@ -1585,11 +1600,24 @@ function aliasee!(alias::GlobalAlias, val::Constant)
     end
     API.LLVMAliasSetAliasee(alias, val)
 end
+# the C API doesn't accept a null aliasee, but the aliasee is the only operand
+aliasee!(alias::GlobalAlias, ::Nothing) = API.LLVMSetOperand(alias, 0, C_NULL)
 
 @property GlobalAlias aliasee aliasee!
 
 # LLVM does not support setting the section of an alias
 @property GlobalAlias section
+
+"""
+    erase!(alias::GlobalAlias)
+
+Remove the global alias from its parent module and delete it.
+
+!!! warning
+
+    This function is unsafe as it does not check if the alias is still used elsewhere.
+"""
+erase!(alias::GlobalAlias) = API.LLVMExtraEraseGlobalAlias(alias)
 
 
 ## global ifuncs

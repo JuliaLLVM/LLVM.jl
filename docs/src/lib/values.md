@@ -91,6 +91,7 @@ Global variables are reordered using [`move!`](@ref).
 
 ```@docs
 GlobalAlias
+erase!(::GlobalAlias)
 ```
 
 ### COMDATs

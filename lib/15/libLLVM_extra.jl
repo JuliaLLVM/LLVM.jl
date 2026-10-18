@@ -855,6 +855,14 @@ function LLVMExtraIsInterposable(GV)
     ccall((:LLVMExtraIsInterposable, libLLVMExtra), LLVMBool, (LLVMValueRef,), GV)
 end
 
+function LLVMExtraAddAlias(M, ValueTy, AddrSpace, Aliasee, Name)
+    ccall((:LLVMExtraAddAlias, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, LLVMTypeRef, Cuint, LLVMValueRef, Cstring), M, ValueTy, AddrSpace, Aliasee, Name)
+end
+
+function LLVMExtraEraseGlobalAlias(Alias)
+    ccall((:LLVMExtraEraseGlobalAlias, libLLVMExtra), Cvoid, (LLVMValueRef,), Alias)
+end
+
 function LLVMExtraGetComdatName(C, Len)
     ccall((:LLVMExtraGetComdatName, libLLVMExtra), Cstring, (LLVMComdatRef, Ptr{Csize_t}), C, Len)
 end

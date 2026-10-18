@@ -855,6 +855,10 @@ function LLVMExtraMayHaveSideEffects(Inst)
     ccall((:LLVMExtraMayHaveSideEffects, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
+function LLVMExtraIsCommutative(Inst)
+    ccall((:LLVMExtraIsCommutative, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
+end
+
 function LLVMExtraTakeName(Val, From)
     ccall((:LLVMExtraTakeName, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Val, From)
 end

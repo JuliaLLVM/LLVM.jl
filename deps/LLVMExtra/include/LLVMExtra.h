@@ -746,6 +746,10 @@ LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other);
 LLVMBool LLVMExtraMayReadFromMemory(LLVMValueRef Inst);
 LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst);
 LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst);
+LLVMBool LLVMExtraIsCommutative(LLVMValueRef Inst);
+#if LLVM_VERSION_MAJOR >= 19
+LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst);
+#endif
 
 // values
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);

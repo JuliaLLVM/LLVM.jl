@@ -19,6 +19,7 @@
 #include <llvm/Support/CBindingWrapping.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/Regex.h>
+#include <llvm/Target/TargetMachine.h>
 
 #include <memory>
 #include <optional>
@@ -959,7 +960,8 @@ static PassBuilder createPassBuilder(TargetMachine *Machine, LLVMPassBuilderOpti
 
 // Set up a pass builder with the passes and callbacks of the extensions, and the passes
 // that LLVMExtra adds to those of LLVM.
-static void registerExtensions(PassBuilder &PB, PassInstrumentationCallbacks *PIC,
+static void registerExtensions(PassBuilder &PB, TargetMachine *Machine,
+                               PassInstrumentationCallbacks *PIC,
                                LLVMPassBuilderExtensions *PassExts) {
   for (auto &Callback : PassExts->RegistrationCallbacks)
     Callback(&PB);
@@ -976,6 +978,15 @@ static void registerExtensions(PassBuilder &PB, PassInstrumentationCallbacks *PI
 #if LLVM_VERSION_MAJOR >= 17 && LLVM_VERSION_MAJOR < 22
   registerCallbackParsing(PB);
 #endif
+  // LLVM's default alias analysis pipeline includes those that the target machine provides,
+  // but an explicit pipeline cannot name them. make them available as `target-aa`.
+  PB.registerParseAACallback([Machine](StringRef Name, AAManager &AA) {
+    if (Name != "target-aa")
+      return false;
+    if (Machine)
+      Machine->registerDefaultAliasAnalyses(AA);
+    return true;
+  });
 #if LLVM_VERSION_MAJOR < 21
   // `expand-reductions` is only registered with the new pass manager since LLVM 21
   // (llvm/llvm-project#148109), but the pass itself is available
@@ -1023,7 +1034,7 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
   PassInstrumentationCallbacks PIC;
   PassBuilder PB = createPassBuilder(Machine, PassOpts, &PIC);
 
-  registerExtensions(PB, &PIC, PassExts);
+  registerExtensions(PB, Machine, &PIC, PassExts);
 
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
@@ -1191,7 +1202,7 @@ LLVMErrorRef LLVMExtraPrintJuliaPasses(const char *Passes, LLVMTargetMachineRef 
 #if LLVM_VERSION_MAJOR < 19
   registerClassToPassNames(PB, PIC);
 #endif
-  registerExtensions(PB, &PIC, unwrap(Extensions));
+  registerExtensions(PB, unwrap(TM), &PIC, unwrap(Extensions));
 
   ModulePassManager MPM;
   if (auto Err = PB.parsePassPipeline(MPM, Passes))

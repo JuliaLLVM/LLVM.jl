@@ -66,6 +66,16 @@ end
 
 @test context(; throw_error=false) === nothing
 
+# constructors that use the active context resolve their C calls statically
+@dispose ctx=Context() begin
+    @test @inferred(context()) == ctx
+    # behind a function barrier, or Julia 1.10 boxes the result of the global call
+    # (typecheck verifies the type's kind, which allocates)
+    int32_allocs() = @allocated LLVM.Int32Type()
+    int32_allocs()
+    @test int32_allocs() == 0 skip=LLVM.typecheck_enabled
+end
+
 end
 
 

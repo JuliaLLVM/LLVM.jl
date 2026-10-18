@@ -756,6 +756,9 @@ unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 // functions and global variables
 void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src);
 LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV);
+// like LLVMAddFunction, but in the given address space instead of the program one
+LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
+                                                LLVMTypeRef FunctionTy, unsigned AddrSpace);
 // like LLVMAddAlias2, but Aliasee may be NULL
 LLVMValueRef LLVMExtraAddAlias(LLVMModuleRef M, LLVMTypeRef ValueTy, unsigned AddrSpace,
                                LLVMValueRef Aliasee, const char *Name);

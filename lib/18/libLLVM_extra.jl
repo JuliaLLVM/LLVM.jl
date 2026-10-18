@@ -750,6 +750,10 @@ function LLVMExtraIsInterposable(GV)
     ccall((:LLVMExtraIsInterposable, libLLVMExtra), LLVMBool, (LLVMValueRef,), GV)
 end
 
+function LLVMExtraAddFunctionInAddressSpace(M, Name, FunctionTy, AddrSpace)
+    ccall((:LLVMExtraAddFunctionInAddressSpace, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, Cstring, LLVMTypeRef, Cuint), M, Name, FunctionTy, AddrSpace)
+end
+
 function LLVMExtraAddAlias(M, ValueTy, AddrSpace, Aliasee, Name)
     ccall((:LLVMExtraAddAlias, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, LLVMTypeRef, Cuint, LLVMValueRef, Cstring), M, ValueTy, AddrSpace, Aliasee, Name)
 end

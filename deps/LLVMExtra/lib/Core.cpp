@@ -1572,6 +1572,12 @@ void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src) {
     unwrap<GlobalVariable>(Dst)->copyAttributesFrom(unwrap<GlobalVariable>(Src));
 }
 
+LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
+                                                LLVMTypeRef FunctionTy, unsigned AddrSpace) {
+  return wrap(Function::Create(unwrap<FunctionType>(FunctionTy),
+                               GlobalValue::ExternalLinkage, AddrSpace, Name, unwrap(M)));
+}
+
 LLVMValueRef LLVMExtraAddAlias(LLVMModuleRef M, LLVMTypeRef ValueTy, unsigned AddrSpace,
                                LLVMValueRef Aliasee, const char *Name) {
   return wrap(GlobalAlias::create(unwrap(ValueTy), AddrSpace, GlobalValue::ExternalLinkage,

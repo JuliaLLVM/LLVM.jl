@@ -2441,6 +2441,15 @@ end
 
 @testset "function" begin
 
+# address spaces
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    @test LLVM.Function(mod, "f", ft).value_type.addrspace == 0
+    @test LLVM.Function(mod, "g", ft; addrspace=1).value_type.addrspace == 1
+    mod.datalayout = "P2"
+    @test LLVM.Function(mod, "h", ft).value_type.addrspace == 2
+end
+
 # personalities can be other constants referring to a function
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())

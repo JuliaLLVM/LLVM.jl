@@ -117,12 +117,16 @@ register(Function, API.LLVMFunctionValueKind)
 @public Function
 
 """
-    LLVM.Function(mod::Module, name::AbstractString, ft::FunctionType)
+    LLVM.Function(mod::Module, name::AbstractString, ft::FunctionType; [addrspace])
 
-Create a new function in the given module with the given name and function type.
+Create a new function in the given module with the given name and function type. The
+function is put in the given address space, or by default in the program address space of
+the data layout of the module.
 """
-Function(mod::Module, name::AbstractString, ft::FunctionType) =
-    Function(API.LLVMAddFunction(mod, name, ft))
+Function(mod::Module, name::AbstractString, ft::FunctionType;
+         addrspace::Union{Integer,Nothing}=nothing) =
+    Function(addrspace === nothing ? API.LLVMAddFunction(mod, name, ft) :
+             API.LLVMExtraAddFunctionInAddressSpace(mod, name, ft, addrspace))
 
 @vocabulary IR copy_attributes!
 

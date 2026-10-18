@@ -258,6 +258,26 @@ functions it changed itself, and return `PreservedAnalyses(FunctionAnalyses)`. B
 module pass deletes a function, it needs to remove all of its analyses using
 `empty!(am[f])`, as some of them (like the assumption cache) survive invalidation.
 
+A function pass with analyses can also run other passes on its function, e.g.,
+`run!(InstCombinePass(), f, am)`. These run as part of the pipeline, with its analyses,
+like a nested function pass manager would, and `run!` returns the analyses that they
+preserved. Unlike a nested pass manager, the pass can decide whether to run them, and what
+to do with their result:
+
+```jldoctest custom_pass
+julia> function simplify_twice!(f::LLVM.Function, am)
+         preserved = run!(InstSimplifyPass(), f, am)
+         println(f.name, ": ", preserved)
+         if preserved != PreservedAnalyses(AllAnalyses)
+           preserved = intersect(preserved, run!(InstSimplifyPass(), f, am))
+         end
+         return preserved
+       end;
+
+julia> run!(FunctionPass("simplify-twice", simplify_twice!; analyses=true), diamond)
+diamond: PreservedAnalyses(AllAnalyses)
+```
+
 Passes with analyses can report what they did, or why they didn't, using optimization
 remarks, like LLVM's passes do. These can be collected using the `remarks` keyword argument
 of the pass builder (or of `run!`):

@@ -1056,13 +1056,118 @@ end
         @test sprint(show, PreservedAnalyses(FunctionAnalyses, DomTree)) ==
               "PreservedAnalyses($(FunctionAnalyses), $(DomTree))"
 
-        # only module passes can preserve all function analyses
-        @test_throws LLVM.PassException run!(FunctionPass("bad",
-            (f, am) -> PreservedAnalyses(FunctionAnalyses); analyses=true), mod)
+        # function passes can preserve all function analyses too
+        @test run!(FunctionPass("all-functions",
+            (f, am) -> PreservedAnalyses(FunctionAnalyses); analyses=true), mod) === nothing
         @test_throws LLVM.PassException run!(ModulePass("bad", (mod, am) -> 42;
                                                         analyses=true), mod)
         @test_throws LLVM.PassException run!(ModulePass("throws", (mod, am) -> error("oops");
                                                         analyses=true), mod)
+    end
+end
+
+@testset "running passes from a custom pass" begin
+    # what is preserved after two passes
+    let all = PreservedAnalyses(AllAnalyses), none = PreservedAnalyses()
+        @test intersect(all, all) == all
+        @test intersect(all, none) == none
+        @test intersect(PreservedAnalyses(DomTree), all) == PreservedAnalyses(DomTree)
+        @test intersect(PreservedAnalyses(CFGAnalyses, DomTree, LoopInfo),
+                        PreservedAnalyses(CFGAnalyses, DomTree)) ==
+              PreservedAnalyses(CFGAnalyses, DomTree)
+        # like LLVM, a set of analyses does not imply the analyses in it
+        @test intersect(PreservedAnalyses(FunctionAnalyses),
+                        PreservedAnalyses(CFGAnalyses, DomTree)) == none
+    end
+
+    ir = """
+        define i32 @f(i32 %x) {
+        entry:
+          %y = add i32 %x, 0
+          br label %exit
+        exit:
+          ret i32 %y
+        }"""
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+        results = []
+        function nested!(f, am)
+            domtree = am[DomTree]
+            # the passes use the analyses of the pipeline, and update them
+            push!(results, run!(InstSimplifyPass(), f, am))
+            push!(results, get(am, DomTree, nothing) === domtree)
+            push!(results, run!(InstSimplifyPass(), f, am))
+            push!(results, run!(SimplifyCFGPass(), f, am))
+            push!(results, get(am, DomTree, nothing))
+            return PreservedAnalyses(FunctionAnalyses)
+        end
+        @dispose pb=PassBuilder(debug_logging=true) begin
+            register!(pb, FunctionPass("nested", nested!; analyses=true))
+            add!(pb, "function(nested)")
+            io = IOCapture.capture() do
+                run!(pb, mod)
+            end
+            # the passes are part of the pipeline's instrumentation
+            @test contains(io.output, "Running pass: InstSimplifyPass on f")
+            @test count("Running analysis: DominatorTreeAnalysis", io.output) == 1
+        end
+        # instsimplify changed the function, but not its control flow
+        @test results[1] == PreservedAnalyses(FunctionAnalyses, CFGAnalyses)
+        @test results[2]
+        # there was nothing left to simplify
+        @test results[3] == PreservedAnalyses(AllAnalyses)
+        # simplifycfg merged the blocks
+        @test !results[4].all && results[4].functions && !results[4].cfg
+        @test results[5] === nothing
+        @test length(mod.functions["f"].blocks) == 1
+    end
+
+    # passes registered with the pass builder can run, including custom passes
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+        calls = Ref(0)
+        inner = FunctionPass("inner", f -> (calls[] += 1; false))
+        result = Ref{Any}()
+        run!(FunctionPass("outer", (f, am) -> begin
+            @dispose pb=PassBuilder() begin
+                register!(pb, inner)
+                add!(pb, inner)
+                add!(pb, "inner")
+                result[] = run!(pb, f, am)
+            end
+            return result[]
+        end; analyses=true), mod)
+        @test calls[] == 2
+        @test result[] == PreservedAnalyses(AllAnalyses)
+    end
+
+    # errors are thrown from the outer pass
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+        f = mod.functions["f"]
+        function outer_exception(body)
+            try
+                run!(FunctionPass("outer", (f, am) -> (body(f, am); false); analyses=true),
+                     mod)
+            catch err
+                err isa LLVM.PassException || rethrow()
+                return err.ex
+            end
+            return nothing
+        end
+        @test outer_exception((f, am) -> run!("unknown-pass", f, am)) isa LLVM.LLVMException
+        let err = outer_exception((f, am) -> run!(FunctionPass("inner", f -> error("oops")),
+                                                  f, am))
+            @test err isa LLVM.PassException
+            @test err.ex == ErrorException("oops")
+        end
+        @test outer_exception((f, am) -> run!(ModulePass("inner", mod -> false), f, am)) isa
+              ArgumentError
+        @test outer_exception((f, am) -> run!("instsimplify", LLVM.Function(mod, "g",
+                                              LLVM.FunctionType(LLVM.VoidType())), am)) isa
+              ArgumentError
+        @test outer_exception((f, am) -> @dispose(pb=PassBuilder(), begin
+                                  add!(pb, AAManager())
+                                  add!(pb, "instsimplify")
+                                  run!(pb, f, am)
+                              end)) isa ArgumentError
     end
 end
 
@@ -1540,12 +1645,16 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
 
                 custom_pass!(fn::LLVM.Function) = false
                 CustomPass() = FunctionPass("custom-pass", custom_pass!)
+                NestingPass() = FunctionPass("nesting-pass", (fn, am) ->
+                    run!(FunctionPass("nested-pass", custom_pass!), fn, am); analyses=true)
                 @dispose pb=PassBuilder() begin
                     register!(pb, CustomPass())
+                    register!(pb, NestingPass())
                     add!(pb, NoOpModulePass())
                     add!(pb, FunctionPassManager()) do fpm
                         add!(fpm, NoOpFunctionPass())
                         add!(fpm, CustomPass())
+                        add!(fpm, NestingPass())
                     end
                     add!(pb, GlobalDCEPass())
                     run!(pb, mod)
@@ -1578,11 +1687,12 @@ if !Sys.iswindows() || LLVM.version() >= v"20"
         @test !occursin("NoOpModulePass", err)
     end
 
-    # which also works for custom passes
-    let (; err, success) = instrument("--print-before=custom-pass",
+    # which also works for custom passes, including ones that a custom pass runs
+    let (; err, success) = instrument("--print-before=custom-pass,nested-pass",
                                       "--filter-print-funcs=SomeFunction")
         @test success
         @test occursin("IR Dump Before custom-pass on SomeFunction", err)
+        @test occursin("IR Dump Before nested-pass on SomeFunction", err)
         @test !occursin("NoOpFunctionPass", err)
     end
 end

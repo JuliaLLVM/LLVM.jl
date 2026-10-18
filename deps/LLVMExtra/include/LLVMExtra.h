@@ -473,13 +473,23 @@ void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManage
                                                       LLVMValueRef F,
                                                       LLVMExtraFunctionAnalysis Analysis);
 // a set of preserved analyses is passed as: whether all analyses are preserved, whether
-// all CFG analyses are preserved, and a list of individual analyses that are preserved
-void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All, LLVMBool CFG,
+// all function analyses are preserved (because the pass invalidated the ones it did not
+// preserve itself), whether all CFG analyses are preserved, and a list of individual
+// analyses that are preserved
+void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                   LLVMBool Functions, LLVMBool CFG,
                                    const LLVMExtraFunctionAnalysis *Analyses,
                                    unsigned NumAnalyses);
+// query a set of preserved analyses, in the same terms
+void LLVMExtraGetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool *All,
+                                   LLVMBool *Functions, LLVMBool *CFG);
+LLVMBool LLVMExtraPreservedAnalysesIsPreserved(LLVMPreservedAnalysesRef PA,
+                                               LLVMExtraFunctionAnalysis Analysis);
+void LLVMExtraDisposePreservedAnalyses(LLVMPreservedAnalysesRef PA);
 // invalidate the analyses of a function that are not in the given set
 void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef AM,
-                                                LLVMValueRef F, LLVMBool All, LLVMBool CFG,
+                                                LLVMValueRef F, LLVMBool All,
+                                                LLVMBool Functions, LLVMBool CFG,
                                                 const LLVMExtraFunctionAnalysis *Analyses,
                                                 unsigned NumAnalyses);
 // forcibly remove all cached analysis results of a function, including those that survive
@@ -543,6 +553,17 @@ LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,
                                           LLVMTargetMachineRef TM,
                                           LLVMPassBuilderOptionsRef Options,
                                           LLVMPassBuilderExtensionsRef Extensions);
+// Run a function pipeline on a function from a custom function pass that runs on it, with
+// the function analysis manager of the pass. The passes share the analyses of the enclosing
+// pipeline, and are instrumented by it. Returns the analyses that the passes preserved, like
+// a nested function pass manager, as an object to be disposed of with
+// `LLVMExtraDisposePreservedAnalyses`, or NULL if the pipeline could not be parsed.
+LLVMErrorRef LLVMExtraRunJuliaPassesWithAnalyses(LLVMValueRef F, const char *Passes,
+                                                LLVMTargetMachineRef TM,
+                                                LLVMPassBuilderOptionsRef Options,
+                                                LLVMPassBuilderExtensionsRef Extensions,
+                                                LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMPreservedAnalysesRef *PA);
 // Parse a module pipeline like `LLVMRunJuliaPasses` does, and print it with the names and
 // parameters that LLVM knows the passes by, like `opt -print-pipeline-passes`. The
 // printed pipeline should be disposed of with `LLVMDisposeMessage`.

@@ -5,6 +5,7 @@
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
+#include <llvm/Analysis/MemorySSA.h>
 #include <llvm/Analysis/OptimizationRemarkEmitter.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/PostDominators.h>
@@ -17,6 +18,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Transforms/IPO/Internalize.h>
+#include <llvm/Transforms/Scalar/LoopPassManager.h>
 #include <llvm/Transforms/Vectorize/VectorCombine.h>
 #include <llvm/Support/CBindingWrapping.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -265,6 +267,10 @@ public:
                                  ArrayRef<PassBuilder::PipelineElement>)>,
               2>
       FunctionPipelineParsingCallbacks;
+  SmallVector<std::function<bool(StringRef, LoopPassManager &,
+                                 ArrayRef<PassBuilder::PipelineElement>)>,
+              2>
+      LoopPipelineParsingCallbacks;
 
   // The names of the custom passes, which identify them in instrumentation.
   SmallVector<std::string, 2> CustomPassNames;
@@ -626,13 +632,9 @@ void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM,
   unwrap(AM)->clear(Fn, Fn.getName());
 }
 
-void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
-                                                LLVMExtraRemarkKind Kind,
-                                                const char *PassName,
-                                                const char *RemarkName, LLVMValueRef Inst,
-                                                const char *Message) {
-  Instruction *I = unwrap<Instruction>(Inst);
-  auto &ORE = unwrap(AM)->getResult<OptimizationRemarkEmitterAnalysis>(*I->getFunction());
+static void emitRemark(OptimizationRemarkEmitter &ORE, LLVMExtraRemarkKind Kind,
+                       const char *PassName, const char *RemarkName, Instruction *I,
+                       const char *Message) {
   // remarks keep a pointer to the pass name, and are passed to the diagnostic handler
   // before `emit` returns
   switch (Kind) {
@@ -655,6 +657,23 @@ void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef A
     break;
   }
   }
+}
+
+void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMExtraRemarkKind Kind,
+                                                const char *PassName,
+                                                const char *RemarkName, LLVMValueRef Inst,
+                                                const char *Message) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  auto &ORE = unwrap(AM)->getResult<OptimizationRemarkEmitterAnalysis>(*I->getFunction());
+  emitRemark(ORE, Kind, PassName, RemarkName, I, Message);
+}
+
+void LLVMExtraEmitRemark(LLVMExtraRemarkKind Kind, const char *PassName,
+                         const char *RemarkName, LLVMValueRef Inst, const char *Message) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  OptimizationRemarkEmitter ORE(I->getFunction());
+  emitRemark(ORE, Kind, PassName, RemarkName, I, Message);
 }
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ModuleAnalysisManager, LLVMModuleAnalysisManagerRef)
@@ -783,6 +802,133 @@ void LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(
                                                                  PassExts)));
         return true;
       });
+}
+
+
+// Custom loop passes
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(Loop, LLVMLoopRef)
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(LoopAnalysisManager, LLVMLoopAnalysisManagerRef)
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(LoopStandardAnalysisResults,
+                                   LLVMLoopStandardAnalysisResultsRef)
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(LPMUpdater, LLVMLPMUpdaterRef)
+
+struct JuliaCustomLoopPass {
+  LLVMJuliaLoopPassCallback Callback;
+  void *Thunk;
+  LLVMPassBuilderExtensions *Exts;
+  JuliaCustomLoopPass(LLVMJuliaLoopPassCallback Callback, void *Thunk,
+                      LLVMPassBuilderExtensions *Exts)
+      : Callback(Callback), Thunk(Thunk), Exts(Exts) {}
+  llvm::PreservedAnalyses run(Loop &L, LoopAnalysisManager &AM,
+                              LoopStandardAnalysisResults &AR, LPMUpdater &U) {
+    if (Exts->Aborted)
+      return llvm::PreservedAnalyses::all();
+    // if the callback fails, this is what LLVM sees. the loop pass manager reports a fatal
+    // error for a pass that does not preserve MemorySSA, and treats the dominator tree,
+    // loop info and scalar evolution as preserved regardless, so these claims are not
+    // truthful. the pipeline is aborted instead, which skips the optional passes that would
+    // use them; this is best-effort containment, not recovery from an arbitrary partial
+    // change: required passes still run (the loop pass manager can still build a loop nest
+    // using scalar evolution, and adaptors still get analyses and build their worklists).
+    auto PA = llvm::PreservedAnalyses::none();
+    if (AR.MSSA)
+      PA.preserve<MemorySSAAnalysis>();
+    Callback(wrap(&L), wrap(&AM), wrap(&AR), wrap(&U), wrap(&PA), Thunk);
+    return PA;
+  }
+};
+
+void LLVMExtraPassBuilderExtensionsRegisterLoopPass(LLVMPassBuilderExtensionsRef Extensions,
+                                                    const char *PassName,
+                                                    LLVMJuliaLoopPassCallback Callback,
+                                                    void *Thunk, LLVMBool Required) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->CustomPassNames.push_back(PassName);
+  PassExts->LoopPipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, Thunk, Required,
+       PassExts](StringRef Name, LoopPassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        if (Name == PassName && Pipeline.empty()) {
+          PM.addPass(NamedPass(PassName, Name, Required,
+                               JuliaCustomLoopPass(Callback, Thunk, PassExts)));
+          return true;
+        }
+        return false;
+      });
+}
+
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaLoopPassCallback Callback, LLVMJuliaPassParametersCallback ParametersCallback,
+    void *Thunk, LLVMBool Required) {
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->CustomPassNames.push_back(PassName);
+  PassExts->LoopPipelineParsingCallbacks.push_back(
+      [PassName = std::string(PassName), Callback, ParametersCallback, Thunk, Required,
+       PassExts](StringRef Name, LoopPassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+        StringRef Parameters;
+        if (!Pipeline.empty() || !matchParametrizedPassName(Name, PassName, Parameters))
+          return false;
+        void *PassThunk = ParametersCallback(Parameters.str().c_str(), Thunk);
+        if (!PassThunk)
+          return false;
+        PM.addPass(NamedPass(PassName, Name, Required,
+                             JuliaCustomLoopPass(Callback, PassThunk, PassExts)));
+        return true;
+      });
+}
+
+void *LLVMExtraLoopStandardAnalysisResultsGet(LLVMLoopStandardAnalysisResultsRef AR,
+                                              LLVMExtraLoopStandardAnalysis Analysis) {
+  LoopStandardAnalysisResults &Results = *unwrap(AR);
+  switch (Analysis) {
+  case LLVMExtraLoopAAResults:
+    return &Results.AA;
+  case LLVMExtraLoopAssumptionCache:
+    return &Results.AC;
+  case LLVMExtraLoopDominatorTree:
+    return &Results.DT;
+  case LLVMExtraLoopLoopInfo:
+    return &Results.LI;
+  case LLVMExtraLoopScalarEvolution:
+    return &Results.SE;
+  case LLVMExtraLoopTargetLibraryInfo:
+    return &Results.TLI;
+  case LLVMExtraLoopTargetTransformInfo:
+    return &Results.TTI;
+  case LLVMExtraLoopBlockFrequencyInfo:
+#if LLVM_VERSION_MAJOR < 22
+    return Results.BFI;
+#else
+    return nullptr;
+#endif
+  case LLVMExtraLoopBranchProbabilityInfo:
+#if LLVM_VERSION_MAJOR < 22
+    return Results.BPI;
+#else
+    return nullptr;
+#endif
+  case LLVMExtraLoopMemorySSA:
+    return Results.MSSA;
+  }
+  llvm_unreachable("unknown loop standard analysis");
+}
+
+void LLVMExtraSetLoopPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                       LLVMBool LoopAnalyses, LLVMBool CFG, LLVMBool MSSA) {
+  if (All) {
+    *unwrap(PA) = PreservedAnalyses::all();
+    return;
+  }
+  PreservedAnalyses Result =
+      LoopAnalyses ? getLoopPassPreservedAnalyses() : PreservedAnalyses();
+  if (CFG)
+    Result.preserveSet<CFGAnalyses>();
+  if (MSSA)
+    Result.preserve<MemorySSAAnalysis>();
+  *unwrap(PA) = std::move(Result);
 }
 
 
@@ -1078,6 +1224,8 @@ static void registerExtensions(PassBuilder &PB, TargetMachine *Machine,
   for (auto &Callback : PassExts->ModulePipelineParsingCallbacks)
     PB.registerPipelineParsingCallback(Callback);
   for (auto &Callback : PassExts->FunctionPipelineParsingCallbacks)
+    PB.registerPipelineParsingCallback(Callback);
+  for (auto &Callback : PassExts->LoopPipelineParsingCallbacks)
     PB.registerPipelineParsingCallback(Callback);
 #if LLVM_VERSION_MAJOR >= 17 && LLVM_VERSION_MAJOR < 22
   registerCallbackParsing(PB);

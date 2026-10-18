@@ -1548,6 +1548,343 @@ end
     @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project $script`)
 end
 
+@testset "custom loop passes" begin
+    # a loop with invariant computations (%x and %s), which a pass can hoist to its
+    # preheader (the entry block), and a store that MemorySSA describes
+    function loop_ir(; attrs="", ptr=supports_typed_pointers() ? "i64*" : "ptr")
+        """
+        define void @f($ptr %p, i64 %n, i64 %a, i64 %b) $attrs {
+        entry:
+          br label %loop
+        loop:
+          %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+          %x = mul i64 %a, %b
+          %s = add i64 %a, %b
+          %y = add i64 %x, %s
+          %v = add i64 %y, %i
+          %q = getelementptr i64, $ptr %p, i64 %i
+          store i64 %v, $ptr %q
+          %i.next = add i64 %i, 1
+          %c = icmp ult i64 %i.next, %n
+          br i1 %c, label %loop, label %exit
+        exit:
+          ret void
+        }"""
+    end
+
+    # hoist invariant instructions with the given opcode, by recreating them in the
+    # preheader; this does not move memory operations, so MemorySSA remains valid
+    function hoist!(loop::Loop, ar::LoopAnalysisResults, opcode=LLVM.API.LLVMMul)
+        se = ar[ScalarEvolution]
+        @test ar[DomTree] isa DomTree
+        @test ar[LoopInfo] isa LoopInfo
+        @test ar[AssumptionCache] isa AssumptionCache
+        candidates = Instruction[]
+        for bb in loop.blocks, inst in bb.instructions
+            LLVM.opcode(inst) == opcode || continue
+            all(op -> is_loop_invariant(loop, op), inst.operands) || continue
+            is_safe_to_speculatively_execute(inst) || continue
+            push!(candidates, inst)
+        end
+        isempty(candidates) && return PreservedAnalyses(AllAnalyses)
+        @dispose builder=IRBuilder() begin
+            position!(builder, LLVM.before(loop.preheader.terminator))
+            for inst in candidates
+                lhs, rhs = inst.operands
+                hoisted = binop!(builder, opcode, lhs, rhs, "hoisted")
+                forget!(se, inst)
+                replace_uses!(inst, hoisted)
+                erase!(inst)
+                remark!(ar, :passed, "hoist", "Hoisted", hoisted, "hoisted $(hoisted.name)")
+            end
+        end
+        mssa = get(ar, MemorySSA, nothing)
+        mssa === nothing || verify(mssa)
+        forget_loop_dispositions!(se)
+        return PreservedAnalyses(LoopAnalyses, CFGAnalyses, MemorySSA)
+    end
+
+    hoisted_opcodes(f) =
+        [LLVM.opcode(inst) for inst in f.entry.instructions if inst != f.entry.terminator]
+
+    # in loop and loop-mssa pipelines, and on its own
+    for pipeline in ["function(loop(hoist))", "function(loop-mssa(hoist))", "loop(hoist)",
+                     "loop-mssa(hoist)", "hoist", "hoist,hoist", "function(loop-mssa(hoist,licm))"]
+        @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+            mssa_seen = Ref{Any}()
+            @dispose pb=PassBuilder() begin
+                register!(pb, LoopPass("hoist", (loop, ar) -> begin
+                    mssa_seen[] = get(ar, MemorySSA, nothing)
+                    hoist!(loop, ar)
+                end))
+                add!(pb, pipeline)
+                run!(pb, mod)
+            end
+            f = mod.functions["f"]
+            @test LLVM.API.LLVMMul in hoisted_opcodes(f)
+            @test (mssa_seen[] isa MemorySSA) == occursin("mssa", pipeline)
+            @test verify(mod) === nothing
+        end
+    end
+
+    # running a loop pass directly
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        pass = LoopPass("hoist", hoist!)
+        run!(pass, mod)
+        @test hoisted_opcodes(mod.functions["f"]) == [LLVM.API.LLVMMul]
+    end
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        run!(LoopPass("hoist", hoist!), mod.functions["f"])
+        @test hoisted_opcodes(mod.functions["f"]) == [LLVM.API.LLVMMul]
+    end
+
+    # options
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        parse_opcode(str) = isempty(str) ? LLVM.API.LLVMMul :
+                            str == "add" ? LLVM.API.LLVMAdd : throw(ArgumentError(str))
+        @dispose pb=PassBuilder() begin
+            register!(pb, LoopPass("hoist", hoist!; parse_options=parse_opcode))
+            add!(pb, "hoist<add>")
+            run!(pb, mod)
+        end
+        @test hoisted_opcodes(mod.functions["f"]) == [LLVM.API.LLVMAdd]
+        @dispose pb=PassBuilder() begin
+            register!(pb, LoopPass("hoist", hoist!; parse_options=parse_opcode))
+            add!(pb, "function(loop-mssa(hoist,hoist<add>))")
+            run!(pb, mod)
+        end
+        # the add of the hoisted values is now invariant too
+        @test hoisted_opcodes(mod.functions["f"]) ==
+              [LLVM.API.LLVMAdd, LLVM.API.LLVMMul, LLVM.API.LLVMAdd]
+        @dispose pb=PassBuilder() begin
+            register!(pb, LoopPass("hoist", hoist!; parse_options=parse_opcode))
+            add!(pb, "function(loop(hoist<sub>))")
+            err = try run!(pb, mod) catch err err end
+            @test err isa LLVM.PassException
+            @test err.ex isa ArgumentError
+        end
+    end
+
+    # loop passes are known to LLVM by their own name, like other custom passes
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        pb = PassBuilder(debug_logging=true)
+        register!(pb, LoopPass("count", (loop, ar) -> PreservedAnalyses(AllAnalyses)))
+        register!(pb, LoopPass("count-with", (loop, ar, opts) -> PreservedAnalyses(AllAnalyses);
+                               parse_options=identity))
+        add!(pb, "function(loop-mssa(count,count-with<blocks>))")
+        @test sprint(print_pipeline, pb) ==
+              "function(loop-mssa(count,count-with<blocks>))"
+        io = IOCapture.capture() do
+            run!(pb, mod)
+        end
+        @test contains(io.output, "Running pass: count on ")
+        @test contains(io.output, "Running pass: count-with on ")
+        @test !contains(io.output, "JuliaCustom")
+        dispose(pb)
+    end
+
+    # passes without analyses, and the order in which loops are visited
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @nested(i64 %n) {
+        entry:
+          br label %outer
+        outer:
+          %i = phi i64 [ 0, %entry ], [ %i.next, %outer.latch ]
+          br label %inner
+        inner:
+          %j = phi i64 [ 0, %outer ], [ %j.next, %inner ]
+          %j.next = add i64 %j, 1
+          %cj = icmp ult i64 %j.next, %n
+          br i1 %cj, label %inner, label %outer.latch
+        outer.latch:
+          %i.next = add i64 %i, 1
+          %ci = icmp ult i64 %i.next, %n
+          br i1 %ci, label %outer, label %exit
+        exit:
+          ret void
+        }""") begin
+        visited = String[]
+        run!(LoopPass("visit", loop -> (push!(visited, loop.header.name); false);
+                      analyses=false), mod)
+        @test visited == ["inner", "outer"]
+    end
+
+    # scalar evolution caches what it knows, which a pass that changes the IR forgets
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        results = Dict{Symbol,String}()
+        run!(LoopPass("forget", (loop, ar) -> begin
+            se = ar[ScalarEvolution]
+            x = first(inst for inst in loop.header.instructions
+                       if LLVM.opcode(inst) == LLVM.API.LLVMMul)
+            results[:before] = string(se[x])
+            x.operands[2] = ConstantInt(Int64(3))
+            results[:stale] = string(se[x])
+            forget!(se, x)
+            results[:value] = string(se[x])
+            count = string(backedge_taken_count(se, loop))
+            cmp = first(loop.latch.terminator.operands)
+            cmp.operands[2] = ConstantInt(Int64(10))
+            forget!(se, loop)
+            results[:count] = count
+            results[:new_count] = string(backedge_taken_count(se, loop))
+            return PreservedAnalyses(LoopAnalyses, CFGAnalyses)
+        end), mod)
+        @test results[:before] == results[:stale]
+        @test results[:value] != results[:before]
+        @test occursin("3", results[:value])
+        @test occursin("%n", results[:count])
+        @test !occursin("%n", results[:new_count])
+    end
+
+    # remarks
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        remarks = Remark[]
+        @dispose pb=PassBuilder(; remarks=r -> push!(remarks, r)) begin
+            register!(pb, LoopPass("hoist", hoist!))
+            add!(pb, "function(loop-mssa(hoist))")
+            run!(pb, mod)
+        end
+        @test length(remarks) == 1
+        @test remarks[1].kind === :passed
+        @test remarks[1].pass_name == "hoist"
+        @test remarks[1].function_name == "f"
+        @test remarks[1].message == "hoisted hoisted"
+    end
+
+    # what a loop pass can return
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir()) begin
+        for (preserved, (ok_loop, ok_mssa)) in
+                [false => (true, true), true => (true, false),
+                 PreservedAnalyses(AllAnalyses) => (true, true),
+                 PreservedAnalyses(LoopAnalyses) => (true, false),
+                 PreservedAnalyses(LoopAnalyses, MemorySSA) => (true, true),
+                 PreservedAnalyses(LoopAnalyses, CFGAnalyses, MemorySSA) => (true, true),
+                 PreservedAnalyses(DomTree) => (false, false),
+                 PreservedAnalyses(FunctionAnalyses) => (false, false),
+                 42 => (false, false)]
+            for (pipeline, ok) in [("function(loop(ret))", ok_loop),
+                                   ("function(loop-mssa(ret))", ok_mssa)]
+                @dispose pb=PassBuilder() begin
+                    register!(pb, LoopPass("ret", (loop, ar) -> preserved))
+                    add!(pb, pipeline)
+                    if ok
+                        @test run!(pb, mod) === nothing
+                    else
+                        @test_throws LLVM.PassException run!(pb, mod)
+                    end
+                end
+            end
+        end
+        @test PreservedAnalyses(LoopAnalyses, MemorySSA) ==
+              PreservedAnalyses(MemorySSA, LoopAnalyses)
+        @test sprint(show, PreservedAnalyses(LoopAnalyses, CFGAnalyses)) ==
+              "PreservedAnalyses($(LoopAnalyses), $(CFGAnalyses))"
+        # loop analyses can't be preserved by other passes
+        @test_throws LLVM.PassException run!(FunctionPass("fun",
+            (f, am) -> PreservedAnalyses(LoopAnalyses); analyses=true), mod)
+        @test_throws LLVM.PassException run!(ModulePass("mod",
+            (m, am) -> PreservedAnalyses(MemorySSA); analyses=true), mod)
+
+        # the results are only valid during the pass
+        escaped = Ref{Any}()
+        run!(LoopPass("escape", (loop, ar) -> (escaped[] = ar; false)), mod)
+        @test_throws ArgumentError escaped[][DomTree]
+        @test_throws ArgumentError remark!(escaped[], :passed, "escape", "Escaped",
+                                           mod.functions["f"].entry.terminator, "")
+        # remarks are about instructions of the loop's function
+        err = try run!(LoopPass("detached", (loop, ar) -> begin
+            n = LLVM.parent(loop.header).parameters[2]
+            @dispose builder=IRBuilder() begin
+                # an instruction that is not part of a block
+                inst = add!(builder, n, n)
+                try
+                    remark!(ar, :passed, "detached", "Detached", inst, "")
+                finally
+                    LLVM.API.LLVMDeleteInstruction(inst)
+                end
+            end
+        end), mod) catch err err end
+        @test err isa LLVM.PassException && err.ex isa ArgumentError
+        # unsupported analyses
+        @test_throws LLVM.PassException run!(LoopPass("bad", (loop, ar) -> ar[PostDomTree]), mod)
+        @test_throws LLVM.PassException run!(LoopPass("nomssa", (loop, ar) -> ar[MemorySSA]), mod)
+    end
+
+    # required passes run on optnone functions
+    @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir(attrs="noinline optnone")) begin
+        optional_calls = Ref(0)
+        required_calls = Ref(0)
+        run!(LoopPass("probe", (loop, ar) -> (optional_calls[] += 1; false)), mod)
+        run!(LoopPass("probe", (loop, ar) -> (required_calls[] += 1; false);
+                      required=true), mod)
+        @test optional_calls[] == 0
+        @test required_calls[] == 1
+    end
+
+    # a failing loop pass aborts the pipeline, even in loop-mssa where it cannot claim to
+    # have preserved MemorySSA otherwise
+    for pipeline in ["function(loop(fail),count),count", "function(loop-mssa(fail),count),count",
+                     "function(loop-mssa(fail,count-loop),count)", "fail,count-loop"]
+        @dispose ctx=Context() mod=parse(LLVM.Module, loop_ir() * replace(loop_ir(), "@f" => "@g")) begin
+            attempts = Ref(0)
+            counts = Ref(0)
+            @dispose pb=PassBuilder() begin
+                register!(pb, LoopPass("fail", (loop, ar) -> begin
+                    attempts[] += 1
+                    # leave the IR changed
+                    hoist!(loop, ar)
+                    error("loop pass failed")
+                end))
+                register!(pb, LoopPass("count-loop", (loop, ar) -> (counts[] += 1; false);
+                                       required=true))
+                register!(pb, FunctionPass("count", f -> (counts[] += 1; false);
+                                           required=true))
+                register!(pb, ModulePass("count", f -> (counts[] += 1; false)))
+                add!(pb, pipeline)
+                err = try run!(pb, mod) catch err err end
+                @test err isa LLVM.PassException
+                @test err.ex isa ErrorException
+            end
+            @test attempts[] == 1
+            @test counts[] == 0
+        end
+    end
+
+    # MemorySSA can be verified after every pass of a loop-mssa pipeline
+    result = execute_code("""
+        using LLVM.Analysis
+        LLVM.clopts("-verify-memoryssa")
+        @dispose ctx=Context() begin
+            ir = supports_typed_pointers() ? $(repr(loop_ir(ptr="i64*"))) :
+                                             $(repr(loop_ir(ptr="ptr")))
+            mod = parse(LLVM.Module, ir)
+            function hoist!(loop, ar)
+                verify(ar[MemorySSA])
+                @dispose builder=IRBuilder() begin
+                    position!(builder, LLVM.before(loop.preheader.terminator))
+                    for inst in collect(loop.header.instructions)
+                        LLVM.opcode(inst) == LLVM.API.LLVMMul || continue
+                        hoisted = mul!(builder, inst.operands[1], inst.operands[2])
+                        forget!(ar[ScalarEvolution], inst)
+                        replace_uses!(inst, hoisted)
+                        erase!(inst)
+                    end
+                end
+                verify(ar[MemorySSA])
+                return PreservedAnalyses(LoopAnalyses, CFGAnalyses, MemorySSA)
+            end
+            @dispose pb=PassBuilder() begin
+                register!(pb, LoopPass("hoist", hoist!))
+                add!(pb, "function(loop-mssa(hoist,licm))")
+                run!(pb, mod)
+            end
+            println(string(mod))
+        end""")
+    result.success || println(result.err)
+    @test result.success
+    @test occursin("mul i64 %a, %b", result.out)
+end
+
 @testset "julia" begin
     @testset "passes" begin
         @dispose ctx=Context() pb=PassBuilder() begin

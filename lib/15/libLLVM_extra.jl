@@ -546,6 +546,10 @@ function LLVMExtraFunctionAnalysisManagerEmitRemark(AM, Kind, PassName, RemarkNa
     ccall((:LLVMExtraFunctionAnalysisManagerEmitRemark, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef, Cstring), AM, Kind, PassName, RemarkName, Inst, Message)
 end
 
+function LLVMExtraEmitRemark(Kind, PassName, RemarkName, Inst, Message)
+    ccall((:LLVMExtraEmitRemark, libLLVMExtra), Cvoid, (LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef, Cstring), Kind, PassName, RemarkName, Inst, Message)
+end
+
 mutable struct LLVMOpaqueModuleAnalysisManager end
 
 const LLVMModuleAnalysisManagerRef = Ptr{LLVMOpaqueModuleAnalysisManager}
@@ -1175,8 +1179,72 @@ function LLVMExtraLoopIsLoopInvariant(L, V)
     ccall((:LLVMExtraLoopIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMValueRef), L, V)
 end
 
+function LLVMExtraScalarEvolutionForgetValue(SE, V)
+    ccall((:LLVMExtraScalarEvolutionForgetValue, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef, LLVMValueRef), SE, V)
+end
+
+function LLVMExtraScalarEvolutionForgetLoop(SE, L)
+    ccall((:LLVMExtraScalarEvolutionForgetLoop, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef, LLVMLoopRef), SE, L)
+end
+
+function LLVMExtraScalarEvolutionForgetLoopDispositions(SE)
+    ccall((:LLVMExtraScalarEvolutionForgetLoopDispositions, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef,), SE)
+end
+
 function LLVMExtraIsSafeToSpeculativelyExecute(Inst, CxtI, AC, DT)
     ccall((:LLVMExtraIsSafeToSpeculativelyExecute, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMAssumptionCacheRef, LLVMDominatorTreeRef), Inst, CxtI, AC, DT)
+end
+
+mutable struct LLVMOpaqueMemorySSA end
+
+const LLVMMemorySSARef = Ptr{LLVMOpaqueMemorySSA}
+
+function LLVMExtraMemorySSAVerify(MSSA)
+    ccall((:LLVMExtraMemorySSAVerify, libLLVMExtra), Cvoid, (LLVMMemorySSARef,), MSSA)
+end
+
+mutable struct LLVMOpaqueLoopAnalysisManager end
+
+const LLVMLoopAnalysisManagerRef = Ptr{LLVMOpaqueLoopAnalysisManager}
+
+mutable struct LLVMOpaqueLoopStandardAnalysisResults end
+
+const LLVMLoopStandardAnalysisResultsRef = Ptr{LLVMOpaqueLoopStandardAnalysisResults}
+
+mutable struct LLVMOpaqueLPMUpdater end
+
+const LLVMLPMUpdaterRef = Ptr{LLVMOpaqueLPMUpdater}
+
+# typedef void ( * LLVMJuliaLoopPassCallback ) ( LLVMLoopRef L , LLVMLoopAnalysisManagerRef AM , LLVMLoopStandardAnalysisResultsRef AR , LLVMLPMUpdaterRef U , LLVMPreservedAnalysesRef PA , void * Thunk )
+const LLVMJuliaLoopPassCallback = Ptr{Cvoid}
+
+function LLVMExtraPassBuilderExtensionsRegisterLoopPass(Extensions, PassName, Callback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterLoopPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaLoopPassCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, Thunk, Required)
+end
+
+function LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass(Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaLoopPassCallback, LLVMJuliaPassParametersCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+end
+
+@cenum LLVMExtraLoopStandardAnalysis::UInt32 begin
+    LLVMExtraLoopAAResults = 0
+    LLVMExtraLoopAssumptionCache = 1
+    LLVMExtraLoopDominatorTree = 2
+    LLVMExtraLoopLoopInfo = 3
+    LLVMExtraLoopScalarEvolution = 4
+    LLVMExtraLoopTargetLibraryInfo = 5
+    LLVMExtraLoopTargetTransformInfo = 6
+    LLVMExtraLoopBlockFrequencyInfo = 7
+    LLVMExtraLoopBranchProbabilityInfo = 8
+    LLVMExtraLoopMemorySSA = 9
+end
+
+function LLVMExtraLoopStandardAnalysisResultsGet(AR, Analysis)
+    ccall((:LLVMExtraLoopStandardAnalysisResultsGet, libLLVMExtra), Ptr{Cvoid}, (LLVMLoopStandardAnalysisResultsRef, LLVMExtraLoopStandardAnalysis), AR, Analysis)
+end
+
+function LLVMExtraSetLoopPreservedAnalyses(PA, All, LoopAnalyses, CFG, MSSA)
+    ccall((:LLVMExtraSetLoopPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, LLVMBool, LLVMBool), PA, All, LoopAnalyses, CFG, MSSA)
 end
 
 function LLVMExtraDominatorTreeInstructionDominatesUse(Tree, Inst, U)

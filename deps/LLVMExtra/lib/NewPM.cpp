@@ -18,6 +18,7 @@
 #include <llvm/Transforms/IPO/Internalize.h>
 #include <llvm/Support/CBindingWrapping.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/Regex.h>
 
 #include <memory>
 #include <optional>
@@ -947,26 +948,27 @@ static void runPassManager(PassManager<IRUnitT> &PM, IRUnitT &IR,
 #endif
 }
 
-static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passes,
-                                   TargetMachine *Machine, LLVMPassBuilderOptions *PassOpts,
-                                   LLVMPassBuilderExtensions *PassExts) {
-  bool Debug = PassOpts->DebugLogging;
-  bool VerifyEach = PassOpts->VerifyEach;
-
-  PassInstrumentationCallbacks PIC;
+static PassBuilder createPassBuilder(TargetMachine *Machine, LLVMPassBuilderOptions *PassOpts,
+                                     PassInstrumentationCallbacks *PIC) {
 #if LLVM_VERSION_MAJOR >= 16
-  PassBuilder PB(Machine, PassOpts->PTO, std::nullopt, &PIC);
+  return PassBuilder(Machine, PassOpts->PTO, std::nullopt, PIC);
 #else
-  PassBuilder PB(Machine, PassOpts->PTO, None, &PIC);
+  return PassBuilder(Machine, PassOpts->PTO, None, PIC);
 #endif
+}
 
+// Set up a pass builder with the passes and callbacks of the extensions, and the passes
+// that LLVMExtra adds to those of LLVM.
+static void registerExtensions(PassBuilder &PB, PassInstrumentationCallbacks *PIC,
+                               LLVMPassBuilderExtensions *PassExts) {
   for (auto &Callback : PassExts->RegistrationCallbacks)
     Callback(&PB);
   // instrumentation selects passes by their pipeline name, e.g. `-print-before=NAME`, which
   // it looks up by class name. custom passes are reported under their own name, so map
   // that to itself.
-  for (auto &Name : PassExts->CustomPassNames)
-    PIC.addClassToPassName(Name, Name);
+  if (PIC)
+    for (auto &Name : PassExts->CustomPassNames)
+      PIC->addClassToPassName(Name, Name);
   for (auto &Callback : PassExts->ModulePipelineParsingCallbacks)
     PB.registerPipelineParsingCallback(Callback);
   for (auto &Callback : PassExts->FunctionPipelineParsingCallbacks)
@@ -1010,6 +1012,18 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
         return true;
       });
 #endif
+}
+
+static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passes,
+                                   TargetMachine *Machine, LLVMPassBuilderOptions *PassOpts,
+                                   LLVMPassBuilderExtensions *PassExts) {
+  bool Debug = PassOpts->DebugLogging;
+  bool VerifyEach = PassOpts->VerifyEach;
+
+  PassInstrumentationCallbacks PIC;
+  PassBuilder PB = createPassBuilder(Machine, PassOpts, &PIC);
+
+  registerExtensions(PB, &PIC, PassExts);
 
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
@@ -1104,6 +1118,95 @@ LLVMErrorRef LLVMRunJuliaPasses(LLVMModuleRef M, const char *Passes,
   LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
   Module *Mod = unwrap(M);
   return runJuliaPasses(Mod, nullptr, Passes, Machine, PassOpts, PassExts);
+}
+
+#if LLVM_VERSION_MAJOR < 19
+// Before LLVM 19, a pass builder only registers the pipeline names of LLVM's pass classes
+// with the instrumentation callbacks when an option asks for them, like
+// `-print-pipeline-passes` (a global option, which cannot be set safely while other threads
+// may use LLVM). Register them here instead: parse every pass and analysis that the pass
+// builder knows, and record the class name that it prints itself with.
+static void registerClassToPassNames(PassBuilder &PB, PassInstrumentationCallbacks &PIC) {
+  std::string Names;
+  raw_string_ostream NamesOS(Names);
+  PB.printPassNames(NamesOS);
+  NamesOS.flush();
+
+  SmallVector<StringRef, 0> Lines;
+  StringRef(Names).split(Lines, '\n');
+  std::optional<Regex> Printed;
+  bool AreAnalyses = false, HaveParams = false;
+  for (StringRef Line : Lines) {
+    // sections are headed like "Function passes:", "Function passes with params:" or
+    // "Function analyses:"
+    if (!Line.consume_front("  ")) {
+      AreAnalyses = Line.contains("analyses");
+      HaveParams = Line.contains("with params");
+      // how a pass or analysis that is parsed at the module level prints, using `@` for
+      // its class name: in the adaptors for its kind. this leaves out composite passes,
+      // like the module inliner, which print other passes.
+      StringRef Adaptors = StringSwitch<StringRef>(Line.split(' ').first)
+                               .Case("Module", "()")
+                               .Case("CGSCC", "(cgscc\\()")
+                               .Case("Function", "(function\\()")
+                               .Cases("LoopNest", "Loop", "(function\\(loop(-mssa)?\\()")
+                               .Default("");
+      if (Adaptors.empty())
+        Printed.reset();
+      else
+        Printed.emplace(("^" + Adaptors + "(require<)?@(<.*>)?>?\\)*$").str());
+      continue;
+    }
+    if (!Printed)
+      continue;
+    // passes with parameters are listed with the parameters they take
+    StringRef Name = HaveParams ? Line.split('<').first : Line;
+    ModulePassManager MPM;
+    std::string Pipeline = AreAnalyses ? ("require<" + Name + ">").str() : Name.str();
+    if (auto Err = PB.parsePassPipeline(MPM, Pipeline)) {
+      consumeError(std::move(Err));
+      continue;
+    }
+    std::string Text;
+    raw_string_ostream TextOS(Text);
+    StringRef ClassName;
+    MPM.printPipeline(TextOS, [&](StringRef Class) {
+      ClassName = Class;
+      return "@";
+    });
+    TextOS.flush();
+    if (!ClassName.empty() && Printed->match(Text) &&
+        PIC.getPassNameForClassName(ClassName).empty())
+      PIC.addClassToPassName(ClassName, Name);
+  }
+}
+#endif
+
+LLVMErrorRef LLVMExtraPrintJuliaPasses(const char *Passes, LLVMTargetMachineRef TM,
+                                       LLVMPassBuilderOptionsRef Options,
+                                       LLVMPassBuilderExtensionsRef Extensions,
+                                       char **Pipeline) {
+  PassInstrumentationCallbacks PIC;
+  PassBuilder PB = createPassBuilder(unwrap(TM), unwrap(Options), &PIC);
+#if LLVM_VERSION_MAJOR < 19
+  registerClassToPassNames(PB, PIC);
+#endif
+  registerExtensions(PB, &PIC, unwrap(Extensions));
+
+  ModulePassManager MPM;
+  if (auto Err = PB.parsePassPipeline(MPM, Passes))
+    return wrap(std::move(Err));
+
+  // like `opt -print-pipeline-passes`
+  std::string Str;
+  raw_string_ostream OS(Str);
+  MPM.printPipeline(OS, [&PIC](StringRef ClassName) {
+    auto PassName = PIC.getPassNameForClassName(ClassName);
+    return PassName.empty() ? ClassName : PassName;
+  });
+  OS.flush();
+  *Pipeline = strdup(Str.c_str());
+  return LLVMErrorSuccess;
 }
 
 LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,

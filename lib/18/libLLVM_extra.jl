@@ -499,6 +499,10 @@ function LLVMRunJuliaPassesOnFunction(F, Passes, TM, Options, Extensions)
     ccall((:LLVMRunJuliaPassesOnFunction, libLLVMExtra), LLVMErrorRef, (LLVMValueRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef), F, Passes, TM, Options, Extensions)
 end
 
+function LLVMExtraPrintJuliaPasses(Passes, TM, Options, Extensions, Pipeline)
+    ccall((:LLVMExtraPrintJuliaPasses, libLLVMExtra), LLVMErrorRef, (Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef, Ptr{Cstring}), Passes, TM, Options, Extensions, Pipeline)
+end
+
 # typedef LLVMBool ( * LLVMTTIASPairPredicateFn ) ( unsigned FromAS , unsigned ToAS , void * UserData )
 const LLVMTTIASPairPredicateFn = Ptr{Cvoid}
 

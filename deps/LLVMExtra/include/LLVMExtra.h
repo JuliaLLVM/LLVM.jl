@@ -462,6 +462,13 @@ LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,
                                           LLVMTargetMachineRef TM,
                                           LLVMPassBuilderOptionsRef Options,
                                           LLVMPassBuilderExtensionsRef Extensions);
+// Parse a module pipeline like `LLVMRunJuliaPasses` does, and print it with the names and
+// parameters that LLVM knows the passes by, like `opt -print-pipeline-passes`. The
+// printed pipeline should be disposed of with `LLVMDisposeMessage`.
+LLVMErrorRef LLVMExtraPrintJuliaPasses(const char *Passes, LLVMTargetMachineRef TM,
+                                       LLVMPassBuilderOptionsRef Options,
+                                       LLVMPassBuilderExtensionsRef Extensions,
+                                       char **Pipeline);
 
 // Custom TargetTransformInfo
 //

@@ -946,56 +946,7 @@ function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                        target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
                        pipeline::String, aa_pipeline::String, states, tti_state, ctx)
     GC.@preserve states tti_state aa_pipeline begin
-        # register custom passes
-        for (i,pass) in enumerate(pb.custom_passes)
-            if pass.parse_options !== nothing
-                parse_cb = @cfunction(parse_options_callback, Ptr{Cvoid},
-                                      (Cstring, Ptr{Cvoid}))
-                if pass.type === :module
-                    cb = @cfunction(module_callback_with_options, Cvoid,
-                                    (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
-                                     API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                    api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass
-                elseif pass.type === :function
-                    cb = @cfunction(function_callback_with_options, Cvoid,
-                                    (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
-                                     API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                    api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass
-                else
-                    throw(ArgumentError("invalid pass type $(pass.type)"))
-                end
-                api(exts, pass.name, cb, parse_cb, Ref(states, i), pass.required)
-                continue
-            elseif pass.type === :module && pass.analyses
-                cb = @cfunction(module_callback_with_analyses, Cvoid,
-                                (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
-                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                api = API.LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses
-            elseif pass.type === :module
-                cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Cvoid}))
-                api = API.LLVMPassBuilderExtensionsRegisterModulePassWithRequired
-            elseif pass.type === :function && pass.analyses
-                cb = @cfunction(function_callback_with_analyses, Cvoid,
-                                (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
-                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                api = API.LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses
-            elseif pass.type === :function
-                cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Cvoid}))
-                api = API.LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired
-            else
-                throw(ArgumentError("invalid pass type $(pass.type)"))
-            end
-            api(exts, pass.name, cb, Ref(states, i), pass.required)
-        end
-
-        # register Julia passes
-        julia_callback = cglobal(:jl_register_passbuilder_callbacks)
-        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
-
-        # register native callbacks
-        for callback in pb.registration_callbacks
-            API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, callback)
-        end
+        register_extensions!(exts, pb, states)
 
         # register AA pipeline
         if !isempty(aa_pipeline)
@@ -1020,25 +971,131 @@ function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
             end
         end
 
-        # exceptions caught in custom pass callbacks take precedence over LLVM's errors,
-        # e.g., the failure to parse the pipeline when parsing the options of a pass threw
-        exception = nothing
-        for state in states
-            if state.exception !== nothing
-                exception = state.exception
-                break
-            end
-        end
-        if exception === nothing && tti_state !== nothing
-            exception = tti_state.exception
-        end
-        if exception !== nothing
-            err == C_NULL || API.LLVMConsumeError(err)
-            throw(PassException(exception...))
-        end
-        @check err
+        check_custom_passes(err, states, tti_state)
         check_diagnostic(ctx)
     end
+end
+
+# register the custom passes and the registration callbacks of a pass builder with the
+# extensions that LLVM.jl passes to LLVM. the states of the custom passes need to be
+# preserved for as long as the extensions are used.
+function register_extensions!(exts::API.LLVMPassBuilderExtensionsRef, pb::PassBuilder,
+                              states::Vector{CustomPassState})
+    # register custom passes
+    for (i,pass) in enumerate(pb.custom_passes)
+        if pass.parse_options !== nothing
+            parse_cb = @cfunction(parse_options_callback, Ptr{Cvoid},
+                                  (Cstring, Ptr{Cvoid}))
+            if pass.type === :module
+                cb = @cfunction(module_callback_with_options, Cvoid,
+                                (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
+                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+                api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass
+            elseif pass.type === :function
+                cb = @cfunction(function_callback_with_options, Cvoid,
+                                (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
+                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+                api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass
+            else
+                throw(ArgumentError("invalid pass type $(pass.type)"))
+            end
+            api(exts, pass.name, cb, parse_cb, Ref(states, i), pass.required)
+            continue
+        elseif pass.type === :module && pass.analyses
+            cb = @cfunction(module_callback_with_analyses, Cvoid,
+                            (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
+                             API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+            api = API.LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses
+        elseif pass.type === :module
+            cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Cvoid}))
+            api = API.LLVMPassBuilderExtensionsRegisterModulePassWithRequired
+        elseif pass.type === :function && pass.analyses
+            cb = @cfunction(function_callback_with_analyses, Cvoid,
+                            (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
+                             API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+            api = API.LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses
+        elseif pass.type === :function
+            cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Cvoid}))
+            api = API.LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired
+        else
+            throw(ArgumentError("invalid pass type $(pass.type)"))
+        end
+        api(exts, pass.name, cb, Ref(states, i), pass.required)
+    end
+
+    # register Julia passes
+    julia_callback = cglobal(:jl_register_passbuilder_callbacks)
+    API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+
+    # register native callbacks
+    for callback in pb.registration_callbacks
+        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, callback)
+    end
+end
+
+# throw the error that LLVM returned, or an exception that was caught in a custom pass
+# callback, which takes precedence over LLVM's errors (e.g., the failure to parse the
+# pipeline when parsing the options of a pass threw)
+function check_custom_passes(err::API.LLVMErrorRef, states, tti_state=nothing)
+    exception = nothing
+    for state in states
+        if state.exception !== nothing
+            exception = state.exception
+            break
+        end
+    end
+    if exception === nothing && tti_state !== nothing
+        exception = tti_state.exception
+    end
+    if exception !== nothing
+        err == C_NULL || API.LLVMConsumeError(err)
+        throw(PassException(exception...))
+    end
+    @check err
+end
+
+@vocabulary Passes print_pipeline
+
+"""
+    print_pipeline([io::IO], pb::PassBuilder, [tm::TargetMachine])
+
+Print the pipeline of a pass builder as LLVM parses it, like LLVM's `opt
+-print-pipeline-passes` does: with the pass managers that LLVM inserts, every pass under the
+name it is known by, and the options of passes that take them. Pipelines like
+`"default<O2>"` are printed as the passes that they consist of. The pipeline is parsed at
+the module level, with the custom passes that were registered with the pass builder, and
+with the passes of the target machine `tm`, but it is not run.
+
+The printed pipeline can be added to a pass builder again. LLVM prints passes in this way
+on a best-effort basis, though: some passes are printed without some of their options, or
+under a name that cannot be parsed.
+
+```jldoctest; setup = :(using LLVM, LLVM.Passes)
+julia> @dispose pb=PassBuilder() begin
+         add!(pb, "globaldce,instsimplify")
+         print_pipeline(pb)
+       end
+globaldce,function(instsimplify)
+```
+"""
+print_pipeline(pb::PassBuilder, args...) = print_pipeline(stdout, pb, args...)
+
+function print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine}=nothing)
+    states = [CustomPassState(pass) for pass in pb.custom_passes]
+    exts = API.LLVMCreatePassBuilderExtensions()
+    try
+        GC.@preserve states begin
+            register_extensions!(exts, pb, states)
+            out = Ref{Cstring}()
+            err = API.LLVMExtraPrintJuliaPasses(string(pb), something(tm, C_NULL), pb, exts,
+                                                out)
+            check_custom_passes(err, states)
+            print(io, unsafe_message(out[]))
+        end
+    finally
+        API.LLVMDisposePassBuilderExtensions(exts)
+    end
+    return
 end
 
 function run!(pass::AbstractString, args...; kwargs...)

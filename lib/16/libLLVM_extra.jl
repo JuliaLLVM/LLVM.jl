@@ -369,6 +369,26 @@ function LLVMContextSupportsTypedPointers(C)
     ccall((:LLVMContextSupportsTypedPointers, libLLVMExtra), LLVMBool, (LLVMContextRef,), C)
 end
 
+function LLVMGetTargetExtTypeName(TargetExtTy)
+    ccall((:LLVMGetTargetExtTypeName, libLLVMExtra), Cstring, (LLVMTypeRef,), TargetExtTy)
+end
+
+function LLVMGetTargetExtTypeNumTypeParams(TargetExtTy)
+    ccall((:LLVMGetTargetExtTypeNumTypeParams, libLLVMExtra), Cuint, (LLVMTypeRef,), TargetExtTy)
+end
+
+function LLVMGetTargetExtTypeTypeParam(TargetExtTy, Idx)
+    ccall((:LLVMGetTargetExtTypeTypeParam, libLLVMExtra), LLVMTypeRef, (LLVMTypeRef, Cuint), TargetExtTy, Idx)
+end
+
+function LLVMGetTargetExtTypeNumIntParams(TargetExtTy)
+    ccall((:LLVMGetTargetExtTypeNumIntParams, libLLVMExtra), Cuint, (LLVMTypeRef,), TargetExtTy)
+end
+
+function LLVMGetTargetExtTypeIntParam(TargetExtTy, Idx)
+    ccall((:LLVMGetTargetExtTypeIntParam, libLLVMExtra), Cuint, (LLVMTypeRef, Cuint), TargetExtTy, Idx)
+end
+
 mutable struct LLVMOpaqueDominatorTree end
 
 const LLVMDominatorTreeRef = Ptr{LLVMOpaqueDominatorTree}

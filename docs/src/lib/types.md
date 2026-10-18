@@ -63,6 +63,13 @@ isliteral
 elements!
 ```
 
+## Target extension types
+
+```@docs
+LLVM.TargetExtType
+LLVM.TargetExtType(::AbstractString)
+```
+
 ## Other types
 
 ```@docs
@@ -70,4 +77,6 @@ LLVM.VoidType
 LLVM.LabelType
 LLVM.MetadataType
 LLVM.TokenType
+LLVM.X86AMXType
+LLVM.X86MMXType
 ```

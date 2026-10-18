@@ -777,6 +777,10 @@ function LLVMExtraCanInstructionHaveMMRAs(Inst)
     ccall((:LLVMExtraCanInstructionHaveMMRAs, libLLVMExtra), LLVMBool, (LLVMValueRef,), Inst)
 end
 
+function LLVMExtraConstantExprGetAsInstruction(CE)
+    ccall((:LLVMExtraConstantExprGetAsInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), CE)
+end
+
 function LLVMExtraTakeName(Val, From)
     ccall((:LLVMExtraTakeName, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Val, From)
 end

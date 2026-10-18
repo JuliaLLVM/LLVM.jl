@@ -199,6 +199,11 @@ ptr inttoptr (i64 42 to ptr)
 
 For the exact list of supported constant expressions, refer to the LLVM documentation.
 
+A single constant expression can also be turned into an equivalent instruction with
+`Instruction(ce)`, which is not part of any basic block until it is inserted with `move!`,
+or directly at a given position with `Instruction(LLVM.before(inst), ce)`. In both cases
+the uses of the constant expression are left to the caller to replace.
+
 Constant expressions (and constant aggregates) that wrap a given set of constants can be
 rewritten into equivalent instructions at each point of use, using
 `convert_users_to_instructions!`. This is useful when a constant needs to be replaced with a

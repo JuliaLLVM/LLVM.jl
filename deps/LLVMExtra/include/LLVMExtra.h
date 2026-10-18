@@ -749,6 +749,9 @@ void LLVMExtraDropUnknownNonDebugMetadata(LLVMValueRef Inst, const unsigned *Kno
 #if LLVM_VERSION_MAJOR >= 19
 LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst);
 #endif
+// a new instruction that computes the same value as a constant expression, with the same
+// operands, like ConstantExpr::getAsInstruction. It is not part of a basic block.
+LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE);
 
 // values
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);

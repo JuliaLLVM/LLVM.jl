@@ -1545,6 +1545,11 @@ LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst) {
 }
 #endif
 
+LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE) {
+  // LLVM 15-18 can also insert the instruction; it is inserted by the caller instead
+  return wrap(unwrap<ConstantExpr>(CE)->getAsInstruction());
+}
+
 
 //
 // values

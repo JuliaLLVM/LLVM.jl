@@ -60,6 +60,8 @@ remove_dead_constant_users!
 
 ```@docs
 LLVM.ConstantExpr
+Instruction(::LLVM.ConstantExpr)
+Instruction(::LLVM.InsertionPoint{Instruction}, ::LLVM.ConstantExpr)
 ```
 
 ```@autodocs

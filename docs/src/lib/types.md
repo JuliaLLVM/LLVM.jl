@@ -50,6 +50,7 @@ isemptytype
 
 ```@docs
 LLVM.VectorType
+LLVM.ScalableVectorType
 ```
 
 ## Structure types

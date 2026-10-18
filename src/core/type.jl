@@ -437,7 +437,8 @@ isemptytype(@nospecialize(T::ArrayType)) =
     LLVM.VectorType <: LLVMType
 
 A vector type, representing a fixed-size vector of identically-typed elements. Typically
-used for SIMD operations.
+used for SIMD operations. See [`ScalableVectorType`](@ref LLVM.ScalableVectorType) for
+vectors whose size is only known at run time.
 
 # Properties
 
@@ -470,9 +471,50 @@ vector_length(vectyp::VectorType) = Int(API.LLVMGetVectorSize(vectyp))
 
 @property VectorType length => vector_length
 
-element_type(typ::Union{ArrayType,VectorType}) = LLVMType(API.LLVMGetElementType(typ))
+"""
+    LLVM.ScalableVectorType <: LLVMType
 
-@property Union{ArrayType,VectorType} element_type
+A scalable vector type, representing a vector of identically-typed elements whose number is
+a multiple of a minimum number, the multiple (`vscale`) being a constant that is only known
+at run time (e.g., `<vscale x 4 x i32>`). Used for scalable SIMD extensions like SVE or
+the RISC-V vector extension.
+
+# Properties
+
+    vectyp.element_type
+
+The type of the elements of the vector type.
+
+    vectyp.min_length
+
+The minimum number of elements of the vector type, i.e., the number of elements when
+`vscale` is 1.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
+"""
+@checked struct ScalableVectorType <: LLVMType
+    ref::API.LLVMTypeRef
+end
+@vocabulary IR ScalableVectorType
+register(ScalableVectorType, API.LLVMScalableVectorTypeKind)
+
+"""
+    ScalableVectorType(eltyp::LLVMType, min_count)
+
+Create a scalable vector type with a multiple of `min_count` elements of type `eltyp`.
+"""
+function ScalableVectorType(eltyp::LLVMType, min_count)
+    return ScalableVectorType(API.LLVMScalableVectorType(eltyp, min_count))
+end
+
+min_length(vectyp::ScalableVectorType) = Int(API.LLVMGetVectorSize(vectyp))
+
+@property ScalableVectorType min_length
+
+element_type(typ::Union{ArrayType,VectorType,ScalableVectorType}) =
+    LLVMType(API.LLVMGetElementType(typ))
+
+@property Union{ArrayType,VectorType,ScalableVectorType} element_type
 
 
 ## structure types

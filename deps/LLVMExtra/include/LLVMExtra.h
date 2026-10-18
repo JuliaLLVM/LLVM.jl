@@ -1105,6 +1105,12 @@ LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef C
 typedef struct LLVMOpaqueMemorySSA *LLVMMemorySSARef;
 void LLVMExtraMemorySSAVerify(LLVMMemorySSARef MSSA);
 
+// the blocks of a loop in reverse post-order of a depth-first search from its header that
+// does not follow back edges (`LoopBlocksRPO`), written to the array if it is not NULL;
+// returns their number
+unsigned LLVMExtraLoopGetBlocksRPO(LLVMLoopRef L, LLVMLoopInfoRef LI,
+                                   LLVMBasicBlockRef *Blocks);
+
 // Custom loop passes, which run in a loop pass manager (`loop(...)` or `loop-mssa(...)`),
 // or on their own if their name is the first of a pipeline (like LLVM's loop passes). The
 // callback receives the loop, the loop analysis manager, the standard analysis results of

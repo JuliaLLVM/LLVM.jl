@@ -668,6 +668,265 @@ end
     end
 end
 
+@testset "remapping a module" begin
+    # a port of Julia's `RemoveAddrspaces` pass (for opaque pointers), which rebuilds every
+    # global value of a module to drop the address spaces from their types
+    function remove_addrspaces!(mod::LLVM.Module, asmap=as -> 0)
+        vmap = ValueMap()
+
+        mapped_types = Dict{LLVMType,LLVMType}()
+        function remap_type(typ)
+            haskey(mapped_types, typ) && return mapped_types[typ]
+            new = typ
+            if typ isa LLVM.PointerType
+                new = LLVM.PointerType(asmap(typ.addrspace))
+            elseif typ isa LLVM.FunctionType
+                new = LLVM.FunctionType(remap_type(typ.return_type),
+                                        LLVMType[remap_type(t) for t in typ.parameters];
+                                        vararg=isvararg(typ))
+            elseif typ isa LLVM.StructType
+                if isliteral(typ)
+                    new = LLVM.StructType(LLVMType[remap_type(t) for t in typ.elements];
+                                          packed=ispacked(typ))
+                elseif !isopaque(typ)
+                    new = LLVM.StructType("")
+                    name = typ.name
+                    if name !== nothing && !isempty(name)
+                        typ.name = name * ".bad"
+                        new.name = name
+                    end
+                    mapped_types[typ] = new
+                    elements!(new, LLVMType[remap_type(t) for t in typ.elements];
+                              packed=ispacked(typ))
+                end
+            elseif typ isa LLVM.ArrayType
+                new = LLVM.ArrayType(remap_type(typ.element_type), typ.length)
+            elseif typ isa LLVM.VectorType
+                new = LLVM.VectorType(remap_type(typ.element_type), typ.length)
+            elseif typ isa LLVM.ScalableVectorType
+                new = LLVM.ScalableVectorType(remap_type(typ.element_type), typ.min_length)
+            end
+            mapped_types[typ] = new
+        end
+
+        function materializer(val)
+            val isa ConstantExpr || return nothing
+            typ = remap_type(val.value_type)
+            if val.opcode == LLVM.Opcode.AddrSpaceCast
+                # fold casts between address spaces that are now the same
+                src = map_value(val.operands[1], vmap; type_mapper=remap_type, materializer)
+                return src.value_type.addrspace == typ.addrspace ? src : nothing
+            end
+            ops = Constant[something(map_value(op, vmap; type_mapper=remap_type,
+                                               materializer), op)
+                           for op in val.operands]
+            val.opcode == LLVM.Opcode.GetElementPtr && return nothing
+            return with_operands(val, ops; type=typ)
+        end
+        map(val) = map_value(val, vmap; type_mapper=remap_type, materializer)
+
+        function rename!(val)
+            name = val.name
+            isempty(name) || (val.name = name * ".bad")
+            return name
+        end
+        function copy_comdat!(dst, src)
+            c = src.comdat
+            c === nothing && return
+            new = Comdat(mod, c.name)
+            new.selection_kind = c.selection_kind
+            dst.comdat = new
+        end
+
+        # create the new global values
+        globals = collect(mod.globals)
+        for gv in globals
+            name = rename!(gv)
+            new = GlobalVariable(mod, remap_type(gv.global_value_type), name,
+                                 remap_type(gv.value_type).addrspace)
+            new.constant = gv.constant
+            new.linkage = gv.linkage
+            new.threadlocal_mode = gv.threadlocal_mode
+            copy_attributes!(new, gv)
+            vmap[gv] = new
+        end
+        aliases = collect(mod.aliases)
+        for ga in aliases
+            name = rename!(ga)
+            new = GlobalAlias(mod, remap_type(ga.global_value_type), name;
+                              addrspace=remap_type(ga.value_type).addrspace)
+            new.linkage = ga.linkage
+            copy_attributes!(new, ga)
+            vmap[ga] = new
+        end
+        functions = collect(mod.functions)
+        for f in functions
+            name = rename!(f)
+            new = LLVM.Function(mod, name, remap_type(f.function_type);
+                                addrspace=f.value_type.addrspace)
+            new.linkage = f.linkage
+            vmap[f] = new
+        end
+
+        # initializers, metadata and comdats of global variables
+        for gv in globals
+            isdeclaration(gv) && continue
+            new = vmap[gv]
+            new.initializer = map(gv.initializer)
+            for (kind, md) in gv.metadata
+                add_metadata!(new, kind, map_metadata(md, vmap))
+            end
+            copy_comdat!(new, gv)
+            gv.initializer = nothing
+        end
+
+        # keep the compile units, instead of duplicating them when cloning functions
+        if haskey(mod.metadata, "llvm.dbg.cu")
+            for cu in mod.metadata["llvm.dbg.cu"].operands
+                vmap.metadata[cu] = cu
+            end
+        end
+
+        # function bodies
+        for f in functions
+            new = vmap[f]
+            for (arg, new_arg) in zip(f.parameters, new.parameters)
+                new_arg.name = arg.name
+                vmap[arg] = new_arg
+            end
+            clone_into!(new, f; value_map=vmap, type_mapper=remap_type, materializer,
+                        changes=LLVM.CloneFunctionChangeType.GlobalChanges)
+
+            # attributes that contain types
+            for attrs in (new.return_attributes, new.parameter_attributes...)
+                for kind in (:byval, :sret, :byref)
+                    haskey(attrs, kind) || continue
+                    push!(attrs, TypeAttribute(kind, remap_type(attrs[kind].value)))
+                    break
+                end
+            end
+            copy_comdat!(new, f)
+
+            # remove casts between address spaces that are now the same
+            for bb in new.blocks, inst in collect(bb.instructions)
+                inst isa LLVM.AddrSpaceCastInst || continue
+                src = inst.operands[1]
+                src.value_type.addrspace == inst.value_type.addrspace || continue
+                replace_uses!(inst, src)
+                erase!(inst)
+            end
+            empty!(f)
+        end
+
+        for ga in aliases
+            aliasee = ga.aliasee
+            aliasee === nothing || (vmap[ga].aliasee = map(aliasee))
+            ga.aliasee = nothing
+        end
+
+        for (_, node) in mod.metadata
+            ops = node.operands
+            for i in eachindex(ops)
+                ops[i] = map_metadata(ops[i], vmap)
+            end
+        end
+
+        foreach(erase!, globals)
+        foreach(erase!, aliases)
+        foreach(erase!, functions)
+
+        for f in collect(mod.functions)
+            remangled = remangle_intrinsic(f)
+            remangled === nothing && continue
+            replace_uses!(f, remangled)
+            erase!(f)
+        end
+
+        dispose(vmap)
+        return mod
+    end
+
+    ir = """
+        %T = type { ptr addrspace(10), i64 }
+
+        \$g = comdat any
+
+        @g = addrspace(10) global %T zeroinitializer, comdat, !foo !0
+        @p = global ptr addrspace(11) addrspacecast (ptr addrspace(10) @g to ptr addrspace(11))
+        @q = global ptr addrspace(10) getelementptr inbounds (i8, ptr addrspace(10) @g, i64 8)
+        @a = alias %T, ptr addrspace(10) @g
+
+        declare void @llvm.memcpy.p10.p10.i64(ptr addrspace(10), ptr addrspace(10), i64, i1 immarg)
+
+        declare <vscale x 2 x ptr addrspace(10)> @sv(<vscale x 2 x ptr addrspace(10)>)
+
+        define void @f(ptr addrspace(10) byval(%T) %x, ptr addrspace(10) %y) !dbg !4 {
+          %c = addrspacecast ptr addrspace(10) %y to ptr addrspace(11)
+          %d = addrspacecast ptr addrspace(11) %c to ptr addrspace(10)
+          call void @llvm.memcpy.p10.p10.i64(ptr addrspace(10) %d, ptr addrspace(10) @a, i64 16, i1 false), !dbg !7
+          ret void
+        }
+
+        !llvm.dbg.cu = !{!1}
+        !llvm.module.flags = !{!3}
+
+        !0 = !{ptr addrspace(10) @g}
+        !1 = distinct !DICompileUnit(language: DW_LANG_Julia, file: !2, producer: "julia", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
+        !2 = !DIFile(filename: "f.jl", directory: ".")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !4 = distinct !DISubprogram(name: "f", scope: !2, file: !2, line: 1, type: !5, scopeLine: 1, spFlags: DISPFlagDefinition, unit: !1)
+        !5 = !DISubroutineType(types: !6)
+        !6 = !{}
+        !7 = !DILocation(line: 2, scope: !4)"""
+    @dispose ctx=Context(; opaque_pointers=true) mod=parse(LLVM.Module, ir) begin
+        cu = only(mod.metadata["llvm.dbg.cu"].operands)
+        remove_addrspaces!(mod)
+        @test verify(mod) === nothing
+        str = string(mod)
+        @test !occursin("addrspace", str)
+        @test !occursin(".bad", str)
+
+        T = ctx.types["T"]
+        @test collect(T.elements) == [LLVM.PointerType(), LLVM.Int64Type()]
+
+        g = mod.globals["g"]
+        @test g.global_value_type == T
+        @test g.comdat.name == "g"
+        @test Value(only(g.metadata["foo"].operands)) == g
+
+        # the cast to the same address space is folded, the GEP rebuilt
+        @test mod.globals["p"].initializer == g
+        q = mod.globals["q"].initializer
+        @test q isa ConstantExpr && q.opcode == LLVM.Opcode.GetElementPtr
+        @test q.operands[1] == g
+
+        a = mod.aliases["a"]
+        @test a.aliasee == g
+        @test a.global_value_type == T
+
+        f = mod.functions["f"]
+        @test f.function_type == LLVM.FunctionType(LLVM.VoidType(),
+                                                   [LLVM.PointerType(), LLVM.PointerType()])
+        @test f.parameter_attributes[1][:byval].value == T
+        insts = collect(f.entry.instructions)
+        @test length(insts) == 2
+        call = insts[1]
+        @test call.called_operand.name == "llvm.memcpy.p0.p0.i64"
+        @test call.operands[1] == f.parameters[2]
+        @test call.operands[2] == a
+
+        sv = mod.functions["sv"]
+        T_sv = LLVM.ScalableVectorType(LLVM.PointerType(), 2)
+        @test sv.function_type == LLVM.FunctionType(T_sv, [T_sv])
+
+        # debug info: the compile unit is kept, the subprogram is cloned (the verifier checks
+        # that its unit is listed in llvm.dbg.cu)
+        @test only(mod.metadata["llvm.dbg.cu"].operands) == cu
+        @test f.subprogram !== nothing
+        @test call.metadata[MD_dbg].scope == f.subprogram
+    end
+end
+
 @testset "basic block cloning" begin
     @dispose ctx=Context() begin
         # set-up

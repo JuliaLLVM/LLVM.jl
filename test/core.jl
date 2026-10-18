@@ -2234,6 +2234,15 @@ end
     @test dest.threadlocal
     @test dest.externally_initialized
     @test dest.alignment == 16
+
+    src = GlobalAlias(mod, LLVM.Int32Type(), "src_ga")
+    src.visibility = LLVM.Visibility.Hidden
+    src.unnamed_addr = LLVM.UnnamedAddr.Global
+    dest = GlobalAlias(mod, LLVM.Int32Type(), "dest_ga")
+    @test copy_attributes!(dest, src) === dest
+    @test dest.visibility == LLVM.Visibility.Hidden
+    @test dest.unnamed_addr == LLVM.UnnamedAddr.Global
+    @test dest.aliasee === nothing
 end
 
 # strings are passed to LLVM by their number of bytes, not characters

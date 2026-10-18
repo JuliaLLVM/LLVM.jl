@@ -133,25 +133,25 @@ Function(mod::Module, name::AbstractString, ft::FunctionType;
 """
     copy_attributes!(dest::LLVM.Function, src::LLVM.Function)
     copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+    copy_attributes!(dest::GlobalAlias, src::GlobalAlias)
+    copy_attributes!(dest::GlobalIFunc, src::GlobalIFunc)
 
 Copy the attributes of `src` that are not needed to create it to `dest`, like C++'s
 `copyAttributesFrom`, e.g., when replacing a function by one with a different signature.
-This copies the visibility, DLL storage class, `unnamed_addr`, thread-local mode,
-alignment and section, and for functions also the calling convention, garbage collector,
+This copies the visibility, DLL storage class, `unnamed_addr`, thread-local mode, whether
+the value is `dso_local`, and its partition, for functions, global variables and ifuncs also
+the alignment and section, and for functions also the calling convention, garbage collector,
 personality, and function, return and parameter attributes, and for global variables
 whether they are externally initialized, their attributes and code model. Returns `dest`.
 
-The name, linkage, body or initializer, and metadata are not copied. Parameter attributes
-are copied by position, so if the parameters of `dest` differ from those of `src`, fix up
-`dest.parameter_attributes` afterwards.
+The name, linkage, body, initializer or aliasee, and metadata are not copied. Parameter
+attributes are copied by position, so if the parameters of `dest` differ from those of
+`src`, fix up `dest.parameter_attributes` afterwards.
 COMDAT is not copied. If the source has no personality, prefix or prologue data, those
 fields on the destination are left as they were.
 """
-function copy_attributes!(dest::Function, src::Function)
-    API.LLVMExtraCopyAttributesFrom(dest, src)
-    return dest
-end
-function copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+function copy_attributes!(dest::T, src::T) where {T<:Union{Function,GlobalVariable,
+                                                         GlobalAlias,GlobalIFunc}}
     API.LLVMExtraCopyAttributesFrom(dest, src)
     return dest
 end

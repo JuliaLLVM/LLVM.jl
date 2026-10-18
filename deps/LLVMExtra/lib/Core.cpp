@@ -1568,8 +1568,12 @@ void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src) {
   Value *D = unwrap(Dst);
   if (auto *F = dyn_cast<Function>(D))
     F->copyAttributesFrom(unwrap<Function>(Src));
+  else if (auto *GV = dyn_cast<GlobalVariable>(D))
+    GV->copyAttributesFrom(unwrap<GlobalVariable>(Src));
+  else if (auto *GA = dyn_cast<GlobalAlias>(D))
+    GA->copyAttributesFrom(unwrap<GlobalAlias>(Src));
   else
-    unwrap<GlobalVariable>(Dst)->copyAttributesFrom(unwrap<GlobalVariable>(Src));
+    unwrap<GlobalIFunc>(Dst)->copyAttributesFrom(unwrap<GlobalIFunc>(Src));
 }
 
 LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,

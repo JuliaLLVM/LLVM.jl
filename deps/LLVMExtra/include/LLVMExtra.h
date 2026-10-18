@@ -754,6 +754,7 @@ LLVMBool LLVMExtraDoesNotCapture(LLVMValueRef V, int ArgNo);
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 
 // functions and global variables
+// Dst and Src are functions, global variables, aliases or ifuncs, of the same kind
 void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src);
 LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV);
 // like LLVMAddFunction, but in the given address space instead of the program one

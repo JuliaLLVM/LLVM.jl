@@ -151,6 +151,84 @@ end
     end
 end
 
+@testset "pipeline printing" begin
+    # passes are printed by their name, in the pass managers that LLVM inserts
+    @dispose pb=PassBuilder() begin
+        add!(pb, "globaldce,instsimplify")
+        @test sprint(print_pipeline, pb) == "globaldce,function(instsimplify)"
+        @test IOCapture.capture(() -> print_pipeline(pb)).output ==
+              "globaldce,function(instsimplify)"
+    end
+
+    # analyses, parameterized passes and the adaptors that LLVM inserts, by their name
+    for (pipeline, printed) in [
+            "require<domtree>,invalidate<all>" => "function(require<domtree>,invalidate<all>)",
+            "require<globals-aa>,invalidate<all>" => "require<globals-aa>,invalidate<all>",
+            "cgscc(inline)" => "cgscc(inline)",
+            "function(loop(licm),loop-mssa(licm))" =>
+                "function(loop(licm<allowspeculation>),loop-mssa(licm<allowspeculation>))"]
+        @dispose pb=PassBuilder() begin
+            add!(pb, pipeline)
+            @test sprint(print_pipeline, pb) == printed
+        end
+    end
+    @dispose pb=PassBuilder() begin
+        add!(pb, "function(loop-unroll<O2>,simplifycfg<bonus-inst-threshold=2>)")
+        @test startswith(sprint(print_pipeline, pb),
+                         "function(loop-unroll<O2>,simplifycfg<bonus-inst-threshold=2;")
+    end
+
+    # a default pipeline, which LLVM builds from passes that it does not parse
+    @dispose pb=PassBuilder() begin
+        add!(pb, "default<O2>")
+        printed = sprint(print_pipeline, pb)
+        @test occursin("function<eager-inv>(", printed)
+        @test occursin(r"cgscc\(.*inline", printed)
+        @test !occursin(r"[A-Z][A-Za-z]+(Pass|Analysis)\b", printed)
+    end
+
+    # custom passes are printed by their name and options, without running them
+    calls = Ref(0)
+    custom_passes = [FunctionPass("custom-pass", f -> (calls[] += 1; false)),
+                     ModulePass("custom-pass-with-options", (mod, opts) -> (calls[] += 1; false);
+                                parse_options=identity)]
+    pipeline = "custom-pass-with-options<some;option=1>,function(custom-pass)"
+    @dispose pb=PassBuilder() begin
+        foreach(pass -> register!(pb, pass), custom_passes)
+        add!(pb, pipeline)
+        @test sprint(print_pipeline, pb) == pipeline
+        @test calls[] == 0
+    end
+
+    # Julia's passes and pipeline
+    @dispose pb=PassBuilder() begin
+        add!(pb, JuliaPipeline(opt_level=2))
+        printed = sprint(print_pipeline, pb)
+        @test occursin("AllocOpt", printed)
+        @test !occursin("julia<", printed)
+    end
+
+    # with the passes of a target machine
+    host_triple = LLVM.default_triple()
+    host_t = LLVM.Target(triple=host_triple)
+    @dispose tm=LLVM.TargetMachine(host_t, host_triple) pb=PassBuilder() begin
+        add!(pb, "instsimplify")
+        @test sprint(print_pipeline, pb, tm) == "function(instsimplify)"
+    end
+
+    # errors
+    @dispose pb=PassBuilder() begin
+        add!(pb, "unknown-pass")
+        @test_throws LLVM.LLVMException print_pipeline(devnull, pb)
+    end
+    @dispose pb=PassBuilder() begin
+        register!(pb, ModulePass("bad-options", (mod, opts) -> false;
+                                 parse_options=str -> error("bad options")))
+        add!(pb, "bad-options<x>")
+        @test_throws LLVM.PassException print_pipeline(devnull, pb)
+    end
+end
+
 @testset "passes" begin
     function test_passes(typ, passes, skips=String[])
         @dispose ctx=Context() begin

@@ -781,6 +781,38 @@ function LLVMExtraIsInterposable(GV)
     ccall((:LLVMExtraIsInterposable, libLLVMExtra), LLVMBool, (LLVMValueRef,), GV)
 end
 
+function LLVMExtraAddFunctionInAddressSpace(M, Name, FunctionTy, AddrSpace)
+    ccall((:LLVMExtraAddFunctionInAddressSpace, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, Cstring, LLVMTypeRef, Cuint), M, Name, FunctionTy, AddrSpace)
+end
+
+function LLVMExtraAddAlias(M, ValueTy, AddrSpace, Aliasee, Name)
+    ccall((:LLVMExtraAddAlias, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, LLVMTypeRef, Cuint, LLVMValueRef, Cstring), M, ValueTy, AddrSpace, Aliasee, Name)
+end
+
+function LLVMExtraEraseGlobalAlias(Alias)
+    ccall((:LLVMExtraEraseGlobalAlias, libLLVMExtra), Cvoid, (LLVMValueRef,), Alias)
+end
+
+function LLVMExtraGlobalAddMetadata(Global, KindID, MD)
+    ccall((:LLVMExtraGlobalAddMetadata, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint, LLVMMetadataRef), Global, KindID, MD)
+end
+
+function LLVMExtraGetComdatName(C, Len)
+    ccall((:LLVMExtraGetComdatName, libLLVMExtra), Cstring, (LLVMComdatRef, Ptr{Csize_t}), C, Len)
+end
+
+function LLVMExtraRemangleIntrinsicFunction(Fn)
+    ccall((:LLVMExtraRemangleIntrinsicFunction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Fn)
+end
+
+function LLVMExtraStructSetName(StructTy, Name)
+    ccall((:LLVMExtraStructSetName, libLLVMExtra), Cvoid, (LLVMTypeRef, Cstring), StructTy, Name)
+end
+
+function LLVMExtraConstantExprGetWithOperands(CE, Ops, NumOps, Ty, SrcTy)
+    ccall((:LLVMExtraConstantExprGetWithOperands, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMTypeRef, LLVMTypeRef), CE, Ops, NumOps, Ty, SrcTy)
+end
+
 function LLVMExtraRemoveDeadConstantUsers(C)
     ccall((:LLVMExtraRemoveDeadConstantUsers, libLLVMExtra), Cvoid, (LLVMValueRef,), C)
 end

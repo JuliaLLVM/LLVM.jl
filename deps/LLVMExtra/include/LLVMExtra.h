@@ -137,6 +137,7 @@ typedef enum {
   LLVMCloneFunctionChangeTypeDifferentModule = 2,
   LLVMCloneFunctionChangeTypeClonedModule = 3
 } LLVMCloneFunctionChangeType;
+
 void LLVMCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
                            LLVMValueRef *ValueMap, unsigned ValueMapElements,
                            LLVMCloneFunctionChangeType Changes, const char *NameSuffix,
@@ -773,8 +774,33 @@ LLVMBool LLVMExtraDoesNotCapture(LLVMValueRef V, int ArgNo);
 unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 
 // functions and global variables
+// Dst and Src are functions, global variables, aliases or ifuncs, of the same kind
 void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src);
 LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV);
+// like LLVMAddFunction, but in the given address space instead of the program one
+LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
+                                                LLVMTypeRef FunctionTy, unsigned AddrSpace);
+// like LLVMAddAlias2, but Aliasee may be NULL
+LLVMValueRef LLVMExtraAddAlias(LLVMModuleRef M, LLVMTypeRef ValueTy, unsigned AddrSpace,
+                               LLVMValueRef Aliasee, const char *Name);
+void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias);
+// attach metadata to a global object, keeping existing attachments of the same kind (unlike
+// LLVMGlobalSetMetadata, which replaces them)
+void LLVMExtraGlobalAddMetadata(LLVMValueRef Global, unsigned KindID, LLVMMetadataRef MD);
+const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len);
+
+// the declaration of an overloaded intrinsic named after the types of its signature, if
+// its name doesn't match them (e.g., after changing address spaces), or NULL
+LLVMValueRef LLVMExtraRemangleIntrinsicFunction(LLVMValueRef Fn);
+
+// types
+void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name);
+
+// a constant expression like CE, but with the given operands and type (or that of CE if
+// Ty is NULL); SrcTy is the source element type of a GEP (NULL to keep that of CE)
+LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef *Ops,
+                                                  unsigned NumOps, LLVMTypeRef Ty,
+                                                  LLVMTypeRef SrcTy);
 
 // constants
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);

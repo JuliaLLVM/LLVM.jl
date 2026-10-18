@@ -60,6 +60,7 @@ remove_dead_constant_users!
 
 ```@docs
 LLVM.ConstantExpr
+with_operands
 ```
 
 ```@autodocs
@@ -91,6 +92,13 @@ Global variables are reordered using [`move!`](@ref).
 
 ```@docs
 GlobalAlias
+erase!(::GlobalAlias)
+```
+
+### COMDATs
+
+```@docs
+Comdat
 ```
 
 ### Global ifuncs

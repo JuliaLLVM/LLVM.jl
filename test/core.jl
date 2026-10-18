@@ -271,6 +271,22 @@ end
         @test collect(st.elements) == elem
         @test !isopaque(st)
     end
+
+    let st = LLVM.StructType("bar"), lit = LLVM.StructType(elem)
+        @test !isliteral(st)
+        @test isliteral(lit)
+        st.name = "baz"
+        @test st.name == "baz"
+        @test ctx.types["baz"] == st
+        @test !haskey(ctx.types, "bar")
+        # names are unique
+        other = LLVM.StructType("qux")
+        other.name = "baz"
+        @test other.name != "baz"
+        @test_throws ArgumentError lit.name = "lit"
+        # unnamed identified structures
+        @test !isliteral(LLVM.StructType(""))
+    end
 end
 
 # other
@@ -1142,6 +1158,37 @@ end
     end
 end
 
+# rebuilding constant expressions
+@dispose ctx=Context(; opaque_pointers=true) mod=LLVM.Module("SomeModule") begin
+    T_ptr10 = LLVM.PointerType(10)
+    gv = GlobalVariable(mod, LLVM.Int64Type(), "gv")
+    gv10 = GlobalVariable(mod, LLVM.Int64Type(), "gv10", 10)
+
+    ce = const_ptrtoint(gv, LLVM.Int64Type())
+    new = with_operands(ce, [gv10])
+    @test new isa ConstantExpr
+    @test new.opcode == LLVM.Opcode.PtrToInt
+    @test new.operands[1] == gv10
+    @test new.value_type == LLVM.Int64Type()
+
+    # with another type
+    ce = const_addrspacecast(gv, T_ptr10)
+    new = with_operands(ce, [gv10]; type=LLVM.PointerType())
+    @test new.opcode == LLVM.Opcode.AddrSpaceCast
+    @test new.value_type == LLVM.PointerType()
+
+    # getelementptr, with another source element type
+    ce = const_inbounds_gep(LLVM.Int64Type(), gv, [ConstantInt(Int64(1))])
+    new = with_operands(ce, [gv10, ConstantInt(Int64(2))]; type=T_ptr10)
+    @test new.source_element_type == LLVM.Int64Type()
+    @test new.operands[1] == gv10
+    @test new.value_type == T_ptr10
+    new = with_operands(ce, [gv, ConstantInt(Int64(2))]; source_type=LLVM.Int32Type())
+    @test new.source_element_type == LLVM.Int32Type()
+
+    @test_throws ArgumentError with_operands(ce, [gv])
+end
+
 # other constants
 @dispose ctx=Context() begin
     @testset "other constants" begin
@@ -1641,6 +1688,55 @@ end
     @test verify(mod) === nothing
 end
 
+# aliases that don't refer to anything yet
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeAS2Global", 2)
+    gv.initializer = ConstantInt(Int32(42))
+
+    ga = GlobalAlias(mod, LLVM.Int32Type(), "SomeAlias"; addrspace=2)
+    @test ga.global_value_type == LLVM.Int32Type()
+    @test ga.value_type.addrspace == 2
+    @test ga.aliasee === nothing
+    ga.aliasee = gv
+    @test ga.aliasee == gv
+    @test verify(mod) === nothing
+
+    # dropping the aliasee releases the use of the global
+    ga.aliasee = nothing
+    @test ga.aliasee === nothing
+    @test isempty(gv.uses)
+    erase!(ga)
+    erase!(gv)
+    @test isempty(mod.globals)
+end
+
+# comdats
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
+    gv.initializer = ConstantInt(Int32(42))
+    @test gv.comdat === nothing
+
+    c = Comdat(mod, "SomeComdat")
+    @test c.name == "SomeComdat"
+    @test c.selection_kind == LLVM.ComdatSelectionKind.Any
+    @test Comdat(mod, "SomeComdat") == c
+    show(devnull, c)
+
+    c.selection_kind = LLVM.ComdatSelectionKind.NoDeduplicate
+    @test c.selection_kind == LLVM.ComdatSelectionKind.NoDeduplicate
+    gv.comdat = c
+    @test gv.comdat == c
+    @test occursin("comdat(\$SomeComdat)", string(gv))
+    @test occursin("\$SomeComdat = comdat nodeduplicate", string(mod))
+
+    fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
+    fn.comdat = c
+    @test fn.comdat == c
+
+    gv.comdat = nothing
+    @test gv.comdat === nothing
+end
+
 # global ifuncs
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.Int32Type())
@@ -1740,6 +1836,14 @@ end
             delete!(gv.metadata, "another.kind")
             @test !haskey(gv.metadata, "another.kind")
         end
+
+        # global objects can have several attachments of the same kind
+        md2 = MDNode([MDString("y")])
+        @test add_metadata!(gv, MD_dbg, md) === gv
+        add_metadata!(gv, "dbg", md2)
+        @test collect(gv.metadata) == [MD_dbg => md, MD_dbg => md2]
+        gv.metadata[MD_dbg] = md
+        @test collect(gv.metadata) == [MD_dbg => md]
     end
 end
 
@@ -2204,6 +2308,15 @@ end
     @test dest.threadlocal
     @test dest.externally_initialized
     @test dest.alignment == 16
+
+    src = GlobalAlias(mod, LLVM.Int32Type(), "src_ga")
+    src.visibility = LLVM.Visibility.Hidden
+    src.unnamed_addr = LLVM.UnnamedAddr.Global
+    dest = GlobalAlias(mod, LLVM.Int32Type(), "dest_ga")
+    @test copy_attributes!(dest, src) === dest
+    @test dest.visibility == LLVM.Visibility.Hidden
+    @test dest.unnamed_addr == LLVM.UnnamedAddr.Global
+    @test dest.aliasee === nothing
 end
 
 # strings are passed to LLVM by their number of bytes, not characters
@@ -2410,6 +2523,37 @@ end
 
 
 @testset "function" begin
+
+# address spaces
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    @test LLVM.Function(mod, "f", ft).value_type.addrspace == 0
+    @test LLVM.Function(mod, "g", ft; addrspace=1).value_type.addrspace == 1
+    mod.datalayout = "P2"
+    @test LLVM.Function(mod, "h", ft).value_type.addrspace == 2
+end
+
+# remangling overloaded intrinsics after changing their signature
+@dispose ctx=Context(; opaque_pointers=true) mod=LLVM.Module("SomeModule") begin
+    T_ptr10 = LLVM.PointerType(10)
+    T_ptr = LLVM.PointerType()
+    args = [LLVM.Int64Type(), LLVM.Int1Type()]
+    bad = LLVM.Function(mod, "llvm.memcpy.p10.p10.i64",
+                        LLVM.FunctionType(LLVM.VoidType(), [T_ptr, T_ptr, args...]))
+    good = remangle_intrinsic(bad)
+    @test good isa LLVM.Function
+    @test good.name == "llvm.memcpy.p0.p0.i64"
+    @test good.function_type == bad.function_type
+    @test isintrinsic(good, Intrinsic("llvm.memcpy"))
+    @test remangle_intrinsic(good) === nothing
+
+    # functions that aren't (overloaded) intrinsics
+    @test remangle_intrinsic(LLVM.Function(mod, "foo", LLVM.FunctionType(LLVM.VoidType()))) === nothing
+    @test remangle_intrinsic(LLVM.Function(mod, Intrinsic("llvm.trap"))) === nothing
+    ok = LLVM.Function(mod, Intrinsic("llvm.memcpy"), [T_ptr10, T_ptr10, LLVM.Int32Type()])
+    @test ok.name == "llvm.memcpy.p10.p10.i32"
+    @test remangle_intrinsic(ok) === nothing
+end
 
 # personalities can be other constants referring to a function
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin

@@ -716,6 +716,14 @@ LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMVal
   return LLVMExtraNoGlobalReference;
 }
 
+LLVMValueRef LLVMExtraGetDSOLocalEquivalent(LLVMValueRef GV) {
+  return wrap(DSOLocalEquivalent::get(unwrap<GlobalValue>(GV)));
+}
+
+LLVMValueRef LLVMExtraGetNoCFIValue(LLVMValueRef GV) {
+  return wrap(NoCFIValue::get(unwrap<GlobalValue>(GV)));
+}
+
 LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuffix,
                                       LLVMValueRef *ValueMap, unsigned ValueMapElements,
                                       LLVMValueRef F) {

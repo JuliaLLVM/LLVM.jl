@@ -111,8 +111,18 @@ const instruction_opcodes = Vector{Type}(fill(Nothing, typemax(API.LLVMOpcode)+1
 function identify(::Type{Instruction}, ref::API.LLVMValueRef)
     opcode = API.LLVMGetInstructionOpcode(ref)
     typ = @inbounds instruction_opcodes[opcode+1]
-    typ === Nothing && error("Unknown type opcode $opcode")
+    typ === Nothing && return identify_unknown_value(ref, opcode)
     return typ
+end
+
+# LLVMGetValueKind reports values that the C API has no kind for as instructions; the
+# constants among them that LLVM.jl wraps are identified using LLVMExtra
+@noinline function identify_unknown_value(ref::API.LLVMValueRef, opcode)
+    gv, bb = Ref{API.LLVMValueRef}(), Ref{API.LLVMValueRef}()
+    kind = API.LLVMExtraGetGlobalReference(ref, gv, bb)
+    kind == API.LLVMExtraDSOLocalEquivalentReference && return DSOLocalEquivalent
+    kind == API.LLVMExtraNoCFIValueReference && return NoCFIValue
+    error("Unknown type opcode $opcode")
 end
 Base.@nospecializeinfer function register(@nospecialize(T::Type{<:Instruction}),
                                           opcode::API.LLVMOpcode)

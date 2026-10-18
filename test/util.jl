@@ -383,6 +383,44 @@ end
             dispose(other)
         end
 
+        # references to global values, which LLVM.jl has to wrap for the materializer
+        let ir = """
+                declare void @h()
+                define ptr @k() {
+                  call void dso_local_equivalent @h()
+                  ret ptr no_cfi @h
+                }
+                @dso = global ptr dso_local_equivalent @h
+                @nocfi = global ptr no_cfi @h"""
+            other = parse(LLVM.Module, ir)
+            h = other.functions["h"]
+            h2 = LLVM.Function(other, "h2", h.function_type)
+            for name in ("dso", "nocfi")
+                init = other.globals[name].initializer
+                ValueMap() do vmap
+                    vmap[h] = h2
+                    new = map_value(init, vmap; type_mapper=identity,
+                                    materializer=_ -> nothing)
+                    @test typeof(new) == typeof(init)
+                    @test new.global_value == h2
+                end
+            end
+            k = other.functions["k"]
+            k2 = LLVM.Function(other, "k2", k.function_type)
+            ValueMap() do vmap
+                vmap[h] = h2
+                clone_into!(k2, k; value_map=vmap, type_mapper=identity,
+                            materializer=_ -> nothing)
+            end
+            insts = collect(k2.entry.instructions)
+            @test insts[1].called_operand isa DSOLocalEquivalent
+            @test insts[1].called_operand.global_value == h2
+            @test insts[2].operands[1] isa NoCFIValue
+            @test insts[2].operands[1].global_value == h2
+            @test verify(other) === nothing
+            dispose(other)
+        end
+
         # inline assembly is mapped with its function type
         let ir = """
                 define void @f(ptr %p) {

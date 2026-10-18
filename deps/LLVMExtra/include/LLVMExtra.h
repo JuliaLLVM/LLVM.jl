@@ -220,6 +220,8 @@ typedef enum {
 } LLVMExtraGlobalReferenceKind;
 LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMValueRef *GV,
                                                          LLVMValueRef *BB);
+LLVMValueRef LLVMExtraGetDSOLocalEquivalent(LLVMValueRef GV);
+LLVMValueRef LLVMExtraGetNoCFIValue(LLVMValueRef GV);
 
 LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuffix,
                                       LLVMValueRef *ValueMap, unsigned ValueMapElements,

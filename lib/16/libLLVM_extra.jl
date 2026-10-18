@@ -297,6 +297,14 @@ function LLVMExtraGetGlobalReference(C, GV, BB)
     ccall((:LLVMExtraGetGlobalReference, libLLVMExtra), LLVMExtraGlobalReferenceKind, (LLVMValueRef, Ptr{LLVMValueRef}, Ptr{LLVMValueRef}), C, GV, BB)
 end
 
+function LLVMExtraGetDSOLocalEquivalent(GV)
+    ccall((:LLVMExtraGetDSOLocalEquivalent, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), GV)
+end
+
+function LLVMExtraGetNoCFIValue(GV)
+    ccall((:LLVMExtraGetNoCFIValue, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), GV)
+end
+
 function LLVMCloneBasicBlock(BB, NameSuffix, ValueMap, ValueMapElements, F)
     ccall((:LLVMCloneBasicBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMBasicBlockRef, Cstring, Ptr{LLVMValueRef}, Cuint, LLVMValueRef), BB, NameSuffix, ValueMap, ValueMapElements, F)
 end

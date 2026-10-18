@@ -52,6 +52,8 @@ BlockAddress(::BasicBlock)
 ConstantTokenNone
 ConstantTargetNone
 ConstantPtrAuth
+DSOLocalEquivalent
+NoCFIValue
 convert_users_to_instructions!
 remove_dead_constant_users!
 ```

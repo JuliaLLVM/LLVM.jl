@@ -1170,6 +1170,82 @@ function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
 end
 
 
+## scalar evolution invalidation
+
+@vocabulary Analysis forget!, forget_loop_dispositions!
+
+"""
+    forget!(se::ScalarEvolution, v::Value)
+    forget!(se::ScalarEvolution, loop::Loop)
+
+Make scalar evolution forget what it knows about the value `v` (and the values that use
+it), or about `loop` (and the loops nested in it, and the values defined in them), so that
+it is recomputed when it is queried next. A pass that changes a value or loop needs to do
+this when it keeps using the analysis, or when it claims that the analysis remains valid
+(e.g., a loop pass, see [`LoopPass`](@ref)).
+"""
+forget!(se::ScalarEvolution, v::Value) = (API.LLVMExtraScalarEvolutionForgetValue(se, v); se)
+forget!(se::ScalarEvolution, loop::Loop) = (API.LLVMExtraScalarEvolutionForgetLoop(se, loop); se)
+
+"""
+    forget_loop_dispositions!(se::ScalarEvolution)
+
+Make scalar evolution forget which expressions are invariant in which loops (and which
+loops their values are computed in), e.g., after a pass moved instructions out of a loop.
+"""
+forget_loop_dispositions!(se::ScalarEvolution) =
+    (API.LLVMExtraScalarEvolutionForgetLoopDispositions(se); se)
+
+
+## speculation
+
+@vocabulary Analysis is_safe_to_speculatively_execute
+
+"""
+    is_safe_to_speculatively_execute(inst::Instruction; at=nothing, assumptions=nothing,
+                                     domtree=nothing)
+
+Check whether the instruction can be executed without the conditions that guard it, e.g.,
+moved out of a loop or a conditional block: it has no side effects, and cannot trap or
+cause undefined behavior. The optional context instruction `at` (where the instruction
+would be executed), and the assumption cache and dominator tree that are used to reason
+about it, can prove more instructions safe (the assumption cache is only used since LLVM
+16). This does not check that the operands of the instruction are available, and for
+instructions that read memory (e.g., a load that is known to be dereferenceable), that
+moving them does not change the value they read.
+"""
+is_safe_to_speculatively_execute(inst::Instruction; at::Union{Nothing,Instruction}=nothing,
+                                 assumptions::Union{Nothing,AssumptionCache}=nothing,
+                                 domtree::Union{Nothing,DomTree}=nothing) =
+    API.LLVMExtraIsSafeToSpeculativelyExecute(inst, something(at, C_NULL),
+                                              something(assumptions, C_NULL),
+                                              something(domtree, C_NULL)) |> Bool
+
+
+## memory SSA
+
+@vocabulary Analysis MemorySSA
+
+"""
+    MemorySSA
+
+LLVM's MemorySSA analysis, which represents the memory operations of a function and the
+dependences between them in SSA form. It is provided to custom loop passes in a
+`loop-mssa(...)` pipeline (`ar[MemorySSA]`, see [`LoopAnalysisResults`](@ref)), which need
+to keep it up to date when they move or change memory operations.
+
+- `verify(mssa)`: check that it is consistent with the IR. This only checks something
+  with a build of LLVM that has assertions enabled, which aborts if it is not.
+"""
+@checked struct MemorySSA
+    ref::API.LLVMMemorySSARef
+end
+
+Base.unsafe_convert(::Type{API.LLVMMemorySSARef}, mssa::MemorySSA) = mssa.ref
+
+verify(mssa::MemorySSA) = (API.LLVMExtraMemorySSAVerify(mssa); nothing)
+
+
 ## constant folding and simplification
 
 @vocabulary IR constant_fold_cast, simplify_instruction

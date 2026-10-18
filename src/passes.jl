@@ -31,7 +31,7 @@ end
 """
     ModulePassManager()
     CGSCCPassManager()
-    FunctionPassManager()
+    FunctionPassManager(; eager_invalidate=false)
     LoopPassManager(; use_memory_ssa=false)
     AAManager()
 
@@ -47,6 +47,20 @@ add!(parent, ModulePassManager()) do mpm
     add!(mpm, SomeModulePass())
 end
 ```
+
+This form does not add pass managers that are left empty.
+
+With `eager_invalidate=true`, the analyses of each function are invalidated as soon as the
+passes of a function pass manager have run on it, rather than kept for the passes that come
+later (`function<eager-inv>`), which LLVM's pipelines do to save memory. With
+`use_memory_ssa=true`, a loop pass manager maintains MemorySSA for passes that require it
+(`loop-mssa`).
+
+An `AAManager` selects the alias analyses that passes use (in order), instead of LLVM's
+default ones, and can only be added to a pass builder. Unlike other pass managers, it is
+meaningful when empty: the passes then use no alias analysis. LLVM's default alias
+analyses include those of the target machine, which an `AAManager` only includes where it
+lists [`TargetAA()`](@ref TargetAA).
 
 See also: [`add!`](@ref), [`PassBuilder`](@ref)
 """
@@ -75,7 +89,8 @@ ModulePassManager() = PassManager("module")
 CGSCCPassManager() = PassManager("cgscc")
 
 @doc (@doc PassManager)
-FunctionPassManager() = PassManager("function")
+FunctionPassManager(; eager_invalidate::Bool=false) =
+    PassManager(eager_invalidate ? "function<eager-inv>" : "function")
 
 @doc (@doc PassManager)
 LoopPassManager(; use_memory_ssa=false) =
@@ -84,7 +99,7 @@ LoopPassManager(; use_memory_ssa=false) =
 
 ## custom passes
 
-@vocabulary Passes ModulePass, FunctionPass
+@vocabulary Passes ModulePass, FunctionPass, LoopPass
 
 """
     ModulePass(name, callback; required=false, analyses=false, parse_options=nothing)
@@ -96,6 +111,10 @@ run. The function should take a single argument, the module or function to be pr
 and return a boolean indicating whether the pass made any changes.
 Set `required=true` for a pass needed for correctness; LLVM then does not skip it on
 `optnone` functions or under `-opt-bisect-limit`.
+LLVM's instrumentation also knows the pass by its name, e.g., when listing the passes that
+run (with `debug_logging=true`), or when selecting passes to print the IR of (with LLVM's
+`-print-before=name` option). That does not work for a name that is also the class name of
+one of LLVM's passes, like `InstCombinePass`, which LLVM already knows by its own name.
 
 With `analyses=true`, a pass can use LLVM's analyses: the callback is then called with two
 arguments, the function and its [`FunctionAnalysisManager`](@ref) (for a function pass),
@@ -156,8 +175,13 @@ a pipeline. Exceptions thrown by the parser are rethrown as `PassException` by `
 
 Before using a custom pass, it must be registered with a pass builder using `register!`.
 LLVM.jl catches exceptions from these callbacks and rethrows them as `PassException`
-after control has returned from LLVM. Callbacks registered directly through the
-`LLVM.API.LLVMPassBuilderExtensionsRegister*Pass` APIs must provide an equivalent exception
+after control has returned from LLVM. The optional passes that remain to run in the
+pipeline are skipped then, as are custom passes even if they are required, since the IR may
+be inconsistent. This is not a guarantee that nothing uses it: LLVM's required passes (like
+the pass managers and adaptors, which skip the passes they contain) still run, and with
+`verify_each`, LLVM verifies the IR after the failing pass and aborts if it is invalid.
+Callbacks registered directly through the `LLVM.API.LLVMPassBuilderExtensionsRegister*Pass`
+APIs must provide an equivalent exception
 barrier: Julia exceptions must not escape a callback, because they bypass C++ destructors in
 LLVM's pass runner.
 
@@ -188,6 +212,61 @@ FunctionPass(name, callback; required::Bool=false, analyses::Bool=false,
              parse_options=nothing) =
     CustomPass(:function, name, callback, required, analyses, parse_options)
 
+"""
+    LoopPass(name, callback; required=false, analyses=true, parse_options=nothing)
+
+Create a custom loop pass, which runs on each loop of a function (innermost loops first) in
+a loop pass manager, i.e., in a `loop(...)` or `loop-mssa(...)` pipeline. Like LLVM's loop
+passes, it can also be used on its own (without MemorySSA) if its name is the first of a
+pipeline, e.g., `add!(pb, "my-loop-pass")`.
+
+The `callback` is called with the [`Loop`](@ref) and the [`LoopAnalysisResults`](@ref) of
+the loop pass manager, which provide the analyses that loop passes use (e.g.,
+`ar[ScalarEvolution]`). It returns the [`PreservedAnalyses`](@ref) describing the analyses
+that remain valid, typically `PreservedAnalyses(AllAnalyses)` if the pass did not change
+anything, and `PreservedAnalyses(LoopAnalyses)` (plus `CFGAnalyses` and `MemorySSA` as
+appropriate) if it did. With `analyses=false`, the callback is only called with the loop,
+and returns a boolean indicating whether it changed anything, like other custom passes.
+
+```julia
+function hoist!(loop::Loop, ar::LoopAnalysisResults)
+    se = ar[ScalarEvolution]
+    changed = ...
+    changed || return PreservedAnalyses(AllAnalyses)
+    return PreservedAnalyses(LoopAnalyses, CFGAnalyses, MemorySSA)
+end
+LoopPass("hoist", hoist!)
+```
+
+Loop passes need to respect the contract of LLVM's loop pass manager, which shares its
+analyses between all passes of the pipeline:
+
+- the dominator tree, loop info and scalar evolution of the function must be kept valid
+  by the pass (for scalar evolution, e.g., using [`forget!`](@ref)), as the loop pass
+  manager treats them as preserved, whatever the pass returns;
+- in a `loop-mssa` pipeline, MemorySSA must be kept valid as well, and the pass must
+  preserve it (`MemorySSA` or `AllAnalyses`); returning anything else is an error;
+- the pass should only change the loop it is called with (and the loops nested in it),
+  and not delete loops, as it cannot notify the loop pass manager of that;
+- the loop pass manager runs LLVM's `loop-simplify` and `lcssa` passes before the loop
+  passes, so loops are normally in their canonical form, which a pass should keep. That
+  can fail (e.g., for loops entered through an `indirectbr`), so a pass that needs a
+  preheader should check that `loop.preheader !== nothing`, like Julia's loop passes do.
+
+`required` and `parse_options` work like for [`FunctionPass`](@ref). If the callback
+throws an exception, the remaining passes of the pipeline are skipped as described for
+[`FunctionPass`](@ref), since the analyses that the loop pass manager shares may be stale,
+and `run!` throws a `PassException`. To keep the loop pass manager from aborting the
+process, a failing pass in a `loop-mssa` pipeline is reported to preserve MemorySSA. This
+is best-effort containment, not recovery from an arbitrary partial change of the IR:
+LLVM's required passes, like the pass managers and adaptors, still run and use analyses.
+
+See also: [`register!`](@ref), [`LoopAnalysisResults`](@ref)
+"""
+LoopPass(name, callback; required::Bool=false, analyses::Bool=true,
+         parse_options=nothing) =
+    CustomPass(:loop, name, callback, required, analyses, parse_options)
+
 # State struct to store callback and any caught exception
 mutable struct CustomPassState
     callback::Any
@@ -197,8 +276,19 @@ mutable struct CustomPassState
     pass::Union{Nothing,CustomPass}
     occurrences::Vector{Any}
 
-    CustomPassState(callback) = new(callback, nothing, nothing, [])
-    CustomPassState(pass::CustomPass) = new(pass.callback, nothing, pass, [])
+    # the extensions of the run, to abort it when the callback fails
+    exts::API.LLVMPassBuilderExtensionsRef
+
+    CustomPassState(callback) = new(callback, nothing, nothing, [], C_NULL)
+    CustomPassState(pass::CustomPass, exts=C_NULL) = new(pass.callback, nothing, pass, [], exts)
+end
+
+# record an exception thrown by a callback, and skip the rest of the pipeline, which could
+# otherwise run on inconsistent IR or analyses
+function fail_pass!(state::CustomPassState, err)
+    _capture_callback_exception!(state, err)
+    state.exts == C_NULL || API.LLVMExtraPassBuilderExtensionsAbort(state.exts)
+    return
 end
 
 # an occurrence of a pass with options in a pipeline
@@ -243,7 +333,7 @@ function module_callback(ref::API.LLVMModuleRef, thunk::Ptr{Cvoid})
         mod = LLVM.Module(ref)
         return state.callback(mod)::Bool
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
         # The callback may have changed IR before throwing. Invalidate all
         # analyses before surfacing the exception after LLVM returns.
         return true
@@ -257,7 +347,7 @@ function function_callback(ref::API.LLVMValueRef, thunk::Ptr{Cvoid})
         fun = LLVM.Function(ref)
         return state.callback(fun)::Bool
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
         # The callback may have changed IR before throwing. Invalidate all
         # analyses before surfacing the exception after LLVM returns.
         return true
@@ -277,7 +367,7 @@ function function_callback_with_analyses(ref::API.LLVMValueRef,
         preserved = state.callback(fun, FunctionAnalysisManager(am, fun))
         set_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
@@ -292,7 +382,7 @@ function module_callback_with_analyses(ref::API.LLVMModuleRef,
         preserved = state.callback(mod, ModuleAnalysisManager(am, mod))
         set_module_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
@@ -307,7 +397,7 @@ function parse_options_callback(params::Cstring, thunk::Ptr{Cvoid})
         push!(state.occurrences, occurrence)
         return pointer_from_objref(occurrence)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
         return C_NULL
     end
 end
@@ -327,7 +417,7 @@ function module_callback_with_options(ref::API.LLVMModuleRef,
         end
         set_module_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
@@ -347,16 +437,57 @@ function function_callback_with_options(ref::API.LLVMValueRef,
         end
         set_preserved!(pa, preserved)
     catch err
-        _capture_callback_exception!(state, err)
+        fail_pass!(state, err)
     end
     return
 end
 
 
+function loop_callback(ref::API.LLVMLoopRef, am::API.LLVMLoopAnalysisManagerRef,
+                       ar::API.LLVMLoopStandardAnalysisResultsRef, u::API.LLVMLPMUpdaterRef,
+                       pa::API.LLVMPreservedAnalysesRef, thunk::Ptr{Cvoid})
+    state = Base.unsafe_pointer_to_objref(thunk)::CustomPassState
+    run_loop_callback(state, (), ref, ar, u, pa)
+    return
+end
+
+function loop_callback_with_options(ref::API.LLVMLoopRef,
+                                    am::API.LLVMLoopAnalysisManagerRef,
+                                    ar::API.LLVMLoopStandardAnalysisResultsRef,
+                                    u::API.LLVMLPMUpdaterRef,
+                                    pa::API.LLVMPreservedAnalysesRef, thunk::Ptr{Cvoid})
+    occurrence = Base.unsafe_pointer_to_objref(thunk)::CustomPassOccurrence
+    run_loop_callback(occurrence.state, (occurrence.options,), ref, ar, u, pa)
+    return
+end
+
+function run_loop_callback(state::CustomPassState, options::Tuple, ref::API.LLVMLoopRef,
+                           ar::API.LLVMLoopStandardAnalysisResultsRef,
+                           u::API.LLVMLPMUpdaterRef, pa::API.LLVMPreservedAnalysesRef)
+    # the output object starts out as what LLVM should see if the pass fails
+    state.exception === nothing || return
+    loop = Loop(ref)
+    results = LoopAnalysisResults(ar, LPMUpdater(u), parent(header(loop)))
+    try
+        preserved = if state.pass.analyses
+            state.callback(loop, results, options...)
+        else
+            state.callback(loop, options...)::Bool
+        end
+        set_loop_preserved!(pa, preserved, results)
+    catch err
+        fail_pass!(state, err)
+    finally
+        results.valid = false
+    end
+    return
+end
+
 ## analysis managers
 
-@vocabulary Passes FunctionAnalysisManager, ModuleAnalysisManager, PreservedAnalyses,
-                   AllAnalyses, CFGAnalyses, FunctionAnalyses, invalidate!
+@vocabulary Passes FunctionAnalysisManager, ModuleAnalysisManager, LoopAnalysisResults,
+                   LPMUpdater, PreservedAnalyses, AllAnalyses, CFGAnalyses,
+                   FunctionAnalyses, LoopAnalyses, invalidate!
 
 """
     FunctionAnalysisManager
@@ -482,15 +613,88 @@ Base.getindex(am::ModuleAnalysisManager, T::Type) =
     throw(ArgumentError("$T is not a supported module analysis"))
 
 """
+    LPMUpdater
+
+The updater of a loop pass manager, through which a loop pass notifies the loop pass
+manager of changes to the loop nest. It is available as `ar.updater` from the
+[`LoopAnalysisResults`](@ref) of a custom loop pass, and like those, it must not be used
+after the pass returns. No operations are supported yet.
+"""
+struct LPMUpdater
+    ref::API.LLVMLPMUpdaterRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMLPMUpdaterRef}, u::LPMUpdater) = u.ref
+
+"""
+    LoopAnalysisResults
+
+The analyses that the loop pass manager of a pipeline provides to a custom loop pass
+(created using [`LoopPass`](@ref)), for the function containing the loop. These are the
+results of function analyses that the loop pass manager computes before running the loop
+passes, and keeps valid while they run, with the help of the passes:
+
+- `ar[T]`: the result of the analysis `T`, which is one of [`DomTree`](@ref),
+  [`LoopInfo`](@ref), [`ScalarEvolution`](@ref), [`AssumptionCache`](@ref) and
+  [`MemorySSA`](@ref). MemorySSA is only available in a `loop-mssa(...)` pipeline;
+- `get(ar, T, nothing)`: the same, or `nothing` if the result is not available (i.e., for
+  MemorySSA outside of a `loop-mssa(...)` pipeline);
+- `ar.updater`: the [`LPMUpdater`](@ref) of the loop pass manager.
+
+The results, and the object itself, are borrowed from the loop pass manager: they must not
+be used after the pass returns. Unlike the results that a function pass obtains, they are
+shared by all passes of the loop pipeline, so the pass must keep them up to date when it
+changes the IR (see [`LoopPass`](@ref)).
+"""
+mutable struct LoopAnalysisResults
+    const ref::API.LLVMLoopStandardAnalysisResultsRef
+    const updater::LPMUpdater
+    const fun::Function
+    valid::Bool
+end
+
+LoopAnalysisResults(ref::API.LLVMLoopStandardAnalysisResultsRef, updater, fun) =
+    LoopAnalysisResults(ref, updater, fun, true)
+
+Base.unsafe_convert(::Type{API.LLVMLoopStandardAnalysisResultsRef},
+                    ar::LoopAnalysisResults) = ar.ref
+
+Base.show(io::IO, ar::LoopAnalysisResults) = print(io, "LoopAnalysisResults()")
+
+loop_analysis_id(T::Type) =
+    throw(ArgumentError("$T is not an analysis that the loop pass manager provides"))
+loop_analysis_id(::Type{DomTree}) = API.LLVMExtraLoopDominatorTree
+loop_analysis_id(::Type{LoopInfo}) = API.LLVMExtraLoopLoopInfo
+loop_analysis_id(::Type{ScalarEvolution}) = API.LLVMExtraLoopScalarEvolution
+loop_analysis_id(::Type{AssumptionCache}) = API.LLVMExtraLoopAssumptionCache
+loop_analysis_id(::Type{MemorySSA}) = API.LLVMExtraLoopMemorySSA
+
+function Base.get(ar::LoopAnalysisResults, T::Type, default)
+    ar.valid || throw(ArgumentError("Loop analysis results cannot be used after the pass returned"))
+    ptr = API.LLVMExtraLoopStandardAnalysisResultsGet(ar, loop_analysis_id(T))
+    return ptr == C_NULL ? default : borrow_analysis(T, ptr)
+end
+
+function Base.getindex(ar::LoopAnalysisResults, T::Type)
+    result = get(ar, T, nothing)
+    result === nothing &&
+        throw(ArgumentError("$T is not available; MemorySSA requires a loop-mssa pipeline"))
+    return result
+end
+
+"""
     AllAnalyses
     CFGAnalyses
     FunctionAnalyses
+    LoopAnalyses
 
 Markers for sets of analyses, used with [`PreservedAnalyses`](@ref): `AllAnalyses` for every
 analysis, `CFGAnalyses` for the analyses that only depend on the control-flow graph of
 a function (like `DomTree` and `PostDomTree`), i.e., on its blocks and their terminators,
-and `FunctionAnalyses` (only for module passes) for the function analyses of every
-function of the module.
+`FunctionAnalyses` for the function analyses of the function (for a function pass), or
+of every function of the module (for a module pass), and `LoopAnalyses` (only for loop
+passes) for the analyses that a loop pass keeps valid when it changes a loop: the dominator
+tree, loop info and scalar evolution of the function.
 """
 struct AllAnalyses end
 
@@ -500,13 +704,17 @@ struct CFGAnalyses end
 @doc (@doc AllAnalyses)
 struct FunctionAnalyses end
 
+@doc (@doc AllAnalyses)
+struct LoopAnalyses end
+
 """
     PreservedAnalyses(analyses...)
 
 The set of analyses that remain valid after a custom pass, returned by a pass created using
-`FunctionPass(...; analyses=true)` or `ModulePass(...; analyses=true)`. Each argument is
-either an analysis (e.g. `DomTree`), or a marker for a set of analyses
-([`AllAnalyses`](@ref), [`CFGAnalyses`](@ref) or [`FunctionAnalyses`](@ref)):
+`FunctionPass(...; analyses=true)`, `ModulePass(...; analyses=true)` or `LoopPass`. Each
+argument is either an analysis (e.g. `DomTree`), or a marker for a set of analyses
+([`AllAnalyses`](@ref), [`CFGAnalyses`](@ref), [`FunctionAnalyses`](@ref) or
+[`LoopAnalyses`](@ref)):
 
 - `PreservedAnalyses()`: no analysis is preserved (like returning `true`);
 - `PreservedAnalyses(AllAnalyses)`: every analysis is preserved (like returning `false`);
@@ -519,30 +727,49 @@ invalidated the analyses of the functions it changed itself (using
 `invalidate!(am[f])`) can return `PreservedAnalyses(FunctionAnalyses)`, which keeps the
 cached function analyses of all other functions.
 
+A function pass that changed the function, but invalidated the analyses that it did not
+preserve itself, can similarly return `PreservedAnalyses(FunctionAnalyses)`: the function's
+analyses are then kept, while LLVM still knows that the function changed. This is what
+running passes from a function pass with [`run!(pb, f, am)`](@ref run!(::PassBuilder,
+::LLVM.Function, ::FunctionAnalysisManager)) returns when they changed the function.
+
+The analyses that are preserved by two passes that run one after the other are
+`intersect(a, b)`, like for LLVM's `PreservedAnalyses::intersect`: an analysis or set of
+analyses is preserved when both preserve it, or when one of them preserves all analyses.
+
+A loop pass can only preserve sets of analyses and MemorySSA: `PreservedAnalyses(AllAnalyses)`
+if it did not change anything, or `PreservedAnalyses(LoopAnalyses)` if it did, together
+with `CFGAnalyses` if it did not change the control-flow graph, and `MemorySSA` if it kept
+MemorySSA up to date (which is required in a `loop-mssa(...)` pipeline). See
+[`LoopPass`](@ref).
+
 See also: [`FunctionAnalysisManager`](@ref), [`invalidate!`](@ref)
 """
 struct PreservedAnalyses
     all::Bool
     functions::Bool
+    loop::Bool
     cfg::Bool
     analyses::Vector{Type}
 
     function PreservedAnalyses(analyses::Type...)
-        all = functions = cfg = false
+        all = functions = loop = cfg = false
         individual = Type[]
         for T in analyses
             if T === AllAnalyses
                 all = true
             elseif T === FunctionAnalyses
                 functions = true
+            elseif T === LoopAnalyses
+                loop = true
             elseif T === CFGAnalyses
                 cfg = true
             else
-                analysis_id(T)  # validate
+                T === MemorySSA || analysis_id(T)  # validate
                 T in individual || push!(individual, T)
             end
         end
-        return new(all, functions, cfg, individual)
+        return new(all, functions, loop, cfg, individual)
     end
 end
 
@@ -550,6 +777,7 @@ function Base.show(io::IO, pa::PreservedAnalyses)
     print(io, "PreservedAnalyses(")
     names = Any[pa.analyses...]
     pa.cfg && pushfirst!(names, CFGAnalyses)
+    pa.loop && pushfirst!(names, LoopAnalyses)
     pa.functions && pushfirst!(names, FunctionAnalyses)
     pa.all && pushfirst!(names, AllAnalyses)
     join(io, names, ", ")
@@ -557,29 +785,82 @@ function Base.show(io::IO, pa::PreservedAnalyses)
 end
 
 Base.:(==)(a::PreservedAnalyses, b::PreservedAnalyses) =
-    a.all == b.all && a.functions == b.functions && a.cfg == b.cfg &&
+    a.all == b.all && a.functions == b.functions && a.loop == b.loop && a.cfg == b.cfg &&
     issetequal(a.analyses, b.analyses)
 
 Base.convert(::Type{PreservedAnalyses}, changed::Bool) =
     changed ? PreservedAnalyses() : PreservedAnalyses(AllAnalyses)
 
-# pass a set of preserved function analyses to a C function `f(args..., all, cfg, ids, nids)`
+function Base.intersect(a::PreservedAnalyses, b::PreservedAnalyses)
+    a.all && return b
+    b.all && return a
+    sets = Type[]
+    a.functions && b.functions && push!(sets, FunctionAnalyses)
+    a.loop && b.loop && push!(sets, LoopAnalyses)
+    a.cfg && b.cfg && push!(sets, CFGAnalyses)
+    return PreservedAnalyses(sets..., intersect(a.analyses, b.analyses)...)
+end
+
+# the analyses that the function analysis manager knows, in the terms of `PreservedAnalyses`
+const function_analyses = (DomTree, PostDomTree, AssumptionCache, LazyValueInfo,
+                           ScalarEvolution, LoopInfo)
+
+# the preserved analyses of an LLVM `PreservedAnalyses` object, as far as they can be
+# expressed using the analyses that LLVM.jl knows
+function PreservedAnalyses(ref::API.LLVMPreservedAnalysesRef)
+    all, functions, cfg = Ref{API.LLVMBool}(), Ref{API.LLVMBool}(), Ref{API.LLVMBool}()
+    API.LLVMExtraGetPreservedAnalyses(ref, all, functions, cfg)
+    all[] == 1 && return PreservedAnalyses(AllAnalyses)
+    preserved = Type[]
+    functions[] == 1 && push!(preserved, FunctionAnalyses)
+    cfg[] == 1 && push!(preserved, CFGAnalyses)
+    for T in function_analyses
+        API.LLVMExtraPreservedAnalysesIsPreserved(ref, analysis_id(T)) == 1 &&
+            push!(preserved, T)
+    end
+    return PreservedAnalyses(preserved...)
+end
+
+# pass a set of preserved function analyses to a C function
+# `f(args..., all, functions, cfg, ids, nids)`
 function with_preserved(f, pa::PreservedAnalyses, args...)
-    pa.functions &&
-        throw(ArgumentError("FunctionAnalyses can only be preserved by a module pass"))
+    check_not_loop_preserved(pa)
     ids = API.LLVMExtraFunctionAnalysis[analysis_id(T) for T in pa.analyses]
-    f(args..., pa.all, pa.cfg, ids, length(ids))
+    f(args..., pa.all, pa.functions, pa.cfg, ids, length(ids))
 end
 
 set_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved) =
     with_preserved(API.LLVMExtraSetPreservedAnalyses,
                    convert(PreservedAnalyses, preserved)::PreservedAnalyses, ref)
 
+function check_not_loop_preserved(pa::PreservedAnalyses)
+    (pa.loop || MemorySSA in pa.analyses) &&
+        throw(ArgumentError("LoopAnalyses and MemorySSA can only be preserved by a loop pass"))
+end
+
 function set_module_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved)
     pa = convert(PreservedAnalyses, preserved)::PreservedAnalyses
+    check_not_loop_preserved(pa)
     ids = API.LLVMExtraFunctionAnalysis[analysis_id(T) for T in pa.analyses]
     API.LLVMExtraSetModulePreservedAnalyses(ref, pa.all, pa.functions, pa.cfg, ids,
                                             length(ids))
+end
+
+function set_loop_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved,
+                             ar::LoopAnalysisResults)
+    pa = convert(PreservedAnalyses, preserved)::PreservedAnalyses
+    pa.functions &&
+        throw(ArgumentError("FunctionAnalyses cannot be preserved by a loop pass"))
+    for T in pa.analyses
+        T === MemorySSA ||
+            throw(ArgumentError("A loop pass cannot preserve $T on its own; use LoopAnalyses"))
+    end
+    mssa = MemorySSA in pa.analyses
+    # the loop pass manager reports a fatal error otherwise
+    if !pa.all && !mssa && get(ar, MemorySSA, nothing) !== nothing
+        throw(ArgumentError("A loop pass in a loop-mssa pipeline needs to preserve MemorySSA"))
+    end
+    API.LLVMExtraSetLoopPreservedAnalyses(ref, pa.all, pa.loop, pa.cfg, mssa)
 end
 
 """
@@ -602,26 +883,11 @@ end
 
 ## optimization remarks
 
-@vocabulary Passes remark!, Remark
+@vocabulary Passes remark!, remark_enabled, Remark, RemarkFile
 
-"""
-    remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name, remark_name,
-            inst::Instruction, message)
-
-Emit an optimization remark about the instruction `inst` of the function of `am`, like
-LLVM's passes do using an `OptimizationRemarkEmitter`: with `kind=:passed` for an
-optimization that the pass performed, `kind=:missed` for one that it could not perform,
-or `kind=:analysis` for a fact that explains a decision. The `pass_name` and the
-`remark_name` identify the remark, and `message` describes it.
-
-Remarks are passed to the diagnostic handler of the context, where they can be collected
-using the `remarks` keyword argument of [`PassBuilder`](@ref) (also accepted by `run!`), or
-written to a file using LLVM's `-pass-remarks-output` option. Otherwise, they are logged
-as debug messages.
-"""
-function remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name::AbstractString,
-                 remark_name::AbstractString, inst::Instruction, message::AbstractString)
-    api_kind = if kind === :passed
+# the kind of a remark, by name
+function remark_kind(kind::Symbol)
+    if kind === :passed
         API.LLVMExtraRemarkPassed
     elseif kind === :missed
         API.LLVMExtraRemarkMissed
@@ -630,12 +896,146 @@ function remark!(am::FunctionAnalysisManager, kind::Symbol, pass_name::AbstractS
     else
         throw(ArgumentError("Invalid kind of remark :$kind; expected :passed, :missed or :analysis"))
     end
-    bb = parent(inst)
-    bb !== nothing && parent(bb) == am.fun ||
-        throw(ArgumentError("Instruction is not part of function $(am.fun.name)"))
-    API.LLVMExtraFunctionAnalysisManagerEmitRemark(am, api_kind, pass_name, remark_name,
-                                                   inst, message)
+end
+
+"""
+    remark_enabled(ctx::Context, kind::Symbol, pass_name) -> Bool
+
+Whether remarks of the given `kind` (`:passed`, `:missed` or `:analysis`) emitted by the
+pass `pass_name` are wanted in the context `ctx`: because they are collected using the
+`remarks` keyword argument of [`PassBuilder`](@ref) or `run!`, enabled for that pass
+using LLVM's `-pass-remarks`, `-pass-remarks-missed` or `-pass-remarks-analysis` options
+(see [`LLVM.clopts`](@ref)), or written to a [`RemarkFile`](@ref) that accepts the pass.
+A `remarks` callback wants all remarks of every pass, while LLVM's own passes only build
+theirs when they are enabled using these options or a remark file.
+
+The do-block form of [`remark!`](@ref) uses this to only build remarks that are wanted.
+A pass can also use it to skip work whose only purpose is to explain a decision in a
+remark, like LLVM's passes do using `OptimizationRemarkEmitter::allowExtraAnalysis`.
+"""
+function remark_enabled(ctx::Context, kind::Symbol, pass_name::AbstractString)
+    api_kind = remark_kind(kind)
+    state = diagnostic_state(ctx)
+    state !== nothing && state.remark_callback !== nothing && return true
+    return API.LLVMExtraIsRemarkEnabled(ctx, api_kind, pass_name) |> Bool
+end
+
+# check the parts of a remark's message before creating it, so that it isn't leaked
+check_remark_part(part::AbstractString) = nothing
+check_remark_part(part::Pair{<:AbstractString}) = check_remark_value(part.second)
+check_remark_part(part) =
+    throw(ArgumentError("Invalid part of a remark message: $(repr(part)); expected a string or a `key => value` pair"))
+check_remark_value(::Union{Value,LLVMType,AbstractString,Bool,Integer}) = nothing
+check_remark_value(value) =
+    throw(ArgumentError("Invalid value of a remark argument: $(repr(value)); expected a value, a type, a string or an integer"))
+
+append_remark_part!(ref, part::AbstractString) =
+    API.LLVMExtraOptimizationRemarkAppendString(ref, part)
+append_remark_part!(ref, part::Pair) = append_remark_arg!(ref, part.first, part.second)
+append_remark_arg!(ref, key, value::Value) =
+    API.LLVMExtraOptimizationRemarkAppendValue(ref, key, value)
+append_remark_arg!(ref, key, value::LLVMType) =
+    API.LLVMExtraOptimizationRemarkAppendType(ref, key, value)
+append_remark_arg!(ref, key, value::AbstractString) =
+    API.LLVMExtraOptimizationRemarkAppendNamedString(ref, key, value)
+append_remark_arg!(ref, key, value::Bool) =
+    API.LLVMExtraOptimizationRemarkAppendBool(ref, key, value)
+append_remark_arg!(ref, key, value::Signed) =
+    API.LLVMExtraOptimizationRemarkAppendInt(ref, key, Int64(value))
+append_remark_arg!(ref, key, value::Unsigned) =
+    API.LLVMExtraOptimizationRemarkAppendUnsigned(ref, key, UInt64(value))
+append_remark_arg!(ref, key, value::Integer) =
+    value < 0 ? API.LLVMExtraOptimizationRemarkAppendInt(ref, key, Int64(value)) :
+                API.LLVMExtraOptimizationRemarkAppendUnsigned(ref, key, UInt64(value))
+
+function emit_remark(am, kind::Symbol, pass_name::AbstractString,
+                     remark_name::AbstractString, inst::Instruction, parts)
+    api_kind = remark_kind(kind)
+    foreach(check_remark_part, parts)
+    ref = API.LLVMExtraCreateOptimizationRemark(api_kind, pass_name, remark_name, inst)
+    try
+        foreach(part -> append_remark_part!(ref, part), parts)
+    catch
+        API.LLVMExtraDisposeOptimizationRemark(ref)
+        rethrow()
+    end
+    # this disposes of the remark
+    API.LLVMExtraEmitOptimizationRemark(ref, am)
     return
+end
+
+function check_remark_inst(fun::Function, inst::Instruction)
+    bb = parent(inst)
+    bb !== nothing && parent(bb) == fun ||
+        throw(ArgumentError("Instruction is not part of function $(fun.name)"))
+end
+check_remark_target(am::FunctionAnalysisManager, inst::Instruction) =
+    check_remark_inst(am.fun, inst)
+function check_remark_target(ar::LoopAnalysisResults, inst::Instruction)
+    ar.valid || throw(ArgumentError("Loop analysis results cannot be used after the pass returned"))
+    check_remark_inst(ar.fun, inst)
+end
+
+# loop passes have no access to the function's cached remark emitter
+remark_emitter(am::FunctionAnalysisManager) = am
+remark_emitter(ar::LoopAnalysisResults) = C_NULL
+
+"""
+    remark!(f, am::FunctionAnalysisManager, kind::Symbol, pass_name, remark_name,
+            inst::Instruction)
+    remark!(f, ar::LoopAnalysisResults, kind::Symbol, pass_name, remark_name,
+            inst::Instruction)
+    remark!(am_or_ar, kind::Symbol, pass_name, remark_name, inst::Instruction, message...)
+
+Emit an optimization remark about the instruction `inst` of the function of `am` (or of a
+loop pass, given its [`LoopAnalysisResults`](@ref)), like LLVM's passes do using an
+`OptimizationRemarkEmitter`: with `kind=:passed` for an optimization that the pass
+performed, `kind=:missed` for one that it could not perform, or `kind=:analysis` for a
+fact that explains a decision. The `pass_name` and the `remark_name` identify the remark.
+
+The message of the remark is made of parts, each of which is either a string, or an
+argument `key => value` whose value is a value, a type, a string or an integer, like the
+`ore::NV(key, value)` arguments of LLVM's remarks. LLVM renders these arguments, so that
+they read like those of its own passes: a value as its name if it is an argument or a
+global, a constant as an operand, an intrinsic call as `call` and the name of the
+intrinsic (on LLVM 21 and later), and any other instruction as its opcode. The remark
+also carries the arguments separately, with the source location of a value that has one,
+as can be seen in a [`RemarkFile`](@ref).
+
+In the preferred do-block form, `f()` returns the message, as a single part or as a
+collection of parts, and is only called when remarks of this kind are wanted for the pass
+(see [`remark_enabled`](@ref)), so passes don't pay for building remarks that are
+discarded:
+
+```julia
+remark!(am, :passed, "my-pass", "Hoisted", inst) do
+    "hoisting ", "Inst" => inst, " out of the loop"
+end
+```
+
+Otherwise, the remark is always emitted, with the parts of the message passed as the
+final arguments.
+
+Remarks are passed to the diagnostic handler of the context, where they can be collected
+using the `remarks` keyword argument of [`PassBuilder`](@ref) (also accepted by `run!`),
+or written to a file using a [`RemarkFile`](@ref). Otherwise, they are logged as debug
+messages.
+"""
+function remark!(am::Union{FunctionAnalysisManager,LoopAnalysisResults}, kind::Symbol,
+                 pass_name::AbstractString, remark_name::AbstractString,
+                 inst::Instruction, message...)
+    check_remark_target(am, inst)
+    emit_remark(remark_emitter(am), kind, pass_name, remark_name, inst, message)
+end
+
+function remark!(f::Base.Callable, am::Union{FunctionAnalysisManager,LoopAnalysisResults},
+                 kind::Symbol, pass_name::AbstractString, remark_name::AbstractString,
+                 inst::Instruction)
+    check_remark_target(am, inst)
+    remark_enabled(context(inst), kind, pass_name) || return
+    message = f()
+    parts = message isa Union{AbstractString,Pair} ? (message,) : message
+    emit_remark(remark_emitter(am), kind, pass_name, remark_name, inst, parts)
 end
 
 """
@@ -650,7 +1050,9 @@ LLVM's passes. Its fields are:
 - `function_name`: the name of the function the remark is about;
 - `message`: the message of the remark;
 - `file`, `line`, `column`: the source location of the remark, from debug information,
-  or an empty file name if it is unknown.
+  or an empty file name if it is unknown;
+- `arguments`: the parts that make up the message, as `key => value` pairs of strings,
+  with the key `"String"` for plain text, and LLVM's rendering of other values.
 """
 struct Remark
     kind::Symbol
@@ -661,6 +1063,7 @@ struct Remark
     file::String
     line::Int
     column::Int
+    arguments::Vector{Pair{String,String}}
 end
 
 # the remark of a diagnostic, or nothing if it isn't an optimization remark
@@ -673,8 +1076,14 @@ function Remark(di::DiagnosticInfo)
     pass_name, name, function_name, message, file = map(ref -> unsafe_message(ref[]), strs)
     kind_sym = kind[] == API.LLVMExtraRemarkPassed ? :passed :
                kind[] == API.LLVMExtraRemarkMissed ? :missed : :analysis
+    arguments = map(0:Int(API.LLVMExtraGetRemarkNumArguments(di))-1) do i
+        key = Ref{Cstring}()
+        value = Ref{Cstring}()
+        API.LLVMExtraGetRemarkArgument(di, i, key, value)
+        unsafe_message(key[]) => unsafe_message(value[])
+    end
     return Remark(kind_sym, pass_name, name, function_name, message, file, line[],
-                  column[])
+                  column[], arguments)
 end
 
 function Base.show(io::IO, remark::Remark)
@@ -682,6 +1091,43 @@ function Base.show(io::IO, remark::Remark)
           repr(remark.name), ", ", repr(remark.function_name), ", ", repr(remark.message),
           ")")
 end
+
+"""
+    RemarkFile(path; passes="", format="yaml")
+    RemarkFile(f, path; kwargs...)
+
+Write the optimization remarks emitted in the current context to the file at `path`,
+like the `-pass-remarks-output` option of LLVM's tools, until the remark file is disposed
+of. The `format` is any that LLVM supports for remark files: `"yaml"`, or, on LLVM 22 and
+later, `"bitstream"` (older versions of LLVM write bitstream remarks for a string table
+that is stored elsewhere, in an object file). `passes` is a regular expression that limits
+the remarks to those of the passes whose name it matches. Remarks are written regardless of whether they are
+enabled using `-pass-remarks` options, also by LLVM's own passes, and still passed to the
+diagnostic handler of the context (e.g., the `remarks` callback of a [`PassBuilder`](@ref)).
+
+A context can only write remarks to one file at a time, and the remark file needs to be
+disposed of before the context, e.g., using the do-block form.
+"""
+mutable struct RemarkFile
+    ref::API.LLVMRemarkFileRef
+end
+
+Base.unsafe_convert(::Type{API.LLVMRemarkFileRef}, file::RemarkFile) = mark_use(file).ref
+
+function RemarkFile(path::AbstractString; passes::AbstractString="",
+                    format::AbstractString="yaml")
+    ctx = context()
+    error_ref = Ref{Cstring}()
+    ref = API.LLVMExtraCreateRemarkFile(ctx, path, passes, format, error_ref)
+    ref == C_NULL && throw(LLVMException(unsafe_message(error_ref[])))
+    # not owned by the context, which doesn't dispose of it
+    mark_alloc(RemarkFile(ref))
+end
+
+RemarkFile(f::Core.Function, args...; kwargs...) =
+    with_disposal(f, RemarkFile(args...; kwargs...))
+
+dispose(file::RemarkFile) = mark_dispose(API.LLVMExtraDisposeRemarkFile, file)
 
 
 ## pass builder
@@ -892,7 +1338,8 @@ run!
 function run!(pb::PassBuilder, target::Union{Module,Function}, tm::Union{Nothing,TargetMachine}=nothing)
     isempty(pb.passes) && return
     pipeline = join(pb.passes, ",")
-    aa_pipeline = join(pb.aa_passes, ",")
+    # without an AA manager, LLVM uses its default alias analyses
+    aa_pipeline = isempty(pb.aa_passes) ? nothing : join(filter(!isempty, pb.aa_passes), ",")
 
     # XXX: The Base API is too restricted, not supporting custom passes
     #      or Julia's pass registration callback
@@ -910,9 +1357,9 @@ end
 
 function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                      target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
-                     pipeline::String, aa_pipeline::String)
+                     pipeline::String, aa_pipeline::Union{Nothing,String})
     # Create state objects to hold callbacks and any caught exceptions
-    states = [CustomPassState(pass) for pass in pb.custom_passes]
+    states = [CustomPassState(pass, exts) for pass in pb.custom_passes]
     tti_state = pb.custom_tti === nothing ? nothing :
                 install_custom_tti!(exts, pb.custom_tti)
     ctx = context(target)
@@ -940,61 +1387,13 @@ end
 
 function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                        target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
-                       pipeline::String, aa_pipeline::String, states, tti_state, ctx)
+                       pipeline::String, aa_pipeline::Union{Nothing,String}, states,
+                       tti_state, ctx)
     GC.@preserve states tti_state aa_pipeline begin
-        # register custom passes
-        for (i,pass) in enumerate(pb.custom_passes)
-            if pass.parse_options !== nothing
-                parse_cb = @cfunction(parse_options_callback, Ptr{Cvoid},
-                                      (Cstring, Ptr{Cvoid}))
-                if pass.type === :module
-                    cb = @cfunction(module_callback_with_options, Cvoid,
-                                    (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
-                                     API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                    api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass
-                elseif pass.type === :function
-                    cb = @cfunction(function_callback_with_options, Cvoid,
-                                    (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
-                                     API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                    api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass
-                else
-                    throw(ArgumentError("invalid pass type $(pass.type)"))
-                end
-                api(exts, pass.name, cb, parse_cb, Ref(states, i), pass.required)
-                continue
-            elseif pass.type === :module && pass.analyses
-                cb = @cfunction(module_callback_with_analyses, Cvoid,
-                                (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
-                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                api = API.LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses
-            elseif pass.type === :module
-                cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Cvoid}))
-                api = API.LLVMPassBuilderExtensionsRegisterModulePassWithRequired
-            elseif pass.type === :function && pass.analyses
-                cb = @cfunction(function_callback_with_analyses, Cvoid,
-                                (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
-                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
-                api = API.LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses
-            elseif pass.type === :function
-                cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Cvoid}))
-                api = API.LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired
-            else
-                throw(ArgumentError("invalid pass type $(pass.type)"))
-            end
-            api(exts, pass.name, cb, Ref(states, i), pass.required)
-        end
-
-        # register Julia passes
-        julia_callback = cglobal(:jl_register_passbuilder_callbacks)
-        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
-
-        # register native callbacks
-        for callback in pb.registration_callbacks
-            API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, callback)
-        end
+        register_extensions!(exts, pb, states)
 
         # register AA pipeline
-        if !isempty(aa_pipeline)
+        if aa_pipeline !== nothing
             if version() >= v"20"
                 API.LLVMPassBuilderOptionsSetAAPipeline(pb, aa_pipeline)
             else
@@ -1011,29 +1410,233 @@ function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
             end
         finally
             # the options keep a pointer to the AA pipeline, which is only valid during the run
-            if !isempty(aa_pipeline) && version() >= v"20"
+            if aa_pipeline !== nothing && version() >= v"20"
                 API.LLVMPassBuilderOptionsSetAAPipeline(pb, C_NULL)
             end
         end
 
-        # exceptions caught in custom pass callbacks take precedence over LLVM's errors,
-        # e.g., the failure to parse the pipeline when parsing the options of a pass threw
-        exception = nothing
-        for state in states
-            if state.exception !== nothing
-                exception = state.exception
-                break
+        check_custom_passes(err, states, tti_state)
+        check_diagnostic(ctx)
+    end
+end
+
+# register the custom passes and the registration callbacks of a pass builder with the
+# extensions that LLVM.jl passes to LLVM. the states of the custom passes need to be
+# preserved for as long as the extensions are used.
+function register_extensions!(exts::API.LLVMPassBuilderExtensionsRef, pb::PassBuilder,
+                              states::Vector{CustomPassState})
+    # register custom passes
+    for (i,pass) in enumerate(pb.custom_passes)
+        if pass.parse_options !== nothing
+            parse_cb = @cfunction(parse_options_callback, Ptr{Cvoid},
+                                  (Cstring, Ptr{Cvoid}))
+            if pass.type === :module
+                cb = @cfunction(module_callback_with_options, Cvoid,
+                                (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
+                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+                api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass
+            elseif pass.type === :function
+                cb = @cfunction(function_callback_with_options, Cvoid,
+                                (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
+                                 API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+                api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass
+            elseif pass.type === :loop
+                cb = @cfunction(loop_callback_with_options, Cvoid,
+                                (API.LLVMLoopRef, API.LLVMLoopAnalysisManagerRef,
+                                 API.LLVMLoopStandardAnalysisResultsRef,
+                                 API.LLVMLPMUpdaterRef, API.LLVMPreservedAnalysesRef,
+                                 Ptr{Cvoid}))
+                api = API.LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass
+            else
+                throw(ArgumentError("invalid pass type $(pass.type)"))
+            end
+            api(exts, pass.name, cb, parse_cb, Ref(states, i), pass.required)
+            continue
+        elseif pass.type === :module && pass.analyses
+            cb = @cfunction(module_callback_with_analyses, Cvoid,
+                            (API.LLVMModuleRef, API.LLVMModuleAnalysisManagerRef,
+                             API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+            api = API.LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses
+        elseif pass.type === :module
+            cb = @cfunction(module_callback, Bool, (API.LLVMModuleRef, Ptr{Cvoid}))
+            api = API.LLVMPassBuilderExtensionsRegisterModulePassWithRequired
+        elseif pass.type === :function && pass.analyses
+            cb = @cfunction(function_callback_with_analyses, Cvoid,
+                            (API.LLVMValueRef, API.LLVMFunctionAnalysisManagerRef,
+                             API.LLVMPreservedAnalysesRef, Ptr{Cvoid}))
+            api = API.LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses
+        elseif pass.type === :function
+            cb = @cfunction(function_callback, Bool, (API.LLVMValueRef, Ptr{Cvoid}))
+            api = API.LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired
+        elseif pass.type === :loop
+            cb = @cfunction(loop_callback, Cvoid,
+                            (API.LLVMLoopRef, API.LLVMLoopAnalysisManagerRef,
+                             API.LLVMLoopStandardAnalysisResultsRef,
+                             API.LLVMLPMUpdaterRef, API.LLVMPreservedAnalysesRef,
+                             Ptr{Cvoid}))
+            api = API.LLVMExtraPassBuilderExtensionsRegisterLoopPass
+        else
+            throw(ArgumentError("invalid pass type $(pass.type)"))
+        end
+        api(exts, pass.name, cb, Ref(states, i), pass.required)
+    end
+
+    # register Julia passes
+    julia_callback = cglobal(:jl_register_passbuilder_callbacks)
+    API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+
+    # register native callbacks
+    for callback in pb.registration_callbacks
+        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, callback)
+    end
+end
+
+# throw the error that LLVM returned, or an exception that was caught in a custom pass
+# callback, which takes precedence over LLVM's errors (e.g., the failure to parse the
+# pipeline when parsing the options of a pass threw)
+function check_custom_passes(err::API.LLVMErrorRef, states, tti_state=nothing)
+    exception = nothing
+    for state in states
+        if state.exception !== nothing
+            exception = state.exception
+            break
+        end
+    end
+    if exception === nothing && tti_state !== nothing
+        exception = tti_state.exception
+    end
+    if exception !== nothing
+        err == C_NULL || API.LLVMConsumeError(err)
+        throw(PassException(exception...))
+    end
+    @check err
+end
+
+@vocabulary Passes print_pipeline
+
+"""
+    print_pipeline([io::IO], pb::PassBuilder, [tm::TargetMachine])
+
+Print the pipeline of a pass builder as LLVM parses it, like LLVM's `opt
+-print-pipeline-passes` does: with the pass managers that LLVM inserts, every pass under the
+name it is known by, and the options of passes that take them. Pipelines like
+`"default<O2>"` are printed as the passes that they consist of. The pipeline is parsed at
+the module level, with the custom passes that were registered with the pass builder, and
+with the passes of the target machine `tm`, but it is not run.
+
+The printed pipeline can be added to a pass builder again. LLVM prints passes in this way
+on a best-effort basis, though: some passes are printed without some of their options, or
+under a name that cannot be parsed.
+
+```jldoctest; setup = :(using LLVM, LLVM.Passes)
+julia> @dispose pb=PassBuilder() begin
+         add!(pb, "globaldce,instsimplify")
+         print_pipeline(pb)
+       end
+globaldce,function(instsimplify)
+```
+"""
+print_pipeline(pb::PassBuilder, args...) = print_pipeline(stdout, pb, args...)
+
+function print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine}=nothing)
+    states = [CustomPassState(pass) for pass in pb.custom_passes]
+    exts = API.LLVMCreatePassBuilderExtensions()
+    try
+        GC.@preserve states begin
+            register_extensions!(exts, pb, states)
+            out = Ref{Cstring}()
+            err = API.LLVMExtraPrintJuliaPasses(string(pb), something(tm, C_NULL), pb, exts,
+                                                out)
+            check_custom_passes(err, states)
+            print(io, unsafe_message(out[]))
+        end
+    finally
+        API.LLVMDisposePassBuilderExtensions(exts)
+    end
+    return
+end
+
+"""
+    run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager, [tm::TargetMachine])
+    run!(pipeline::AbstractString, f, am, [tm])
+    run!(pass::CustomPass, f, am, [tm])
+        -> PreservedAnalyses
+
+Run the passes of a pass builder on a function, from a custom function pass that runs on
+it with the function analysis manager `am` (see [`FunctionPass`](@ref)). The passes run as
+part of the enclosing pipeline: like the passes of a nested function pass manager, they use
+and update the analyses of that pipeline, and its instrumentation reports them. The
+pipeline is parsed as a function pipeline, with the passes that were registered with the
+pass builder and those of the target machine `tm`.
+
+Returns the analyses that the passes preserved, which LLVM computes like for a nested
+function pass manager: the analyses that a pass did not preserve have been invalidated
+after it ran, so when the passes changed the function, this preserves
+[`FunctionAnalyses`](@ref AllAnalyses). This can be returned by the custom pass, or
+intersected with what the rest of the pass preserves (see [`PreservedAnalyses`](@ref)).
+`PreservedAnalyses` only describes the analyses that LLVM.jl knows, so analyses that the
+passes preserve individually, but that are not among them, are not preserved by what is
+returned. As a result, LLVM may recompute more analyses after the custom pass than after
+the passes themselves.
+
+The alias analyses, the target transform info and the instrumentation are those of the
+enclosing pipeline: the pass builder's options for them (like `verify_each` or
+`debug_logging`) have no effect, and it cannot have an [`AAManager`](@ref), a custom target
+transform info or collect remarks. If one of the passes fails, the passes that remain are
+skipped, and `run!` throws a `PassException`, which fails the calling pass unless it catches
+it.
+
+For example, a pass that unrolls loops, and cleans up after that if it changed anything:
+
+```julia
+function unroll_and_clean_up!(f::LLVM.Function, am::LLVM.FunctionAnalysisManager)
+    preserved = run!(LoopUnrollPass(), f, am)
+    preserved == PreservedAnalyses(AllAnalyses) && return preserved
+    @dispose pb=PassBuilder() begin
+        add!(pb, SimplifyCFGPass())
+        add!(pb, InstCombinePass())
+        return intersect(preserved, run!(pb, f, am))
+    end
+end
+FunctionPass("unroll-and-clean-up", unroll_and_clean_up!; analyses=true)
+```
+"""
+function run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
+              tm::Union{Nothing,TargetMachine}=nothing)
+    am.fun == f ||
+        throw(ArgumentError("The analysis manager belongs to function $(am.fun.name), not $(f.name)"))
+    isempty(pb.aa_passes) && pb.custom_tti === nothing && pb.remarks === nothing ||
+        throw(ArgumentError("Passes that run from a pass use the alias analyses, target transform info and remarks of the enclosing pipeline"))
+    isempty(pb.passes) && return PreservedAnalyses(AllAnalyses)
+
+    exts = API.LLVMCreatePassBuilderExtensions()
+    states = [CustomPassState(pass, exts) for pass in pb.custom_passes]
+    try
+        GC.@preserve states begin
+            register_extensions!(exts, pb, states)
+            ref = Ref{API.LLVMPreservedAnalysesRef}()
+            err = API.LLVMExtraRunJuliaPassesWithAnalyses(f, string(pb), something(tm, C_NULL),
+                                                          pb, exts, am, ref)
+            try
+                check_custom_passes(err, states)
+                return PreservedAnalyses(ref[])
+            finally
+                ref[] == C_NULL || API.LLVMExtraDisposePreservedAnalyses(ref[])
             end
         end
-        if exception === nothing && tti_state !== nothing
-            exception = tti_state.exception
-        end
-        if exception !== nothing
-            err == C_NULL || API.LLVMConsumeError(err)
-            throw(PassException(exception...))
-        end
-        @check err
-        check_diagnostic(ctx)
+    finally
+        API.LLVMDisposePassBuilderExtensions(exts)
+    end
+end
+
+function run!(pass::CustomPass, f::Function, am::FunctionAnalysisManager,
+              tm::Union{Nothing,TargetMachine}=nothing; kwargs...)
+    pass.type === :function ||
+        throw(ArgumentError("Cannot run $(pass.type) pass $(pass.name) on a function"))
+    @dispose pb=PassBuilder(; kwargs...) begin
+        register!(pb, pass)
+        add!(pb, pass)
+        run!(pb, f, am, tm)
     end
 end
 
@@ -1050,8 +1653,9 @@ end
 Run a single custom pass on a module or a function, using a temporary pass builder that
 is created with the given keyword arguments (see [`PassBuilder`](@ref)). A function pass
 that runs on a module runs on each of its functions, while a module pass cannot run on a
-function. Like for passes that run in a pipeline, exceptions thrown by the pass are
-rethrown as a [`PassException`](@ref).
+function. A loop pass runs on each loop of the function(s) in a `loop(...)` pipeline,
+i.e., without MemorySSA. Like for passes that run in a pipeline, exceptions thrown by the
+pass are rethrown as a [`PassException`](@ref).
 """
 function run!(pass::CustomPass, target::Union{Module,Function},
               tm::Union{Nothing,TargetMachine}=nothing; kwargs...)
@@ -1063,6 +1667,16 @@ function run!(pass::CustomPass, target::Union{Module,Function},
         if pass.type === :function && target isa Module
             add!(pb, FunctionPassManager()) do fpm
                 add!(fpm, pass)
+            end
+        elseif pass.type === :loop
+            lpm = LoopPassManager()
+            add!(lpm, pass)
+            if target isa Module
+                add!(pb, FunctionPassManager()) do fpm
+                    add!(fpm, lpm)
+                end
+            else
+                add!(pb, lpm)
             end
         else
             add!(pb, pass)
@@ -1500,7 +2114,21 @@ end
 @function_pass "structurizecfg" StructurizeCFGPass
 @function_pass "tailcallelim" TailCallElimPass
 @function_pass "unify-loop-exits" UnifyLoopExitsPass
-@function_pass "vector-combine" VectorCombinePass
+@function_pass "vector-combine" VectorCombinePass false
+"""
+    VectorCombinePass(; early=false) -> String
+
+The `vector-combine` function pass, as a string for use with [`add!`](@ref) or
+[`run!`](@ref). With `early=true`, it only performs the folds that LLVM's pipelines run
+early on, before vectorization (`vector-combine<early>`). LLVM's own pipeline parser does
+not support that option, which LLVM.jl adds on LLVM 16 and later.
+"""
+function VectorCombinePass(; early::Bool=false)
+    if early && version() < v"16"
+        throw(ArgumentError("vector-combine<early> requires LLVM 16 or later"))
+    end
+    return early ? "vector-combine<early>" : "vector-combine"
+end
 @function_pass "verify" VerifierPass
 @function_pass "verify<domtree>" DominatorTreeVerifierPass
 @function_pass "verify<loops>" LoopVerifierPass
@@ -1612,6 +2240,12 @@ end
 add!(pm::AAManager, aa::AAManager) =
     error("Alias analyses can only be added to the top-level pass builder")
 
+# unlike other pass managers, an empty AA manager is meaningful: it disables alias analysis
+function add!(f::Base.Callable, pb::PassBuilder, aa::AAManager)
+    f(aa)
+    return add!(pb, aa)
+end
+
 macro aa_pass(pass_name, class_name)
     define_pass(__module__, pass_name, class_name, "alias analysis")
 end
@@ -1621,6 +2255,20 @@ end
 @aa_pass "scev-aa" SCEVAA
 @aa_pass "scoped-noalias-aa" ScopedNoAliasAA
 @aa_pass "tbaa" TypeBasedAA
+
+@vocabulary Passes TargetAA
+push!(pass_functions, (LLVM, :TargetAA, "alias analysis"))
+
+"""
+    TargetAA() -> String
+
+The alias analyses of the target machine that the passes run with, as a string for use in
+an [`AAManager`](@ref). LLVM's default alias analyses include them, but other alias
+analysis pipelines only do where they list `TargetAA()`. Without a target machine, or for
+targets that have no alias analyses of their own, it adds nothing. This is not one of
+LLVM's alias analyses: LLVM.jl adds it to the pipelines it runs.
+"""
+TargetAA() = "target-aa"
 
 
 ## pipelines

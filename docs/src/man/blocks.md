@@ -44,6 +44,11 @@ The control flow between basic blocks can be inspected using the following prope
   terminator. This view is mutable: `bb.successors[i] = other` changes the destination of
   the terminator.
 
+To create control flow, `split_block!(inst, name)` splits a block in two before an
+instruction, with the first part branching to the second, and
+`split_block_and_insert_if_then!(cond, inst)` additionally inserts a block that only
+executes if a condition holds.
+
 
 ## Instructions
 

@@ -128,7 +128,45 @@ end
 
 ## control flow
 
-@vocabulary IR split_block_and_insert_if_then!
+@vocabulary IR split_block!, split_block_and_insert_if_then!
+
+"""
+    split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
+    split_block!(inst::Instruction, name::AbstractString="")
+
+Split a basic block in two at an insertion point, or before an instruction: the
+instructions from there on move to a new block with the given name, which is inserted after
+the original one, and which the original block branches to unconditionally:
+
+```
+head:                            ; the original block, up to the split point
+  br label %name
+name:                            ; the returned block, with the rest of the original one
+  ...
+```
+
+Returns the new block. The PHI nodes in the successors of the original block are updated
+to refer to the new block. The block must have a terminator, and the split point must not be
+at the end of the block, before a PHI node or before an exception-handling pad. Debug
+records at the split point move along when the insertion point is at their head (e.g.,
+`LLVM.after(prev)`), and stay in the original block otherwise (e.g., `LLVM.before(inst)`).
+
+Analyses, like the dominator tree, are not updated.
+
+This uses LLVM's `BasicBlock::splitBasicBlock`.
+"""
+function split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
+    bb = check_valid(pos)
+    terminator(bb) === nothing &&
+        throw(ArgumentError("Cannot split a basic block without a terminator"))
+    pos.anchor == C_NULL &&
+        throw(ArgumentError("Cannot split a basic block at its end"))
+    Instruction(pos.anchor) isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,
+                                      CatchSwitchInst} &&
+        throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
+    BasicBlock(API.LLVMExtraSplitBasicBlock(bb, pos.anchor, pos.head, name))
+end
+split_block!(inst::Instruction, name::AbstractString="") = split_block!(before(inst), name)
 
 """
     split_block_and_insert_if_then!(cond::Value, at::Instruction; unreachable=false,

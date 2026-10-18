@@ -892,3 +892,15 @@ LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst) {
   Instruction *I = unwrap<Instruction>(Inst);
   return wrap(simplifyInstruction(I, SimplifyQuery(I->getModule()->getDataLayout(), I)));
 }
+
+
+// Control flow
+
+LLVMBasicBlockRef LLVMExtraSplitBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Before,
+                                           LLVMBool Head, const char *Name) {
+  BasicBlock::iterator It = unwrap<Instruction>(Before)->getIterator();
+#if LLVM_VERSION_MAJOR >= 19
+  It.setHeadBit(Head);
+#endif
+  return wrap(unwrap(BB)->splitBasicBlock(It, Name));
+}

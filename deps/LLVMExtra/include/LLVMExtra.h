@@ -1102,6 +1102,11 @@ LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
 // that it is equivalent to, or NULL
 LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst);
 
+// split a basic block before an instruction (with the head bit of the iterator, as for
+// LLVMExtraMoveInstruction), moving the instructions from there on to a new block that the
+// original one branches to, like BasicBlock::splitBasicBlock. Returns the new block.
+LLVMBasicBlockRef LLVMExtraSplitBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Before,
+                                           LLVMBool Head, const char *Name);
 
 // target triples, parsed like llvm::Triple(Str) (without normalizing them). The names of
 // the components are those of llvm::Triple::get*TypeName.

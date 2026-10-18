@@ -128,7 +128,45 @@ end
 
 ## control flow
 
-@vocabulary IR split_block_and_insert_if_then!
+@vocabulary IR split_block!, split_block_and_insert_if_then!
+
+"""
+    split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
+    split_block!(inst::Instruction, name::AbstractString="")
+
+Split a basic block in two at an insertion point, or before an instruction: the
+instructions from there on move to a new block with the given name, which is inserted after
+the original one, and which the original block branches to unconditionally:
+
+```
+head:                            ; the original block, up to the split point
+  br label %name
+name:                            ; the returned block, with the rest of the original one
+  ...
+```
+
+Returns the new block. The PHI nodes in the successors of the original block are updated
+to refer to the new block. The block must have a terminator, and the split point must not be
+at the end of the block, before a PHI node or before an exception-handling pad. Debug
+records at the split point move along when the insertion point is at their head (e.g.,
+`LLVM.after(prev)`), and stay in the original block otherwise (e.g., `LLVM.before(inst)`).
+
+Analyses, like the dominator tree, are not updated.
+
+This uses LLVM's `BasicBlock::splitBasicBlock`.
+"""
+function split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
+    bb = check_valid(pos)
+    terminator(bb) === nothing &&
+        throw(ArgumentError("Cannot split a basic block without a terminator"))
+    pos.anchor == C_NULL &&
+        throw(ArgumentError("Cannot split a basic block at its end"))
+    Instruction(pos.anchor) isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,
+                                      CatchSwitchInst} &&
+        throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
+    BasicBlock(API.LLVMExtraSplitBasicBlock(bb, pos.anchor, pos.head, name))
+end
+split_block!(inst::Instruction, name::AbstractString="") = split_block!(before(inst), name)
 
 """
     split_block_and_insert_if_then!(cond::Value, at::Instruction; unreachable=false,
@@ -173,6 +211,68 @@ function split_block_and_insert_if_then!(cond::Value, at::Instruction;
     term == C_NULL &&
         throw(ArgumentError("The dominator tree is not one of the function containing the instruction, or it is out of date"))
     return Instruction(term)
+end
+
+
+## inlining
+
+@vocabulary IR inline!, inline_viability
+
+"""
+    inline!(call::CallBase; merge_attributes=false, insert_lifetime=true)
+
+Inline the function that is called by a `call` or `invoke` instruction at this call site:
+the body of the function is copied into the calling function, replacing the call. Returns
+`nothing` if the call was inlined, after which the call instruction is erased, or a message
+that describes why it could not be inlined, in which case the IR is unchanged:
+
+```julia
+reason = inline!(call)
+reason === nothing || @debug "Could not inline \$call" reason
+```
+
+This is LLVM's `InlineFunction`, which only refuses call sites that it cannot transform:
+indirect calls and calls of declarations, `callbr` instructions, calls with operand bundles
+it doesn't support, and callers whose garbage collector or exception-handling personality
+is incompatible with that of the called function. It does not check whether the body of the
+called function can be inlined at all: e.g., inlining a function that calls `llvm.va_start`
+into a function without variadic arguments results in invalid IR. Check that first with
+[`inline_viability`](@ref), unless the functions are known to be fine. Whether inlining
+is worth it (its cost, `noinline` attributes, or interposable definitions, see
+[`isinterposable`](@ref)) is up to the caller as well.
+
+With `merge_attributes=true`, the attributes of the calling function are updated for the
+inlined code (e.g., to combine their target features or stack protection). With
+`insert_lifetime=true`, the static allocas of the inlined function are marked with lifetime
+intrinsics. No call graph is updated, and no alias analysis is used.
+"""
+function inline!(call::CallBase; merge_attributes::Bool=false, insert_lifetime::Bool=true)
+    bb = API.LLVMGetInstructionParent(check_attached(call))
+    API.LLVMGetBasicBlockParent(bb) == C_NULL &&
+        throw(ArgumentError("Call is not part of a function"))
+    reason = Ref{Cstring}(C_NULL)
+    API.LLVMExtraInlineFunction(call, merge_attributes, insert_lifetime, reason) |> Bool &&
+        return nothing
+    return unsafe_message(reason[])
+end
+
+"""
+    inline_viability(f::LLVM.Function)
+
+Check whether the body of a function can be inlined into other functions: returns `nothing`
+if it can, or a message that describes why not, e.g., because it calls `llvm.va_start`,
+uses `indirectbr` or `blockaddress`, calls itself, or calls a `returns_twice` function like
+`setjmp`. This is what [`inline!`](@ref) expects the caller to check. The check is
+conservative: a rejected function can sometimes still be inlined correctly (e.g., one level
+of a recursive function).
+
+This uses LLVM's `isInlineViable`.
+"""
+function inline_viability(f::Function)
+    isdeclaration(f) && throw(ArgumentError("Function is a declaration"))
+    reason = Ref{Cstring}(C_NULL)
+    API.LLVMExtraIsInlineViable(f, reason) |> Bool && return nothing
+    return unsafe_message(reason[])
 end
 
 
@@ -1083,9 +1183,9 @@ Base.unsafe_convert(::Type{API.LLVMMemorySSARef}, mssa::MemorySSA) = mssa.ref
 verify(mssa::MemorySSA) = (API.LLVMExtraMemorySSAVerify(mssa); nothing)
 
 
-## constant folding
+## constant folding and simplification
 
-@vocabulary IR constant_fold_cast
+@vocabulary IR constant_fold_cast, simplify_instruction
 
 """
     constant_fold_cast(opcode, c::Constant, T::LLVMType, dl::DataLayout)
@@ -1102,6 +1202,28 @@ function constant_fold_cast(opcode::API.LLVMOpcode, c::Constant, T::LLVMType,
     API.LLVMExtraConstantFoldCastOperand(opcode, c, T, dl, result) |> Bool ||
         throw(ArgumentError("Invalid cast $opcode of $c to $T"))
     return result[] == C_NULL ? nothing : Value(result[])
+end
+
+"""
+    simplify_instruction(inst::Instruction)
+
+Simplify an instruction, like the `instsimplify` pass: returns a simpler value that the
+instruction is equivalent to (e.g., an operand, or a constant), or `nothing` if there is
+none, e.g., `add i32 %x, 0` simplifies to `%x`, and `and i1 %c, false` to `false`. This
+does not change the IR: to fold the instruction, replace its uses by the returned value
+(`replace_uses!`), and erase it. The instruction must be part of a function in a module,
+whose data layout is used.
+
+This uses LLVM's `simplifyInstruction`, which also implements the `InstSimplifyFolder`
+that C++ code can use to simplify instructions as an `IRBuilder` creates them.
+"""
+function simplify_instruction(inst::Instruction)
+    bb = API.LLVMGetInstructionParent(check_attached(inst))
+    f = API.LLVMGetBasicBlockParent(bb)
+    (f == C_NULL || API.LLVMGetGlobalParent(f) == C_NULL) &&
+        throw(ArgumentError("Instruction is not part of a function in a module"))
+    ref = API.LLVMExtraSimplifyInstruction(inst)
+    return ref == C_NULL ? nothing : Value(ref)
 end
 
 

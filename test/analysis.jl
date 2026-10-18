@@ -868,4 +868,225 @@ end
     end
 end
 
+
+@testset "split_block!" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %x, i1 %c) {
+        entry:
+          br i1 %c, label %body, label %exit
+        body:
+          %a = add i32 %x, 1
+          %b = mul i32 %a, 2
+          br label %exit
+        exit:
+          %r = phi i32 [ 0, %entry ], [ %b, %body ]
+          ret i32 %r
+        }""") begin
+        f = mod.functions["f"]
+        entry, body, exit = f.blocks
+        a, b, br = body.instructions
+        r = first(exit.instructions)
+
+        tail = split_block!(b, "tail")
+        @test tail.name == "tail"
+        @test collect(f.blocks) == [entry, body, tail, exit]
+        @test collect(body.instructions)[1] == a
+        @test only(body.terminator.successors) == tail
+        @test collect(tail.instructions) == [b, br]
+        # PHI nodes of the successors refer to the new block
+        @test collect(r.incoming) == [(ConstantInt(Int32(0)), entry), (b, tail)]
+        verify(f)
+
+        # at an insertion point, without a name
+        tail2 = split_block!(LLVM.after(b))
+        @test collect(tail.instructions)[1] == b
+        @test only(tail2.instructions) == br
+        verify(f)
+
+        @test_throws ArgumentError split_block!(LLVM.at_end(tail2))
+        @test_throws ArgumentError split_block!(r)
+        detached = BasicBlock("detached")
+        @test_throws ArgumentError split_block!(LLVM.at_begin(detached))
+        erase!(detached)
+    end
+
+    # debug records at the split point
+    if LLVM.version() >= v"19"
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i32 %x) !dbg !5 {
+          %a = add i32 %x, %x
+            #dbg_value(i32 %x, !9, !DIExpression(), !10)
+          %b = add i32 %x, %x
+            #dbg_value(i32 %x, !9, !DIExpression(), !10)
+          ret void, !dbg !10
+        }
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+
+        !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "test.c", directory: "/tmp")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+        !6 = !DISubroutineType(types: !7)
+        !7 = !{null}
+        !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+        !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
+        !10 = !DILocation(line: 2, column: 1, scope: !5)
+        """) begin
+        f = mod.functions["f"]
+        a, b, ret = f.entry.instructions
+        records(inst) = collect(inst.debug_records)
+        (rb,) = records(b)
+        (rret,) = records(ret)
+
+        # at the head of an instruction's records, they move to the new block
+        bb2 = split_block!(LLVM.after(a))
+        @test first(bb2.instructions) == b && records(b) == [rb]
+
+        # before the instruction, they stay in the original block
+        bb3 = split_block!(LLVM.before(ret))
+        @test isempty(records(ret)) && records(bb2.terminator) == [rret]
+        @test only(bb3.instructions) == ret
+        verify(mod)
+    end
+    end
+end
+
+@testset "simplify_instruction" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %x, i32 %y, i1 %c) {
+          %a = add i32 %x, 0
+          %b = and i1 %c, false
+          %d = add i32 %x, %y
+          %e = sub i32 %d, %y
+          ret i32 %e
+        }""") begin
+        f = mod.functions["f"]
+        a, b, d, e, ret = f.entry.instructions
+        x, y, c = f.parameters
+        @test simplify_instruction(a) == x
+        @test simplify_instruction(b) == ConstantInt(false)
+        @test simplify_instruction(d) === nothing
+        @test simplify_instruction(e) == x
+        # the IR is unchanged
+        @test collect(f.entry.instructions) == [a, b, d, e, ret]
+
+        a2 = copy(a)
+        @test_throws ArgumentError simplify_instruction(a2)
+        erase!(a2)
+    end
+end
+
+@testset "inline!" begin
+    @dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i32*" : "ptr"
+    mod = parse(LLVM.Module, """
+        declare i32 @external(i32)
+
+        define i32 @callee(i32 %x) sspstrong {
+          %p = alloca i32
+          store i32 %x, $ptr %p
+          %v = load i32, $ptr %p
+          %r = add i32 %v, 1
+          ret i32 %r
+        }
+
+        define i32 @caller(i32 %x) ssp {
+          %a = call i32 @callee(i32 %x)
+          %b = call i32 @callee(i32 %a)
+          %c = call i32 @external(i32 %b)
+          %d = call i32 @callee(i32 %c)
+          ret i32 %d
+        }""")
+    caller, callee = mod.functions["caller"], mod.functions["callee"]
+    a, b, c, d, ret = caller.entry.instructions
+    calls(f, prefix) = count(inst -> inst isa LLVM.CallInst &&
+                                     startswith(inst.called_operand.name, prefix),
+                             [inst for bb in f.blocks for inst in bb.instructions])
+
+    # calls of declarations can't be inlined, and are left alone
+    reason = inline!(c)
+    @test reason isa String && !isempty(reason)
+    @test c.parent == caller.entry
+
+    # by default, allocas are marked using lifetime intrinsics
+    @test inline!(a) === nothing
+    @test calls(caller, "callee") == 2
+    @test calls(caller, "llvm.lifetime.start") == 1
+    @test !haskey(caller.function_attributes, :sspstrong)
+    verify(caller)
+
+    # without lifetime intrinsics, and merging the attributes of the functions
+    @test inline!(b; insert_lifetime=false, merge_attributes=true) === nothing
+    @test calls(caller, "callee") == 1
+    @test calls(caller, "llvm.lifetime.start") == 1
+    @test haskey(caller.function_attributes, :sspstrong)
+    verify(caller)
+
+    # the result of the call is replaced
+    @test inline!(d) === nothing
+    @test calls(caller, "callee") == 0
+    @test ret.operands[1] isa LLVM.AddInst
+    verify(mod)
+
+    c2 = copy(c)
+    @test_throws ArgumentError inline!(c2)
+    erase!(c2)
+    dispose(mod)
+    end
+
+    # InlineFunction doesn't check whether the body of the callee can be inlined
+    @dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i8*" : "ptr"
+    va_start = LLVM.version() >= v"19" ? "llvm.va_start.p0" : "llvm.va_start"
+    mod = parse(LLVM.Module, """
+        declare void @$va_start($ptr)
+
+        define i32 @variadic(i32 %n, ...) {
+          %ap = alloca i8, i32 32
+          call void @$va_start($ptr %ap)
+          ret i32 %n
+        }
+
+        define i32 @fixed(i32 %n) {
+          ret i32 %n
+        }
+
+        define i32 @caller(i32 %x) {
+          %a = call i32 (i32, ...) @variadic(i32 %x)
+          %b = call i32 @fixed(i32 %a)
+          ret i32 %b
+        }""")
+    variadic, fixed = mod.functions["variadic"], mod.functions["fixed"]
+    @test occursin("va_start", inline_viability(variadic))
+    @test inline_viability(fixed) === nothing
+    @test_throws ArgumentError inline_viability(mod.functions[va_start])
+    verify(mod)
+    dispose(mod)
+    end
+
+    # a failure leaves the IR unchanged, also where InlineFunction changes it before failing
+    @dispose ctx=Context() begin
+    pers(f) = supports_typed_pointers(ctx) ? "i8* bitcast (i32 (...)* @$f to i8*)" : "ptr @$f"
+    mod = parse(LLVM.Module, """
+        declare i32 @pers1(...)
+        declare i32 @pers2(...)
+
+        define void @callee() gc "statepoint-example" personality $(pers("pers1")) {
+          ret void
+        }
+
+        define void @caller() personality $(pers("pers2")) {
+          call void @callee()
+          ret void
+        }""")
+    ir = string(mod)
+    call = first(mod.functions["caller"].entry.instructions)
+    @test occursin("personality", inline!(call))
+    @test string(mod) == ir
+    dispose(mod)
+    end
+end
+
 end

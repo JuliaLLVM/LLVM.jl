@@ -1138,6 +1138,26 @@ LLVMBool LLVMExtraPromoteMemToReg(LLVMValueRef *Allocas, unsigned NumAllocas,
 LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
                                           LLVMTypeRef DestTy, LLVMTargetDataRef TD,
                                           LLVMValueRef *Result);
+// simplify an instruction, like InstSimplify, without changing it: returns a simpler value
+// that it is equivalent to, or NULL
+LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst);
+
+// split a basic block before an instruction (with the head bit of the iterator, as for
+// LLVMExtraMoveInstruction), moving the instructions from there on to a new block that the
+// original one branches to, like BasicBlock::splitBasicBlock. Returns the new block.
+LLVMBasicBlockRef LLVMExtraSplitBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Before,
+                                           LLVMBool Head, const char *Name);
+// inline a call site, like InlineFunction (without updating a call graph or using alias
+// analysis). Returns whether the call was inlined; if not, nothing is changed, and if
+// FailureReason is not NULL, it is set to a message (to be disposed of using
+// LLVMDisposeMessage) that describes why. Like InlineFunction, this doesn't check whether
+// the body of the called function can be inlined (see LLVMExtraIsInlineViable).
+LLVMBool LLVMExtraInlineFunction(LLVMValueRef Call, LLVMBool MergeAttributes,
+                                 LLVMBool InsertLifetime, char **FailureReason);
+// whether the body of a function can be inlined into other functions, like isInlineViable;
+// if not, and FailureReason is not NULL, it is set to a message (to be disposed of using
+// LLVMDisposeMessage) that describes why.
+LLVMBool LLVMExtraIsInlineViable(LLVMValueRef Fn, char **FailureReason);
 
 LLVM_C_EXTERN_C_END
 #endif

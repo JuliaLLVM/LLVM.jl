@@ -1181,3 +1181,19 @@ end
 function LLVMExtraConstantFoldCastOperand(Opcode, C, DestTy, TD, Result)
     ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), Opcode, C, DestTy, TD, Result)
 end
+
+function LLVMExtraSimplifyInstruction(Inst)
+    ccall((:LLVMExtraSimplifyInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Inst)
+end
+
+function LLVMExtraSplitBasicBlock(BB, Before, Head, Name)
+    ccall((:LLVMExtraSplitBasicBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMBasicBlockRef, LLVMValueRef, LLVMBool, Cstring), BB, Before, Head, Name)
+end
+
+function LLVMExtraInlineFunction(Call, MergeAttributes, InsertLifetime, FailureReason)
+    ccall((:LLVMExtraInlineFunction, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMBool, LLVMBool, Ptr{Cstring}), Call, MergeAttributes, InsertLifetime, FailureReason)
+end
+
+function LLVMExtraIsInlineViable(Fn, FailureReason)
+    ccall((:LLVMExtraIsInlineViable, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{Cstring}), Fn, FailureReason)
+end

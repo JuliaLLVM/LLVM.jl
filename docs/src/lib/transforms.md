@@ -72,6 +72,10 @@ LLVM.collect_flat_address_operands
 ## IR cloning
 
 ```@docs
+ValueMap
+dispose(::ValueMap)
+map_value
+map_metadata
 clone_into!
 clone
 ```

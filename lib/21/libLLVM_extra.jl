@@ -753,6 +753,10 @@ function LLVMExtraIsInterposable(GV)
     ccall((:LLVMExtraIsInterposable, libLLVMExtra), LLVMBool, (LLVMValueRef,), GV)
 end
 
+function LLVMExtraGetComdatName(C, Len)
+    ccall((:LLVMExtraGetComdatName, libLLVMExtra), Cstring, (LLVMComdatRef, Ptr{Csize_t}), C, Len)
+end
+
 function LLVMExtraRemoveDeadConstantUsers(C)
     ccall((:LLVMExtraRemoveDeadConstantUsers, libLLVMExtra), Cvoid, (LLVMValueRef,), C)
 end

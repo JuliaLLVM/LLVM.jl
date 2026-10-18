@@ -756,6 +756,7 @@ unsigned LLVMExtraGetArgNo(LLVMValueRef Arg);
 // functions and global variables
 void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src);
 LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV);
+const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len);
 
 // constants
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);

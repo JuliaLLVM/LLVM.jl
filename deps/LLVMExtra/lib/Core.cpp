@@ -14,6 +14,7 @@
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
+#include <llvm/IR/Comdat.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/DiagnosticInfo.h>
@@ -1569,6 +1570,12 @@ void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src) {
     F->copyAttributesFrom(unwrap<Function>(Src));
   else
     unwrap<GlobalVariable>(Dst)->copyAttributesFrom(unwrap<GlobalVariable>(Src));
+}
+
+const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len) {
+  StringRef Name = unwrap(C)->getName();
+  *Len = Name.size();
+  return Name.data();
 }
 
 LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV) {

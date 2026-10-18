@@ -93,6 +93,12 @@ Global variables are reordered using [`move!`](@ref).
 GlobalAlias
 ```
 
+### COMDATs
+
+```@docs
+Comdat
+```
+
 ### Global ifuncs
 
 ```@docs

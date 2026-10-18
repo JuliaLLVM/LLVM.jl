@@ -1622,6 +1622,33 @@ end
     @test verify(mod) === nothing
 end
 
+# comdats
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "SomeGlobal")
+    gv.initializer = ConstantInt(Int32(42))
+    @test gv.comdat === nothing
+
+    c = Comdat(mod, "SomeComdat")
+    @test c.name == "SomeComdat"
+    @test c.selection_kind == LLVM.ComdatSelectionKind.Any
+    @test Comdat(mod, "SomeComdat") == c
+    show(devnull, c)
+
+    c.selection_kind = LLVM.ComdatSelectionKind.NoDeduplicate
+    @test c.selection_kind == LLVM.ComdatSelectionKind.NoDeduplicate
+    gv.comdat = c
+    @test gv.comdat == c
+    @test occursin("comdat(\$SomeComdat)", string(gv))
+    @test occursin("\$SomeComdat = comdat nodeduplicate", string(mod))
+
+    fn = LLVM.Function(mod, "SomeFunction", LLVM.FunctionType(LLVM.VoidType()))
+    fn.comdat = c
+    @test fn.comdat == c
+
+    gv.comdat = nothing
+    @test gv.comdat === nothing
+end
+
 # global ifuncs
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.Int32Type())

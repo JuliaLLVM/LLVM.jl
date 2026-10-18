@@ -1224,6 +1224,12 @@ iterated (in the case of an instruction, this includes its debug location), and 
 assign to a kind to attach metadata, e.g., `inst.metadata["tbaa"] = node`, and use `delete!`
 to remove it.
 
+    gv.comdat
+    gv.comdat = c::Union{LLVM.Comdat,Nothing}
+
+The [`Comdat`](@ref) of the global object, or `nothing` if it isn't part of one. Assigning
+`nothing` removes it from its COMDAT.
+
 The properties of [`GlobalValue`](@ref LLVM.GlobalValue), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
 """
@@ -1296,6 +1302,67 @@ unnamed_addr!(val::GlobalValue, kind::API.LLVMUnnamedAddr) =
     API.LLVMSetUnnamedAddress(val, kind)
 
 @property GlobalValue unnamed_addr unnamed_addr!
+
+## comdats
+
+@vocabulary IR Comdat
+
+"""
+    Comdat(mod::LLVM.Module, name::AbstractString)
+
+Get the COMDAT with the given name in the module, creating it if it doesn't exist yet. A
+COMDAT groups global objects that the linker keeps or discards together; assign it to their
+`comdat` property to add them to it.
+
+# Properties
+
+    c.name
+
+The name of the COMDAT.
+
+    c.selection_kind
+    c.selection_kind = kind::LLVM.ComdatSelectionKind.T
+
+How the linker chooses between COMDATs with the same name in different object files, e.g.,
+`LLVM.ComdatSelectionKind.Any`.
+"""
+@checked struct Comdat
+    ref::API.LLVMComdatRef
+end
+@properties Comdat
+
+Base.unsafe_convert(::Type{API.LLVMComdatRef}, c::Comdat) = c.ref
+
+Comdat(mod::Module, name::AbstractString) = Comdat(API.LLVMGetOrInsertComdat(mod, name))
+
+function name(c::Comdat)
+    len = Ref{Csize_t}()
+    data = API.LLVMExtraGetComdatName(c, len)
+    unsafe_string(convert(Ptr{Int8}, data), len[])
+end
+
+@property Comdat name
+
+selection_kind(c::Comdat) = API.LLVMGetComdatSelectionKind(c)
+
+selection_kind!(c::Comdat, kind::API.LLVMComdatSelectionKind) =
+    API.LLVMSetComdatSelectionKind(c, kind)
+
+@property Comdat selection_kind selection_kind!
+
+function Base.show(io::IO, c::Comdat)
+    print(io, "Comdat(", repr(name(c)), ", ", selection_kind(c), ")")
+end
+
+function comdat(val::GlobalObject)
+    ref = API.LLVMGetComdat(val)
+    ref == C_NULL ? nothing : Comdat(ref)
+end
+
+comdat!(val::GlobalObject, c::Union{Comdat,Nothing}) =
+    API.LLVMSetComdat(val, something(c, C_NULL))
+
+@property GlobalObject comdat comdat!
 
 
 ## global variables

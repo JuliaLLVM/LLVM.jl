@@ -746,6 +746,10 @@ function LLVMExtraCopyAttributesFrom(Dst, Src)
     ccall((:LLVMExtraCopyAttributesFrom, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Dst, Src)
 end
 
+function LLVMExtraIsInterposable(GV)
+    ccall((:LLVMExtraIsInterposable, libLLVMExtra), LLVMBool, (LLVMValueRef,), GV)
+end
+
 function LLVMExtraRemoveDeadConstantUsers(C)
     ccall((:LLVMExtraRemoveDeadConstantUsers, libLLVMExtra), Cvoid, (LLVMValueRef,), C)
 end

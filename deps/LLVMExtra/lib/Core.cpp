@@ -1571,6 +1571,10 @@ void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src) {
     unwrap<GlobalVariable>(Dst)->copyAttributesFrom(unwrap<GlobalVariable>(Src));
 }
 
+LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV) {
+  return unwrap<GlobalValue>(GV)->isInterposable();
+}
+
 
 //
 // constants

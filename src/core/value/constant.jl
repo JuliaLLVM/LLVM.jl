@@ -1230,7 +1230,7 @@ The properties of [`GlobalValue`](@ref LLVM.GlobalValue), [`User`](@ref LLVM.Use
 abstract type GlobalObject <: GlobalValue end
 @vocabulary IR GlobalObject
 
-@vocabulary IR GlobalValue, isdeclaration
+@vocabulary IR GlobalValue, isdeclaration, isinterposable
 
 parent(val::GlobalValue) = Module(API.LLVMGetGlobalParent(val))
 
@@ -1246,6 +1246,18 @@ global_value_type(val::GlobalValue) = LLVMType(API.LLVMGetGlobalValueType(val))
 Check if the global value is a declaration, i.e. it does not have a definition.
 """
 isdeclaration(val::GlobalValue) = API.LLVMIsDeclaration(val) |> Bool
+
+"""
+    isinterposable(val::LLVM.GlobalValue)
+
+Check whether the definition of the given global value may be replaced by a different one
+at link or load time, e.g., because it has `weak` or `linkonce` linkage, or because the
+module uses semantic interposition and the value is not `dso_local`. Optimizations must not
+make assumptions about the definition of such a value, e.g., by inlining a function.
+
+This uses LLVM's `GlobalValue::isInterposable`.
+"""
+isinterposable(val::GlobalValue) = API.LLVMExtraIsInterposable(val) |> Bool
 
 linkage(val::GlobalValue) = API.LLVMGetLinkage(val)
 

@@ -346,6 +346,11 @@ LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
 void LLVMDisposePassBuilderExtensions(LLVMPassBuilderExtensionsRef Extensions);
 void LLVMPassBuilderExtensionsPushRegistrationCallbacks(LLVMPassBuilderExtensionsRef Options,
                                                         void (*RegistrationCallback)(void *));
+// mark the run of a pipeline as failed, e.g., because a custom pass threw an exception:
+// the passes that remain to run are skipped, except for required ones (like the pass
+// managers and adaptors, which skip the passes they contain); custom passes are skipped
+// even if they are required
+void LLVMExtraPassBuilderExtensionsAbort(LLVMPassBuilderExtensionsRef Extensions);
 typedef LLVMBool (*LLVMJuliaModulePassCallback)(LLVMModuleRef M, void *Thunk);
 typedef LLVMBool (*LLVMJuliaFunctionPassCallback)(LLVMValueRef F, void *Thunk);
 // Callbacks must not allow exceptions implemented with setjmp/longjmp to

@@ -269,6 +269,10 @@ public:
   // The names of the custom passes, which identify them in instrumentation.
   SmallVector<std::string, 2> CustomPassNames;
 
+  // Set when a custom pass failed. The passes that remain to run are skipped then, as the
+  // IR and the analyses that the pipeline claims to be valid may be inconsistent.
+  bool Aborted = false;
+
 #if LLVM_VERSION_MAJOR < 20
   // A pipeline describing the alias analysis passes to run.
   const char *AAPipeline;
@@ -297,6 +301,10 @@ void LLVMPassBuilderExtensionsPushRegistrationCallbacks(
   LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
   PassExts->RegistrationCallbacks.push_back(RegistrationCallback);
   return;
+}
+
+void LLVMExtraPassBuilderExtensionsAbort(LLVMPassBuilderExtensionsRef Extensions) {
+  unwrap(Extensions)->Aborted = true;
 }
 
 
@@ -364,9 +372,13 @@ struct PassModel<IRUnitT, NamedPass<PassT>, PreservedAnalysesT, AnalysisManagerT
 struct JuliaCustomModulePass {
   LLVMJuliaModulePassCallback Callback;
   void *Thunk;
-  JuliaCustomModulePass(LLVMJuliaModulePassCallback Callback, void *Thunk)
-      : Callback(Callback), Thunk(Thunk) {}
+  LLVMPassBuilderExtensions *Exts;
+  JuliaCustomModulePass(LLVMJuliaModulePassCallback Callback, void *Thunk,
+                        LLVMPassBuilderExtensions *Exts)
+      : Callback(Callback), Thunk(Thunk), Exts(Exts) {}
   llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &) {
+    if (Exts->Aborted)
+      return llvm::PreservedAnalyses::all();
     auto changed = Callback(wrap(&M), Thunk);
     return changed ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
   }
@@ -375,9 +387,13 @@ struct JuliaCustomModulePass {
 struct JuliaCustomFunctionPass {
   LLVMJuliaFunctionPassCallback Callback;
   void *Thunk;
-  JuliaCustomFunctionPass(LLVMJuliaFunctionPassCallback Callback, void *Thunk)
-      : Callback(Callback), Thunk(Thunk) {}
+  LLVMPassBuilderExtensions *Exts;
+  JuliaCustomFunctionPass(LLVMJuliaFunctionPassCallback Callback, void *Thunk,
+                          LLVMPassBuilderExtensions *Exts)
+      : Callback(Callback), Thunk(Thunk), Exts(Exts) {}
   llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &) {
+    if (Exts->Aborted)
+      return llvm::PreservedAnalyses::all();
     auto changed = Callback(wrap(&F), Thunk);
     return changed ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
   }
@@ -389,11 +405,12 @@ void LLVMPassBuilderExtensionsRegisterModulePassWithRequired(
   LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
   PassExts->CustomPassNames.push_back(PassName);
   PassExts->ModulePipelineParsingCallbacks.push_back(
-      [PassName = std::string(PassName), Callback, Thunk, Required](StringRef Name, ModulePassManager &PM,
-                                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+      [PassName = std::string(PassName), Callback, Thunk, Required,
+       PassExts](StringRef Name, ModulePassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
         if (Name == PassName && Pipeline.empty()) {
           PM.addPass(NamedPass(PassName, Name, Required,
-                               JuliaCustomModulePass(Callback, Thunk)));
+                               JuliaCustomModulePass(Callback, Thunk, PassExts)));
           return true;
         }
         return false;
@@ -415,11 +432,12 @@ void LLVMPassBuilderExtensionsRegisterFunctionPassWithRequired(
   LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
   PassExts->CustomPassNames.push_back(PassName);
   PassExts->FunctionPipelineParsingCallbacks.push_back(
-      [PassName = std::string(PassName), Callback, Thunk, Required](StringRef Name, FunctionPassManager &PM,
-                                                   ArrayRef<PassBuilder::PipelineElement> Pipeline) {
+      [PassName = std::string(PassName), Callback, Thunk, Required,
+       PassExts](StringRef Name, FunctionPassManager &PM,
+                 ArrayRef<PassBuilder::PipelineElement> Pipeline) {
         if (Name == PassName && Pipeline.empty()) {
           PM.addPass(NamedPass(PassName, Name, Required,
-                               JuliaCustomFunctionPass(Callback, Thunk)));
+                               JuliaCustomFunctionPass(Callback, Thunk, PassExts)));
           return true;
         }
         return false;
@@ -441,10 +459,13 @@ DEFINE_SIMPLE_CONVERSION_FUNCTIONS(PreservedAnalyses, LLVMPreservedAnalysesRef)
 struct JuliaCustomFunctionPassWithAnalyses {
   LLVMJuliaFunctionPassWithAnalysesCallback Callback;
   void *Thunk;
+  LLVMPassBuilderExtensions *Exts;
   JuliaCustomFunctionPassWithAnalyses(LLVMJuliaFunctionPassWithAnalysesCallback Callback,
-                                      void *Thunk)
-      : Callback(Callback), Thunk(Thunk) {}
+                                      void *Thunk, LLVMPassBuilderExtensions *Exts)
+      : Callback(Callback), Thunk(Thunk), Exts(Exts) {}
   llvm::PreservedAnalyses run(llvm::Function &F, llvm::FunctionAnalysisManager &AM) {
+    if (Exts->Aborted)
+      return llvm::PreservedAnalyses::all();
     auto PA = llvm::PreservedAnalyses::none();
     Callback(wrap(&F), wrap(&AM), wrap(&PA), Thunk);
     return PA;
@@ -458,11 +479,12 @@ void LLVMExtraPassBuilderExtensionsRegisterFunctionPassWithAnalyses(
   PassExts->CustomPassNames.push_back(PassName);
   PassExts->FunctionPipelineParsingCallbacks.push_back(
       [PassName = std::string(PassName), Callback, Thunk,
-       Required](StringRef Name, FunctionPassManager &PM,
+       Required, PassExts](StringRef Name, FunctionPassManager &PM,
                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
         if (Name == PassName && Pipeline.empty()) {
           PM.addPass(NamedPass(PassName, Name, Required,
-                               JuliaCustomFunctionPassWithAnalyses(Callback, Thunk)));
+                               JuliaCustomFunctionPassWithAnalyses(Callback, Thunk,
+                                                                   PassExts)));
           return true;
         }
         return false;
@@ -640,10 +662,13 @@ DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ModuleAnalysisManager, LLVMModuleAnalysisMana
 struct JuliaCustomModulePassWithAnalyses {
   LLVMJuliaModulePassWithAnalysesCallback Callback;
   void *Thunk;
+  LLVMPassBuilderExtensions *Exts;
   JuliaCustomModulePassWithAnalyses(LLVMJuliaModulePassWithAnalysesCallback Callback,
-                                    void *Thunk)
-      : Callback(Callback), Thunk(Thunk) {}
+                                    void *Thunk, LLVMPassBuilderExtensions *Exts)
+      : Callback(Callback), Thunk(Thunk), Exts(Exts) {}
   llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &AM) {
+    if (Exts->Aborted)
+      return llvm::PreservedAnalyses::all();
     auto PA = llvm::PreservedAnalyses::none();
     Callback(wrap(&M), wrap(&AM), wrap(&PA), Thunk);
     return PA;
@@ -657,11 +682,12 @@ void LLVMExtraPassBuilderExtensionsRegisterModulePassWithAnalyses(
   PassExts->CustomPassNames.push_back(PassName);
   PassExts->ModulePipelineParsingCallbacks.push_back(
       [PassName = std::string(PassName), Callback, Thunk,
-       Required](StringRef Name, ModulePassManager &PM,
+       Required, PassExts](StringRef Name, ModulePassManager &PM,
                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
         if (Name == PassName && Pipeline.empty()) {
           PM.addPass(NamedPass(PassName, Name, Required,
-                               JuliaCustomModulePassWithAnalyses(Callback, Thunk)));
+                               JuliaCustomModulePassWithAnalyses(Callback, Thunk,
+                                                                 PassExts)));
           return true;
         }
         return false;
@@ -721,7 +747,7 @@ void LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(
   PassExts->CustomPassNames.push_back(PassName);
   PassExts->ModulePipelineParsingCallbacks.push_back(
       [PassName = std::string(PassName), Callback, ParametersCallback, Thunk,
-       Required](StringRef Name, ModulePassManager &PM,
+       Required, PassExts](StringRef Name, ModulePassManager &PM,
                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
         StringRef Parameters;
         if (!Pipeline.empty() || !matchParametrizedPassName(Name, PassName, Parameters))
@@ -730,7 +756,8 @@ void LLVMExtraPassBuilderExtensionsRegisterParametrizedModulePass(
         if (!PassThunk)
           return false;
         PM.addPass(NamedPass(PassName, Name, Required,
-                             JuliaCustomModulePassWithAnalyses(Callback, PassThunk)));
+                             JuliaCustomModulePassWithAnalyses(Callback, PassThunk,
+                                                               PassExts)));
         return true;
       });
 }
@@ -743,7 +770,7 @@ void LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(
   PassExts->CustomPassNames.push_back(PassName);
   PassExts->FunctionPipelineParsingCallbacks.push_back(
       [PassName = std::string(PassName), Callback, ParametersCallback, Thunk,
-       Required](StringRef Name, FunctionPassManager &PM,
+       Required, PassExts](StringRef Name, FunctionPassManager &PM,
                  ArrayRef<PassBuilder::PipelineElement> Pipeline) {
         StringRef Parameters;
         if (!Pipeline.empty() || !matchParametrizedPassName(Name, PassName, Parameters))
@@ -752,7 +779,8 @@ void LLVMExtraPassBuilderExtensionsRegisterParametrizedFunctionPass(
         if (!PassThunk)
           return false;
         PM.addPass(NamedPass(PassName, Name, Required,
-                             JuliaCustomFunctionPassWithAnalyses(Callback, PassThunk)));
+                             JuliaCustomFunctionPassWithAnalyses(Callback, PassThunk,
+                                                                 PassExts)));
         return true;
       });
 }
@@ -995,6 +1023,9 @@ struct PipelineInstrumentation {
   // names it is given (without copying them, since LLVM 19), so they need to live as long
   // as the pipeline, rather than as long as the extensions of the nested run.
   StringSet<> NestedPassNames;
+  // The extensions of the run that is active: those of the pipeline, or of the nested run
+  // that runs passes now, whose optional passes are skipped once it was aborted.
+  LLVMPassBuilderExtensions *Active;
 };
 
 // An analysis that provides the instrumentation of the pipeline that a function analysis
@@ -1133,7 +1164,12 @@ static LLVMErrorRef runJuliaPasses(Module *Mod, Function *Fun, const char *Passe
   bool VerifyEach = PassOpts->VerifyEach;
 
   PassInstrumentationCallbacks PIC;
-  PipelineInstrumentation PI{&PIC, {}};
+  PipelineInstrumentation PI{&PIC, {}, PassExts};
+  // once a custom pass failed, skip the remaining passes (other than those that are
+  // required, like pass managers and adaptors, which then skip the passes they contain)
+  PassExts->Aborted = false;
+  PIC.registerShouldRunOptionalPassCallback(
+      [&PI](StringRef, Any) { return !PI.Active->Aborted; });
   PassBuilder PB = createPassBuilder(Machine, PassOpts, &PIC);
 
   registerExtensions(PB, Machine, &PIC, PassExts);
@@ -1245,15 +1281,22 @@ LLVMErrorRef LLVMExtraRunJuliaPassesWithAnalyses(LLVMValueRef F, const char *Pas
   FunctionAnalysisManager &FAM = *unwrap(AM);
   // the passes are instrumented by the analysis manager's instrumentation, i.e., that of
   // the pipeline that the analysis manager belongs to, which needs to know the names of
-  // the custom passes
+  // the custom passes, and which only runs optional passes while the active run isn't
+  // aborted. a failure in this run aborts it, not the run of the pass that started it: that
+  // pass gets the exception (see `run!`).
   PipelineInstrumentation *PI = FAM.getResult<PipelineInstrumentationAnalysis>(Fun).PI;
+  LLVMPassBuilderExtensions *PassExts = unwrap(Extensions);
+  PassExts->Aborted = false;
   PassBuilder PB = createPassBuilder(unwrap(TM), unwrap(Options), nullptr);
-  registerExtensions(PB, unwrap(TM), PI->PIC, unwrap(Extensions), &PI->NestedPassNames);
+  registerExtensions(PB, unwrap(TM), PI->PIC, PassExts, &PI->NestedPassNames);
 
   FunctionPassManager FPM;
   if (auto Err = PB.parsePassPipeline(FPM, Passes))
     return wrap(std::move(Err));
+  LLVMPassBuilderExtensions *Outer = PI->Active;
+  PI->Active = PassExts;
   *PA = wrap(new PreservedAnalyses(runPassManager(FPM, Fun, FAM)));
+  PI->Active = Outer;
   return LLVMErrorSuccess;
 }
 

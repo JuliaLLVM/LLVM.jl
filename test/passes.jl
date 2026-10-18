@@ -1447,6 +1447,77 @@ end
         end
     end
 
+    # a failure skips the rest of the pipeline, as it may have left the IR inconsistent:
+    # LLVM's passes, and custom passes even if they are required
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f() {
+          %a = add i32 1, 2
+          ret i32 %a
+        }""") begin
+        ran = String[]
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("fail", f -> error("failed")))
+            register!(pb, FunctionPass("after", f -> (push!(ran, "after"); false);
+                                       required=true))
+            register!(pb, ModulePass("later", m -> (push!(ran, "later"); false)))
+            add!(pb, "function(fail,instcombine,after),later")
+            @test_throws LLVM.PassException run!(pb, mod)
+        end
+        @test isempty(ran)
+        @test occursin("add i32 1, 2", string(mod))
+
+        # the next run is not affected
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("after", f -> (push!(ran, "after"); false)))
+            add!(pb, "function(instcombine,after)")
+            run!(pb, mod)
+        end
+        @test ran == ["after"]
+        @test !occursin("add i32 1, 2", string(mod))
+    end
+
+    # also when the failing pass runs from another pass, which then fails too
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f() {
+          %a = add i32 1, 2
+          ret i32 %a
+        }""") begin
+        ran = String[]
+        function nested!(f, am)
+            @dispose pb=PassBuilder() begin
+                register!(pb, FunctionPass("fail", f -> error("failed")))
+                add!(pb, "fail,instcombine")
+                return run!(pb, f, am)
+            end
+        end
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("nested", nested!; analyses=true))
+            register!(pb, ModulePass("later", m -> (push!(ran, "later"); false)))
+            add!(pb, "function(nested,instcombine),later")
+            @test_throws LLVM.PassException run!(pb, mod)
+        end
+        @test isempty(ran)
+        @test occursin("add i32 1, 2", string(mod))
+
+        # unless it catches the exception, after which its pipeline continues
+        function catching!(f, am)
+            try
+                nested!(f, am)
+            catch err
+                err isa LLVM.PassException && push!(ran, "caught")
+            end
+            return PreservedAnalyses()
+        end
+        @dispose pb=PassBuilder() begin
+            register!(pb, FunctionPass("catching", catching!; analyses=true))
+            register!(pb, ModulePass("later", m -> (push!(ran, "later"); false)))
+            add!(pb, "function(catching),later")
+            run!(pb, mod)
+        end
+        @test ran == ["caught", "later"]
+        @test occursin("add i32 1, 2", string(mod))
+    end
+
     # a pass builder can be run multiple times, with the callbacks of each run using
     # their own state (they used to refer to the state of the first run)
     @dispose ctx=Context() mod=LLVM.Module("test") begin

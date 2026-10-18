@@ -226,7 +226,7 @@ function after_def(inst::Instruction)
 end
 
 """
-    move!(inst::Instruction, pos::InsertionPoint{Instruction})
+    move!(inst::Instruction, pos::InsertionPoint{Instruction}; debug_records=false)
     move!(bb::BasicBlock, pos::InsertionPoint{BasicBlock})
     move!(f::LLVM.Function, pos::InsertionPoint{LLVM.Function})
     move!(gv::GlobalVariable, pos::InsertionPoint{GlobalVariable})
@@ -236,14 +236,21 @@ list (e.g., an instruction created with `copy`, or a block removed with `remove!
 inserted there. Instructions and blocks can be moved to another block or function,
 while functions and global variables can only be moved within their module.
 
-Instructions keep their debug location, but not their debug records, which stay where
-they were. An instruction can not be moved to the end of a block that has a terminator,
-use `LLVM.before(bb.terminator)` instead.
+Instructions keep their debug location. By default, the debug records that are attached to
+an instruction (the ones right before it) stay where they were, like with LLVM's
+`moveBefore`. With `debug_records=true`, they move along with the instruction, like with
+`moveBeforePreserving`, and the instruction is inserted before the debug records at the
+insertion point, which remain attached to the instruction they precede. This only makes a
+difference on LLVM 19 and later, which represents debug information as records.
+
+An instruction can not be moved to the end of a block that has a terminator, use
+`LLVM.before(bb.terminator)` instead.
 
 It is up to the caller to keep the IR valid: moving an object does not update branches,
 PHI nodes or debug scopes, and does not check that values still dominate their uses.
 """
-function move!(inst::Instruction, pos::InsertionPoint{Instruction})
+function move!(inst::Instruction, pos::InsertionPoint{Instruction};
+               debug_records::Bool=false)
     bb = check_valid(pos)
     if pos.anchor == C_NULL
         term = API.LLVMGetBasicBlockTerminator(bb)
@@ -252,7 +259,11 @@ function move!(inst::Instruction, pos::InsertionPoint{Instruction})
     end
     API.LLVMGetValueContext(inst) == API.LLVMGetValueContext(bb) ||
         throw(ArgumentError("Cannot move an instruction to another context"))
-    API.LLVMExtraMoveInstruction(inst, bb, pos.anchor, pos.head)
+    if debug_records
+        API.LLVMExtraMoveInstructionPreserving(inst, bb, pos.anchor, pos.head)
+    else
+        API.LLVMExtraMoveInstruction(inst, bb, pos.anchor, pos.head)
+    end
     return inst
 end
 

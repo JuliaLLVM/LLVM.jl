@@ -1363,6 +1363,22 @@ void LLVMExtraMoveInstruction(LLVMValueRef Inst, LLVMBasicBlockRef BB, LLVMValue
 #endif
 }
 
+void LLVMExtraMoveInstructionPreserving(LLVMValueRef Inst, LLVMBasicBlockRef BB,
+                                        LLVMValueRef Before, LLVMBool Head) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  // the debug records attached to the instruction move along with it, so moving it before
+  // itself doesn't change anything, also at the head position
+  if (Before == Inst)
+    return;
+  if (!I->getParent())
+    return LLVMExtraMoveInstruction(Inst, BB, Before, Head);
+#if LLVM_VERSION_MAJOR >= 19
+  I->moveBeforePreserving(*unwrap(BB), insertionPoint(BB, Before, Head));
+#else
+  I->moveBefore(*unwrap(BB), insertionPoint(BB, Before, Head));
+#endif
+}
+
 void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlockRef Before) {
   BasicBlock *B = unwrap(BB);
   Function *F = unwrap<Function>(Fn);

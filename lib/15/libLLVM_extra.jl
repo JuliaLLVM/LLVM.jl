@@ -779,6 +779,10 @@ function LLVMExtraMoveInstruction(Inst, BB, Before, Head)
     ccall((:LLVMExtraMoveInstruction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
 end
 
+function LLVMExtraMoveInstructionPreserving(Inst, BB, Before, Head)
+    ccall((:LLVMExtraMoveInstructionPreserving, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Inst, BB, Before, Head)
+end
+
 function LLVMExtraMoveBasicBlock(BB, Fn, Before)
     ccall((:LLVMExtraMoveBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef, LLVMValueRef, LLVMBasicBlockRef), BB, Fn, Before)
 end

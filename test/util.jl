@@ -703,6 +703,8 @@ end
                 new = LLVM.ArrayType(remap_type(typ.element_type), typ.length)
             elseif typ isa LLVM.VectorType
                 new = LLVM.VectorType(remap_type(typ.element_type), typ.length)
+            elseif typ isa LLVM.ScalableVectorType
+                new = LLVM.ScalableVectorType(remap_type(typ.element_type), typ.min_length)
             end
             mapped_types[typ] = new
         end
@@ -856,6 +858,8 @@ end
 
         declare void @llvm.memcpy.p10.p10.i64(ptr addrspace(10), ptr addrspace(10), i64, i1 immarg)
 
+        declare <vscale x 2 x ptr addrspace(10)> @sv(<vscale x 2 x ptr addrspace(10)>)
+
         define void @f(ptr addrspace(10) byval(%T) %x, ptr addrspace(10) %y) !dbg !4 {
           %c = addrspacecast ptr addrspace(10) %y to ptr addrspace(11)
           %d = addrspacecast ptr addrspace(11) %c to ptr addrspace(10)
@@ -910,6 +914,10 @@ end
         @test call.called_operand.name == "llvm.memcpy.p0.p0.i64"
         @test call.operands[1] == f.parameters[2]
         @test call.operands[2] == a
+
+        sv = mod.functions["sv"]
+        T_sv = LLVM.ScalableVectorType(LLVM.PointerType(), 2)
+        @test sv.function_type == LLVM.FunctionType(T_sv, [T_sv])
 
         # debug info: the compile unit is kept, the subprogram is cloned (the verifier checks
         # that its unit is listed in llvm.dbg.cu)

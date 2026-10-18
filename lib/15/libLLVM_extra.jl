@@ -452,6 +452,58 @@ function LLVMExtraGetRemarkInfo(DI, Kind, PassName, RemarkName, FunctionName, Me
     ccall((:LLVMExtraGetRemarkInfo, libLLVMExtra), LLVMBool, (LLVMDiagnosticInfoRef, Ptr{LLVMExtraRemarkKind}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cuint}, Ptr{Cuint}), DI, Kind, PassName, RemarkName, FunctionName, Message, File, Line, Column)
 end
 
+function LLVMExtraGetRemarkNumArguments(DI)
+    ccall((:LLVMExtraGetRemarkNumArguments, libLLVMExtra), Cuint, (LLVMDiagnosticInfoRef,), DI)
+end
+
+function LLVMExtraGetRemarkArgument(DI, Index, Key, Value)
+    ccall((:LLVMExtraGetRemarkArgument, libLLVMExtra), Cvoid, (LLVMDiagnosticInfoRef, Cuint, Ptr{Cstring}, Ptr{Cstring}), DI, Index, Key, Value)
+end
+
+function LLVMExtraIsRemarkEnabled(C, Kind, PassName)
+    ccall((:LLVMExtraIsRemarkEnabled, libLLVMExtra), LLVMBool, (LLVMContextRef, LLVMExtraRemarkKind, Cstring), C, Kind, PassName)
+end
+
+mutable struct LLVMOpaqueOptimizationRemark end
+
+const LLVMOptimizationRemarkRef = Ptr{LLVMOpaqueOptimizationRemark}
+
+function LLVMExtraCreateOptimizationRemark(Kind, PassName, RemarkName, Inst)
+    ccall((:LLVMExtraCreateOptimizationRemark, libLLVMExtra), LLVMOptimizationRemarkRef, (LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef), Kind, PassName, RemarkName, Inst)
+end
+
+function LLVMExtraDisposeOptimizationRemark(R)
+    ccall((:LLVMExtraDisposeOptimizationRemark, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef,), R)
+end
+
+function LLVMExtraOptimizationRemarkAppendString(R, Str)
+    ccall((:LLVMExtraOptimizationRemarkAppendString, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring), R, Str)
+end
+
+function LLVMExtraOptimizationRemarkAppendNamedString(R, Key, Str)
+    ccall((:LLVMExtraOptimizationRemarkAppendNamedString, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, Cstring), R, Key, Str)
+end
+
+function LLVMExtraOptimizationRemarkAppendValue(R, Key, V)
+    ccall((:LLVMExtraOptimizationRemarkAppendValue, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, LLVMValueRef), R, Key, V)
+end
+
+function LLVMExtraOptimizationRemarkAppendType(R, Key, T)
+    ccall((:LLVMExtraOptimizationRemarkAppendType, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, LLVMTypeRef), R, Key, T)
+end
+
+function LLVMExtraOptimizationRemarkAppendInt(R, Key, N)
+    ccall((:LLVMExtraOptimizationRemarkAppendInt, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, Int64), R, Key, N)
+end
+
+function LLVMExtraOptimizationRemarkAppendUnsigned(R, Key, N)
+    ccall((:LLVMExtraOptimizationRemarkAppendUnsigned, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, UInt64), R, Key, N)
+end
+
+function LLVMExtraOptimizationRemarkAppendBool(R, Key, B)
+    ccall((:LLVMExtraOptimizationRemarkAppendBool, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, LLVMBool), R, Key, B)
+end
+
 mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
@@ -542,12 +594,8 @@ function LLVMExtraFunctionAnalysisManagerClear(AM, F)
     ccall((:LLVMExtraFunctionAnalysisManagerClear, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef), AM, F)
 end
 
-function LLVMExtraFunctionAnalysisManagerEmitRemark(AM, Kind, PassName, RemarkName, Inst, Message)
-    ccall((:LLVMExtraFunctionAnalysisManagerEmitRemark, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef, Cstring), AM, Kind, PassName, RemarkName, Inst, Message)
-end
-
-function LLVMExtraEmitRemark(Kind, PassName, RemarkName, Inst, Message)
-    ccall((:LLVMExtraEmitRemark, libLLVMExtra), Cvoid, (LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef, Cstring), Kind, PassName, RemarkName, Inst, Message)
+function LLVMExtraEmitOptimizationRemark(R, AM)
+    ccall((:LLVMExtraEmitOptimizationRemark, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, LLVMFunctionAnalysisManagerRef), R, AM)
 end
 
 mutable struct LLVMOpaqueModuleAnalysisManager end

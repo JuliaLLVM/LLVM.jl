@@ -36,6 +36,7 @@
 #include <llvm/Linker/Linker.h>
 #include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/MC/TargetRegistry.h>
+#include <llvm/Remarks/RemarkStreamer.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Utils/Cloning.h>
@@ -1762,6 +1763,38 @@ LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *K
     *Column = 0;
   }
   return true;
+}
+
+unsigned LLVMExtraGetRemarkNumArguments(LLVMDiagnosticInfoRef DI) {
+  auto *Remark = dyn_cast<DiagnosticInfoOptimizationBase>(unwrap(DI));
+  return Remark ? Remark->getArgs().size() : 0;
+}
+
+void LLVMExtraGetRemarkArgument(LLVMDiagnosticInfoRef DI, unsigned Index, char **Key,
+                                char **Value) {
+  auto *Remark = cast<DiagnosticInfoOptimizationBase>(unwrap(DI));
+  const auto &Arg = Remark->getArgs()[Index];
+  *Key = strdup(Arg.Key.c_str());
+  *Value = strdup(Arg.Val.c_str());
+}
+
+LLVMBool LLVMExtraIsRemarkEnabled(LLVMContextRef C, LLVMExtraRemarkKind Kind,
+                                  const char *PassName) {
+  LLVMContext &Ctx = *unwrap(C);
+  // the remark file only receives the remarks of passes that match its filter
+  if (remarks::RemarkStreamer *RS = Ctx.getMainRemarkStreamer())
+    if (Ctx.getLLVMRemarkStreamer() && RS->matchesFilter(PassName))
+      return true;
+  const DiagnosticHandler *DH = Ctx.getDiagHandlerPtr();
+  switch (Kind) {
+  case LLVMExtraRemarkPassed:
+    return DH->isPassedOptRemarkEnabled(PassName);
+  case LLVMExtraRemarkMissed:
+    return DH->isMissedOptRemarkEnabled(PassName);
+  case LLVMExtraRemarkAnalysis:
+    return DH->isAnalysisRemarkEnabled(PassName);
+  }
+  return false;
 }
 
 

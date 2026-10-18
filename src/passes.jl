@@ -48,6 +48,14 @@ add!(parent, ModulePassManager()) do mpm
 end
 ```
 
+This form does not add pass managers that are left empty.
+
+An `AAManager` selects the alias analyses that passes use (in order), instead of LLVM's
+default ones, and can only be added to a pass builder. Unlike other pass managers, it is
+meaningful when empty: the passes then use no alias analysis. LLVM's default alias
+analyses include those of the target machine, which an `AAManager` only includes where it
+lists [`TargetAA()`](@ref TargetAA).
+
 See also: [`add!`](@ref), [`PassBuilder`](@ref)
 """
 struct PassManager <: AbstractPassManager
@@ -896,7 +904,8 @@ run!
 function run!(pb::PassBuilder, target::Union{Module,Function}, tm::Union{Nothing,TargetMachine}=nothing)
     isempty(pb.passes) && return
     pipeline = join(pb.passes, ",")
-    aa_pipeline = join(pb.aa_passes, ",")
+    # without an AA manager, LLVM uses its default alias analyses
+    aa_pipeline = isempty(pb.aa_passes) ? nothing : join(filter(!isempty, pb.aa_passes), ",")
 
     # XXX: The Base API is too restricted, not supporting custom passes
     #      or Julia's pass registration callback
@@ -914,7 +923,7 @@ end
 
 function run_passes!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                      target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
-                     pipeline::String, aa_pipeline::String)
+                     pipeline::String, aa_pipeline::Union{Nothing,String})
     # Create state objects to hold callbacks and any caught exceptions
     states = [CustomPassState(pass) for pass in pb.custom_passes]
     tti_state = pb.custom_tti === nothing ? nothing :
@@ -944,12 +953,13 @@ end
 
 function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
                        target::Union{Module,Function}, tm::Union{Nothing,TargetMachine},
-                       pipeline::String, aa_pipeline::String, states, tti_state, ctx)
+                       pipeline::String, aa_pipeline::Union{Nothing,String}, states,
+                       tti_state, ctx)
     GC.@preserve states tti_state aa_pipeline begin
         register_extensions!(exts, pb, states)
 
         # register AA pipeline
-        if !isempty(aa_pipeline)
+        if aa_pipeline !== nothing
             if version() >= v"20"
                 API.LLVMPassBuilderOptionsSetAAPipeline(pb, aa_pipeline)
             else
@@ -966,7 +976,7 @@ function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
             end
         finally
             # the options keep a pointer to the AA pipeline, which is only valid during the run
-            if !isempty(aa_pipeline) && version() >= v"20"
+            if aa_pipeline !== nothing && version() >= v"20"
                 API.LLVMPassBuilderOptionsSetAAPipeline(pb, C_NULL)
             end
         end
@@ -1673,6 +1683,12 @@ end
 add!(pm::AAManager, aa::AAManager) =
     error("Alias analyses can only be added to the top-level pass builder")
 
+# unlike other pass managers, an empty AA manager is meaningful: it disables alias analysis
+function add!(f::Base.Callable, pb::PassBuilder, aa::AAManager)
+    f(aa)
+    return add!(pb, aa)
+end
+
 macro aa_pass(pass_name, class_name)
     define_pass(__module__, pass_name, class_name, "alias analysis")
 end
@@ -1682,6 +1698,20 @@ end
 @aa_pass "scev-aa" SCEVAA
 @aa_pass "scoped-noalias-aa" ScopedNoAliasAA
 @aa_pass "tbaa" TypeBasedAA
+
+@vocabulary Passes TargetAA
+push!(pass_functions, (LLVM, :TargetAA, "alias analysis"))
+
+"""
+    TargetAA() -> String
+
+The alias analyses of the target machine that the passes run with, as a string for use in
+an [`AAManager`](@ref). LLVM's default alias analyses include them, but other alias
+analysis pipelines only do where they list `TargetAA()`. Without a target machine, or for
+targets that have no alias analyses of their own, it adds nothing. This is not one of
+LLVM's alias analyses: LLVM.jl adds it to the pipelines it runs.
+"""
+TargetAA() = "target-aa"
 
 
 ## pipelines

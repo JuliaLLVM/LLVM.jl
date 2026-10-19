@@ -329,6 +329,121 @@ the conservative baseline).
 See the API reference for the full list of overridable queries.
 
 
+## IR transforms
+
+Besides running passes, LLVM.jl wraps several of LLVM's transformation utilities, which
+change specific parts of the IR. They are useful to write custom passes, or to make
+targeted changes to IR without running a full pass. Unlike passes, they don't keep
+analyses up to date, unless they take an analysis to update as an argument.
+
+```@meta
+DocTestSetup = quote
+    using LLVM, LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
+
+    if context(; throw_error=false) === nothing
+        Context()
+    end
+end
+```
+
+`promote_mem_to_reg!` does what the `mem2reg` pass does for a selection of allocas:
+replacing them by SSA values, inserting phi nodes where needed. It needs the function's
+dominator tree, which it does not change. `inline!` inlines the function that a call
+instruction calls, returning `nothing` when it succeeded or a message explaining why the
+call could not be inlined. Finally, `simplify_instruction` returns a simpler value that an
+instruction is equivalent to, which can then replace the instruction:
+
+```jldoctest ir_transforms
+julia> mod = parse(LLVM.Module, """
+         define i32 @square(i32 %x) {
+         entry:
+           %y = mul i32 %x, %x
+           ret i32 %y
+         }
+         define i32 @caller(i32 %a) {
+         entry:
+           %p = alloca i32
+           store i32 %a, ptr %p
+           %v = load i32, ptr %p
+           %s = call i32 @square(i32 %v)
+           %r = add i32 %s, 0
+           ret i32 %r
+         }""");
+
+julia> f = mod.functions["caller"];
+
+julia> allocas = AllocaInst[inst for inst in f.entry.instructions if inst isa AllocaInst];
+
+julia> all(is_promotable, allocas)
+true
+
+julia> @dispose domtree=DomTree(f) begin
+         promote_mem_to_reg!(allocas, domtree)
+       end;
+
+julia> call = first(inst for inst in f.entry.instructions if inst isa CallInst);
+
+julia> inline!(call) === nothing
+true
+
+julia> add = first(inst for inst in f.entry.instructions if inst isa LLVM.AddInst);
+
+julia> val = simplify_instruction(add)
+%y.i = mul i32 %a, %a
+
+julia> replace_uses!(add, val);
+
+julia> erase!(add);
+
+julia> f
+define i32 @caller(i32 %a) {
+entry:
+  %y.i = mul i32 %a, %a
+  ret i32 %y.i
+}
+```
+
+To change the control flow of a function, `split_block!` splits a basic block in two,
+with the first part branching to the second. `split_block_and_insert_if_then!` also
+inserts a block that only executes when a condition holds, and returns its terminator
+before which code can be inserted. Its `weights` keyword argument attaches branch weights
+to the new conditional branch, while passing a dominator tree as `domtree` updates that
+tree for the new control flow. `split_block_and_insert_if_then_else!` does the same with a
+block for either outcome:
+
+```jldoctest ir_transforms
+julia> mod = parse(LLVM.Module, """
+         define void @store_if(i1 %c, ptr %p) {
+         entry:
+           ret void
+         }""");
+
+julia> f = only(mod.functions);
+
+julia> c, p = f.parameters;
+
+julia> term = split_block_and_insert_if_then!(c, f.entry.terminator; weights=(1, 9));
+
+julia> @dispose builder=IRBuilder() begin
+         position!(builder, LLVM.before(term))
+         store!(builder, ConstantInt(Int32(42)), p)
+       end;
+
+julia> f
+define void @store_if(i1 %c, ptr %p) {
+entry:
+  br i1 %c, label %0, label %1, !prof !0
+
+0:                                                ; preds = %entry
+  store i32 42, ptr %p, align 4
+  br label %1
+
+1:                                                ; preds = %entry, %0
+  ret void
+}
+```
+
+
 ## IR cloning
 
 Somewhat distinct from IR passes, it is also possible to clone bits of the IR. This can be

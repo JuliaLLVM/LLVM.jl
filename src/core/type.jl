@@ -699,7 +699,7 @@ if version() >= v"16"
                            types::AbstractVector{<:LLVMType}=LLVMType[],
                            ints::AbstractVector{<:Integer}=Cuint[])
         return TargetExtType(API.LLVMTargetExtTypeInContext(context(), name,
-                                                            as_vector(types), length(types),
+                                                            as_refs(types), length(types),
                                                             Vector{Cuint}(ints),
                                                             length(ints)))
     end

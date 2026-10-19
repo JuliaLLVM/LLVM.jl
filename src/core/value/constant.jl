@@ -732,7 +732,7 @@ function ConstantVector(elements::AbstractVector{<:Constant})
     isempty(elements) && throw(ArgumentError("Cannot create a vector without elements"))
     all(e -> value_type(e) == value_type(first(elements)), elements) ||
         throw(ArgumentError("The elements of a vector must have the same type"))
-    return Value(API.LLVMConstVector(as_vector(elements), length(elements)))::Constant
+    return Value(API.LLVMConstVector(as_refs(elements), length(elements)))::Constant
 end
 
 
@@ -1143,7 +1143,7 @@ function with_operands(ce::ConstantExpr, ops::AbstractVector{<:Constant};
                        source_type::Union{LLVMType,Nothing}=nothing)
     length(ops) == length(operands(ce)) ||
         throw(ArgumentError("Expected $(length(operands(ce))) operands, got $(length(ops))"))
-    Value(API.LLVMExtraConstantExprGetWithOperands(ce, as_vector(ops), length(ops),
+    Value(API.LLVMExtraConstantExprGetWithOperands(ce, as_refs(ops), length(ops),
                                                    something(type, C_NULL),
                                                    something(source_type, C_NULL)))
 end

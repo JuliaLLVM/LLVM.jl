@@ -64,6 +64,37 @@ With these objects, a number of APIs are available:
 - `LLVM.hasasmbackend`: whether the target has an assembly backend, to emit object files
 
 
+
+## Target triples
+
+Target triples are strings like `"x86_64-unknown-linux-gnu"`. To find out what LLVM makes
+of one, wrap it in an `LLVM.Triple`: its properties `arch`, `vendor`, `os`, `environment`
+and `object_format` are the components that LLVM recognizes, as symbols, and predicates
+like `LLVM.isx86`, `LLVM.isaarch64` or `LLVM.iswindows` classify it like the predicates of
+C++'s `llvm::Triple`:
+
+```jldoctest
+julia> triple = LLVM.Triple("aarch64-apple-darwin");
+
+julia> triple.arch, triple.os, triple.object_format
+(:aarch64, :darwin, :macho)
+
+julia> LLVM.isaarch64(triple), LLVM.isdarwin(triple)
+(true, true)
+```
+
+The string is interpreted as it is, without normalizing it, like the C++ passes that do
+`Triple(M.getTargetTriple())`. Some spellings are only understood after normalization:
+
+```jldoctest
+julia> LLVM.iswindows(LLVM.Triple("x86_64-w64-mingw32"))
+false
+
+julia> LLVM.normalize(LLVM.Triple("x86_64-w64-mingw32"))
+LLVM.Triple("x86_64-w64-windows-gnu")
+```
+
+
 ## Target machines
 
 Starting from a target and a triple, it's possible to create a target machine for native
@@ -116,6 +147,39 @@ julia> String(LLVM.emit(tm, mod, LLVM.CodeGenFileType.Assembly)) |> println
 	.ascii	"memory64"
 	.text
 ```
+
+
+## Subtargets
+
+What a CPU supports, and what a feature string like `"+avx2,-fma"` amounts to, is described
+by the target's tables in LLVM: features imply other features (AVX2 implies AVX), CPUs come
+with features, and a later setting in a feature string overrides an earlier one. An
+`LLVM.SubtargetInfo` interprets a triple, CPU and feature string using those tables. It only
+needs the target's machine code layer, not a target machine:
+
+```jldoctest subtarget
+julia> LLVM.InitializeX86TargetInfo(); LLVM.InitializeX86TargetMC();
+
+julia> x86 = LLVM.Target(; triple="x86_64-unknown-linux-gnu");
+
+julia> sti = LLVM.SubtargetInfo(x86, "x86_64-unknown-linux-gnu"; features="+avx2,-fma");
+
+julia> LLVM.hasfeature(sti, "avx"), LLVM.hasfeature(sti, "fma")
+(true, false)
+
+julia> LLVM.hasfeatures(sti, "+avx,-fma")
+true
+
+julia> dispose(sti)
+```
+
+`LLVM.hasfeature` and `LLVM.hasfeatures` throw an `ArgumentError` for names that the
+target doesn't know about; `LLVM.processor_features` lists the names it knows.
+
+When generating code, a target machine uses a subtarget for every function, which is
+derived from the function's `"target-cpu"` and `"target-features"` attributes (when
+present) instead of the target machine's own CPU and features. That subtarget is available
+as `LLVM.SubtargetInfo(tm, f)`, and belongs to the target machine.
 
 
 ## Data layout

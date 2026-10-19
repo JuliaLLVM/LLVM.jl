@@ -1190,3 +1190,115 @@ end
 function LLVMExtraConstantFoldCastOperand(Opcode, C, DestTy, TD, Result)
     ccall((:LLVMExtraConstantFoldCastOperand, libLLVMExtra), LLVMBool, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, LLVMTargetDataRef, Ptr{LLVMValueRef}), Opcode, C, DestTy, TD, Result)
 end
+
+function LLVMExtraTripleGetArchTypeName(Triple)
+    ccall((:LLVMExtraTripleGetArchTypeName, libLLVMExtra), Cstring, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleGetVendorTypeName(Triple)
+    ccall((:LLVMExtraTripleGetVendorTypeName, libLLVMExtra), Cstring, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleGetOSTypeName(Triple)
+    ccall((:LLVMExtraTripleGetOSTypeName, libLLVMExtra), Cstring, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleGetEnvironmentTypeName(Triple)
+    ccall((:LLVMExtraTripleGetEnvironmentTypeName, libLLVMExtra), Cstring, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleGetObjectFormatTypeName(Triple)
+    ccall((:LLVMExtraTripleGetObjectFormatTypeName, libLLVMExtra), Cstring, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsX86(Triple)
+    ccall((:LLVMExtraTripleIsX86, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsAArch64(Triple)
+    ccall((:LLVMExtraTripleIsAArch64, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsARM(Triple)
+    ccall((:LLVMExtraTripleIsARM, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsThumb(Triple)
+    ccall((:LLVMExtraTripleIsThumb, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsRISCV(Triple)
+    ccall((:LLVMExtraTripleIsRISCV, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsPPC(Triple)
+    ccall((:LLVMExtraTripleIsPPC, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsNVPTX(Triple)
+    ccall((:LLVMExtraTripleIsNVPTX, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsAMDGPU(Triple)
+    ccall((:LLVMExtraTripleIsAMDGPU, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsSPIRV(Triple)
+    ccall((:LLVMExtraTripleIsSPIRV, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsWasm(Triple)
+    ccall((:LLVMExtraTripleIsWasm, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsOSDarwin(Triple)
+    ccall((:LLVMExtraTripleIsOSDarwin, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsOSWindows(Triple)
+    ccall((:LLVMExtraTripleIsOSWindows, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+function LLVMExtraTripleIsOSLinux(Triple)
+    ccall((:LLVMExtraTripleIsOSLinux, libLLVMExtra), LLVMBool, (Cstring,), Triple)
+end
+
+mutable struct LLVMOpaqueMCSubtargetInfo end
+
+const LLVMMCSubtargetInfoRef = Ptr{LLVMOpaqueMCSubtargetInfo}
+
+function LLVMExtraCreateMCSubtargetInfo(T, Triple, CPU, Features)
+    ccall((:LLVMExtraCreateMCSubtargetInfo, libLLVMExtra), LLVMMCSubtargetInfoRef, (LLVMTargetRef, Cstring, Cstring, Cstring), T, Triple, CPU, Features)
+end
+
+function LLVMExtraDisposeMCSubtargetInfo(STI)
+    ccall((:LLVMExtraDisposeMCSubtargetInfo, libLLVMExtra), Cvoid, (LLVMMCSubtargetInfoRef,), STI)
+end
+
+function LLVMExtraGetTargetMachineSubtargetInfo(TM, F)
+    ccall((:LLVMExtraGetTargetMachineSubtargetInfo, libLLVMExtra), LLVMMCSubtargetInfoRef, (LLVMTargetMachineRef, LLVMValueRef), TM, F)
+end
+
+function LLVMExtraMCSubtargetInfoGetTriple(STI)
+    ccall((:LLVMExtraMCSubtargetInfoGetTriple, libLLVMExtra), Cstring, (LLVMMCSubtargetInfoRef,), STI)
+end
+
+function LLVMExtraMCSubtargetInfoGetCPU(STI)
+    ccall((:LLVMExtraMCSubtargetInfoGetCPU, libLLVMExtra), Cstring, (LLVMMCSubtargetInfoRef,), STI)
+end
+
+function LLVMExtraMCSubtargetInfoGetFeatureString(STI)
+    ccall((:LLVMExtraMCSubtargetInfoGetFeatureString, libLLVMExtra), Cstring, (LLVMMCSubtargetInfoRef,), STI)
+end
+
+function LLVMExtraMCSubtargetInfoGetNumProcessorFeatures(STI)
+    ccall((:LLVMExtraMCSubtargetInfoGetNumProcessorFeatures, libLLVMExtra), Cuint, (LLVMMCSubtargetInfoRef,), STI)
+end
+
+function LLVMExtraMCSubtargetInfoGetProcessorFeatureName(STI, Index)
+    ccall((:LLVMExtraMCSubtargetInfoGetProcessorFeatureName, libLLVMExtra), Cstring, (LLVMMCSubtargetInfoRef, Cuint), STI, Index)
+end
+
+function LLVMExtraMCSubtargetInfoLookupFeature(STI, Name, Enabled)
+    ccall((:LLVMExtraMCSubtargetInfoLookupFeature, libLLVMExtra), LLVMBool, (LLVMMCSubtargetInfoRef, Cstring, Ptr{LLVMBool}), STI, Name, Enabled)
+end

@@ -10,6 +10,26 @@ LLVM.hasasmbackend(::LLVM.Target)
 LLVM.targets
 ```
 
+## Target triples
+
+```@docs
+LLVM.Triple
+LLVM.normalize(::LLVM.Triple)
+LLVM.isx86
+LLVM.isaarch64
+LLVM.isarm
+LLVM.isthumb
+LLVM.isriscv
+LLVM.isppc
+LLVM.isnvptx
+LLVM.isamdgpu
+LLVM.isspirv
+LLVM.iswasm
+LLVM.isdarwin
+LLVM.iswindows
+LLVM.islinux
+```
+
 ## Target machines
 
 ```@docs
@@ -22,6 +42,16 @@ LLVM.normalize(::AbstractString)
 LLVM.asm_verbosity!
 LLVM.emit
 LLVM.JITTargetMachine
+```
+
+## Subtargets
+
+```@docs
+LLVM.SubtargetInfo
+dispose(::LLVM.SubtargetInfo)
+LLVM.processor_features
+LLVM.hasfeature
+LLVM.hasfeatures
 ```
 
 ## Data layout

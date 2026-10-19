@@ -11,6 +11,7 @@
 #include <llvm/ADT/SetVector.h>
 #include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/CodeGen/TargetSubtargetInfo.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
@@ -32,7 +33,10 @@
 #include <llvm/IR/ReplaceConstant.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Linker/Linker.h>
+#include <llvm/MC/MCSubtargetInfo.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 
@@ -1632,5 +1636,174 @@ LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *K
     *Line = 0;
     *Column = 0;
   }
+  return true;
+}
+
+
+//
+// Target triples
+//
+
+#if LLVM_VERSION_MAJOR < 17
+// Triple::getObjectFormatTypeName is only public since LLVM 17; these are the same names
+static StringRef getObjectFormatTypeName(Triple::ObjectFormatType Kind) {
+  switch (Kind) {
+  case Triple::UnknownObjectFormat:
+    return "";
+  case Triple::COFF:
+    return "coff";
+  case Triple::ELF:
+    return "elf";
+  case Triple::GOFF:
+    return "goff";
+  case Triple::MachO:
+    return "macho";
+  case Triple::Wasm:
+    return "wasm";
+  case Triple::XCOFF:
+    return "xcoff";
+  case Triple::DXContainer:
+    return "dxcontainer";
+  case Triple::SPIRV:
+    return "spirv";
+  }
+  llvm_unreachable("unknown object format type");
+}
+#else
+static StringRef getObjectFormatTypeName(Triple::ObjectFormatType Kind) {
+  return Triple::getObjectFormatTypeName(Kind);
+}
+#endif
+
+// the type names are string literals, so they are null-terminated
+const char *LLVMExtraTripleGetArchTypeName(const char *T) {
+  return Triple::getArchTypeName(Triple(Twine(T)).getArch()).data();
+}
+
+const char *LLVMExtraTripleGetVendorTypeName(const char *T) {
+  return Triple::getVendorTypeName(Triple(Twine(T)).getVendor()).data();
+}
+
+const char *LLVMExtraTripleGetOSTypeName(const char *T) {
+  return Triple::getOSTypeName(Triple(Twine(T)).getOS()).data();
+}
+
+const char *LLVMExtraTripleGetEnvironmentTypeName(const char *T) {
+  return Triple::getEnvironmentTypeName(Triple(Twine(T)).getEnvironment()).data();
+}
+
+const char *LLVMExtraTripleGetObjectFormatTypeName(const char *T) {
+  return getObjectFormatTypeName(Triple(Twine(T)).getObjectFormat()).data();
+}
+
+#define TRIPLE_PREDICATE(Name, Method)                                                     \
+  LLVMBool LLVMExtraTriple##Name(const char *T) { return Triple(Twine(T)).Method(); }
+TRIPLE_PREDICATE(IsX86, isX86)
+TRIPLE_PREDICATE(IsAArch64, isAArch64)
+TRIPLE_PREDICATE(IsARM, isARM)
+TRIPLE_PREDICATE(IsThumb, isThumb)
+TRIPLE_PREDICATE(IsRISCV, isRISCV)
+TRIPLE_PREDICATE(IsPPC, isPPC)
+TRIPLE_PREDICATE(IsNVPTX, isNVPTX)
+TRIPLE_PREDICATE(IsAMDGPU, isAMDGPU)
+TRIPLE_PREDICATE(IsSPIRV, isSPIRV)
+TRIPLE_PREDICATE(IsWasm, isWasm)
+TRIPLE_PREDICATE(IsOSDarwin, isOSDarwin)
+TRIPLE_PREDICATE(IsOSWindows, isOSWindows)
+TRIPLE_PREDICATE(IsOSLinux, isOSLinux)
+#undef TRIPLE_PREDICATE
+
+
+//
+// Subtarget information
+//
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(MCSubtargetInfo, LLVMMCSubtargetInfoRef)
+
+#if LLVM_VERSION_MAJOR >= 18
+static ArrayRef<SubtargetFeatureKV> getProcessorFeatures(const MCSubtargetInfo &STI) {
+  return STI.getAllProcessorFeatures();
+}
+#else
+// before LLVM 18, the feature table is a private member without an accessor. names in an
+// explicit template instantiation aren't subject to access checks, so instantiating this
+// template with a pointer to that member gives a function that returns it.
+namespace {
+using ProcessorFeaturesMember = ArrayRef<SubtargetFeatureKV> MCSubtargetInfo::*;
+ProcessorFeaturesMember getProcessorFeaturesMember();
+template <ProcessorFeaturesMember Member> struct ProcessorFeaturesAccess {
+  friend ProcessorFeaturesMember getProcessorFeaturesMember() { return Member; }
+};
+template struct ProcessorFeaturesAccess<&MCSubtargetInfo::ProcFeatures>;
+} // namespace
+static ArrayRef<SubtargetFeatureKV> getProcessorFeatures(const MCSubtargetInfo &STI) {
+  return STI.*getProcessorFeaturesMember();
+}
+#endif
+
+static const char *getFeatureKey(const SubtargetFeatureKV &KV) {
+#if LLVM_VERSION_MAJOR >= 23
+  return KV.key();
+#else
+  return KV.Key;
+#endif
+}
+
+LLVMMCSubtargetInfoRef LLVMExtraCreateMCSubtargetInfo(LLVMTargetRef T, const char *TT,
+                                                      const char *CPU, const char *Features) {
+  auto *TheTarget = reinterpret_cast<const Target *>(T);
+#if LLVM_VERSION_MAJOR >= 22
+  return wrap(TheTarget->createMCSubtargetInfo(Triple(Twine(TT)), CPU, Features));
+#else
+  return wrap(TheTarget->createMCSubtargetInfo(TT, CPU, Features));
+#endif
+}
+
+void LLVMExtraDisposeMCSubtargetInfo(LLVMMCSubtargetInfoRef STI) { delete unwrap(STI); }
+
+LLVMMCSubtargetInfoRef LLVMExtraGetTargetMachineSubtargetInfo(LLVMTargetMachineRef TM,
+                                                              LLVMValueRef F) {
+  auto *Machine = reinterpret_cast<TargetMachine *>(TM);
+  const MCSubtargetInfo *STI = Machine->getSubtargetImpl(*unwrap<Function>(F));
+  return wrap(const_cast<MCSubtargetInfo *>(STI));
+}
+
+// these strings are members of the subtarget, so they are null-terminated
+const char *LLVMExtraMCSubtargetInfoGetTriple(LLVMMCSubtargetInfoRef STI) {
+  return unwrap(STI)->getTargetTriple().getTriple().c_str();
+}
+
+const char *LLVMExtraMCSubtargetInfoGetCPU(LLVMMCSubtargetInfoRef STI) {
+  return unwrap(STI)->getCPU().data();
+}
+
+const char *LLVMExtraMCSubtargetInfoGetFeatureString(LLVMMCSubtargetInfoRef STI) {
+  return unwrap(STI)->getFeatureString().data();
+}
+
+unsigned LLVMExtraMCSubtargetInfoGetNumProcessorFeatures(LLVMMCSubtargetInfoRef STI) {
+  return getProcessorFeatures(*unwrap(STI)).size();
+}
+
+const char *LLVMExtraMCSubtargetInfoGetProcessorFeatureName(LLVMMCSubtargetInfoRef STI,
+                                                            unsigned Index) {
+  return getFeatureKey(getProcessorFeatures(*unwrap(STI))[Index]);
+}
+
+LLVMBool LLVMExtraMCSubtargetInfoLookupFeature(LLVMMCSubtargetInfoRef STI, const char *Name,
+                                               LLVMBool *Enabled) {
+  // the table is sorted by name, like MCSubtargetInfo's own lookups assume. this doesn't
+  // use checkFeatures, which aborts on unknown names since LLVM 21, and before that
+  // ignored them and also checked the features that a feature implies.
+  ArrayRef<SubtargetFeatureKV> Table = getProcessorFeatures(*unwrap(STI));
+  StringRef Key(Name);
+  const SubtargetFeatureKV *Entry =
+      std::lower_bound(Table.begin(), Table.end(), Key,
+                       [](const SubtargetFeatureKV &KV, StringRef Key) {
+                         return StringRef(getFeatureKey(KV)) < Key;
+                       });
+  if (Entry == Table.end() || StringRef(getFeatureKey(*Entry)) != Key)
+    return false;
+  *Enabled = unwrap(STI)->getFeatureBits().test(Entry->Value);
   return true;
 }

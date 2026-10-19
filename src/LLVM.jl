@@ -75,8 +75,11 @@ end
 # for every combination of, e.g., value types). that makes calls with abstractly-typed
 # arguments resolve statically, and inlining them makes the argument conversions do so too.
 function inline_wrapper(ex)
-    if Meta.isexpr(ex, :function) && Meta.isexpr(ex.args[2], :block)
-        pushfirst!(ex.args[2].args, Expr(:meta, :inline))
+    # most wrappers are documented: `@doc "..." function ... end`
+    def = Meta.isexpr(ex, :macrocall) && ex.args[1] == GlobalRef(Core, Symbol("@doc")) ?
+          ex.args[end] : ex
+    if Meta.isexpr(def, :function) && Meta.isexpr(def.args[2], :block)
+        pushfirst!(def.args[2].args, Expr(:meta, :inline))
     end
     return ex
 end

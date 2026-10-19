@@ -144,3 +144,51 @@ function my_pass!(f::LLVM.Function, am)
     return false
 end
 ```
+
+
+## Loops and scalar evolution
+
+The loops of a function are described by the `LoopInfo` analysis, which iterates over the
+outermost loops of a function. Each `Loop` has properties for its structure, like its
+`header`, `latch`, `preheader`, `exit_blocks` and nested `subloops`. LLVM's scalar evolution
+analysis (`ScalarEvolution`) represents integer values as symbolic expressions (`SCEV`s),
+e.g., an induction variable as an add recurrence `{start,+,step}<loop>`. It can compute
+the number of times a loop's backedge is taken (`backedge_taken_count`) and the step of an
+induction variable (`step_recurrence`). Both analyses are obtained from the analysis
+manager of a custom pass:
+
+```jldoctest
+julia> function trip_counts!(f::LLVM.Function, am)
+         li, se = am[LoopInfo], am[ScalarEvolution]
+         for loop in li
+           println(loop.header.name, " (depth ", loop.depth, "): ",
+                   backedge_taken_count(se, loop))
+           for inst in loop.header.instructions
+             inst isa PHIInst || continue
+             s = se[inst]
+             println("  ", inst.name, " = ", s, ", step ", step_recurrence(se, s))
+           end
+         end
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia> mod = parse(LLVM.Module, """
+         define void @count(i64 %n) {
+         entry:
+           br label %loop
+         loop:
+           %i = phi i64 [ 0, %entry ], [ %next, %loop ]
+           %next = add nuw nsw i64 %i, 2
+           %done = icmp uge i64 %next, %n
+           br i1 %done, label %exit, label %loop
+         exit:
+           ret void
+         }""");
+
+julia> run!(FunctionPass("trip-counts", trip_counts!; analyses=true), mod)
+loop (depth 1): SCEVUDivExpr(((-1 + (2 umax %n)) /u 2))
+  i = SCEVAddRecExpr({0,+,2}<nuw><nsw><%loop>), step SCEVConstant(2)
+```
+
+Like other analysis results, loops and expressions are owned by the analysis manager, and
+must not be used after the pass returns.

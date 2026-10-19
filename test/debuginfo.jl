@@ -78,6 +78,26 @@ end
     end
 end
 
+@testset "DIBuilder: source languages" begin
+    # the values of source languages differ between versions of LLVM
+    languages = [LLVM.DWARFSourceLanguage.Julia => "DW_LANG_Julia",
+                 LLVM.DWARFSourceLanguage.Mips_Assembler => "DW_LANG_Mips_Assembler",
+                 LLVM.DWARFSourceLanguage.BORLAND_Delphi => "DW_LANG_BORLAND_Delphi"]
+    if LLVM.version() >= v"17"
+        push!(languages, LLVM.DWARFSourceLanguage.Mojo => "DW_LANG_Mojo")
+    end
+    for (lang, name) in languages
+        @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+            DIBuilder(mod) do dib
+                file = LLVM.file!(dib, "test.jl", "/tmp")
+                LLVM.compile_unit!(dib, lang, file, "LLVM.jl Tests")
+            end
+            @test occursin("sourceLanguage: $name,", string(mod)) ||
+                  occursin("language: $name,", string(mod))
+        end
+    end
+end
+
 @testset "DIBuilder: lexical blocks" begin
     DW_ATE_signed = 0x05
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin

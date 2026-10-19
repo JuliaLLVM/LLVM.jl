@@ -39,6 +39,30 @@ Special versions of these functions are available to initialize all available ta
 e.g., `LLVM.InitializeAllTargetInfos`, or to initialize the native target, e.g.,
 `LLVM.InitializeNativeTarget`.
 
+### Using another version of LLVM
+
+LLVM.jl uses the LLVM library that Julia uses, but the `libLLVM` preference can select
+another one: a standalone library that contains LLVM, linked in statically, and LLVMExtra,
+LLVM.jl's library of extensions to the C API. `deps/build_standalone.jl` builds such a
+library for a version of LLVM from LLVM_full_jll, and prints its path:
+
+```
+$ julia --project=deps deps/build_standalone.jl 21
+/path/to/libLLVM-standalone-21.so
+```
+
+```toml
+# LocalPreferences.toml
+[LLVM]
+libLLVM = "/path/to/libLLVM-standalone-21.so"
+```
+
+LLVM.jl then uses that library for everything, and `LLVM.version()` returns its version.
+This is useful, e.g., to test LLVM.jl with versions of LLVM that Julia doesn't use.
+Functionality that integrates with Julia's code generator requires Julia's LLVM, and throws
+an error with another library: `LLVM.Interop` (generating `llvmcall`s, converting Julia
+types), `JuliaOJIT`, and Julia's passes.
+
 
 ## Vocabularies
 
@@ -586,9 +610,10 @@ julia> LLVM.IntPredicate.EQ, LLVM.Opcode.BitCast, LLVM.AtomicOrdering.Acquire
 ```
 
 These names are those of the C API, without their common prefix and suffix. The modules
-contain the values that `LLVM.API` defines for the current version of LLVM (including
-values that LLVM.jl backfills, like newer `atomicrmw` operations, whose availability can be
-checked with `LLVM.isavailable`), and `T`, their type (e.g., `LLVM.Linkage.T ===
+contain the values that `LLVM.API` defines, which are those of every version of LLVM that
+LLVM.jl supports (whether the version in use has a value can be checked with
+`LLVM.isavailable`, and passing a value that it lacks to LLVM throws an error), and `T`,
+their type (e.g., `LLVM.Linkage.T ===
 LLVM.API.LLVMLinkage`), to use in type annotations or with functions like
 `parse(LLVM.AtomicOrdering.T, "acquire")`. The modules are public, but not
 part of any vocabulary, so they are always qualified by default. To use them unqualified,

@@ -19,6 +19,10 @@ LLVMBool LLVMExtraInitializeNativeAsmParser(void);
 LLVMBool LLVMExtraInitializeNativeAsmPrinter(void);
 LLVMBool LLVMExtraInitializeNativeDisassembler(void);
 
+// parse command-line options from an environment variable, like Julia does with
+// `JULIA_LLVM_ARGS` (unlike LLVMParseCommandLineOptions, this exits on invalid options)
+void LLVMExtraParseEnvironmentOptions(const char *ProgName, const char *EnvVar);
+
 typedef enum {
   LLVMDebugEmissionKindNoDebug = 0,
   LLVMDebugEmissionKindFullDebug = 1,
@@ -82,6 +86,11 @@ LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A);
 #endif
 #if LLVM_VERSION_MAJOR >= 20
 LLVMBool LLVMIsConstantRangeListAttribute(LLVMAttributeRef A);
+#endif
+
+// version information
+#if LLVM_VERSION_MAJOR < 16 // D139381
+void LLVMGetVersion(unsigned *Major, unsigned *Minor, unsigned *Patch);
 #endif
 
 // Bug fixes

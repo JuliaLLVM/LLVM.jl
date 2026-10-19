@@ -12,8 +12,17 @@
 @test LLVM.CodeGenOptLevel.Aggressive === LLVM.API.LLVMCodeGenLevelAggressive
 @test LLVM.CodeGenFileType.Assembly === LLVM.API.LLVMAssemblyFile
 
-# including values that the API backfills on older versions of LLVM
+# including values of other versions of LLVM, whose availability is documented
 @test LLVM.AtomicRMWBinOp.FMinimumNum === LLVM.API.LLVMAtomicRMWBinOpFMinimumNum
+@test LLVM.Opcode.Br === LLVM.API.LLVMBr
+@test LLVM.Opcode.CondBr === LLVM.API.LLVMCondBr
+@test LLVM.isavailable(LLVM.Opcode.Br) == (LLVM.version() < v"23")
+@test LLVM.isavailable(LLVM.Opcode.CondBr) == (LLVM.version() >= v"23")
+@test LLVM.isavailable(LLVM.Opcode.Ret)
+@test occursin(r"`CondBr`.*23\+", string(@doc(LLVM.Opcode)))
+@test occursin(r"`Br`.*15–22", string(@doc(LLVM.Opcode)))
+# LLVM.jl supports some atomicrmw operations before the C API names them
+@test occursin(r"`UIncWrap`.*16\+", string(@doc(LLVM.AtomicRMWBinOp)))
 @test LLVM.ModuleFlagBehavior.Max === LLVM.API.LLVMModuleFlagBehaviorMax
 
 for (scope, typename) in ((s[1], s[2]) for s in LLVM.enum_scopes)

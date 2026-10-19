@@ -18,6 +18,7 @@ julia_typed_pointers = let
 end
 @info "Pointer settings: Julia uses $(julia_typed_pointers ? "typed" : "opaque") pointers, default contexts use $(ctx_typed_pointers ? "typed" : "opaque") pointers"
 
+LLVM.julia_llvm || @info "Using LLVM $(LLVM.version()) from $(LLVM.libllvm) instead of Julia's"
 @info "Debug settings: typecheck = $(LLVM.typecheck_enabled), memcheck = $(LLVM.memcheck_enabled)"
 
 
@@ -44,10 +45,28 @@ include("datalayout.jl")
 include("debuginfo.jl")
 include("util.jl")
 include("documentation.jl")
-include("interop.jl")
+if LLVM.julia_llvm
+    # integration with Julia's code generator, which requires Julia's LLVM
+    include("interop.jl")
+else
+    @testset "integration with Julia's code generator" begin
+        @test_throws "requires the LLVM library that Julia uses" LLVM.JuliaOJIT()
+        @test_throws "requires the LLVM library that Julia uses" LLVM.Interop.JuliaPipeline()
+        @dispose ctx=Context() begin
+            @test_throws "requires the LLVM library that Julia uses" convert(LLVMType, Int)
+        end
+        @test_throws "requires the LLVM library that Julia uses" LLVM.Interop.generate_llvmcall(
+            Int, Tuple{Int}, :x) do builder, x
+            x
+        end
+        @test !("RemoveNI" in LLVM.module_passes)
+    end
+end
 include("orc.jl")
 include("disasm.jl")
-include("jljit.jl")
+if LLVM.julia_llvm
+    include("jljit.jl")
+end
 include("Kaleidoscope.jl")
 include("examples.jl")
 include("aqua.jl")

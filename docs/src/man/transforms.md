@@ -69,6 +69,19 @@ pipeline). Instead, the pipeline can be tuned through pipeline tuning keyword ar
 have to be set on the `PassBuilder` object. Refer to the `PassBuilder` docstrings
 for more details.
 
+To see what a pipeline consists of, `print_pipeline` prints it as LLVM parses it, like
+`opt -print-pipeline-passes` does: with the pass managers that LLVM inserts, every pass under
+its name, and the options of passes that take them. Pipelines like `default<O2>` are
+printed as the passes they consist of.
+
+```jldoctest
+julia> @dispose pb=PassBuilder() begin
+         add!(pb, "globaldce,instsimplify,dce")
+         print_pipeline(pb)
+       end
+globaldce,function(instsimplify),function(dce)
+```
+
 
 ## Pass managers
 
@@ -108,6 +121,21 @@ julia> @dispose pb=PassBuilder() begin
          add!(pb, "aa-eval")
          run!(pb, mod)
        end
+```
+
+An empty `AAManager` disables alias analysis. LLVM's default alias analyses include those
+that the target machine provides, e.g., ones that know about the address spaces of a GPU.
+To use them together with other alias analyses, list them using `TargetAA()`:
+
+```julia
+@dispose pb=PassBuilder() begin
+    add!(pb, AAManager()) do aam
+        add!(aam, BasicAA())
+        add!(aam, TargetAA())
+    end
+    add!(pb, "gvn")
+    run!(pb, mod, tm)
+end
 ```
 
 
@@ -230,20 +258,48 @@ functions it changed itself, and return `PreservedAnalyses(FunctionAnalyses)`. B
 module pass deletes a function, it needs to remove all of its analyses using
 `empty!(am[f])`, as some of them (like the assumption cache) survive invalidation.
 
+A function pass with analyses can also run other passes on its function, e.g.,
+`run!(InstCombinePass(), f, am)`. These run as part of the pipeline, with its analyses,
+like a nested function pass manager would, and `run!` returns the analyses that they
+preserved. Unlike a nested pass manager, the pass can decide whether to run them, and what
+to do with their result:
+
+```jldoctest custom_pass
+julia> function simplify_twice!(f::LLVM.Function, am)
+         preserved = run!(InstSimplifyPass(), f, am)
+         println(f.name, ": ", preserved)
+         if preserved != PreservedAnalyses(AllAnalyses)
+           preserved = intersect(preserved, run!(InstSimplifyPass(), f, am))
+         end
+         return preserved
+       end;
+
+julia> run!(FunctionPass("simplify-twice", simplify_twice!; analyses=true), diamond)
+diamond: PreservedAnalyses(AllAnalyses)
+```
+
 Passes with analyses can report what they did, or why they didn't, using optimization
-remarks, like LLVM's passes do. These can be collected using the `remarks` keyword argument
-of the pass builder (or of `run!`):
+remarks, like LLVM's passes do. A remark's message is made of strings and named
+arguments, `key => value`, whose values LLVM renders like in the remarks of its own passes
+(e.g., an instruction as its opcode). In the do-block form of `remark!`, the message is
+only built when remarks of the pass are wanted, e.g., because they are collected using
+the `remarks` keyword argument of the pass builder (or of `run!`):
 
 ```jldoctest custom_pass
 julia> function report!(f::LLVM.Function, am)
-         remark!(am, :missed, "report", "NoChange", f.entry.terminator, "nothing to do")
+         remark!(am, :missed, "report", "NoChange", f.entry.terminator) do
+           "nothing to do before ", "Inst" => f.entry.terminator
+         end
          return false
        end;
 
 julia> run!(FunctionPass("report", report!; analyses=true), diamond;
             remarks = r -> println(r.function_name, ": ", r.message))
-diamond: nothing to do
+diamond: nothing to do before br
 ```
+
+Remarks can also be enabled using LLVM's `-pass-remarks` options, or written to a file
+using a `RemarkFile`, like the `-pass-remarks-output` option of LLVM's tools does.
 
 Custom passes can also take options, which are written in a pipeline like those of LLVM's
 passes, e.g., `my-pass<limit=10>`. To support them, pass a function that parses the text
@@ -262,6 +318,87 @@ julia> @dispose pb=PassBuilder() begin
 diamond: 42
 diamond: 10
 ```
+
+LLVM knows custom passes by their name, like it knows its own passes by theirs. This is the
+name that its instrumentation reports (e.g., the passes that `debug_logging=true` lists),
+and that its command-line options for debugging pipelines select passes with, e.g.,
+`-print-before=print-limit` to print the IR before each occurrence of the pass above.
+
+Loop passes run on each loop of a function, innermost loops first, in a loop pass manager:
+a `loop(...)` pipeline, or a `loop-mssa(...)` pipeline that also maintains MemorySSA. A
+custom loop pass is created using `LoopPass`, and its callback is given the loop and the
+`LoopAnalysisResults` of the loop pass manager, which provide the analyses that loop
+passes use. Like LLVM's loop passes, it can also be named on its own at the start of a
+pipeline:
+
+```jldoctest custom_pass
+julia> function count_blocks!(loop::Loop, ar::LoopAnalysisResults)
+         se = ar[ScalarEvolution]
+         println(loop.header.name, ": ", length(loop.blocks), " block(s), ",
+                 backedge_taken_count(se, loop), " backedges taken")
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia> counted = parse(LLVM.Module, """
+         define void @counted() {
+         entry:
+           br label %loop
+         loop:
+           %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+           %i.next = add i32 %i, 1
+           %c = icmp ult i32 %i.next, 10
+           br i1 %c, label %loop, label %exit
+         exit:
+           ret void
+         }""");
+
+julia> @dispose pb=PassBuilder() begin
+         register!(pb, LoopPass("count-blocks", count_blocks!))
+         add!(pb, "count-blocks")
+         run!(pb, counted)
+       end
+loop: 1 block(s), SCEVConstant(9) backedges taken
+```
+
+The analyses that a loop pass is given are shared by the whole loop pipeline, which relies
+on every pass to keep them valid: a pass that changes a loop needs to update the dominator
+tree, loop info and scalar evolution (e.g., using `forget!` for values and loops whose
+scalar evolution changed), and in a `loop-mssa` pipeline, MemorySSA. It then returns
+`PreservedAnalyses(LoopAnalyses)`, together with `CFGAnalyses` if it did not change the
+control-flow graph and `MemorySSA` if it kept MemorySSA valid, which LLVM requires in a
+`loop-mssa` pipeline. The loop pass manager runs the `loop-simplify` and `lcssa` passes
+before the loop passes, so loops normally have a preheader, but that can fail, so a pass
+that needs one should check that `loop.preheader !== nothing`. See [`LoopPass`](@ref) for
+the details.
+
+To keep MemorySSA valid, a pass that moves, creates or removes instructions that access
+memory updates it with a `MemorySSAUpdater`, after changing the IR. For example, to hoist
+an instruction to the preheader of a loop, and to create a new one there:
+
+```julia
+mssa = get(ar, MemorySSA, nothing)    # `nothing` in a `loop(...)` pipeline
+if mssa !== nothing
+    MemorySSAUpdater(mssa) do updater
+        # move an instruction, and then its access
+        move!(inst, LLVM.before(loop.preheader.terminator))
+        access = memory_access(mssa, inst)
+        access === nothing ||
+            move_to_place!(updater, access, loop.preheader, :before_terminator)
+
+        # create an access for a new instruction, and insert it
+        access = create_access_in_block!(updater, new_inst, loop.preheader,
+                                         :before_terminator)
+        access isa MemoryDef && insert_def!(updater, access; rename=true)
+        access isa MemoryUse && insert_use!(updater, access; rename=true)
+    end
+end
+```
+
+If a custom pass throws an exception, the optional passes that remain in the pipeline and
+all custom passes are skipped, as the IR and the analyses that the pipeline relies on may
+be inconsistent, and `run!` throws a `PassException`. This is best-effort containment:
+LLVM's required passes, like the pass managers, still run, so a pass should avoid leaving
+the IR inconsistent.
 
 Passes that are implemented in C++ can be used as well, by registering a native callback
 that is called with LLVM's `PassBuilder`, like the ones pass plugins provide:

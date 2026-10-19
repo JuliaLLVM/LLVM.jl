@@ -80,4 +80,45 @@ ConstantRange(::ScalarEvolution, ::SCEV)
 is_loop_invariant
 backedge_taken_count
 step_recurrence
+reverse_postorder
+```
+
+Passes that change loops or values keep scalar evolution up to date by making it forget
+what changed:
+
+```@docs
+forget!
+forget_loop_dispositions!
+```
+
+## Speculation
+
+```@docs
+is_safe_to_speculatively_execute
+```
+
+## Memory SSA
+
+```@docs
+MemorySSA
+MemoryAccess
+MemoryUseOrDef
+MemoryUse
+MemoryDef
+MemoryPhi
+memory_access
+memory_accesses
+live_on_entry
+```
+
+Passes that move, create or remove memory operations keep MemorySSA up to date using an
+updater:
+
+```@docs
+MemorySSAUpdater
+dispose(::MemorySSAUpdater)
+remove_access!
+move_to_place!
+create_access_in_block!
+insert_def!
 ```

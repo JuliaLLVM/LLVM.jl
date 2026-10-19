@@ -996,7 +996,8 @@ function. This can be any value, e.g., a function, a cast of one, or a function 
 
 Assigning to this property only replaces the callee: the function type of the call (its
 `called_type`), arguments and attributes remain unchanged, so the new callee should be
-callable using that function type.
+callable using that function type. Like LLVM's `CallBase::setCalledOperand`, this accepts
+any pointer, e.g., one in another address space than the old callee.
 
     call.called_function
 
@@ -1100,12 +1101,10 @@ tailcall_kind!(inst::CallInst, kind::API.LLVMTailCallKind) =
 @inline called_operand(@nospecialize(inst::CallBase)) = Value(API.LLVMGetCalledValue(inst))
 
 function called_operand!(inst::CallBase, callee::Value)
+    value_type(callee) isa PointerType ||
+        throw(ArgumentError("The callee must be a pointer, got a value of type $(value_type(callee))"))
     # the callee is the last operand of every kind of call site
-    idx = API.LLVMGetNumOperands(inst) - 1
-    old_type = API.LLVMTypeOf(API.LLVMGetOperand(inst, idx))
-    API.LLVMTypeOf(callee) == old_type ||
-        throw(ArgumentError("Callee of type $(value_type(callee)) does not match the called operand of type $(LLVMType(old_type))"))
-    API.LLVMSetOperand(inst, idx, callee)
+    API.LLVMSetOperand(inst, API.LLVMGetNumOperands(inst) - 1, callee)
 end
 
 @inline function called_function(@nospecialize(inst::CallBase))

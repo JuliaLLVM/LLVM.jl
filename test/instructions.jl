@@ -832,7 +832,17 @@ end
         @test mismatch.called_operand == h
     end
 
-    # the callee needs to have the same type as the called operand
+    # the callee can be any pointer, e.g., one in another address space
+    other = PointerNull(supports_typed_pointers(ctx) ?
+                        LLVM.PointerType(LLVM.FunctionType(LLVM.Int32Type()), 1) :
+                        LLVM.PointerType(1))
+    call.called_operand = other
+    @test call.called_operand == other
+    g1 = const_addrspacecast(g, supports_typed_pointers(ctx) ? LLVM.PointerType(ft, 1) :
+                                                                 LLVM.PointerType(1))
+    call.called_operand = g1
+    @test call.called_operand == g1
+    @test call.called_type == ft
     @test_throws ArgumentError call.called_operand = ConstantInt(Int32(0))
 
     ret!(builder)

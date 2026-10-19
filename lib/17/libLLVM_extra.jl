@@ -242,6 +242,10 @@ function LLVMBuildCallWithOperandBundles(arg1, arg2, Fn, Args, NumArgs, Bundles,
     ccall((:LLVMBuildCallWithOperandBundles, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMTypeRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, Ptr{LLVMOperandBundleRef}, Cuint, Cstring), arg1, arg2, Fn, Args, NumArgs, Bundles, NumBundles, Name)
 end
 
+function LLVMExtraCallBaseWithOperandBundles(Call, Bundles, NumBundles)
+    ccall((:LLVMExtraCallBaseWithOperandBundles, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{LLVMOperandBundleRef}, Cuint), Call, Bundles, NumBundles)
+end
+
 function LLVMMetadataAsValue2(C, Metadata)
     ccall((:LLVMMetadataAsValue2, libLLVMExtra), LLVMValueRef, (LLVMContextRef, LLVMMetadataRef), C, Metadata)
 end

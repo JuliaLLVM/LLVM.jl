@@ -202,6 +202,10 @@ function LLVMCloneBasicBlock(BB, NameSuffix, ValueMap, ValueMapElements, F)
     ccall((:LLVMCloneBasicBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMBasicBlockRef, Cstring, Ptr{LLVMValueRef}, Cuint, LLVMValueRef), BB, NameSuffix, ValueMap, ValueMapElements, F)
 end
 
+function LLVMExtraCallBaseWithOperandBundles(Call, Bundles, NumBundles)
+    ccall((:LLVMExtraCallBaseWithOperandBundles, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{LLVMOperandBundleRef}, Cuint), Call, Bundles, NumBundles)
+end
+
 function LLVMMetadataAsValue2(C, Metadata)
     ccall((:LLVMMetadataAsValue2, libLLVMExtra), LLVMValueRef, (LLVMContextRef, LLVMMetadataRef), C, Metadata)
 end

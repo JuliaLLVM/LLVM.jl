@@ -1458,6 +1458,106 @@ end
             end
         end
 
+        @testset "replacement" begin
+            @dispose builder=IRBuilder() mod=LLVM.Module("bundles") begin
+                ft = LLVM.FunctionType(LLVM.FloatType(), [LLVM.FloatType()])
+                h = LLVM.Function(mod, "h", ft)
+                f = LLVM.Function(mod, "f", ft)
+                x = only(f.parameters)
+                position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+                call = call!(builder, ft, h, [x], [OperandBundle("deopt", [x])], "r")
+                call.callconv = LLVM.CallConv.Fast
+                call.tailcall_kind = LLVM.TailCallKind.Tail
+                call.fast_math = (; nnan=true)
+                push!(call.function_attributes, EnumAttribute("nounwind"))
+                push!(call.argument_attributes[1], EnumAttribute("noundef"))
+                push!(call.return_attributes, EnumAttribute("noundef"))
+                call.metadata["foo"] = MDNode(Metadata[])
+                ret!(builder, call)
+
+                DIBuilder(mod) do dib
+                    file = LLVM.file!(dib, "test.jl", "/tmp")
+                    LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia, file,
+                                       "LLVM.jl Tests")
+                    sp = LLVM.subprogram!(dib, file, "f", file, 1,
+                                          LLVM.subroutine_type!(dib, file, nothing))
+                    f.subprogram = sp
+                    call.debug_location = DILocation(1, 1, sp)
+                end
+
+                # a copy of the call with other bundles, which isn't inserted yet
+                new = with_operand_bundles(call, [OperandBundle("unknown")])
+                @test new isa LLVM.CallInst
+                @test new.parent === nothing
+                @test [b.tag for b in new.operand_bundles] == ["unknown"]
+                @test new.called_operand == h
+                @test new.arguments == [x]
+                @test new.callconv == LLVM.CallConv.Fast
+                @test new.tailcall_kind == LLVM.TailCallKind.Tail
+                @test new.fast_math.nnan && !new.fast_math.ninf
+                @test collect(new.function_attributes) == [EnumAttribute("nounwind")]
+                @test collect(new.argument_attributes[1]) == [EnumAttribute("noundef")]
+                @test collect(new.return_attributes) == [EnumAttribute("noundef")]
+                @test new.debug_location == call.debug_location
+                @test !haskey(new.metadata, "foo")
+                @test [b.tag for b in call.operand_bundles] == ["deopt"]
+
+                move!(new, LLVM.before(call))
+                @test new.name != call.name && startswith(new.name, "r")
+                replace_uses!(call, new)
+                erase!(call)
+                @check_ir new "\"unknown\"()"
+
+                # the bundles of another call, or none
+                newer = with_operand_bundles(new, OperandBundle[])
+                @test isempty(newer.operand_bundles)
+                again = with_operand_bundles(newer, new.operand_bundles)
+                @test [b.tag for b in again.operand_bundles] == ["unknown"]
+                erase!(again)
+                erase!(newer)
+                verify(mod)
+            end
+
+            # other kinds of calls
+            @dispose builder=IRBuilder() mod=LLVM.Module("bundles") begin
+                ft = LLVM.FunctionType(LLVM.VoidType())
+                h = LLVM.Function(mod, "h", ft)
+                f = LLVM.Function(mod, "f", ft)
+                entry, ok, bad = BasicBlock(f, "entry"), BasicBlock(f, "ok"),
+                                 BasicBlock(f, "bad")
+                position!(builder, LLVM.at_end(entry))
+                inv = invoke!(builder, ft, h, Value[], ok, bad)
+                new = with_operand_bundles(inv, [OperandBundle("deopt")])
+                @test new isa LLVM.InvokeInst
+                @test new.successors == [ok, bad]
+                @test [b.tag for b in new.operand_bundles] == ["deopt"]
+                erase!(new)
+            end
+            if LLVM.version() >= v"16"
+                # `!i` marks the indirect destinations of an `asm goto` since LLVM 16
+                @dispose mod=parse(LLVM.Module, """
+                        define void @f(i32 %x) {
+                        entry:
+                          callbr void asm "", "r,!i"(i32 %x) to label %ok [label %other]
+                        ok:
+                          ret void
+                        other:
+                          ret void
+                        }""") begin
+                    cb = first(first(mod.functions["f"].blocks).instructions)
+                    new = with_operand_bundles(cb, [OperandBundle("deopt")])
+                    @test new isa LLVM.CallBrInst
+                    @test new.parent === nothing
+                    @test new.successors == cb.successors
+                    @test new.arguments == cb.arguments
+                    @test new.called_operand == cb.called_operand
+                    @test [b.tag for b in new.operand_bundles] == ["deopt"]
+                    @test isempty(cb.operand_bundles)
+                    erase!(new)
+                end
+            end
+        end
+
         dispose(mod)
     end
 end

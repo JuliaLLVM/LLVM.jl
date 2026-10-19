@@ -1355,6 +1355,29 @@ end
 Base.show(io::IO, bundle::OperandBundle) =
     print(io, typeof(bundle), "(", string(bundle), ")")
 
+@vocabulary IR with_operand_bundles
+
+"""
+    with_operand_bundles(call::CallBase, bundles) -> Instruction
+
+Create a copy of a `call`, `invoke` or `callbr` instruction that has the operand bundles
+`bundles` (a vector of `OperandBundle`s, or the operand bundles of another call) instead of
+its own, like C++'s `CallBase::Create(call, bundles)`, e.g., to add or remove a bundle.
+
+The copy has the same callee, arguments, attributes, calling convention, tail call kind,
+fast-math flags, debug location and name as `call`, but no other metadata. Like the result
+of `copy`, it isn't part of a basic block yet: insert it with [`move!`](@ref), e.g.,
+`move!(new, LLVM.before(call))`, which makes its name unique in the function.
+"""
+function with_operand_bundles(call::CallBase, bundles::AbstractVector{OperandBundle})
+    # the bundles of a view are created when indexing it, so collect them to keep them alive
+    bundles = bundles isa Vector ? bundles : collect(bundles)::Vector{OperandBundle}
+    GC.@preserve bundles begin
+        refs = as_refs(bundles)
+        Instruction(API.LLVMExtraCallBaseWithOperandBundles(call, refs, length(refs)))
+    end
+end
+
 
 ## terminators
 

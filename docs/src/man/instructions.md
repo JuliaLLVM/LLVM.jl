@@ -334,7 +334,17 @@ julia> OperandBundle("deopt", [LLVM.ConstantInt(1)])
 ```
 
 Whether constructed directly or looked up from a call site, operand bundles can be attached
-to a call site when calling the `call!` function on an `IRBuilder`.
+to a call site when calling the `call!` function on an `IRBuilder`. The operand bundles of an
+existing call can't be changed, but `with_operand_bundles(call, bundles)` creates a copy of
+the call with other bundles, which then replaces the original:
+
+```julia
+bundles = [b for b in call.operand_bundles if b.tag != "deopt"]
+new = with_operand_bundles(call, bundles)
+move!(new, LLVM.before(call))
+replace_uses!(call, new)
+erase!(call)
+```
 
 
 ## Terminator instructions

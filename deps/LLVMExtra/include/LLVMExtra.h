@@ -172,6 +172,11 @@ LLVMBuildCallWithOperandBundles(LLVMBuilderRef, LLVMTypeRef, LLVMValueRef Fn,
                                 LLVMOperandBundleRef *Bundles,
                                 unsigned NumBundles, const char *Name);
 #endif
+// a copy of a call, invoke or callbr instruction with the given operand bundles instead of
+// its own, which isn't inserted into a basic block (like CallBase::Create(CB, Bundles))
+LLVMValueRef LLVMExtraCallBaseWithOperandBundles(LLVMValueRef Call,
+                                                 LLVMOperandBundleRef *Bundles,
+                                                 unsigned NumBundles);
 
 // Metadata API extensions
 LLVMValueRef LLVMMetadataAsValue2(LLVMContextRef C, LLVMMetadataRef Metadata);

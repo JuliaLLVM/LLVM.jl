@@ -557,9 +557,9 @@ LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuff
 // Operand bundles
 //
 
-#if LLVM_VERSION_MAJOR < 18
-
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(OperandBundleDef, LLVMOperandBundleRef)
+
+#if LLVM_VERSION_MAJOR < 18
 
 LLVMOperandBundleRef LLVMCreateOperandBundle(const char *Tag, size_t TagLen,
                                              LLVMValueRef *Args,
@@ -627,6 +627,15 @@ LLVMBuildCallWithOperandBundles(LLVMBuilderRef B, LLVMTypeRef Ty,
 }
 
 #endif
+
+LLVMValueRef LLVMExtraCallBaseWithOperandBundles(LLVMValueRef Call,
+                                                 LLVMOperandBundleRef *Bundles,
+                                                 unsigned NumBundles) {
+  SmallVector<OperandBundleDef, 8> OBs;
+  for (auto *Bundle : ArrayRef(Bundles, NumBundles))
+    OBs.push_back(*unwrap(Bundle));
+  return wrap(CallBase::Create(unwrap<CallBase>(Call), OBs));
+}
 
 
 //

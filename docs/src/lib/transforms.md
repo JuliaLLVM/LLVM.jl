@@ -84,6 +84,21 @@ clone_into!
 clone
 ```
 
+## Control flow
+
+```@docs
+split_block!
+split_block_and_insert_if_then!
+split_block_and_insert_if_then_else!
+```
+
+## Promoting memory to registers
+
+```@docs
+is_promotable
+promote_mem_to_reg!
+```
+
 ## Inlining
 
 ```@docs

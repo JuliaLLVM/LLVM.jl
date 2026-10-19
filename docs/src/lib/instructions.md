@@ -7,8 +7,6 @@ remove!(::Instruction)
 erase!(::Instruction)
 is_trivially_dead
 erase_trivially_dead!
-is_promotable
-promote_mem_to_reg!
 comes_before
 may_read_from_memory
 may_write_to_memory

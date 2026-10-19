@@ -35,17 +35,22 @@ catch
 end
 llvm_pkg_version = "$(Base.libllvm_version.major).$(Base.libllvm_version.minor)"
 
+# without a build type, CMake doesn't optimize. use the one of LLVMExtra_jll's builds.
+build_type = "RelWithDebInfo"
+
 # get the directory to install into: the second argument, or by default a directory in a
 # scratch space, which is shared by every Julia version that uses this depot. to keep
 # builds for other versions of LLVM, or of the sources, from deleting a library that an
-# environment's preferences point to, that directory is specific to both.
+# environment's preferences point to, that directory is specific to both. it is also
+# specific to the build type, so that builds made without optimization aren't reused.
 custom_install_dir = length(ARGS) >= 2
 install_dir = if custom_install_dir
     abspath(ARGS[2])
 else
     llvm_key = "llvm$(Base.libllvm_version)" * (llvm_assertions ? "-assert" : "")
     source_key = bytes2hex(Pkg.GitTools.tree_hash(source_dir))[1:12]
-    joinpath(get_scratch!(LLVM, "builds"), "$(llvm_key)-$(source_key)")
+    joinpath(get_scratch!(LLVM, "builds"),
+             "$(llvm_key)-$(source_key)-$(lowercase(build_type))")
 end
 
 LLVM = if llvm_assertions
@@ -68,7 +73,8 @@ else
     mktempdir(dirname(install_dir); prefix="tmp-", cleanup=false)
 end
 @info "Building" source_dir install_dir build_dir LLVM_DIR cmake_path
-config_opts = `-DLLVM_ROOT=$(LLVM_DIR) -DCMAKE_INSTALL_PREFIX=$(prefix)`
+config_opts = `-DLLVM_ROOT=$(LLVM_DIR) -DCMAKE_INSTALL_PREFIX=$(prefix)
+               -DCMAKE_BUILD_TYPE=$(build_type)`
 if Sys.iswindows()
     # prevent picking up MSVC
     config_opts = `$config_opts -G "MSYS Makefiles"`

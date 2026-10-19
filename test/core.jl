@@ -2089,6 +2089,67 @@ end
     @test load.debug_location !== nothing
 end
 
+# copying the metadata of an instruction
+@dispose ctx=Context() mod=parse(LLVM.Module, let ptr = supports_typed_pointers() ? "i64*" : "ptr"; """
+    define i64 @f($ptr %p) !dbg !4 {
+      %a = load i64, $ptr %p, !range !0, !custom !1, !dbg !7
+      %b = load i64, $ptr %p, !noundef !1, !dbg !8
+      %c = load i64, $ptr %p
+      %d = load i64, $ptr %p, !custom !1
+      %e = load i64, $ptr %p, !dbg !8
+      %g = load i64, $ptr %p, !range !9
+      %h = load i64, $ptr %p
+      ret i64 %a
+    }
+    !llvm.module.flags = !{!3}
+    !llvm.dbg.cu = !{!2}
+    !0 = !{i64 0, i64 10}
+    !1 = !{}
+    !2 = distinct !DICompileUnit(language: DW_LANG_C99, file: !5, emissionKind: FullDebug)
+    !3 = !{i32 2, !"Debug Info Version", i32 3}
+    !4 = distinct !DISubprogram(name: "f", scope: !5, file: !5, type: !6, unit: !2, spFlags: DISPFlagDefinition)
+    !5 = !DIFile(filename: "f.c", directory: "/")
+    !6 = !DISubroutineType(types: !{})
+    !7 = !DILocation(line: 1, scope: !4)
+    !8 = !DILocation(line: 2, scope: !4)
+    !9 = !{i64 5, i64 6}""" end) begin
+    a, b, c, d, e, g, h = collect(mod.functions["f"].entry.instructions)
+    loc_a, loc_b = a.debug_location, b.debug_location
+
+    # everything, including the debug location
+    @test copy_metadata!(c, a) === c
+    @test c.metadata[MD_range] == a.metadata[MD_range]
+    @test haskey(c.metadata, "custom")
+    @test c.debug_location == loc_a
+
+    # only the given kinds; other metadata of the destination is kept
+    @test copy_metadata!(b, a, [MD_range, "custom"]) === b
+    @test haskey(b.metadata, MD_range)
+    @test haskey(b.metadata, "custom")
+    @test haskey(b.metadata, MD_noundef)
+    @test b.debug_location == loc_b
+    copy_metadata!(b, a, [MD_dbg])
+    @test b.debug_location == loc_a
+
+    # attachments of the same kind are overwritten
+    copy_metadata!(g, a)
+    @test g.metadata[MD_range] == a.metadata[MD_range]
+
+    # a source without any metadata changes nothing
+    copy_metadata!(b, h)
+    @test b.debug_location == loc_a
+    @test haskey(b.metadata, MD_noundef)
+
+    # a source without debug location, but with other metadata
+    copy_metadata!(e, d)
+    @test haskey(e.metadata, "custom")
+    if LLVM.version() >= v"21"
+        @test e.debug_location == loc_b
+    else
+        @test e.debug_location === nothing
+    end
+end
+
 @dispose ctx=Context() begin
     str = MDString("foo")
     @test convert(String, str) == "foo"
@@ -3574,6 +3635,65 @@ end
 
     empty!(fn)
     @test isempty(fn.blocks)
+end
+
+# call site iteration
+@dispose ctx=Context() mod=parse(LLVM.Module, let typed = supports_typed_pointers()
+    personality = typed ? "i32 (...)*" : "ptr"
+    ptr = typed ? "i8*" : "ptr"
+    """
+    declare void @g()
+    declare i32 @__gxx_personality_v0(...)
+
+    define void @f(i1 %c) personality $personality @__gxx_personality_v0 {
+    entry:
+      %x = add i32 1, 2
+      call void @g()
+      br i1 %c, label %a, label %b
+    a:
+      invoke void @g() to label %b unwind label %lp
+    b:
+      call void @g()
+      call void @g()
+      ret void
+    lp:
+      %l = landingpad { $ptr, i32 } cleanup
+      ret void
+    }""" end) begin
+    f = mod.functions["f"]
+    @test isempty(mod.functions["g"].calls)
+
+    calls = f.calls
+    @test eltype(calls) == LLVM.CallBase
+    @test Base.IteratorSize(calls) == Base.SizeUnknown()
+    found = collect(calls)
+    @test map(typeof, found) == [LLVM.CallInst, LLVM.InvokeInst, LLVM.CallInst, LLVM.CallInst]
+    @test map(LLVM.parent, found) == [f.entry, f.blocks[2], f.blocks[3], f.blocks[3]]
+    @test all(call -> call.called_function == mod.functions["g"], found)
+
+    # the call that was just returned can be erased
+    n = 0
+    for call in f.calls
+        n += 1
+        call isa LLVM.CallInst && erase!(call)
+    end
+    @test n == 4
+    @test map(typeof, collect(f.calls)) == [LLVM.InvokeInst]
+end
+
+# inline assembly that can jump to a block
+@dispose ctx=Context() mod=parse(LLVM.Module, """
+    define void @f() {
+    entry:
+      callbr void asm "", "!i"() to label %a [label %b]
+    a:
+      ret void
+    b:
+      ret void
+    }""") begin
+    call = only(collect(mod.functions["f"].calls))
+    @test call isa LLVM.CallBrInst
+    @test call.called_function === nothing
 end
 
 end

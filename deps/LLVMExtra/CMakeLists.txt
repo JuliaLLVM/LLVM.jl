@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.13.4)
 
-SET(CMAKE_CXX_FLAGS "-Wall -fPIC -fno-rtti")
+# match LLVM, which is built without RTTI and exceptions. without -fno-exceptions, GCC 14+
+# makes optimized code call __cxa_call_terminate, which the libstdc++ that Julia 1.10 and
+# 1.11 ship on Windows doesn't export, so the library fails to load there.
+SET(CMAKE_CXX_FLAGS "-Wall -fPIC -fno-rtti -fno-exceptions")
 
 project(LLVMExtra
 VERSION

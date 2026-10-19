@@ -1908,6 +1908,12 @@ void LLVMExtraDropUnknownNonDebugMetadata(LLVMValueRef Inst, const unsigned *Kno
       ArrayRef<unsigned>(KnownIDs, NumKnownIDs));
 }
 
+void LLVMExtraCopyMetadata(LLVMValueRef Dest, LLVMValueRef Src, const unsigned *KindIDs,
+                           unsigned NumKindIDs) {
+  unwrap<Instruction>(Dest)->copyMetadata(*unwrap<Instruction>(Src),
+                                          ArrayRef<unsigned>(KindIDs, NumKindIDs));
+}
+
 #if LLVM_VERSION_MAJOR >= 19
 LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst) {
   return canInstructionHaveMMRAs(*unwrap<Instruction>(Inst));

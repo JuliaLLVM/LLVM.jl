@@ -852,6 +852,7 @@ end
     # like `ConstantVector::get`, simple data and zeros give other kinds of constants
     let cv = ConstantVector([ConstantInt(Int32(1)), ConstantInt(Int32(2))])
         @test cv isa ConstantDataVector
+        @test cv isa LLVM.ConstantData
         @test [convert(Int, x) for x in cv.elements] == [1, 2]
     end
     @test ConstantVector([ConstantInt(Int32(0)), ConstantInt(Int32(0))]) isa
@@ -940,6 +941,19 @@ end
         @test cda isa ConstantDataArray
         @test cda.value_type == LLVM.ArrayType(eltyp, 4)
         @test collect(cda.elements) == ConstantInt.(vec)
+    end
+
+    # like in LLVM, arrays of simple data are constant data: they have no operands, and
+    # since LLVM 21 no uses either
+    @dispose mod=LLVM.Module("data") begin
+        cda = ConstantDataArray(Int32[1, 2])
+        @test cda isa LLVM.ConstantDataSequential
+        @test cda isa LLVM.ConstantData
+        @test isempty(cda.operands)
+        gv = GlobalVariable(mod, cda.value_type, "data")
+        gv.initializer = cda
+        @test isempty(cda.uses) == (LLVM.version() >= v"21")
+        @test isempty(collect(cda.users)) == (LLVM.version() >= v"21")
     end
     for vec in (UInt8[], zeros(UInt8, 3), zeros(UInt32, 2))
         c = ConstantDataArray(vec)

@@ -99,7 +99,19 @@ isnull(val::Value) = API.LLVMIsNull(val) |> Bool
 @vocabulary IR PointerNull, UndefValue, PoisonValue, ConstantTokenNone, ConstantTargetNone,
               ConstantInt, ConstantFP
 
-# Abstract supertype for all constant value without operands.
+@vocabulary IR ConstantData
+
+"""
+    LLVM.ConstantData <: LLVM.Constant
+
+Abstract supertype of the constants that have no operands: simple values like
+[`ConstantInt`](@ref), [`ConstantFP`](@ref), [`PointerNull`](@ref), [`UndefValue`](@ref)
+and [`ConstantAggregateZero`](@ref), and arrays and vectors of simple data values
+([`LLVM.ConstantDataSequential`](@ref)), as in LLVM's class hierarchy.
+
+Since LLVM 21, these constants don't keep track of their uses, so their `uses` and `users`
+are always empty.
+"""
 abstract type ConstantData <: Constant end
 
 
@@ -406,12 +418,12 @@ end
 @vocabulary IR ConstantDataSequential, ConstantDataArray, ConstantDataVector
 
 """
-    LLVM.ConstantDataSequential <: LLVM.Constant
+    LLVM.ConstantDataSequential <: LLVM.ConstantData
 
 Abstract supertype of constant arrays and vectors of simple data values:
 [`ConstantDataArray`](@ref) and [`ConstantDataVector`](@ref).
 """
-abstract type ConstantDataSequential <: Constant end
+abstract type ConstantDataSequential <: ConstantData end
 
 # ConstantData can only contain primitive types (1/2/4/8 byte integers, float/half), as
 # opposed to ConstantAggregate which can contain arbitrary LLVM values. LLVM uses them

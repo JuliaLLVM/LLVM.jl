@@ -219,12 +219,14 @@ end
         @test calls[] == 0
     end
 
-    # Julia's passes and pipeline
-    @dispose pb=PassBuilder() begin
-        add!(pb, JuliaPipeline(opt_level=2))
-        printed = sprint(print_pipeline, pb)
-        @test occursin("AllocOpt", printed)
-        @test !occursin("julia<", printed)
+    # Julia's passes and pipeline, which only exist in Julia's LLVM
+    if LLVM.julia_llvm
+        @dispose pb=PassBuilder() begin
+            add!(pb, JuliaPipeline(opt_level=2))
+            printed = sprint(print_pipeline, pb)
+            @test occursin("AllocOpt", printed)
+            @test !occursin("julia<", printed)
+        end
     end
 
     # with the passes of a target machine

@@ -274,6 +274,7 @@ LLVMValueRef LLVMExtraBuildAtomicRMWSyncScope(LLVMBuilderRef B, unsigned op, LLV
                                               LLVMValueRef Val, LLVMAtomicOrdering ordering,
                                               unsigned SSID);
 unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef AtomicRMWInst);
+void LLVMExtraSetAtomicRMWBinOp(LLVMValueRef AtomicRMWInst, unsigned op);
 #endif
 
 // orderings of fences and atomicrmw instructions
@@ -701,6 +702,10 @@ LLVMValueRef LLVMExtraStripAndAccumulateConstantOffsets(LLVMValueRef V, LLVMTarg
 // move an instruction to an insertion point, or insert it there if it isn't part of a block
 void LLVMExtraMoveInstruction(LLVMValueRef Inst, LLVMBasicBlockRef BB, LLVMValueRef Before,
                               LLVMBool Head);
+// the same, but taking the debug records that are attached to the instruction along, like
+// moveBeforePreserving (which is the same as moveBefore before LLVM 19)
+void LLVMExtraMoveInstructionPreserving(LLVMValueRef Inst, LLVMBasicBlockRef BB,
+                                        LLVMValueRef Before, LLVMBool Head);
 // move a basic block before `Before` (NULL for the end) in the given function, which may
 // differ from its current one, or insert it there if it isn't part of a function
 void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlockRef Before);
@@ -745,6 +750,17 @@ LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other);
 LLVMBool LLVMExtraMayReadFromMemory(LLVMValueRef Inst);
 LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst);
 LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst);
+LLVMBool LLVMExtraIsCommutative(LLVMValueRef Inst);
+// drop the metadata of an instruction, except for its debug location and other debug
+// metadata (`Instruction::dropUnknownNonDebugMetadata`), and the given kinds
+void LLVMExtraDropUnknownNonDebugMetadata(LLVMValueRef Inst, const unsigned *KnownIDs,
+                                          unsigned NumKnownIDs);
+#if LLVM_VERSION_MAJOR >= 19
+LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst);
+#endif
+// a new instruction that computes the same value as a constant expression, with the same
+// operands, like ConstantExpr::getAsInstruction. It is not part of a basic block.
+LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE);
 
 // values
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);

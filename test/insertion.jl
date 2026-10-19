@@ -401,6 +401,19 @@ if LLVM.version() >= v"19"
     move!(a, LLVM.at_begin(f.entry))
     @test first(f.entry.instructions) == a
 
+    # unless they are moved along
+    move!(a, LLVM.before(ret))
+    @test records(a) == [record]
+    move!(a, LLVM.after(alloca); debug_records=true)
+    @test alloca.next == a && records(a) == [record] && isempty(records(ret))
+    # which inserts the instruction before the debug records at the insertion point
+    move!(b, LLVM.before(a); debug_records=true)
+    @test b.next == a && isempty(records(b)) && records(a) == [record]
+    move!(a, LLVM.before(a); debug_records=true)
+    @test records(a) == [record]
+    move!(a, LLVM.after(a); debug_records=true)
+    @test records(a) == [record]
+
     verify(mod)
     dispose(mod)
 end

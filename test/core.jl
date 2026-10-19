@@ -2124,6 +2124,37 @@ end
     end
 end
 
+# instruction attachments are looked up and attached as nodes, also those with a single
+# constant operand (which LLVM's C API turns into that constant)
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        declare void @f()
+        define void @g() {
+          call void @f(), !foo !0, !bar !1, !baz !2
+          ret void
+        }
+        !0 = !{i64 1}
+        !1 = distinct !{i64 1}
+        !2 = !{i64 1, i64 2}
+        """)
+    call, ret = collect(mod.functions["g"].entry.instructions)
+    attachments = Dict(call.metadata)
+    for kind in ("foo", "bar", "baz")
+        md = call.metadata[kind]
+        @test md isa MDTuple
+        @test md == attachments[MDKind(kind)]
+        ret.metadata[kind] = md
+        @test ret.metadata[kind] == md
+    end
+    @test string(ret) == "  ret void, !foo !0, !bar !1, !baz !2"
+    delete!(ret.metadata, "bar")
+    @test !haskey(ret.metadata, "bar")
+    @test get(ret.metadata, "bar", nothing) === nothing
+    @test get(ret.metadata, LLVM.MD_tbaa, 42) == 42
+    @test get(ret.metadata, "foo", nothing) == call.metadata["foo"]
+    dispose(mod)
+end
+
 @dispose ctx=Context() begin
     str = MDString("foo")
     node = MDNode([str])
@@ -3934,6 +3965,26 @@ end
     # only objects in a list have siblings
     @test !hasproperty(ConstantInt(Int32(1)), :next)
     @test !hasproperty(ft, :next)
+end
+
+# module flags with the behaviors that the C API lacks
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        !llvm.module.flags = !{!0, !1}
+        !0 = !{i32 7, !"max", i32 1}
+        !1 = !{i32 8, !"min", i32 2}
+        """)
+    flags = mod.flags
+    one, two = Metadata(ConstantInt(Int32(1))), Metadata(ConstantInt(Int32(2)))
+    @test collect(flags) == ["max" => one, "min" => two]
+    @test flags["max"] == one
+    flags["max2", LLVM.ModuleFlagBehavior.Max] = one
+    flags["min2", LLVM.ModuleFlagBehavior.Min] = two
+    @test occursin("!{i32 7, !\"max2\", i32 1}", string(mod))
+    @test occursin("!{i32 8, !\"min2\", i32 2}", string(mod))
+    @test length(flags) == 4
+    @test verification_error(mod) === nothing
+    dispose(mod)
 end
 
 # instruction metadata and module flags can be iterated

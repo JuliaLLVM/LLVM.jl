@@ -218,7 +218,7 @@ unwind, or not return.
 """
 may_have_side_effects(inst::Instruction) = API.LLVMExtraMayHaveSideEffects(inst) |> Bool
 
-function parent(inst::Instruction)
+@inline function parent(@nospecialize(inst::Instruction))
     ref = API.LLVMGetInstructionParent(inst)
     ref == C_NULL && return nothing
     BasicBlock(ref)
@@ -1045,7 +1045,7 @@ tailcall_kind!(inst::CallInst, kind::API.LLVMTailCallKind) =
 
 @property CallInst tailcall_kind tailcall_kind!
 
-called_operand(inst::CallBase) = Value(API.LLVMGetCalledValue(inst))
+@inline called_operand(@nospecialize(inst::CallBase)) = Value(API.LLVMGetCalledValue(inst))
 
 function called_operand!(inst::CallBase, callee::Value)
     # the callee is the last operand of every kind of call site
@@ -1056,14 +1056,14 @@ function called_operand!(inst::CallBase, callee::Value)
     API.LLVMSetOperand(inst, idx, callee)
 end
 
-function called_function(inst::CallBase)
+@inline function called_function(@nospecialize(inst::CallBase))
     ref = API.LLVMGetCalledValue(inst)
     (API.LLVMIsAFunction(ref) != C_NULL &&
      API.LLVMGetFunctionType(ref) == API.LLVMGetCalledFunctionType(inst)) || return nothing
     return Function(ref)
 end
 
-function called_type(inst::CallBase)
+@inline function called_type(@nospecialize(inst::CallBase))
     LLVMType(API.LLVMGetCalledFunctionType(inst))
 end
 
@@ -1250,6 +1250,9 @@ end
 Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
+as_refs(bundles::AbstractVector{OperandBundle}) =
+    collect_refs(API.LLVMOperandBundleRef, bundles)
+
 """
     OperandBundle(tag::AbstractString, args::Vector{Value}=Value[])
 
@@ -1257,8 +1260,9 @@ Create a new operand bundle with the given tag and arguments.
 """
 function OperandBundle(tag::AbstractString, args::AbstractVector{<:Value}=Value[])
     tag = String(tag)
+    refs = as_refs(args)
     bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, ncodeunits(tag),
-                                                       as_vector(args), length(args)))
+                                                       refs, length(refs)))
     finalizer(bundle) do obj
         API.LLVMDisposeOperandBundle(obj)
     end
@@ -1538,17 +1542,15 @@ function Base.getindex(iter::PhiIncomingSet, i::Int)
                        BasicBlock(API.LLVMGetIncomingBlock(iter.phi, i-1)))
 end
 
-function Base.push!(iter::PhiIncomingSet, (val, bb)::Tuple{<:Value, BasicBlock})
-    API.LLVMAddIncoming(iter.phi, [val], [bb], 1)
-    return iter
-end
+Base.push!(iter::PhiIncomingSet, incoming::Tuple{<:Value, BasicBlock}) =
+    append!(iter, (incoming,))
 
 function Base.append!(iter::PhiIncomingSet, args)
-    vals = Value[]
-    blocks = BasicBlock[]
+    vals = API.LLVMValueRef[]
+    blocks = API.LLVMBasicBlockRef[]
     for (val, bb) in args
-        push!(vals, val)
-        push!(blocks, bb)
+        push!(vals, Base.unsafe_convert(API.LLVMValueRef, val::Value))
+        push!(blocks, Base.unsafe_convert(API.LLVMBasicBlockRef, bb::BasicBlock))
     end
     isempty(vals) || API.LLVMAddIncoming(iter.phi, vals, blocks, length(vals))
     return iter

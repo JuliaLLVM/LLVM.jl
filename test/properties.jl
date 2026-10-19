@@ -240,6 +240,32 @@ end
         sum_refs(vals) = sum(v -> UInt(v.ref), vals)
         measure(f, x) = (f(x); @allocated f(x))
         @test measure(sum_refs, vals) == 0
+
+        # their properties are inferred from the types that have them
+        @test only(Base.return_types(v -> v.operands, (Value,))) == LLVM.UserOperandSet
+        @test only(Base.return_types(v -> v.called_type, (Instruction,))) == LLVMType
+        @test only(Base.return_types(v -> v.parent, (Instruction,))) ==
+              Union{Nothing,BasicBlock}
+        @test_throws "has no property `foo`" (v -> v.foo)(vals[1])
+    end
+end
+
+@testset "property names that aren't known at compile time" begin
+    # reading them doesn't make inference visit every getter of the object's type, which
+    # created inference cycles, e.g., between the getters of an intrinsic and the C API
+    # wrappers they call, which then weren't inlined
+    @test only(Base.return_types(getproperty, (LLVM.Intrinsic, Symbol))) === Any
+    @test !any(only(code_typed(LLVM.isoverloaded, (LLVM.Intrinsic,)))[1].code) do stmt
+        Meta.isexpr(stmt, :invoke) || return false
+        callee = stmt.args[2]
+        callee isa GlobalRef && (callee = getglobal(callee.mod, callee.name))
+        callee in (convert, Base.cconvert, Base.unsafe_convert)
+    end
+    @test (intr -> intr.name)(LLVM.Intrinsic("llvm.memcpy")) == "llvm.memcpy"
+    @test_throws "has no property" getproperty(LLVM.Intrinsic("llvm.memcpy"),
+                                               Symbol("#placeholder1"))
+    @dispose ctx=Context() begin
+        @test_throws "has no property" getproperty(LLVM.Int32Type(), Symbol("#placeholder1"))
     end
 end
 

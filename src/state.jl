@@ -8,8 +8,11 @@
 
 @vocabulary IR context, activate, deactivate, context!
 
-_has_context() = haskey(task_local_storage(), :LLVMContext) &&
-                 !isempty(task_local_storage(:LLVMContext))
+# the stack of contexts of the current task, if any. constructors that use the active
+# context call this all the time, so it's a single lookup, and type-asserted so that the
+# C API wrappers it's passed to resolve statically.
+context_stack() =
+    get(task_local_storage(), :LLVMContext, nothing)::Union{Nothing,Vector{Context}}
 
 """
     context(; throw_error::Bool=true)
@@ -18,11 +21,12 @@ Get the active LLVM context for the current tasks. Throws an exception if no con
 active, unless `throw_error=false`.
 """
 function context(; throw_error::Bool=true)
-    if !_has_context()
+    stack = context_stack()
+    if stack === nothing || isempty(stack)
         throw_error && error("No LLVM context is active")
         return nothing
     end
-    last(task_local_storage(:LLVMContext))
+    return last(stack)
 end
 
 """
@@ -68,7 +72,7 @@ Pops the current context from the context stack.
 """
 function deactivate(ctx::Context)
     context() == ctx || error("Deactivating wrong context")
-    pop!(task_local_storage(:LLVMContext))
+    pop!(context_stack()::Vector{Context})
 end
 
 """
@@ -92,8 +96,8 @@ end
 
 @vocabulary ORC ts_context, activate, deactivate, ts_context!
 
-_has_ts_context() = haskey(task_local_storage(), :LLVMTSContext) &&
-                    !isempty(task_local_storage(:LLVMTSContext))
+ts_context_stack() = get(task_local_storage(), :LLVMTSContext,
+                         nothing)::Union{Nothing,Vector{ThreadSafeContext}}
 
 """
     ts_context(; throw_error::Bool=true)
@@ -102,11 +106,12 @@ Get the active LLVM thread-safe context for the current tasks. Throws an excepti
 context is active, unless `throw_error=false`.
 """
 function ts_context(; throw_error::Bool=true)
-    if !_has_ts_context()
+    stack = ts_context_stack()
+    if stack === nothing || isempty(stack)
         throw_error && error("No LLVM thread-safe context is active")
         return nothing
     end
-    last(task_local_storage(:LLVMTSContext))
+    return last(stack)
 end
 
 """
@@ -129,7 +134,7 @@ Pops the current thread-safe context from the context stack.
 """
 function deactivate(ts_ctx::ThreadSafeContext)
     ts_context() == ts_ctx || error("Deactivating wrong thread-safe context")
-    pop!(task_local_storage(:LLVMTSContext))
+    pop!(ts_context_stack()::Vector{ThreadSafeContext})
 end
 
 """

@@ -144,13 +144,13 @@ Base.isempty(iter::BasicBlockInstructionSet) =
 
 Base.IteratorSize(::Type{BasicBlockInstructionSet}) = Base.SizeUnknown()
 
-function next(inst::Instruction)
+@inline function next(@nospecialize(inst::Instruction))
     API.LLVMGetInstructionParent(inst) == C_NULL && return nothing
     ref = API.LLVMGetNextInstruction(inst)
     ref == C_NULL ? nothing : Instruction(ref)
 end
 
-function prev(inst::Instruction)
+@inline function prev(@nospecialize(inst::Instruction))
     API.LLVMGetInstructionParent(inst) == C_NULL && return nothing
     ref = API.LLVMGetPreviousInstruction(inst)
     ref == C_NULL ? nothing : Instruction(ref)

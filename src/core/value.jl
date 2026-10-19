@@ -56,6 +56,7 @@ abstract type Value end
 end
 
 @inline propref(@nospecialize(x::Value)) = Base.unsafe_convert(API.LLVMValueRef, x)
+field_prop(@nospecialize(x::Value), ::Val{S}) where {S} = property_error(x, S)
 
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.
@@ -65,6 +66,8 @@ function Base.cconvert(::Type{Ptr{API.LLVMValueRef}},
     R = API.LLVMValueRef
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
+
+as_refs(objs::AbstractVector{<:Value}) = collect_refs(API.LLVMValueRef, objs)
 
 const value_kinds = Vector{Type}(fill(Nothing, typemax(API.LLVMValueKind)+1))
 function identify(::Type{Value}, ref::API.LLVMValueRef)
@@ -103,12 +106,12 @@ end
 
 @vocabulary IR isconstant, isundef, ispoison, context
 
-value_type(val::Value) = LLVMType(API.LLVMTypeOf(val))
+@inline value_type(@nospecialize(val::Value)) = LLVMType(API.LLVMTypeOf(val))
 
 # defer size queries to the LLVM type (where we'll error)
 Base.sizeof(val::Value) = sizeof(value_type(val))
 
-name(val::Value) = unsafe_string(API.LLVMGetValueName(val))
+@inline name(@nospecialize(val::Value)) = unsafe_string(API.LLVMGetValueName(val))
 
 name!(val::Value, name::AbstractString) = API.LLVMSetValueName(val, name)
 

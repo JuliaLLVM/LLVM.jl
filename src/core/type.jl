@@ -23,6 +23,7 @@ abstract type LLVMType end
 end
 
 @inline propref(@nospecialize(x::LLVMType)) = Base.unsafe_convert(API.LLVMTypeRef, x)
+field_prop(@nospecialize(x::LLVMType), ::Val{S}) where {S} = property_error(x, S)
 
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.
@@ -32,6 +33,8 @@ function Base.cconvert(::Type{Ptr{API.LLVMTypeRef}},
     R = API.LLVMTypeRef
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
+
+as_refs(objs::AbstractVector{<:LLVMType}) = collect_refs(API.LLVMTypeRef, objs)
 
 
 Base.sizeof(typ::LLVMType) = error("LLVM types are not sized")
@@ -255,10 +258,11 @@ The `vararg` argument indicates whether the function is variadic.
 See also: [`isvararg`](@ref), and the [`return_type`](@ref LLVM.FunctionType) and
 [`parameters`](@ref LLVM.FunctionType) properties.
 """
-FunctionType(rettyp::LLVMType, params::AbstractVector{<:LLVMType}=LLVMType[];
-             vararg::Bool=false) =
-    FunctionType(API.LLVMFunctionType(rettyp, as_vector(params),
-                                      length(params), vararg))
+function FunctionType(rettyp::LLVMType, params::AbstractVector{<:LLVMType}=LLVMType[];
+                      vararg::Bool=false)
+    refs = as_refs(params)
+    FunctionType(API.LLVMFunctionType(rettyp, refs, length(refs), vararg))
+end
 
 """
     isvararg(ft::LLVM.FunctionType)
@@ -523,9 +527,10 @@ the structure should be packed, i.e., without padding between fields.
 
 See also: [`ispacked`](@ref), and the [`elements`](@ref LLVM.StructType) property.
 """
-StructType(elems::AbstractVector{<:LLVMType}; packed::Bool=false) =
-    StructType(API.LLVMStructTypeInContext(context(), as_vector(elems), length(elems),
-                                           packed))
+function StructType(elems::AbstractVector{<:LLVMType}; packed::Bool=false)
+    refs = as_refs(elems)
+    StructType(API.LLVMStructTypeInContext(context(), refs, length(refs), packed))
+end
 
 function name(structtyp::StructType)
     cstr = API.LLVMGetStructName(structtyp)
@@ -557,8 +562,11 @@ named structure type.
 
 See also the [`elements`](@ref LLVM.StructType) property.
 """
-elements!(structtyp::StructType, elems::AbstractVector{<:LLVMType}; packed::Bool=false) =
-    API.LLVMStructSetBody(structtyp, as_vector(elems), length(elems), packed)
+function elements!(structtyp::StructType, elems::AbstractVector{<:LLVMType};
+                   packed::Bool=false)
+    refs = as_refs(elems)
+    API.LLVMStructSetBody(structtyp, refs, length(refs), packed)
+end
 
 isemptytype(@nospecialize(T::StructType)) = all(isemptytype, elements(T))
 

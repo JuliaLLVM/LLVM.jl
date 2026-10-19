@@ -161,6 +161,7 @@ function __init__()
     end
 
     register_eh_frame_stubs()
+    init_attribute_kinds()
     _install_handlers()
     Base.Experimental.register_error_hint(position_hint, MethodError)
     atexit(report_leaks)

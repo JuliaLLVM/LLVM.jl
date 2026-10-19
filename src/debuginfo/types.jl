@@ -1,11 +1,12 @@
 ## type
 
+# the references of the metadata elements of a node, to pass to the C API
 function metadata_elements(elements::AbstractVector)
-    out = Metadata[]
+    out = API.LLVMMetadataRef[]
     for element in elements
         element isa Metadata ||
             throw(ArgumentError("expected a metadata element, got $(typeof(element))"))
-        push!(out, element)
+        push!(out, Base.unsafe_convert(API.LLVMMetadataRef, element))
     end
     return out
 end

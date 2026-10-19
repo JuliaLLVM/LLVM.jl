@@ -220,8 +220,10 @@ ret!(builder::IRBuilder) =
 ret!(builder::IRBuilder, V::Value) =
     Instruction(API.LLVMBuildRet(builder, V))
 
-ret!(builder::IRBuilder, RetVals::AbstractVector{<:Value}) =
-    Instruction(API.LLVMBuildAggregateRet(builder, as_vector(RetVals), length(RetVals)))
+function ret!(builder::IRBuilder, RetVals::AbstractVector{<:Value})
+    vals = as_refs(RetVals)
+    Instruction(API.LLVMBuildAggregateRet(builder, vals, length(vals)))
+end
 
 br!(builder::IRBuilder, Dest::BasicBlock) =
     Instruction(API.LLVMBuildBr(builder, Dest))
@@ -237,8 +239,9 @@ indirectbr!(builder::IRBuilder, Addr::Value, NumDests::Integer=10) =
 
 function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                  Then::BasicBlock, Catch::BasicBlock, Name::AbstractString="")
-    Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, as_vector(Args), length(Args), Then,
-                                     Catch, Name))
+    args = as_refs(Args)
+    Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, args, length(args), Then, Catch,
+                                     Name))
 end
 
 resume!(builder::IRBuilder, Exn::Value) =
@@ -764,13 +767,14 @@ atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
 
 function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
               Indices::AbstractVector{<:Value}, Name::AbstractString="")
-    Value(API.LLVMBuildGEP2(builder, Ty, Pointer, as_vector(Indices), length(Indices), Name))
+    indices = as_refs(Indices)
+    Value(API.LLVMBuildGEP2(builder, Ty, Pointer, indices, length(indices), Name))
 end
 
 function inbounds_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
                        Indices::AbstractVector{<:Value}, Name::AbstractString="")
-    Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, as_vector(Indices),
-                                    length(Indices), Name))
+    indices = as_refs(Indices)
+    Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, indices, length(indices), Name))
 end
 
 function struct_gep!(builder::IRBuilder, Ty::StructType, Pointer::Value, Idx::Integer,
@@ -862,14 +866,21 @@ select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::AbstractS
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
                Args::AbstractVector{<:Value}=Value[], Name::AbstractString="")
-    Instruction(API.LLVMBuildCall2(builder, Ty, Fn, as_vector(Args), length(Args), Name))
+    args = as_refs(Args)
+    Instruction(API.LLVMBuildCall2(builder, Ty, Fn, args, length(args), Name))
 end
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                Bundles::AbstractVector{OperandBundle}, Name::AbstractString="")
-    Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, as_vector(Args),
-                                                    length(Args), as_vector(Bundles),
-                                                    length(Bundles), Name))
+    args = as_refs(Args)
+    # the bundles of a view are created when indexing it, so collect them to keep them alive
+    bundles = Bundles isa Vector ? Bundles : collect(Bundles)::Vector{OperandBundle}
+    GC.@preserve bundles begin
+        bundle_refs = as_refs(bundles)
+        Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, args, length(args),
+                                                        bundle_refs, length(bundle_refs),
+                                                        Name))
+    end
 end
 
 va_arg!(builder::IRBuilder, List::Value, Ty::LLVMType, Name::AbstractString="") =

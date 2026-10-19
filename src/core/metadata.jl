@@ -20,6 +20,7 @@ abstract type Metadata end
 end
 
 @inline propref(@nospecialize(x::Metadata)) = Base.unsafe_convert(API.LLVMMetadataRef, x)
+field_prop(@nospecialize(x::Metadata), ::Val{S}) where {S} = property_error(x, S)
 
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.
@@ -29,6 +30,8 @@ function Base.cconvert(::Type{Ptr{API.LLVMMetadataRef}},
     R = API.LLVMMetadataRef
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
+
+as_refs(objs::AbstractVector{<:Metadata}) = collect_refs(API.LLVMMetadataRef, objs)
 
 # XXX: LLVMMetadataKind is simply unsigned, so we don't know the max enum
 const metadata_kinds = Vector{Type}(fill(Nothing, 64))
@@ -251,8 +254,8 @@ existing one, in the task-local [`context`](@ref).
 Passing `nothing` as an element will result in a null operand.
 """
 function MDTuple(elements::AbstractVector)
-    mds = convert(Vector{Metadata}, elements)
-    MDTuple(API.LLVMMDNodeInContext2(context(), mds, length(mds)))
+    refs = as_refs(convert(Vector{Metadata}, elements))
+    MDTuple(API.LLVMMDNodeInContext2(context(), refs, length(refs)))
 end
 
 """
@@ -355,8 +358,8 @@ end
 ```
 """
 function TemporaryMDNode(operands::AbstractVector=Metadata[])
-    ops = convert(Vector{Metadata}, operands)
-    TemporaryMDNode{MDTuple}(API.LLVMTemporaryMDNode(context(), ops, length(ops)))
+    refs = as_refs(convert(Vector{Metadata}, operands))
+    TemporaryMDNode{MDTuple}(API.LLVMTemporaryMDNode(context(), refs, length(refs)))
 end
 
 TemporaryMDNode(f::Core.Function, args...) =

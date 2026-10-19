@@ -206,10 +206,24 @@ end
     GC.@preserve obj unsafe_load(Ptr{R}(ccall(:jl_value_ptr, Ptr{Cvoid}, (Any,), obj)))
 end
 
-# the C API wrappers convert `Vector`s of wrapper objects, so collect other vectors (like
-# the views that represent collections of IR objects) before passing them
-@inline as_vector(x::Vector) = x
-as_vector(x::AbstractVector) = collect(x)
+# the C API takes a vector of objects as an array of their references. convert vectors of
+# wrapper objects (and views that represent collections of IR objects) to such an array
+# with `as_refs` before calling a C API wrapper, instead of passing them for `ccall` to
+# convert: the wrapper may then not be inlined (e.g., when the type of the vector isn't
+# known concretely, like that of an `AbstractVector{<:Value}` argument of a `@nospecialize`d
+# method), and when it isn't, it converts each of its arguments with a dynamic dispatch,
+# which is slow for wrappers with many arguments. `as_refs` specializes on the type of the
+# vector, which is fine for a function this small, and has a method per hierarchy of
+# wrappers, as a dynamic call with a single argument is cheaper than one with a type
+# argument. the caller has to keep mutable wrappers (like operand bundles) alive while
+# their references are used.
+function as_refs end
+
+# the implementation of `as_refs` for wrappers with references of type `R`. the result is
+# asserted, as some versions of Julia infer a comprehension over an abstractly-typed
+# vector as `Any`.
+@inline collect_refs(::Type{R}, objs::AbstractVector) where {R<:Ptr} =
+    R[Base.unsafe_convert(R, obj) for obj in objs]::Vector{R}
 
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)
@@ -296,6 +310,13 @@ end
 #   function (`subprogram!` creates a subprogram using a `DIBuilder`). If the underlying API
 #   cannot implement assignment semantics, add the missing functionality to LLVMExtra (as
 #   done to replace fast-math flags), or keep the property read-only.
+# - Accessors of properties that abstractly-typed objects commonly have (e.g., the
+#   `value_type` of a `Value`, the `parent` of an `Instruction`) and that don't depend on
+#   the concrete type take that argument `@nospecialize`. Otherwise reading the property
+#   of an object whose concrete type is only known at run time can dispatch dynamically,
+#   and compile a separate specialization of the accessor for every concrete type. Mark
+#   small accessors like these `@inline` too, or callers that know the concrete type may
+#   need to box the object to pass it.
 
 # the reference of wrapper objects (overridden for hierarchies whose concrete type is only
 # known at run time, to access it without dispatch)
@@ -304,14 +325,34 @@ end
 # (type, name) pairs, to implement `propertynames`
 const property_registry = Tuple{Type,Symbol}[]
 
-# fall back to the object's fields, or error with a list of the available properties
-@inline function getprop(x, ::Val{S}) where {S}
+# fall back to the object's fields, or error with a list of the available properties.
+# hierarchies of wrappers that consist of nothing but their reference (values, types,
+# metadata, ...) only error (with a method of `field_prop`, which keeps `getprop` free of
+# methods that are ambiguous with the ones below), so that a property of an abstractly-typed
+# object is inferred as the union of what the types that have it return, instead of `Any`.
+@inline getprop(x, ::Val{S}) where {S} = field_prop(x, Val(S))
+@inline function field_prop(x, ::Val{S}) where {S}
     hasfield(typeof(x), S) || property_error(x, S)
     getfield(x, S)
 end
 @inline function setprop!(x, ::Val{S}, v) where {S}
     hasfield(typeof(x), S) || property_error(x, S, v)
     setfield!(x, S, v)
+end
+# Julia infers a property read with a constant name, `x.name`, first as if the name weren't
+# known (as `getproperty(x, s)` for a variable `s`), and only then propagates the constant.
+# with an unknown name, inference considers each `getprop` method that matches the type of
+# `x` if there are at most `max_methods` (3) of them: it infers the getters of all of the
+# object's properties. that creates inference cycles, as getters read properties of their
+# object, also to convert it to a reference for the C API, and Julia doesn't inline the
+# functions of a cycle into each other: e.g., `isoverloaded(::Intrinsic)` didn't inline the
+# C API wrapper it calls, and took 90 ns for a 2 ns call. these three methods, which no
+# property uses, and the fallback above make any read with an unknown name match more than
+# three methods, so that inference gives up on it right away. constant names don't match
+# them.
+Base.Experimental.@max_methods 3 function getprop end
+for name in (Symbol("#placeholder1"), Symbol("#placeholder2"), Symbol("#placeholder3"))
+    @eval getprop(x, ::Val{$(QuoteNode(name))}) = property_error(x, $(QuoteNode(name)))
 end
 # the error paths don't need to be fast, so don't compile them for every type
 @noinline Base.@nospecializeinfer function property_error(@nospecialize(x), s::Symbol,

@@ -780,7 +780,18 @@ that obtained them returns, or after the analysis was invalidated.
 abstract type SCEV end
 @properties SCEV
 
-Base.unsafe_convert(::Type{API.LLVMSCEVRef}, s::SCEV) = s.ref
+# subtypes are immutable structs with a single `ref::API.LLVMSCEVRef` field (see
+# `check_layout`), so that expressions whose kind is only known at run time are wrapped and
+# converted without dynamic dispatch, as values are
+@inline function Base.unsafe_convert(::Type{API.LLVMSCEVRef}, @nospecialize(s::SCEV))
+    typecheck_enabled && check_layout(typeof(s), API.LLVMSCEVRef)
+    unsafe_load_ref(API.LLVMSCEVRef, s)
+end
+
+@inline propref(@nospecialize(x::SCEV)) = Base.unsafe_convert(API.LLVMSCEVRef, x)
+field_prop(@nospecialize(x::SCEV), ::Val{S}) where {S} = property_error(x, S)
+
+Base.cconvert(::Type{API.LLVMSCEVRef}, @nospecialize(obj::SCEV)) = obj
 
 const scev_kinds = Dict{API.LLVMExtraSCEVKind,Type{<:SCEV}}()
 
@@ -806,6 +817,7 @@ for (T, kind) in [(:SCEVConstant, :LLVMExtraSCEVConstantKind),
         @checked struct $T <: SCEV
             ref::API.LLVMSCEVRef
         end
+        check_layout($T, API.LLVMSCEVRef)
         scev_kinds[API.$kind] = $T
         scev_kind(::Type{$T}) = API.$kind
         @doc (@doc SCEV) $T
@@ -815,16 +827,16 @@ end
 # wrap an expression in the type corresponding to its kind
 function SCEV(ref::API.LLVMSCEVRef)
     ref == C_NULL && throw(UndefRefError())
-    return scev_kinds[API.LLVMExtraSCEVGetKind(ref)](ref)
+    return unsafe_wrap_ref(scev_kinds[API.LLVMExtraSCEVGetKind(ref)], ref)::SCEV
 end
 
-function type(s::SCEV)
+@inline function type(@nospecialize(s::SCEV))
     s isa SCEVCouldNotCompute &&
         throw(ArgumentError("A could-not-compute expression has no type"))
     return LLVMType(API.LLVMExtraSCEVGetType(s))
 end
 
-function operands(s::SCEV)
+function operands(@nospecialize(s::SCEV))
     n = API.LLVMExtraSCEVGetOperands(s, C_NULL)
     refs = Vector{API.LLVMSCEVRef}(undef, n)
     API.LLVMExtraSCEVGetOperands(s, refs)
@@ -1060,7 +1072,7 @@ anymore.
 erase_trivially_dead!(inst::Instruction) =
     API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(inst) |> Bool
 function erase_trivially_dead!(insts::AbstractVector{<:Instruction})
-    refs = API.LLVMValueRef[propref(inst) for inst in insts]
+    refs = as_refs(insts)
     return API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(
         refs, length(refs)) |> Bool
 end
@@ -1100,7 +1112,7 @@ promote_mem_to_reg!(alloca::AllocaInst, domtree::DomTree; kwargs...) =
     promote_mem_to_reg!([alloca], domtree; kwargs...)
 function promote_mem_to_reg!(allocas::AbstractVector{<:AllocaInst}, domtree::DomTree;
                              assumptions::Union{Nothing,AssumptionCache}=nothing)
-    refs = API.LLVMValueRef[propref(alloca) for alloca in allocas]
+    refs = as_refs(allocas)
     allunique(refs) || throw(ArgumentError("Cannot promote an alloca more than once"))
     fn = C_NULL
     for (ref, alloca) in zip(refs, allocas)

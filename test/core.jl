@@ -66,6 +66,16 @@ end
 
 @test context(; throw_error=false) === nothing
 
+# constructors that use the active context resolve their C calls statically
+@dispose ctx=Context() begin
+    @test @inferred(context()) == ctx
+    # behind a function barrier, or Julia 1.10 boxes the result of the global call
+    # (typecheck verifies the type's kind, which allocates)
+    int32_allocs() = @allocated LLVM.Int32Type()
+    int32_allocs()
+    @test int32_allocs() == 0 skip=LLVM.typecheck_enabled
+end
+
 end
 
 
@@ -2745,6 +2755,25 @@ end
     @test sprint(show, StringAttribute("foo")) == "StringAttribute(\"foo\")"
     @test sprint(show, StringAttribute("foo", "bar")) == "StringAttribute(\"foo\", \"bar\")"
 
+    # every kind of attribute can be looked up by name and ID
+    for id in 1:(LLVM.API.LLVMGetLastEnumAttributeKind() - 1)
+        name = LLVM.attribute_kind_name(id)
+        @test LLVM.attribute_kind_id(name) == id
+        @test LLVM.attribute_kind_id(String(name)) == id
+        @test LLVM.attribute_kind_category(id) == LLVM.lookup_attribute_kind_category(id)
+    end
+    @test LLVM.attribute_kind_id(:nonexisting) == 0
+    @test_throws ErrorException LLVM.attribute_kind_name(0)
+
+    # attributes of a kind only known at run time are converted without dynamic dispatch
+    let attrs = LLVM.Attribute[EnumAttribute(:nounwind), StringAttribute("foo"),
+                               TypeAttribute(:byval, LLVM.Int32Type())]
+        @test all(a -> Base.unsafe_convert(LLVM.API.LLVMAttributeRef, a) === a.ref, attrs)
+        nstrings(attrs) = count(a -> Bool(LLVM.API.LLVMIsStringAttribute(a)), attrs)
+        @test nstrings(attrs) == 1
+        @test @allocated(nstrings(attrs)) == 0
+    end
+
     for (attrs, params) in ((fn.function_attributes, fn.parameter_attributes),
                             (instr.function_attributes, instr.argument_attributes))
         # an enum attribute and a string attribute with the same name are different
@@ -2755,6 +2784,10 @@ end
         @test haskey(attrs, "nounwind")
         @test attrs[:nounwind] == EnumAttribute(:nounwind)
         @test attrs["nounwind"].value == "foo"
+        @test EnumAttribute(:nounwind) in attrs
+        @test StringAttribute("nounwind", "foo") in attrs
+        @test !(StringAttribute("nounwind", "bar") in attrs)
+        @test !(EnumAttribute(:noinline) in attrs)
 
         @test !haskey(attrs, :noinline)
         @test !haskey(attrs, :nonexisting)

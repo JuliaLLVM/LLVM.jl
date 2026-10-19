@@ -663,6 +663,30 @@ end
     @test !occursin("addrspace", string(alloca!(builder, LLVM.Int32Type(); addrspace=0)))
 end
 
+# methods that take a vector of objects inline the C API wrapper, also when the type of
+# the vector is only known abstractly, instead of calling it with arguments that it then
+# converts dynamically
+let calls_wrapper(f, types) = any(only(code_typed(f, types))[1].code) do stmt
+        Meta.isexpr(stmt, :invoke) || Meta.isexpr(stmt, :call) || return false
+        callee = stmt.args[Meta.isexpr(stmt, :invoke) ? 2 : 1]
+        callee isa GlobalRef && (callee = getglobal(callee.mod, callee.name))
+        callee isa Function && parentmodule(callee) === LLVM.API
+    end
+    values = AbstractVector{<:Value}
+    @test !calls_wrapper(call!, Tuple{IRBuilder, LLVMType, Value, values, String})
+    @test !calls_wrapper(call!, Tuple{IRBuilder, LLVMType, Value, values,
+                                      AbstractVector{OperandBundle}, String})
+    @test !calls_wrapper(invoke!, Tuple{IRBuilder, LLVMType, Value, values,
+                                        BasicBlock, BasicBlock, String})
+    @test !calls_wrapper(gep!, Tuple{IRBuilder, LLVMType, Value, values, String})
+    @test !calls_wrapper(inbounds_gep!, Tuple{IRBuilder, LLVMType, Value, values, String})
+    @test !calls_wrapper(ret!, Tuple{IRBuilder, values})
+    @test !calls_wrapper(OperandBundle, Tuple{String, values})
+    @test !calls_wrapper(LLVM.Function,
+                         Tuple{LLVM.Module, LLVM.Intrinsic, Vector{LLVMType}})
+    @test !calls_wrapper(MDTuple, Tuple{Vector{Metadata}})
+end
+
 end
 
 

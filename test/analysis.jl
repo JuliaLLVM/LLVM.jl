@@ -397,6 +397,9 @@ end
             @test convert(Int, seven.value) == 7
             @test se[b] == sb                       # expressions are uniqued
             @test sprint(show, sb) == "SCEVAddExpr((7 + %a))"
+            # expressions of a kind only known at run time are converted without dispatch
+            @test all(x -> Base.unsafe_convert(LLVM.API.LLVMSCEVRef, x) === x.ref,
+                      sb.operands)
 
             # add recurrences
             si = se[i]

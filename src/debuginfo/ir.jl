@@ -2,7 +2,7 @@
 
 # extends the `debug_location` / `debug_location!` functions for IRBuilder.
 
-function debug_location(inst::Instruction)
+@inline function debug_location(@nospecialize(inst::Instruction))
     ref = API.LLVMInstructionGetDebugLoc(inst)
     ref == C_NULL ? nothing : Metadata(ref)::DILocation
 end

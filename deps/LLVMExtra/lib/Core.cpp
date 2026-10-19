@@ -679,6 +679,28 @@ LLVMBool LLVMContextSupportsTypedPointers(LLVMContextRef C) {
 }
 #endif
 
+#if LLVM_VERSION_MAJOR >= 16 && LLVM_VERSION_MAJOR < 19
+const char *LLVMGetTargetExtTypeName(LLVMTypeRef TargetExtTy) {
+  return unwrap<TargetExtType>(TargetExtTy)->getName().data();
+}
+
+unsigned LLVMGetTargetExtTypeNumTypeParams(LLVMTypeRef TargetExtTy) {
+  return unwrap<TargetExtType>(TargetExtTy)->getNumTypeParameters();
+}
+
+LLVMTypeRef LLVMGetTargetExtTypeTypeParam(LLVMTypeRef TargetExtTy, unsigned Idx) {
+  return wrap(unwrap<TargetExtType>(TargetExtTy)->getTypeParameter(Idx));
+}
+
+unsigned LLVMGetTargetExtTypeNumIntParams(LLVMTypeRef TargetExtTy) {
+  return unwrap<TargetExtType>(TargetExtTy)->getNumIntParameters();
+}
+
+unsigned LLVMGetTargetExtTypeIntParam(LLVMTypeRef TargetExtTy, unsigned Idx) {
+  return unwrap<TargetExtType>(TargetExtTy)->getIntParameter(Idx);
+}
+#endif
+
 
 //
 // DominatorTree and PostDominatorTree

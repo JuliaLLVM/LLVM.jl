@@ -192,6 +192,15 @@ LLVMValueRef LLVMConstDataArray(LLVMTypeRef ElementTy, const void *Data,
 LLVMBool LLVMContextSupportsTypedPointers(LLVMContextRef C);
 #endif
 
+// Target extension type accessors
+#if LLVM_VERSION_MAJOR >= 16 && LLVM_VERSION_MAJOR < 19 // llvm/llvm-project#96447
+const char *LLVMGetTargetExtTypeName(LLVMTypeRef TargetExtTy);
+unsigned LLVMGetTargetExtTypeNumTypeParams(LLVMTypeRef TargetExtTy);
+LLVMTypeRef LLVMGetTargetExtTypeTypeParam(LLVMTypeRef TargetExtTy, unsigned Idx);
+unsigned LLVMGetTargetExtTypeNumIntParams(LLVMTypeRef TargetExtTy);
+unsigned LLVMGetTargetExtTypeIntParam(LLVMTypeRef TargetExtTy, unsigned Idx);
+#endif
+
 // (Post)DominatorTree
 typedef struct LLVMOpaqueDominatorTree *LLVMDominatorTreeRef;
 LLVMDominatorTreeRef LLVMCreateDominatorTree(LLVMValueRef Fn);

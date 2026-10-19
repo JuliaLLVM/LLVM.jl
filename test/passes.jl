@@ -299,11 +299,11 @@ end
             "check-debugify",
             "debugify",
         ]
-        test_passes("module", LLVM.module_passes, bad_passes)
+        test_passes("module", LLVM.module_passes(), bad_passes)
     end
 
     @testset "cgscc" begin
-        test_passes("cgscc", LLVM.cgscc_passes)
+        test_passes("cgscc", LLVM.cgscc_passes())
     end
 
     @testset "function" begin
@@ -317,11 +317,11 @@ end
             "chr",
             "helloworld"
         ]
-        test_passes("function", LLVM.function_passes, bad_passes)
+        test_passes("function", LLVM.function_passes(), bad_passes)
     end
 
     @testset "loop" begin
-        test_passes("loop", LLVM.loop_passes)
+        test_passes("loop", LLVM.loop_passes())
     end
 end
 

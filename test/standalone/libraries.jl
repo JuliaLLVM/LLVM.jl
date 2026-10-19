@@ -183,6 +183,27 @@ end
     end
 end
 
+@testset "passes" begin
+    # the names of passes depend on the version of the library they are used with
+    flatten(lib) = lib.version >= v"19" ? "flatten-cfg" : "flattencfg"
+    @test library!(LLVM.Passes.FlattenCFGPass, other) == flatten(other)
+    @test LLVM.Passes.FlattenCFGPass() == flatten(julia)
+    @test ("flatten-cfg" in library!(LLVM.function_passes, other)) == (other.version >= v"19")
+    if other.version >= v"21"
+        @test_throws "only on LLVM 20 and earlier" library!(LLVM.Passes.InstrOrderFilePass, other)
+    end
+
+    # Julia's passes only work with Julia's LLVM
+    @test "RemoveNI" in LLVM.module_passes(julia)
+    @test !("RemoveNI" in LLVM.module_passes(other))
+    @test_throws "requires the LLVM library that Julia uses" library!(LLVM.Interop.AllocOptPass, other)
+    LLVM.Context(; library=other) do ctx
+        @dispose mod=parse(LLVM.Module, IR) begin
+            @test_throws "Julia's function pass `AllocOpt` requires the LLVM library that Julia uses" LLVM.run!("AllocOpt", mod)
+        end
+    end
+end
+
 @testset "code generation" begin
     LLVM.Context(; library=other) do ctx
         LLVM.JITTargetMachine() do tm

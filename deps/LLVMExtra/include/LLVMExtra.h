@@ -137,13 +137,82 @@ typedef enum {
   LLVMCloneFunctionChangeTypeDifferentModule = 2,
   LLVMCloneFunctionChangeTypeClonedModule = 3
 } LLVMCloneFunctionChangeType;
-void LLVMCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
-                           LLVMValueRef *ValueMap, unsigned ValueMapElements,
-                           LLVMCloneFunctionChangeType Changes, const char *NameSuffix,
-                           LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
-                           void *TypeMapperData,
-                           LLVMValueRef (*Materializer)(LLVMValueRef, void *),
-                           void *MaterializerData);
+
+// A map from values and metadata to their replacements, like ValueToValueMapTy, which is
+// used and extended by the value mapper and when cloning functions. Entries follow their key
+// when it is replaced (RAUW), and are removed when it is deleted.
+typedef struct LLVMOpaqueValueMap *LLVMValueMapRef;
+LLVMValueMapRef LLVMExtraCreateValueMap(void);
+void LLVMExtraDisposeValueMap(LLVMValueMapRef VM);
+// the entries whose value is not null (values are tracked, and become null when deleted)
+size_t LLVMExtraValueMapGetNumEntries(LLVMValueMapRef VM);
+void LLVMExtraValueMapGetEntries(LLVMValueMapRef VM, LLVMValueRef *Keys,
+                                 LLVMValueRef *Values);
+// NULL if Key is not mapped
+LLVMValueRef LLVMExtraValueMapLookup(LLVMValueMapRef VM, LLVMValueRef Key);
+void LLVMExtraValueMapSet(LLVMValueMapRef VM, LLVMValueRef Key, LLVMValueRef Val);
+LLVMBool LLVMExtraValueMapErase(LLVMValueMapRef VM, LLVMValueRef Key);
+void LLVMExtraValueMapClear(LLVMValueMapRef VM);
+// the metadata part of the map
+size_t LLVMExtraValueMapGetNumMetadataEntries(LLVMValueMapRef VM);
+void LLVMExtraValueMapGetMetadataEntries(LLVMValueMapRef VM, LLVMMetadataRef *Keys,
+                                         LLVMMetadataRef *Values);
+LLVMMetadataRef LLVMExtraValueMapLookupMetadata(LLVMValueMapRef VM, LLVMMetadataRef Key);
+void LLVMExtraValueMapSetMetadata(LLVMValueMapRef VM, LLVMMetadataRef Key,
+                                  LLVMMetadataRef Val);
+LLVMBool LLVMExtraValueMapEraseMetadata(LLVMValueMapRef VM, LLVMMetadataRef Key);
+
+// Flags for the value mapper (RemapFlags), to be combined with a bitwise or.
+typedef enum {
+  LLVMRemapFlagsNone = 0,
+  LLVMRemapFlagsNoModuleLevelChanges = 1,
+  LLVMRemapFlagsIgnoreMissingLocals = 2,
+  LLVMRemapFlagsReuseAndMutateDistinctMDs = 4,
+  LLVMRemapFlagsNullMapMissingGlobalValues = 8
+} LLVMRemapFlags;
+
+// Map a value or metadata using a value map, which is extended with the mappings that are
+// made, like MapValue and MapMetadata. The type mapper and the materializer are optional
+// callbacks: the type mapper returns the type to use for a type, and the materializer a
+// value to map a value to, or NULL to have the value mapper map it. The result is NULL if
+// the value cannot be mapped (depending on the flags).
+LLVMValueRef LLVMExtraMapValue(LLVMValueRef V, LLVMValueMapRef VM, unsigned Flags,
+                               LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                               void *TypeMapperData,
+                               LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                               void *MaterializerData);
+LLVMMetadataRef LLVMExtraMapMetadata(LLVMMetadataRef MD, LLVMValueMapRef VM, unsigned Flags,
+                                     LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                     void *TypeMapperData,
+                                     LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                     void *MaterializerData);
+
+// Clone the body of OldFunc into NewFunc, like CloneFunctionInto, using and extending the
+// value map VM (which must map the arguments of OldFunc).
+void LLVMExtraCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
+                                LLVMValueMapRef VM, LLVMCloneFunctionChangeType Changes,
+                                const char *NameSuffix,
+                                LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                void *TypeMapperData,
+                                LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                void *MaterializerData);
+
+// Prepare mapping a value or metadata, or cloning a function, with a value map and type
+// mapper: call the type mapper on every type that the operation will map (so that a type
+// mapper that fails can do so before anything is mapped), and remove the entries for
+// deleted values that the operation would look up (the value mapper expects every entry to
+// have a value). The type mapper may be NULL.
+void LLVMExtraPrepareMapValue(LLVMValueRef V, LLVMValueMapRef VM,
+                              LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                              void *TypeMapperData);
+void LLVMExtraPrepareMapMetadata(LLVMMetadataRef MD, LLVMValueMapRef VM,
+                                 LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                 void *TypeMapperData);
+void LLVMExtraPrepareCloneFunctionInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
+                                       LLVMCloneFunctionChangeType Changes,
+                                       LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                       void *TypeMapperData);
+
 LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuffix,
                                       LLVMValueRef *ValueMap, unsigned ValueMapElements,
                                       LLVMValueRef F);

@@ -186,8 +186,92 @@ end
     LLVMCloneFunctionChangeTypeClonedModule = 3
 end
 
-function LLVMCloneFunctionInto(NewFunc, OldFunc, ValueMap, ValueMapElements, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
-    ccall((:LLVMCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMCloneFunctionChangeType, Cstring, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), NewFunc, OldFunc, ValueMap, ValueMapElements, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+mutable struct LLVMOpaqueValueMap end
+
+const LLVMValueMapRef = Ptr{LLVMOpaqueValueMap}
+
+function LLVMExtraCreateValueMap()
+    ccall((:LLVMExtraCreateValueMap, libLLVMExtra), LLVMValueMapRef, ())
+end
+
+function LLVMExtraDisposeValueMap(VM)
+    ccall((:LLVMExtraDisposeValueMap, libLLVMExtra), Cvoid, (LLVMValueMapRef,), VM)
+end
+
+function LLVMExtraValueMapGetNumEntries(VM)
+    ccall((:LLVMExtraValueMapGetNumEntries, libLLVMExtra), Csize_t, (LLVMValueMapRef,), VM)
+end
+
+function LLVMExtraValueMapGetEntries(VM, Keys, Values)
+    ccall((:LLVMExtraValueMapGetEntries, libLLVMExtra), Cvoid, (LLVMValueMapRef, Ptr{LLVMValueRef}, Ptr{LLVMValueRef}), VM, Keys, Values)
+end
+
+function LLVMExtraValueMapLookup(VM, Key)
+    ccall((:LLVMExtraValueMapLookup, libLLVMExtra), LLVMValueRef, (LLVMValueMapRef, LLVMValueRef), VM, Key)
+end
+
+function LLVMExtraValueMapSet(VM, Key, Val)
+    ccall((:LLVMExtraValueMapSet, libLLVMExtra), Cvoid, (LLVMValueMapRef, LLVMValueRef, LLVMValueRef), VM, Key, Val)
+end
+
+function LLVMExtraValueMapErase(VM, Key)
+    ccall((:LLVMExtraValueMapErase, libLLVMExtra), LLVMBool, (LLVMValueMapRef, LLVMValueRef), VM, Key)
+end
+
+function LLVMExtraValueMapClear(VM)
+    ccall((:LLVMExtraValueMapClear, libLLVMExtra), Cvoid, (LLVMValueMapRef,), VM)
+end
+
+function LLVMExtraValueMapGetNumMetadataEntries(VM)
+    ccall((:LLVMExtraValueMapGetNumMetadataEntries, libLLVMExtra), Csize_t, (LLVMValueMapRef,), VM)
+end
+
+function LLVMExtraValueMapGetMetadataEntries(VM, Keys, Values)
+    ccall((:LLVMExtraValueMapGetMetadataEntries, libLLVMExtra), Cvoid, (LLVMValueMapRef, Ptr{LLVMMetadataRef}, Ptr{LLVMMetadataRef}), VM, Keys, Values)
+end
+
+function LLVMExtraValueMapLookupMetadata(VM, Key)
+    ccall((:LLVMExtraValueMapLookupMetadata, libLLVMExtra), LLVMMetadataRef, (LLVMValueMapRef, LLVMMetadataRef), VM, Key)
+end
+
+function LLVMExtraValueMapSetMetadata(VM, Key, Val)
+    ccall((:LLVMExtraValueMapSetMetadata, libLLVMExtra), Cvoid, (LLVMValueMapRef, LLVMMetadataRef, LLVMMetadataRef), VM, Key, Val)
+end
+
+function LLVMExtraValueMapEraseMetadata(VM, Key)
+    ccall((:LLVMExtraValueMapEraseMetadata, libLLVMExtra), LLVMBool, (LLVMValueMapRef, LLVMMetadataRef), VM, Key)
+end
+
+@cenum LLVMRemapFlags::UInt32 begin
+    LLVMRemapFlagsNone = 0
+    LLVMRemapFlagsNoModuleLevelChanges = 1
+    LLVMRemapFlagsIgnoreMissingLocals = 2
+    LLVMRemapFlagsReuseAndMutateDistinctMDs = 4
+    LLVMRemapFlagsNullMapMissingGlobalValues = 8
+end
+
+function LLVMExtraMapValue(V, VM, Flags, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+    ccall((:LLVMExtraMapValue, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueMapRef, Cuint, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), V, VM, Flags, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+end
+
+function LLVMExtraMapMetadata(MD, VM, Flags, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+    ccall((:LLVMExtraMapMetadata, libLLVMExtra), LLVMMetadataRef, (LLVMMetadataRef, LLVMValueMapRef, Cuint, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), MD, VM, Flags, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+end
+
+function LLVMExtraCloneFunctionInto(NewFunc, OldFunc, VM, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+    ccall((:LLVMExtraCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef, LLVMValueMapRef, LLVMCloneFunctionChangeType, Cstring, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), NewFunc, OldFunc, VM, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+end
+
+function LLVMExtraPrepareMapValue(V, VM, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareMapValue, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, Ptr{Cvoid}, Ptr{Cvoid}), V, VM, TypeMapper, TypeMapperData)
+end
+
+function LLVMExtraPrepareMapMetadata(MD, VM, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareMapMetadata, libLLVMExtra), Cvoid, (LLVMMetadataRef, LLVMValueMapRef, Ptr{Cvoid}, Ptr{Cvoid}), MD, VM, TypeMapper, TypeMapperData)
+end
+
+function LLVMExtraPrepareCloneFunctionInto(OldFunc, VM, Changes, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, LLVMCloneFunctionChangeType, Ptr{Cvoid}, Ptr{Cvoid}), OldFunc, VM, Changes, TypeMapper, TypeMapperData)
 end
 
 function LLVMCloneBasicBlock(BB, NameSuffix, ValueMap, ValueMapElements, F)

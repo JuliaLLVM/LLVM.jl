@@ -26,6 +26,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
@@ -492,13 +493,133 @@ private:
   void *data;
 };
 
-void LLVMCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
-                           LLVMValueRef *ValueMap, unsigned ValueMapElements,
-                           LLVMCloneFunctionChangeType Changes, const char *NameSuffix,
-                           LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
-                           void *TypeMapperData,
-                           LLVMValueRef (*Materializer)(LLVMValueRef, void *),
-                           void *MaterializerData) {
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ValueToValueMapTy, LLVMValueMapRef)
+
+LLVMValueMapRef LLVMExtraCreateValueMap(void) { return wrap(new ValueToValueMapTy()); }
+
+void LLVMExtraDisposeValueMap(LLVMValueMapRef VM) { delete unwrap(VM); }
+
+size_t LLVMExtraValueMapGetNumEntries(LLVMValueMapRef VM) {
+  size_t N = 0;
+  for (auto KV : *unwrap(VM))
+    if (KV.second)
+      N++;
+  return N;
+}
+
+void LLVMExtraValueMapGetEntries(LLVMValueMapRef VM, LLVMValueRef *Keys,
+                                 LLVMValueRef *Values) {
+  size_t I = 0;
+  for (auto KV : *unwrap(VM)) {
+    if (!KV.second)
+      continue;
+    Keys[I] = wrap(KV.first);
+    Values[I] = wrap(static_cast<Value *>(KV.second));
+    I++;
+  }
+}
+
+LLVMValueRef LLVMExtraValueMapLookup(LLVMValueMapRef VM, LLVMValueRef Key) {
+  Value *Val = unwrap(VM)->lookup(unwrap(Key));
+  return wrap(Val);
+}
+
+void LLVMExtraValueMapSet(LLVMValueMapRef VM, LLVMValueRef Key, LLVMValueRef Val) {
+  (*unwrap(VM))[unwrap(Key)] = unwrap(Val);
+}
+
+LLVMBool LLVMExtraValueMapErase(LLVMValueMapRef VM, LLVMValueRef Key) {
+  return unwrap(VM)->erase(unwrap(Key));
+}
+
+void LLVMExtraValueMapClear(LLVMValueMapRef VM) { unwrap(VM)->clear(); }
+
+size_t LLVMExtraValueMapGetNumMetadataEntries(LLVMValueMapRef VM) {
+  ValueToValueMapTy *Map = unwrap(VM);
+  if (!Map->hasMD())
+    return 0;
+  size_t N = 0;
+  for (auto &KV : Map->MD())
+    if (KV.second)
+      N++;
+  return N;
+}
+
+void LLVMExtraValueMapGetMetadataEntries(LLVMValueMapRef VM, LLVMMetadataRef *Keys,
+                                         LLVMMetadataRef *Values) {
+  ValueToValueMapTy *Map = unwrap(VM);
+  if (!Map->hasMD())
+    return;
+  size_t I = 0;
+  for (auto &KV : Map->MD()) {
+    if (!KV.second)
+      continue;
+    Keys[I] = wrap(KV.first);
+    Values[I] = wrap(KV.second.get());
+    I++;
+  }
+}
+
+LLVMMetadataRef LLVMExtraValueMapLookupMetadata(LLVMValueMapRef VM, LLVMMetadataRef Key) {
+  if (auto MD = unwrap(VM)->getMappedMD(unwrap(Key)))
+    return wrap(*MD);
+  return nullptr;
+}
+
+void LLVMExtraValueMapSetMetadata(LLVMValueMapRef VM, LLVMMetadataRef Key,
+                                  LLVMMetadataRef Val) {
+  unwrap(VM)->MD()[unwrap(Key)].reset(unwrap(Val));
+}
+
+LLVMBool LLVMExtraValueMapEraseMetadata(LLVMValueMapRef VM, LLVMMetadataRef Key) {
+  ValueToValueMapTy *Map = unwrap(VM);
+  return Map->hasMD() && Map->MD().erase(unwrap(Key));
+}
+
+static RemapFlags toRemapFlags(unsigned Flags) {
+  RemapFlags RF = RF_None;
+  if (Flags & LLVMRemapFlagsNoModuleLevelChanges)
+    RF = RF | RF_NoModuleLevelChanges;
+  if (Flags & LLVMRemapFlagsIgnoreMissingLocals)
+    RF = RF | RF_IgnoreMissingLocals;
+  if (Flags & LLVMRemapFlagsReuseAndMutateDistinctMDs)
+    RF = RF | RF_ReuseAndMutateDistinctMDs;
+  if (Flags & LLVMRemapFlagsNullMapMissingGlobalValues)
+    RF = RF | RF_NullMapMissingGlobalValues;
+  return RF;
+}
+
+LLVMValueRef LLVMExtraMapValue(LLVMValueRef V, LLVMValueMapRef VM, unsigned Flags,
+                               LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                               void *TypeMapperData,
+                               LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                               void *MaterializerData) {
+  ExternalTypeRemapper TheTypeRemapper(TypeMapper, TypeMapperData);
+  ExternalValueMaterializer TheMaterializer(Materializer, MaterializerData);
+  return wrap(MapValue(unwrap(V), *unwrap(VM), toRemapFlags(Flags),
+                       TypeMapper ? &TheTypeRemapper : nullptr,
+                       Materializer ? &TheMaterializer : nullptr));
+}
+
+LLVMMetadataRef LLVMExtraMapMetadata(LLVMMetadataRef MD, LLVMValueMapRef VM, unsigned Flags,
+                                     LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                     void *TypeMapperData,
+                                     LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                     void *MaterializerData) {
+  ExternalTypeRemapper TheTypeRemapper(TypeMapper, TypeMapperData);
+  ExternalValueMaterializer TheMaterializer(Materializer, MaterializerData);
+  return wrap(MapMetadata(unwrap(MD), *unwrap(VM), toRemapFlags(Flags),
+                          TypeMapper ? &TheTypeRemapper : nullptr,
+                          Materializer ? &TheMaterializer : nullptr));
+}
+
+void LLVMExtraCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
+                                LLVMValueMapRef VM, LLVMCloneFunctionChangeType Changes,
+                                const char *NameSuffix,
+                                LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                void *TypeMapperData,
+                                LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                void *MaterializerData) {
   // NOTE: we ignore returns cloned, and don't return the code info
   SmallVector<ReturnInst *, 8> Returns;
 
@@ -518,14 +639,216 @@ void LLVMCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
     break;
   }
 
-  ValueToValueMapTy VMap;
-  for (unsigned i = 0; i < ValueMapElements; ++i)
-    VMap[unwrap(ValueMap[2 * i])] = unwrap(ValueMap[2 * i + 1]);
   ExternalTypeRemapper TheTypeRemapper(TypeMapper, TypeMapperData);
   ExternalValueMaterializer TheMaterializer(Materializer, MaterializerData);
-  CloneFunctionInto(unwrap<Function>(NewFunc), unwrap<Function>(OldFunc), VMap, CFGT,
+  CloneFunctionInto(unwrap<Function>(NewFunc), unwrap<Function>(OldFunc), *unwrap(VM), CFGT,
                     Returns, NameSuffix, nullptr, TypeMapper ? &TheTypeRemapper : nullptr,
                     Materializer ? &TheMaterializer : nullptr);
+}
+
+namespace {
+
+// Before LLVM maps anything, walk what it will map, like the value mapper (ValueMapper.cpp)
+// and CloneFunctionInto do, to call the type mapper on the types that they will ask for (so
+// that a type mapper that fails does so before anything is mapped), and to remove the
+// entries for deleted values that they would look up (the value mapper expects every entry
+// to have a value). The walk stops where LLVM stops: at values and metadata in the map, and
+// at global values, which LLVM maps to themselves.
+class MapperPrepass {
+public:
+  MapperPrepass(ValueToValueMapTy &VM, LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                void *TypeMapperData, bool KeepCompileUnits = false)
+      : VM(VM), TypeMapper(TypeMapper), TypeMapperData(TypeMapperData),
+        KeepCompileUnits(KeepCompileUnits) {}
+
+  // every type once, also if the type mapper failed on it (only the first failure is reported)
+  void type(Type *Ty) {
+    if (TypeMapper && Ty && VisitedTypes.insert(Ty).second)
+      TypeMapper(wrap(Ty), TypeMapperData);
+  }
+
+  // Mapper::mapValue
+  void value(const Value *V) {
+    if (!V || !VisitedValues.insert(V).second)
+      return;
+    auto I = VM.find(V);
+    if (I != VM.end()) {
+      if (I->second)
+        return;
+      // the entry of a value that was deleted
+      VM.erase(I);
+    }
+
+    if (auto *MAV = dyn_cast<MetadataAsValue>(V)) {
+      metadata(MAV->getMetadata());
+      return;
+    }
+    if (auto *IA = dyn_cast<InlineAsm>(V)) {
+      type(IA->getFunctionType());
+      return;
+    }
+    // other values that aren't constants are not rebuilt
+    auto *C = dyn_cast<Constant>(V);
+    if (!C)
+      return;
+    type(C->getType());
+    if (isa<GlobalValue>(C))
+      return;
+    // the operands of a blockaddress aren't the same in every version of LLVM
+    if (auto *BA = dyn_cast<BlockAddress>(C)) {
+      value(BA->getFunction());
+      value(BA->getBasicBlock());
+      return;
+    }
+    if (auto *E = dyn_cast<DSOLocalEquivalent>(C)) {
+      value(E->getGlobalValue());
+      return;
+    }
+    if (auto *NC = dyn_cast<NoCFIValue>(C)) {
+      value(NC->getGlobalValue());
+      return;
+    }
+    if (auto *GEP = dyn_cast<GEPOperator>(C))
+      type(GEP->getSourceElementType());
+    for (const Use &Op : C->operands())
+      value(Op);
+  }
+
+  // Mapper::mapMetadata, and the DIArgList case of Mapper::mapValue
+  void metadata(const Metadata *MD) {
+    if (!MD || !VisitedMetadata.insert(MD).second)
+      return;
+    if (auto Mapped = VM.getMappedMD(MD); Mapped && *Mapped)
+      return;
+
+    if (auto *VAM = dyn_cast<ValueAsMetadata>(MD)) {
+      value(VAM->getValue());
+      return;
+    }
+    if (auto *AL = dyn_cast<DIArgList>(MD)) {
+      for (ValueAsMetadata *Arg : AL->getArgs())
+        metadata(Arg);
+      return;
+    }
+    if (isa<MDString>(MD) || isa<DistinctMDOperandPlaceholder>(MD) ||
+        (KeepCompileUnits && isa<DICompileUnit>(MD)))
+      return;
+    for (const MDOperand &Op : cast<MDNode>(MD)->operands())
+      metadata(Op.get());
+  }
+
+  // CloneFunctionInto: the personality, prefix and prologue data and the metadata of the
+  // function, and Mapper::remapInstruction and Mapper::remapDbgRecord for its body
+  void function(Function &F) {
+    for (const Use &Op : F.operands())
+      value(Op);
+    SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
+    F.getAllMetadata(MDs);
+    for (auto &KindAndNode : MDs)
+      metadata(KindAndNode.second);
+    for (Argument &Arg : F.args())
+      value(&Arg);
+    for (BasicBlock &BB : F)
+      for (Instruction &I : BB)
+        instruction(I);
+  }
+
+private:
+  void instruction(Instruction &I) {
+    type(I.getType());
+    if (auto *AI = dyn_cast<AllocaInst>(&I)) {
+      type(AI->getAllocatedType());
+    } else if (auto *GEP = dyn_cast<GetElementPtrInst>(&I)) {
+      type(GEP->getSourceElementType());
+      type(GEP->getResultElementType());
+    } else if (auto *CB = dyn_cast<CallBase>(&I)) {
+      // LLVM rebuilds the function type of a call from its mapped parameter types and the
+      // mapped type of the call, while inline assembly is mapped with its function type
+      FunctionType *FTy = CB->getFunctionType();
+      for (Type *Ty : FTy->params())
+        type(Ty);
+      if (isa<InlineAsm>(CB->getCalledOperand()))
+        type(FTy);
+      // the types of attributes like `byval` and `elementtype`
+      AttributeList Attrs = CB->getAttributes();
+      auto attributeTypes = [&](AttributeSet AS) {
+        for (const Attribute &A : AS)
+          if (A.isTypeAttribute())
+            type(A.getValueAsType());
+      };
+      attributeTypes(Attrs.getRetAttrs());
+      for (unsigned ArgNo = 0; ArgNo < CB->arg_size(); ArgNo++)
+        attributeTypes(Attrs.getParamAttrs(ArgNo));
+    }
+    for (const Use &Op : I.operands())
+      value(Op);
+    if (auto *PN = dyn_cast<PHINode>(&I))
+      for (const BasicBlock *BB : PN->blocks())
+        value(BB);
+
+    metadata(I.getDebugLoc().getAsMDNode());
+    SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
+    I.getAllMetadataOtherThanDebugLoc(MDs);
+    for (auto &KindAndNode : MDs)
+      metadata(KindAndNode.second);
+#if LLVM_VERSION_MAJOR >= 19
+    // the values that the debug records refer to, and then their metadata
+    for (DbgRecord &DR : I.getDbgRecordRange()) {
+      auto *DVR = dyn_cast<DbgVariableRecord>(&DR);
+      if (!DVR)
+        continue;
+      if (DVR->isDbgAssign())
+        value(DVR->getAddress());
+      for (Value *V : DVR->location_ops())
+        value(V);
+    }
+    for (DbgRecord &DR : I.getDbgRecordRange()) {
+      metadata(DR.getDebugLoc().getAsMDNode());
+      if (auto *DLR = dyn_cast<DbgLabelRecord>(&DR)) {
+        metadata(DLR->getLabel());
+        continue;
+      }
+      auto &DVR = cast<DbgVariableRecord>(DR);
+      metadata(DVR.getVariable());
+      if (DVR.isDbgAssign())
+        metadata(DVR.getAssignID());
+    }
+#endif
+  }
+
+  ValueToValueMapTy &VM;
+  LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *);
+  void *TypeMapperData;
+  // compile units that LLVM doesn't map (when cloning within a module)
+  bool KeepCompileUnits;
+  SmallPtrSet<const Value *, 32> VisitedValues;
+  SmallPtrSet<const Metadata *, 32> VisitedMetadata;
+  SmallPtrSet<Type *, 16> VisitedTypes;
+};
+
+} // namespace
+
+void LLVMExtraPrepareMapValue(LLVMValueRef V, LLVMValueMapRef VM,
+                              LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                              void *TypeMapperData) {
+  MapperPrepass(*unwrap(VM), TypeMapper, TypeMapperData).value(unwrap(V));
+}
+
+void LLVMExtraPrepareMapMetadata(LLVMMetadataRef MD, LLVMValueMapRef VM,
+                                 LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                 void *TypeMapperData) {
+  MapperPrepass(*unwrap(VM), TypeMapper, TypeMapperData).metadata(unwrap(MD));
+}
+
+void LLVMExtraPrepareCloneFunctionInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
+                                       LLVMCloneFunctionChangeType Changes,
+                                       LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                       void *TypeMapperData) {
+  // when cloning within a module, LLVM doesn't map compile units
+  bool KeepCompileUnits = Changes == LLVMCloneFunctionChangeTypeLocalChangesOnly ||
+                          Changes == LLVMCloneFunctionChangeTypeGlobalChanges;
+  MapperPrepass(*unwrap(VM), TypeMapper, TypeMapperData, KeepCompileUnits)
+      .function(*unwrap<Function>(OldFunc));
 }
 
 LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuffix,

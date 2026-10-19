@@ -1422,7 +1422,8 @@ end
     memoryssa = (LLVM.API.LLVMMemoryUseValueKind, LLVM.API.LLVMMemoryDefValueKind,
                  LLVM.API.LLVMMemoryPhiValueKind)
     unregistered = [kind for kind in instances(LLVM.API.LLVMValueKind)
-                    if !(kind in memoryssa) && LLVM.value_kinds[Int(kind)+1] === Nothing]
+                    if LLVM.isavailable(kind) && !(kind in memoryssa) &&
+                       LLVM.value_kinds[Int(kind)+1] === Nothing]
     @test isempty(unregistered)
 
     end
@@ -2788,6 +2789,14 @@ end
     @test fn.callconv == LLVM.API.LLVMCCallConv
     fn.callconv = LLVM.API.LLVMFastCallConv
     @test fn.callconv == LLVM.API.LLVMFastCallConv
+    # calling conventions that the C API doesn't name can be used too, but named ones that
+    # the version of LLVM in use lacks cannot
+    fn.callconv = 71
+    @test fn.callconv == 71
+    if LLVM.version() >= v"18"
+        @test !LLVM.isavailable(LLVM.CallConv.WebKitJS)
+        @test_throws ArgumentError fn.callconv = LLVM.CallConv.WebKitJS
+    end
 
     @test fn.gc == ""
     fn.gc = "SomeGC"

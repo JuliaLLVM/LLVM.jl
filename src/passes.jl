@@ -1486,9 +1486,11 @@ function register_extensions!(exts::API.LLVMPassBuilderExtensionsRef, pb::PassBu
         api(exts, pass.name, cb, Ref(states, i), pass.required)
     end
 
-    # register Julia passes
-    julia_callback = cglobal(:jl_register_passbuilder_callbacks)
-    API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+    # register Julia passes, which only work with Julia's LLVM
+    if julia_llvm
+        julia_callback = cglobal(:jl_register_passbuilder_callbacks)
+        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+    end
 
     # register native callbacks
     for callback in pb.registration_callbacks

@@ -14,9 +14,40 @@ using PrecompileTools
 include("base.jl")
 include("version.jl")
 
-# we don't embed the full path to LLVM, because the location might be different at run time.
-const libllvm = basename(String(Base.libllvm_path()))
-const libllvm_version = Base.libllvm_version
+# the LLVM library is the one Julia uses, unless the `libLLVM` preference selects another one,
+# e.g., a standalone library built by `deps/build_standalone.jl` to test LLVM.jl with another
+# version of LLVM. such a library also provides LLVMExtra.
+const libllvm_preference = @load_preference("libLLVM", nothing)
+
+# whether LLVM.jl uses Julia's LLVM, which functionality that integrates with Julia's code
+# generator requires
+const julia_llvm = libllvm_preference === nothing
+
+# we don't embed the full path to Julia's LLVM, because the location might be different at
+# run time.
+const libllvm = julia_llvm ? basename(String(Base.libllvm_path())) : libllvm_preference
+
+# the version of an LLVM library that provides the C API (or LLVMExtra, which provides the
+# function that reports it on versions of LLVM whose C API does not)
+function library_version(lib)
+    major, minor, patch = Ref{Cuint}(), Ref{Cuint}(), Ref{Cuint}()
+    # the library is not closed again, as LLVM.jl is going to use it anyway, and unloading
+    # LLVM would run its static destructors
+    handle = Libdl.dlopen(lib)
+    ccall(Libdl.dlsym(handle, :LLVMGetVersion), Cvoid,
+          (Ptr{Cuint}, Ptr{Cuint}, Ptr{Cuint}), major, minor, patch)
+    VersionNumber(major[], minor[], patch[])
+end
+
+const libllvm_version = julia_llvm ? Base.libllvm_version : library_version(libllvm)
+
+# the wrappers depend on the version of another library, so recompile when it changes
+julia_llvm || include_dependency(libllvm)
+
+function check_julia_llvm(what)
+    julia_llvm && return
+    error("$what requires the LLVM library that Julia uses, but LLVM.jl uses $libllvm (LLVM $libllvm_version)")
+end
 
 module API
 using CEnum
@@ -26,7 +57,10 @@ using Preferences
 import ..LLVM
 using ..LLVM: libllvm, version
 using LLVMExtra_jll
-if has_preference(LLVM, "libLLVMExtra")
+if !LLVM.julia_llvm
+    # another LLVM library also provides LLVMExtra, built for it
+    const libLLVMExtra = libllvm
+elseif has_preference(LLVM, "libLLVMExtra")
     const libLLVMExtra = load_preference(LLVM, "libLLVMExtra")
 elseif isdefined(LLVMExtra_jll, :libLLVMExtra)
     import LLVMExtra_jll: libLLVMExtra
@@ -47,60 +81,60 @@ function inline_wrapper(ex)
     return ex
 end
 
-# atomicrmw operations that older C APIs lack, numbered as in newer ones, so that they can be
-# named and enumerated on every LLVM version (`LLVM.isavailable` says whether LLVM supports
-# them). they are added to the definition of the enum in the generated wrappers, so that
-# CEnum knows them too, e.g., for `instances`.
-const backfilled_rmw_binops = (
-    :LLVMAtomicRMWBinOpUIncWrap => 15, :LLVMAtomicRMWBinOpUDecWrap => 16,
-    :LLVMAtomicRMWBinOpUSubCond => 17, :LLVMAtomicRMWBinOpUSubSat => 18,
-    :LLVMAtomicRMWBinOpFMaximum => 19, :LLVMAtomicRMWBinOpFMinimum => 20,
-    :LLVMAtomicRMWBinOpFMaximumNum => 21, :LLVMAtomicRMWBinOpFMinimumNum => 22)
-const rmw_binops_definitions = Ref(0)
-function backfill_rmw_binops(ex)
-    # the definition is `@cenum LLVMAtomicRMWBinOp::UInt32 begin ... end`, documented
-    def = Meta.isexpr(ex, :macrocall) && ex.args[1] == GlobalRef(Core, Symbol("@doc")) ?
-          ex.args[end] : ex
-    Meta.isexpr(def, :macrocall) && def.args[1] === Symbol("@cenum") &&
-        def.args[3] == :(LLVMAtomicRMWBinOp::UInt32) || return ex
-    rmw_binops_definitions[] += 1
-    members = def.args[4].args
-    defined = Dict{Any,Any}()
-    for m in members
-        Meta.isexpr(m, :(=)) && (defined[m.args[1]] = m.args[2])
-    end
-    for (name, val) in backfilled_rmw_binops
-        if haskey(defined, name)
-            defined[name] == val || error("LLVM defines $name as $(defined[name]), not $val")
-        else
-            val in values(defined) && error("LLVM defines another atomicrmw operation as $val")
-            push!(members, :($name = $val))
-        end
-    end
-    return ex
-end
-wrapper_mapexpr(ex) = inline_wrapper(backfill_rmw_binops(ex))
-@nospecialize
-let
-    if version().major < 15
-        error("LLVM.jl only supports LLVM 15 and later.")
-    end
-    dir = if version().major > 23
-        @warn "LLVM.jl has not been tested with LLVM versions newer than 23."
-        joinpath(@__DIR__, "..", "lib", "23")
-    else
-        joinpath(@__DIR__, "..", "lib", string(version().major))
-    end
-    @assert isdir(dir)
+# the wrappers are generated for every supported version of LLVM, and merged into a single
+# set of definitions by `res/merge.jl`. functions that are not available on every version
+# check the version first, and enums whose members are not available on every version, or
+# whose values differ between versions, are translated by the wrappers taking or returning
+# them (see `res/ABI.md` for the differences).
 
-    include(wrapper_mapexpr, joinpath(dir, "libLLVM.jl"))
-    include(wrapper_mapexpr, joinpath(dir, "libLLVM_extra.jl"))
+@inline function check_available(name::Symbol, since::Int, until::Union{Int,Nothing}=nothing)
+    major = Int(version().major)
+    if major < since || (until !== nothing && major >= until)
+        throw_unavailable(name, since, until)
+    end
 end
-include(wrapper_mapexpr, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
+@noinline function throw_unavailable(name, since, until)
+    supported = until === nothing ? "$since and later" : "$since to $(until-1)"
+    error("$name is not available on LLVM $(version()) (only on LLVM $supported)")
+end
+
+# translation tables of an enum for a version of LLVM, generated for enums with members that
+# are not available on every version, or with values that differ. `nothing` means that the
+# values of the C API are those defined by the wrappers.
+abi_tables(::Type, major::Integer) = nothing
+
+@inline function to_abi(::Type{T}, x) where {T}
+    x = x isa T ? x : T(x)
+    tables = abi_tables(T, version().major)
+    tables === nothing && return x
+    val = Integer(x)
+    0 <= val < length(tables.to) || return x
+    raw = @inbounds tables.to[val+1]
+    raw < 0 && throw_unavailable(x)
+    return T(raw)
+end
+@noinline throw_unavailable(x) =
+    throw(ArgumentError("$x is not available on LLVM $(version())"))
+
+@inline function from_abi(::Type{T}, x::T) where {T}
+    tables = abi_tables(T, version().major)
+    tables === nothing && return x
+    raw = Integer(x)
+    0 <= raw < length(tables.from) || return x
+    return T(@inbounds tables.from[raw+1])
+end
+
+@nospecialize
+include(inline_wrapper, joinpath(@__DIR__, "..", "lib", "libLLVM.jl"))
+include(inline_wrapper, joinpath(@__DIR__, "..", "lib", "libLLVM_extra.jl"))
+include(inline_wrapper, joinpath(@__DIR__, "..", "lib", "libLLVM_julia.jl"))
 @specialize
 
-rmw_binops_definitions[] == 1 ||
-    error("Expected one definition of LLVMAtomicRMWBinOp in the wrappers, found $(rmw_binops_definitions[])")
+if version().major < first(WRAPPED_VERSIONS)
+    error("LLVM.jl only supports LLVM $(first(WRAPPED_VERSIONS)) and later.")
+elseif version().major > last(WRAPPED_VERSIONS)
+    @warn "LLVM.jl has not been tested with LLVM versions newer than $(last(WRAPPED_VERSIONS))."
+end
 
 end # module API
 @public API
@@ -146,20 +180,39 @@ include("precompile.jl")
 ## initialization
 
 function __init__()
-    @debug "Using LLVM $libllvm_version at $(Base.libllvm_path())"
+    @debug "Using LLVM $libllvm_version at $(julia_llvm ? Base.libllvm_path() : libllvm)"
 
     # sanity checks
-    if libllvm_version != Base.libllvm_version
+    if !julia_llvm
+        # the wrappers are specific to the version of LLVM, so don't use another one
+        if library_version(libllvm) != libllvm_version
+            error("""LLVM.jl was precompiled for LLVM $libllvm_version, whereas $libllvm is now LLVM $(library_version(libllvm)).
+                     Please re-compile LLVM.jl.""")
+        end
+    elseif libllvm_version != Base.libllvm_version
         # this checks that the precompilation image isn't being used
         # after having upgraded Julia and the contained LLVM library.
         @error """LLVM.jl was precompiled for LLVM $libllvm_version, whereas you are now using LLVM $(Base.libllvm_version).
                   Please re-compile LLVM.jl."""
     end
-    if version() !== runtime_version()
+    if julia_llvm && version() !== runtime_version()
         # this is probably caused by a combination of USE_SYSTEM_LLVM
         # and an LLVM upgrade without recompiling Julia.
         @error """Julia was compiled for LLVM $(version()), whereas you are now using LLVM $(runtime_version()).
                   Please re-compile Julia and LLVM.jl (but note that USE_SYSTEM_LLVM is not a supported configuration)."""
+    end
+
+    # initialize another LLVM library like Julia initializes its own
+    if !julia_llvm
+        # LLVM's JIT looks up functions that support JIT-compiled code by name, e.g., LLVM 17
+        # in the process. make it find those of this library, which isn't loaded globally.
+        load_library_permanently(libllvm)
+        InitializeNativeTarget()
+        InitializeNativeAsmPrinter()
+        InitializeNativeAsmParser()
+        InitializeNativeDisassembler()
+        # like Julia, this exits the process if the options are invalid
+        API.LLVMExtraParseEnvironmentOptions("julia", "JULIA_LLVM_ARGS")
     end
 
     register_eh_frame_stubs()

@@ -15,6 +15,8 @@ examples_dir = joinpath(@__DIR__, "..", "examples")
 examples = find_sources(examples_dir)
 filter!(file -> readline(file) != "# EXCLUDE FROM TESTING", examples)
 filter!(file -> !occursin("Kaleidoscope", file), examples)
+# examples that integrate with Julia's compiler need Julia's LLVM
+LLVM.julia_llvm || filter!(file -> !occursin("LLVM.Interop", read(file, String)), examples)
 
 cd(examples_dir) do
     @testset for example in examples

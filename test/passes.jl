@@ -2520,6 +2520,7 @@ end
     @test occursin("memset", result.out)
 end
 
+if LLVM.julia_llvm
 @testset "julia" begin
     @testset "passes" begin
         @dispose ctx=Context() pb=PassBuilder() begin
@@ -2664,6 +2665,7 @@ end
             end
         end
     end
+end
 end
 
 # on Windows, instrumentation needs LLVM 20 to work across libraries, including

@@ -1,9 +1,14 @@
 # generate wrappers for the LLVM and LLVM Extra libraries
 #
-# these wrappers are LLVM version-specific, so we generate multiple copies.
+# the C APIs differ between versions of LLVM, so we generate wrappers for every version, and
+# merge them into a single set of wrappers that works with all of them (see merge.jl).
+#
+# usage: julia --project wrap.jl [DIR], where DIR is where to keep the per-version wrappers
 
 using Clang.Generators
 import Clang
+
+include("merge.jl")
 
 @add_def off_t
 
@@ -11,7 +16,8 @@ import Clang
 const llvm_versions = ["15", "16", "17", "18", "19", "20", "21", "22", "23"]
 const llvm_configs = Dict()
 
-function main()
+function main(outdir=mktempdir())
+    provenance = Dict{Int,String}()
     for version in llvm_versions
         config = get!(llvm_configs, version) do
             # we cannot import multiple versions of the same module in a single session,
@@ -26,7 +32,8 @@ function main()
                 using LLVM_full_jll
                 data = LLVM_full_jll.llvm_config() do exe
                     (; includedir=readchomp(`$exe --includedir`),
-                       cppflags=readchomp(`$exe --cppflags`))
+                       cppflags=readchomp(`$exe --cppflags`),
+                       version=readchomp(`$exe --version`))
                 end
                 print(repr(data))
             """
@@ -36,9 +43,15 @@ function main()
         end
 
         cd(@__DIR__) do
-            wrap(version; config.includedir, config.cppflags)
+            wrap(version, joinpath(outdir, version); config.includedir, config.cppflags)
         end
+        provenance[parse(Int, version)] = "LLVM_full_jll $(config.version)"
     end
+
+    libdir = joinpath(@__DIR__, "..", "lib")
+    merged = merge_versions(outdir, parse.(Int, llvm_versions), libdir)
+    write_wrappers(merged, libdir)
+    write_inventory(merged, joinpath(@__DIR__, "ABI.md"); provenance)
 end
 
 # custom rewriter
@@ -64,18 +77,18 @@ function rewrite!(dag::ExprDAG)
     end
 end
 
-function wrap(version; includedir, cppflags)
+function wrap(version, dir; includedir, cppflags)
 
     args = get_default_args("x86_64-linux-gnu")
     push!(args, "-isystem$includedir")
     append!(args, split(cppflags))
 
-    mkpath("../lib/$version")
+    mkpath(dir)
 
     # LLVM C APIs
     let
         options = load_options(joinpath(@__DIR__, "llvm.toml"))
-        options["general"]["output_file_path"] = "../lib/$version/libLLVM.jl"
+        options["general"]["output_file_path"] = joinpath(dir, "libLLVM.jl")
 
         header_files = detect_headers(joinpath(includedir, "llvm-c"), args)
 
@@ -91,7 +104,7 @@ function wrap(version; includedir, cppflags)
     # LLVMExtra
     let
         options = load_options(joinpath(@__DIR__, "llvmextra.toml"))
-        options["general"]["output_file_path"] = "../lib/$version/libLLVM_extra.jl"
+        options["general"]["output_file_path"] = joinpath(dir, "libLLVM_extra.jl")
 
         header_files = map(["LLVMExtra.h"]) do file
             realpath(joinpath(@__DIR__, "..", "deps", "LLVMExtra", "include", file))
@@ -105,4 +118,4 @@ function wrap(version; includedir, cppflags)
     return
 end
 
-isinteractive() || main()
+isinteractive() || main(ARGS...)

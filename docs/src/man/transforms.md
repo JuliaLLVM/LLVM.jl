@@ -371,6 +371,29 @@ before the loop passes, so loops normally have a preheader, but that can fail, s
 that needs one should check that `loop.preheader !== nothing`. See [`LoopPass`](@ref) for
 the details.
 
+To keep MemorySSA valid, a pass that moves, creates or removes instructions that access
+memory updates it with a `MemorySSAUpdater`, after changing the IR. For example, to hoist
+an instruction to the preheader of a loop, and to create a new one there:
+
+```julia
+mssa = get(ar, MemorySSA, nothing)    # `nothing` in a `loop(...)` pipeline
+if mssa !== nothing
+    MemorySSAUpdater(mssa) do updater
+        # move an instruction, and then its access
+        move!(inst, LLVM.before(loop.preheader.terminator))
+        access = memory_access(mssa, inst)
+        access === nothing ||
+            move_to_place!(updater, access, loop.preheader, :before_terminator)
+
+        # create an access for a new instruction, and insert it
+        access = create_access_in_block!(updater, new_inst, loop.preheader,
+                                         :before_terminator)
+        access isa MemoryDef && insert_def!(updater, access; rename=true)
+        access isa MemoryUse && insert_use!(updater, access; rename=true)
+    end
+end
+```
+
 If a custom pass throws an exception, the optional passes that remain in the pipeline and
 all custom passes are skipped, as the IR and the analyses that the pipeline relies on may
 be inconsistent, and `run!` throws a `PassException`. This is best-effort containment:

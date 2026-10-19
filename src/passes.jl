@@ -504,8 +504,8 @@ function analyses, which it owns and caches:
   invalidation. This is required before a module pass deletes the function.
 
 The supported analyses are [`DomTree`](@ref), [`PostDomTree`](@ref),
-[`AssumptionCache`](@ref), [`LazyValueInfo`](@ref), [`ScalarEvolution`](@ref) and
-[`LoopInfo`](@ref).
+[`AssumptionCache`](@ref), [`LazyValueInfo`](@ref), [`ScalarEvolution`](@ref),
+[`LoopInfo`](@ref) and [`MemorySSA`](@ref).
 
 Analysis results are borrowed from the manager, which owns them:
 
@@ -540,6 +540,7 @@ analysis_id(::Type{AssumptionCache}) = API.LLVMExtraAssumptionAnalysis
 analysis_id(::Type{LazyValueInfo}) = API.LLVMExtraLazyValueAnalysis
 analysis_id(::Type{ScalarEvolution}) = API.LLVMExtraScalarEvolutionAnalysis
 analysis_id(::Type{LoopInfo}) = API.LLVMExtraLoopAnalysis
+analysis_id(::Type{MemorySSA}) = API.LLVMExtraMemorySSAAnalysis
 
 # analysis results are owned by the analysis manager; stop tracking their wrappers, so that
 # memcheck doesn't mistake them for objects that were disposed of at the same address
@@ -721,6 +722,11 @@ argument is either an analysis (e.g. `DomTree`), or a marker for a set of analys
 - `PreservedAnalyses(CFGAnalyses)`: the pass did not change the control-flow graph;
 - `PreservedAnalyses(DomTree)`: the pass kept the dominator tree up to date.
 
+Some analyses are invalidated with the analyses they depend on, even when they are
+preserved: e.g., [`MemorySSA`](@ref) depends on the dominator tree, so a pass that kept it
+up to date returns `PreservedAnalyses(MemorySSA, CFGAnalyses)` (or `PreservedAnalyses(MemorySSA,
+DomTree)` if it changed the control-flow graph and updated the dominator tree).
+
 For a module pass, the function analyses that are listed are preserved for every function
 of the module, while all other analyses of the module are invalidated. A module pass that
 invalidated the analyses of the functions it changed itself (using
@@ -765,7 +771,7 @@ struct PreservedAnalyses
             elseif T === CFGAnalyses
                 cfg = true
             else
-                T === MemorySSA || analysis_id(T)  # validate
+                analysis_id(T)  # validate
                 T in individual || push!(individual, T)
             end
         end
@@ -803,7 +809,7 @@ end
 
 # the analyses that the function analysis manager knows, in the terms of `PreservedAnalyses`
 const function_analyses = (DomTree, PostDomTree, AssumptionCache, LazyValueInfo,
-                           ScalarEvolution, LoopInfo)
+                           ScalarEvolution, LoopInfo, MemorySSA)
 
 # the preserved analyses of an LLVM `PreservedAnalyses` object, as far as they can be
 # expressed using the analyses that LLVM.jl knows
@@ -834,8 +840,7 @@ set_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved) =
                    convert(PreservedAnalyses, preserved)::PreservedAnalyses, ref)
 
 function check_not_loop_preserved(pa::PreservedAnalyses)
-    (pa.loop || MemorySSA in pa.analyses) &&
-        throw(ArgumentError("LoopAnalyses and MemorySSA can only be preserved by a loop pass"))
+    pa.loop && throw(ArgumentError("LoopAnalyses can only be preserved by a loop pass"))
 end
 
 function set_module_preserved!(ref::API.LLVMPreservedAnalysesRef, preserved)

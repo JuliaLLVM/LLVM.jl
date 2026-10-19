@@ -318,6 +318,26 @@
     @check_ir gepinst "getelementptr inbounds i32"
     gepinst.inbounds = false
     @test !gepinst.inbounds
+    if LLVM.version() >= v"19"
+        # `inbounds` implies `nusw`, which LLVM keeps when clearing `inbounds`
+        @test gepinst.nusw && !gepinst.nuw
+        gepinst.nusw = false
+        @test !gepinst.nusw && !gepinst.nuw
+        gepinst.nuw = true
+        @test gepinst.nuw && !gepinst.nusw
+        @check_ir gepinst "getelementptr nuw i32"
+        gepinst.nusw = true
+        @check_ir gepinst "getelementptr nusw nuw i32"
+        gepinst.nuw = false
+        @test gepinst.nusw && !gepinst.nuw && !gepinst.inbounds
+        gepinst.inbounds = true
+        @test gepinst.inbounds && gepinst.nusw
+        gepinst.nusw = false
+        @test !gepinst.inbounds && !gepinst.nusw
+        @check_ir gepinst "getelementptr i32"
+    else
+        @test !hasproperty(gepinst, :nuw)
+    end
 
     gepinst1 = inbounds_gep!(builder, LLVM.Int32Type(), ptr1, [int1])
     if supports_typed_pointers(ctx)

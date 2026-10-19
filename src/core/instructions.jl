@@ -81,6 +81,17 @@ view of those operands: assigning an element replaces the operand.
 Whether a `getelementptr` instruction is `inbounds`, i.e., whether the resulting pointer is
 known to be within the bounds of the object that the pointer operand is based on.
 
+    gep.nusw
+    gep.nusw = flag::Bool
+    gep.nuw
+    gep.nuw = flag::Bool
+
+Whether a `getelementptr` instruction has the `nusw` (no unsigned signed wrap) or `nuw` (no
+unsigned wrap) flag, which guarantee that computing the address doesn't wrap around (see
+LLVM's language reference for their exact semantics). Requires LLVM 19+. As `inbounds`
+implies `nusw`, making a GEP `inbounds` also sets `nusw` (which clearing `inbounds` keeps),
+and clearing `nusw` also clears `inbounds`.
+
     inst.indices
 
 The indices of an `extractvalue` or `insertvalue` instruction, as a read-only view of
@@ -1996,10 +2007,43 @@ indices(ce::ConstantExpr) = @view operands(check_gep(ce))[2:end]
 @property ConstantExpr indices
 
 inbounds(inst::GetElementPtrInst) = API.LLVMIsInBounds(inst) |> Bool
+inbounds(ce::ConstantExpr) = API.LLVMIsInBounds(check_gep(ce)) |> Bool
 
 inbounds!(inst::GetElementPtrInst, flag::Bool) = API.LLVMSetIsInBounds(inst, flag)
 
 @property GetElementPtrInst inbounds inbounds!
+@property ConstantExpr inbounds
+
+# the other no-wrap flags of GEPs, which LLVM 19 added. `inbounds` implies `nusw`: LLVM
+# sets both when making a GEP `inbounds`, so clearing `nusw` has to clear `inbounds` too.
+if version() >= v"19"
+
+gep_flags(gep::Union{GetElementPtrInst,ConstantExpr}) = UInt32(API.LLVMGEPGetNoWrapFlags(gep))
+
+nusw(inst::GetElementPtrInst) = gep_flags(inst) & UInt32(API.LLVMGEPFlagNUSW) != 0
+nusw(ce::ConstantExpr) = gep_flags(check_gep(ce)) & UInt32(API.LLVMGEPFlagNUSW) != 0
+
+nuw(inst::GetElementPtrInst) = gep_flags(inst) & UInt32(API.LLVMGEPFlagNUW) != 0
+nuw(ce::ConstantExpr) = gep_flags(check_gep(ce)) & UInt32(API.LLVMGEPFlagNUW) != 0
+
+function nusw!(inst::GetElementPtrInst, flag::Bool)
+    bits = flag ? UInt32(API.LLVMGEPFlagNUSW) :
+                  UInt32(API.LLVMGEPFlagNUSW) | UInt32(API.LLVMGEPFlagInBounds)
+    flags = flag ? gep_flags(inst) | bits : gep_flags(inst) & ~bits
+    API.LLVMGEPSetNoWrapFlags(inst, flags)
+end
+
+function nuw!(inst::GetElementPtrInst, flag::Bool)
+    bit = UInt32(API.LLVMGEPFlagNUW)
+    API.LLVMGEPSetNoWrapFlags(inst, flag ? gep_flags(inst) | bit : gep_flags(inst) & ~bit)
+end
+
+@property GetElementPtrInst nusw nusw!
+@property GetElementPtrInst nuw nuw!
+@property ConstantExpr nusw
+@property ConstantExpr nuw
+
+end
 
 
 ## aggregate operations

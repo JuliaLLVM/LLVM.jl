@@ -816,6 +816,15 @@ The type that a `getelementptr` constant expression indexes into. Throws an
 The indices of a `getelementptr` constant expression, i.e., its operands after the pointer,
 as a read-only view. Throws an `ArgumentError` for other constant expressions.
 
+    ce.inbounds
+    ce.nusw
+    ce.nuw
+
+Whether a `getelementptr` constant expression has the `inbounds`, `nusw` (no unsigned signed
+wrap) or `nuw` (no unsigned wrap) flag; `nusw` and `nuw` require LLVM 19+, and `inbounds`
+implies `nusw`. Throws an `ArgumentError` for other constant expressions. Constants can't be
+changed, so these flags are passed to [`const_gep`](@ref) instead.
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantExpr <: Constant
@@ -857,9 +866,20 @@ const_nuwsub(lhs::Constant, rhs::Constant) =
 const_xor(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstXor(lhs, rhs))
 
-function const_gep(Ty::LLVMType, val::Constant, Indices::AbstractVector{<:Constant})
+function const_gep(Ty::LLVMType, val::Constant, Indices::AbstractVector{<:Constant};
+                   inbounds::Bool=false, nusw::Bool=false, nuw::Bool=false)
     indices = as_refs(Indices)
-    Value(API.LLVMConstGEP2(Ty, val, indices, length(indices)))
+    @static if version() >= v"19"
+        flags = (inbounds ? UInt32(API.LLVMGEPFlagInBounds) : UInt32(0)) |
+                (nusw ? UInt32(API.LLVMGEPFlagNUSW) : UInt32(0)) |
+                (nuw ? UInt32(API.LLVMGEPFlagNUW) : UInt32(0))
+        Value(API.LLVMConstGEPWithNoWrapFlags(Ty, val, indices, length(indices), flags))
+    else
+        (nusw || nuw) &&
+            throw(ArgumentError("The nusw and nuw flags of getelementptr require LLVM 19 or later"))
+        Value(inbounds ? API.LLVMConstInBoundsGEP2(Ty, val, indices, length(indices)) :
+                         API.LLVMConstGEP2(Ty, val, indices, length(indices)))
+    end
 end
 
 function const_inbounds_gep(Ty::LLVMType, val::Constant,
@@ -1088,14 +1108,16 @@ let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
             `dest_type`, using a `trunc`, or a `sext` or `zext` depending on `signed`. $note
             """,
         :const_gep => """
-                const_gep(type::LLVMType, ptr::Constant, indices::AbstractVector{<:Constant})
-                    -> Constant
+                const_gep(type::LLVMType, ptr::Constant, indices::AbstractVector{<:Constant};
+                          inbounds=false, nusw=false, nuw=false) -> Constant
                 const_inbounds_gep(type::LLVMType, ptr::Constant,
                                    indices::AbstractVector{<:Constant}) -> Constant
 
             Create the constant expression `getelementptr` (or `getelementptr inbounds`) that
             computes the address of an element of the value of `type` at `ptr`, using the
-            0-based `indices`. $note
+            0-based `indices`. The keyword arguments set the `inbounds`, `nusw` (no unsigned
+            signed wrap) and `nuw` (no unsigned wrap) flags of the expression; `nusw` and `nuw`
+            require LLVM 19+. $note
             """,
         :const_shufflevector => """
                 const_shufflevector(v1::Constant, v2::Constant, mask::Constant) -> Constant

@@ -1230,6 +1230,29 @@ end
         @test LLVM.constant_offset(ce, dl) == -4
         @test_throws InexactError LLVM.constant_offset(UInt, ce, dl)
 
+        # no-wrap flags (on an out-of-bounds index, which LLVM can't infer them for)
+        idx = [ConstantInt(Int64(2))]
+        @test !const_gep(LLVM.Int8Type(), gv8, idx).inbounds
+        @test ce.inbounds
+        let ce = const_gep(LLVM.Int8Type(), gv8, idx; inbounds=true)
+            @test ce.inbounds
+            @check_ir ce "getelementptr inbounds (i8, "
+        end
+        if LLVM.version() >= v"19"
+            @test ce.nusw && !ce.nuw
+            plain = const_gep(LLVM.Int8Type(), gv8, idx)
+            @test !plain.nusw && !plain.nuw
+            ce = const_gep(LLVM.Int8Type(), gv8, idx; nusw=true, nuw=true)
+            @test !ce.inbounds && ce.nusw && ce.nuw
+            @check_ir ce "getelementptr nusw nuw (i8, "
+            ce = const_gep(LLVM.Int8Type(), gv8, idx; inbounds=true, nuw=true)
+            @test ce.inbounds && ce.nusw && ce.nuw
+            @check_ir ce "getelementptr inbounds nuw (i8, "
+        else
+            @test !hasproperty(ce, :nusw)
+            @test_throws ArgumentError const_gep(LLVM.Int8Type(), gv8, idx; nuw=true)
+        end
+
         # the index width of the address space determines the width of the offset
         gv1 = GlobalVariable(mod, LLVM.Int8Type(), "gv1", 1)
         ce = const_gep(LLVM.Int8Type(), gv1, [ConstantInt(Int64(2)^32 - 1)])
@@ -1239,6 +1262,8 @@ end
         @test ce isa ConstantExpr
         @test_throws ArgumentError ce.source_element_type
         @test_throws ArgumentError ce.indices
+        @test_throws ArgumentError ce.inbounds
+        LLVM.version() >= v"19" && @test_throws ArgumentError ce.nuw
         @test_throws ArgumentError LLVM.constant_offset(ce, dl)
 
         # instructions

@@ -255,7 +255,7 @@ inspects or rewrites them doesn't need to know their position in `inst.operands`
 - `gep.indices`: the indices of a `getelementptr` instruction (its operands after the
   pointer), as a view that can be assigned to.
 - `gep.inbounds`: whether a `getelementptr` instruction is `inbounds`, which can also be
-  assigned to.
+  assigned to; on LLVM 19+, `gep.nusw` and `gep.nuw` are its other no-wrap flags.
 
 ```jldoctest
 julia> slot = alloca!(builder, LLVM.Int64Type());

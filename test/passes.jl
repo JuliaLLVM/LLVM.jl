@@ -1414,6 +1414,16 @@ end
         run!(pass, mod)
         @test built[] == 0
 
+        # a logger that wants LLVM.jl's debug messages is a consumer too
+        built[] = 0
+        logs, _ = Test.collect_test_logs(; min_level=Base.CoreLogging.Debug) do
+            @test remark_enabled(ctx, :passed, "arguments")
+            run!(pass, mod)
+        end
+        @test built[] == 3
+        @test any(log -> occursin("a single string", string(log.message)), logs)
+        built[] = 0
+
         remarks = Remark[]
         run!(pass, mod; remarks=r -> push!(remarks, r))
         @test built[] == 3

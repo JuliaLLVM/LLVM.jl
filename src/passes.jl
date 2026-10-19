@@ -905,9 +905,11 @@ Whether remarks of the given `kind` (`:passed`, `:missed` or `:analysis`) emitte
 pass `pass_name` are wanted in the context `ctx`: because they are collected using the
 `remarks` keyword argument of [`PassBuilder`](@ref) or `run!`, enabled for that pass
 using LLVM's `-pass-remarks`, `-pass-remarks-missed` or `-pass-remarks-analysis` options
-(see [`LLVM.clopts`](@ref)), or written to a [`RemarkFile`](@ref) that accepts the pass.
-A `remarks` callback wants all remarks of every pass, while LLVM's own passes only build
-theirs when they are enabled using these options or a remark file.
+(see [`LLVM.clopts`](@ref)), written to a [`RemarkFile`](@ref) that accepts the pass, or
+logged as debug messages because the current logger accepts those of LLVM.jl (e.g., with
+`JULIA_DEBUG=LLVM`). A `remarks` callback or a debug logger wants all remarks of every
+pass, while LLVM's own passes only build theirs when they are enabled using these options
+or a remark file.
 
 The do-block form of [`remark!`](@ref) uses this to only build remarks that are wanted.
 A pass can also use it to skip work whose only purpose is to explain a decision in a
@@ -916,9 +918,18 @@ remark, like LLVM's passes do using `OptimizationRemarkEmitter::allowExtraAnalys
 function remark_enabled(ctx::Context, kind::Symbol, pass_name::AbstractString)
     api_kind = remark_kind(kind)
     state = diagnostic_state(ctx)
-    state !== nothing && state.remark_callback !== nothing && return true
+    if state !== nothing
+        state.remark_callback !== nothing && return true
+        debug_remarks_enabled() && return true
+    end
     return API.LLVMExtraIsRemarkEnabled(ctx, api_kind, pass_name) |> Bool
 end
+
+# without a callback, `handle_diagnostic` logs the remarks it receives as debug messages
+# (from src/core/context.jl, hence the group), which a logger may want
+debug_remarks_enabled() =
+    Base.CoreLogging.current_logger_for_env(Base.CoreLogging.Debug, :context,
+                                            @__MODULE__) !== nothing
 
 # check the parts of a remark's message before creating it, so that it isn't leaked
 check_remark_part(part::AbstractString) = nothing

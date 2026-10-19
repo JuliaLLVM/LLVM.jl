@@ -99,6 +99,14 @@ integers. These
 are the zero-based indices that select the element of the aggregate, like in textual IR,
 e.g., `[1, 0]` for `extractvalue {i32, {i8, i8}} %agg, 1, 0`.
 
+    shuffle.shuffle_mask
+
+The mask of a `shufflevector` instruction, as a new vector of integers: for each element of
+the result, the zero-based index of the element of the two concatenated operands that it
+takes, or -1 for a poison (or `undef`) element, e.g., `[0, 4, -1]` for
+`shufflevector <4 x i32> %a, <4 x i32> %b, <3 x i32> <i32 0, i32 4, i32 poison>`. For
+scalable vectors, it has the minimum number of elements of the result.
+
     or.disjoint
     or.disjoint = flag::Bool
 
@@ -2064,6 +2072,23 @@ function Base.getindex(iter::AggregateIndexSet, i::Int)
     @boundscheck 1 <= i <= length(iter) || throw(BoundsError(iter, i))
     return Int(unsafe_load(API.LLVMGetIndices(iter.inst), i))
 end
+
+
+## vector operations
+
+shuffle_mask(inst::ShuffleVectorInst) =
+    Int[API.LLVMGetMaskValue(inst, i) for i in 0:Int(API.LLVMGetNumMaskElements(inst))-1]
+
+function shuffle_mask(ce::ConstantExpr)
+    opcode(ce) == API.LLVMShuffleVector ||
+        throw(ArgumentError("Expected a shufflevector constant expression, got a $(opcode(ce)) expression"))
+    mask = Vector{Cint}(undef, API.LLVMExtraConstantExprGetShuffleMask(ce, C_NULL))
+    API.LLVMExtraConstantExprGetShuffleMask(ce, mask)
+    return Vector{Int}(mask)
+end
+
+@property ShuffleVectorInst shuffle_mask
+@property ConstantExpr shuffle_mask
 
 
 ## alignment

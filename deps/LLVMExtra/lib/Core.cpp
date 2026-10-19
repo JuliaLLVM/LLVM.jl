@@ -1676,6 +1676,13 @@ LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef 
                                     /*OnlyIfReduced=*/false, SourceTy));
 }
 
+unsigned LLVMExtraConstantExprGetShuffleMask(LLVMValueRef CE, int *Mask) {
+  ArrayRef<int> ShuffleMask = unwrap<ConstantExpr>(CE)->getShuffleMask();
+  if (Mask)
+    std::copy(ShuffleMask.begin(), ShuffleMask.end(), Mask);
+  return ShuffleMask.size();
+}
+
 LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMValueRef *GV,
                                                          LLVMValueRef *BB) {
   Value *V = unwrap(C);

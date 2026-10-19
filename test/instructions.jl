@@ -1014,6 +1014,41 @@ end
 end
 end
 
+@testset "vector shuffles" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T = LLVM.VectorType(LLVM.Int32Type(), 4)
+    S = LLVM.ScalableVectorType(LLVM.Int32Type(), 2)
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [T, T, S]))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    a, b, s = f.parameters
+
+    mask = ConstantVector([ConstantInt(Int32(0)), ConstantInt(Int32(4)),
+                           PoisonValue(LLVM.Int32Type())])
+    inst = shuffle_vector!(builder, a, b, mask)
+    @test inst.shuffle_mask == [0, 4, -1]
+    @test inst.shuffle_mask isa Vector{Int}
+
+    # scalable vectors only have splat masks, of their minimum number of elements
+    splat = shuffle_vector!(builder, s, PoisonValue(S),
+                            null(LLVM.ScalableVectorType(LLVM.Int32Type(), 2)))
+    @test splat.shuffle_mask == [0, 0]
+
+    # constant expressions, which LLVM only keeps for scalable vectors (it folds the others)
+    gv = GlobalVariable(mod, LLVM.Int8Type(), "gv")
+    P = LLVM.ScalableVectorType(gv.value_type, 2)
+    elt = LLVM.const_insertelement(PoisonValue(P), gv, ConstantInt(Int64(0)))
+    ce = const_shufflevector(elt, PoisonValue(P),
+                             null(LLVM.ScalableVectorType(LLVM.Int32Type(), 2)))
+    @test ce isa ConstantExpr
+    @test ce.shuffle_mask == [0, 0]
+    @test_throws ArgumentError const_ptrtoint(gv, LLVM.Int64Type()).shuffle_mask
+    @test !hasproperty(add!(builder, a, b), :shuffle_mask)
+
+    ret!(builder)
+    verify(mod)
+end
+end
+
 @testset "operations" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type(), LLVM.PointerType(LLVM.Int32Type())])

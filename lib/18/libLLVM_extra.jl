@@ -814,6 +814,10 @@ function LLVMExtraConstantExprGetWithOperands(CE, Ops, NumOps, Ty, SrcTy)
     ccall((:LLVMExtraConstantExprGetWithOperands, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{LLVMValueRef}, Cuint, LLVMTypeRef, LLVMTypeRef), CE, Ops, NumOps, Ty, SrcTy)
 end
 
+function LLVMExtraConstantExprGetShuffleMask(CE, Mask)
+    ccall((:LLVMExtraConstantExprGetShuffleMask, libLLVMExtra), Cuint, (LLVMValueRef, Ptr{Cint}), CE, Mask)
+end
+
 @cenum LLVMExtraGlobalReferenceKind::UInt32 begin
     LLVMExtraNoGlobalReference = 0
     LLVMExtraBlockAddressReference = 1

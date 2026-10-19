@@ -825,6 +825,12 @@ wrap) or `nuw` (no unsigned wrap) flag; `nusw` and `nuw` require LLVM 19+, and `
 implies `nusw`. Throws an `ArgumentError` for other constant expressions. Constants can't be
 changed, so these flags are passed to [`const_gep`](@ref) instead.
 
+    ce.shuffle_mask
+
+The mask of a `shufflevector` constant expression, like the `shuffle_mask` of a
+`shufflevector` instruction (see [`Instruction`](@ref)). Throws an `ArgumentError` for other
+constant expressions.
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct ConstantExpr <: Constant

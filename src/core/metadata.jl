@@ -603,6 +603,22 @@ function Base.setindex!(md::GlobalMetadataDict, node::Metadata, key)
     return md
 end
 
+@vocabulary IR add_metadata!
+
+"""
+    add_metadata!(obj::LLVM.GlobalObject, kind, node::MDNode)
+
+Attach metadata to a global object, keeping the attachments of the same kind that it
+already has (unlike assigning to `obj.metadata[kind]`, which replaces them). Global objects
+can have several attachments of one kind, e.g., a global variable that is described by
+several `!dbg` expressions. The kind can be an `MDKind` or the name of the kind. Returns
+`obj`.
+"""
+function add_metadata!(obj::GlobalObject, kind, node::MDNode)
+    API.LLVMExtraGlobalAddMetadata(obj, md_kind(obj, kind), node)
+    return obj
+end
+
 Base.get(md::GlobalMetadataDict, key, default) = get(md, md_kind(md.val, key), default)
 function Base.get(md::GlobalMetadataDict, key::MDKind, default)
     for (k, v) in md

@@ -481,7 +481,7 @@ element_type(typ::Union{ArrayType,VectorType}) = LLVMType(API.LLVMGetElementType
 
 ## structure types
 
-@vocabulary IR ispacked, isopaque, elements!
+@vocabulary IR ispacked, isopaque, isliteral, elements!
 
 """
     LLVM.StructType <: LLVMType
@@ -491,8 +491,11 @@ A structure type, representing a collection of named fields of potentially diffe
 # Properties
 
     structtyp.name
+    structtyp.name = name::AbstractString
 
 The name of the structure type, or `nothing` if it is a literal (unnamed) structure.
+Identified structure types can be renamed by assigning a new name; if another type has that
+name already, a suffix is added to make it unique.
 
     structtyp.elements
 
@@ -537,7 +540,21 @@ function name(structtyp::StructType)
     cstr == C_NULL ? nothing : unsafe_string(cstr)
 end
 
-@property StructType name
+function name!(structtyp::StructType, name::AbstractString)
+    isliteral(structtyp) && throw(ArgumentError("Literal structure types cannot be named"))
+    API.LLVMExtraStructSetName(structtyp, name)
+end
+
+@property StructType name name!
+
+"""
+    isliteral(structtyp::LLVM.StructType)
+
+Check whether the given structure type is a literal one, i.e., one that is identified by
+its elements (like `{ i32, ptr }`), as opposed to an identified one that is created with a
+name (like `%T = type { i32, ptr }`, or an unnamed one like `%0`), which can be opaque.
+"""
+isliteral(structtyp::StructType) = API.LLVMIsLiteralStruct(structtyp) |> Bool
 
 """
     ispacked(structtyp::LLVM.StructType)

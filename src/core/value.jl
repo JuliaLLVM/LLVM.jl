@@ -97,7 +97,9 @@ end
 function Value(ref::API.LLVMValueRef)
     ref == C_NULL && throw(UndefRefError())
     T = identify(Value, ref)
-    T === Instruction && return Instruction(ref)
+    # values that the C API doesn't know are reported as instructions (see
+    # `identify(::Type{Instruction}, ...)`)
+    T === Instruction && return unsafe_wrap_ref(identify(Instruction, ref), ref)::Value
     return unsafe_wrap_ref(T, ref)::Value
 end
 

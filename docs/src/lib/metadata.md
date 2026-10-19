@@ -35,6 +35,7 @@ Value(::Metadata)
 ```@docs
 NamedMDNode
 MDKind
+add_metadata!
 ```
 
 ```@docs

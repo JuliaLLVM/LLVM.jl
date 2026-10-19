@@ -44,6 +44,7 @@ ConstantArray
 ConstantArray(::LLVMType, ::AbstractArray{<:LLVM.Constant,N}) where {N}
 ConstantArray(::AbstractArray)
 ConstantVector
+ConstantVector(::AbstractVector{<:LLVM.Constant})
 ConstantAggregateZero
 LLVM.ConstantAggregate
 InlineAsm
@@ -52,6 +53,8 @@ BlockAddress(::BasicBlock)
 ConstantTokenNone
 ConstantTargetNone
 ConstantPtrAuth
+DSOLocalEquivalent
+NoCFIValue
 convert_users_to_instructions!
 remove_dead_constant_users!
 ```
@@ -60,6 +63,7 @@ remove_dead_constant_users!
 
 ```@docs
 LLVM.ConstantExpr
+with_operands
 ```
 
 ```@autodocs
@@ -73,6 +77,7 @@ Filter = f -> f isa Function && startswith(string(nameof(f)), "const_")
 LLVM.GlobalValue
 LLVM.GlobalObject
 isdeclaration
+isinterposable
 ```
 
 ### Global variables
@@ -90,6 +95,13 @@ Global variables are reordered using [`move!`](@ref).
 
 ```@docs
 GlobalAlias
+erase!(::GlobalAlias)
+```
+
+### COMDATs
+
+```@docs
+Comdat
 ```
 
 ### Global ifuncs

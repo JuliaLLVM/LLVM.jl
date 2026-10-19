@@ -15,6 +15,7 @@
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/IR/Attributes.h>
+#include <llvm/IR/Comdat.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/DiagnosticInfo.h>
@@ -1571,14 +1572,116 @@ void LLVMExtraCopyAttributesFrom(LLVMValueRef Dst, LLVMValueRef Src) {
   Value *D = unwrap(Dst);
   if (auto *F = dyn_cast<Function>(D))
     F->copyAttributesFrom(unwrap<Function>(Src));
+  else if (auto *GV = dyn_cast<GlobalVariable>(D))
+    GV->copyAttributesFrom(unwrap<GlobalVariable>(Src));
+  else if (auto *GA = dyn_cast<GlobalAlias>(D))
+    GA->copyAttributesFrom(unwrap<GlobalAlias>(Src));
   else
-    unwrap<GlobalVariable>(Dst)->copyAttributesFrom(unwrap<GlobalVariable>(Src));
+    unwrap<GlobalIFunc>(Dst)->copyAttributesFrom(unwrap<GlobalIFunc>(Src));
+}
+
+LLVMValueRef LLVMExtraAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
+                                                LLVMTypeRef FunctionTy, unsigned AddrSpace) {
+  return wrap(Function::Create(unwrap<FunctionType>(FunctionTy),
+                               GlobalValue::ExternalLinkage, AddrSpace, Name, unwrap(M)));
+}
+
+LLVMValueRef LLVMExtraAddAlias(LLVMModuleRef M, LLVMTypeRef ValueTy, unsigned AddrSpace,
+                               LLVMValueRef Aliasee, const char *Name) {
+  return wrap(GlobalAlias::create(unwrap(ValueTy), AddrSpace, GlobalValue::ExternalLinkage,
+                                  Name, Aliasee ? unwrap<Constant>(Aliasee) : nullptr,
+                                  unwrap(M)));
+}
+
+void LLVMExtraEraseGlobalAlias(LLVMValueRef Alias) {
+  unwrap<GlobalAlias>(Alias)->eraseFromParent();
+}
+
+void LLVMExtraGlobalAddMetadata(LLVMValueRef Global, unsigned KindID, LLVMMetadataRef MD) {
+  unwrap<GlobalObject>(Global)->addMetadata(KindID, *unwrap<MDNode>(MD));
+}
+
+const char *LLVMExtraGetComdatName(LLVMComdatRef C, size_t *Len) {
+  StringRef Name = unwrap(C)->getName();
+  *Len = Name.size();
+  return Name.data();
+}
+
+LLVMValueRef LLVMExtraRemangleIntrinsicFunction(LLVMValueRef Fn) {
+  if (auto Remangled = Intrinsic::remangleIntrinsicFunction(unwrap<Function>(Fn)))
+    return wrap(*Remangled);
+  return nullptr;
+}
+
+LLVMBool LLVMExtraIsInterposable(LLVMValueRef GV) {
+  return unwrap<GlobalValue>(GV)->isInterposable();
+}
+
+LLVMBool LLVMExtraIsDSOLocal(LLVMValueRef GV) { return unwrap<GlobalValue>(GV)->isDSOLocal(); }
+
+void LLVMExtraSetDSOLocal(LLVMValueRef GV, LLVMBool Local) {
+  unwrap<GlobalValue>(GV)->setDSOLocal(Local);
+}
+
+
+//
+// types
+//
+
+void LLVMExtraStructSetName(LLVMTypeRef StructTy, const char *Name) {
+  unwrap<StructType>(StructTy)->setName(Name);
 }
 
 
 //
 // constants
 //
+
+LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef *Ops,
+                                                  unsigned NumOps, LLVMTypeRef Ty,
+                                                  LLVMTypeRef SrcTy) {
+  ConstantExpr *Expr = unwrap<ConstantExpr>(CE);
+  SmallVector<Constant *, 4> Operands;
+  for (unsigned I = 0; I < NumOps; I++)
+    Operands.push_back(unwrap<Constant>(Ops[I]));
+  // LLVM only infers the source element type of a GEP if its pointer operand keeps its
+  // type (asserted), so pass it explicitly like ValueMapper does.
+  Type *SourceTy = SrcTy ? unwrap(SrcTy) : nullptr;
+  if (!SourceTy)
+    if (auto *GEP = dyn_cast<GEPOperator>(Expr))
+      SourceTy = GEP->getSourceElementType();
+  return wrap(Expr->getWithOperands(Operands, Ty ? unwrap(Ty) : Expr->getType(),
+                                    /*OnlyIfReduced=*/false, SourceTy));
+}
+
+LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMValueRef *GV,
+                                                         LLVMValueRef *BB) {
+  Value *V = unwrap(C);
+  *GV = nullptr;
+  *BB = nullptr;
+  if (auto *BA = dyn_cast<BlockAddress>(V)) {
+    *GV = wrap(BA->getFunction());
+    *BB = wrap(static_cast<Value *>(BA->getBasicBlock()));
+    return LLVMExtraBlockAddressReference;
+  }
+  if (auto *E = dyn_cast<DSOLocalEquivalent>(V)) {
+    *GV = wrap(E->getGlobalValue());
+    return LLVMExtraDSOLocalEquivalentReference;
+  }
+  if (auto *NC = dyn_cast<NoCFIValue>(V)) {
+    *GV = wrap(NC->getGlobalValue());
+    return LLVMExtraNoCFIValueReference;
+  }
+  return LLVMExtraNoGlobalReference;
+}
+
+LLVMValueRef LLVMExtraGetDSOLocalEquivalent(LLVMValueRef GV) {
+  return wrap(DSOLocalEquivalent::get(unwrap<GlobalValue>(GV)));
+}
+
+LLVMValueRef LLVMExtraGetNoCFIValue(LLVMValueRef GV) {
+  return wrap(NoCFIValue::get(unwrap<GlobalValue>(GV)));
+}
 
 void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C) {
   Constant *Const = unwrap<Constant>(C);

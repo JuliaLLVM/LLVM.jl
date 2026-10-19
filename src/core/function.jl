@@ -117,37 +117,41 @@ register(Function, API.LLVMFunctionValueKind)
 @public Function
 
 """
-    LLVM.Function(mod::Module, name::AbstractString, ft::FunctionType)
+    LLVM.Function(mod::Module, name::AbstractString, ft::FunctionType; [addrspace])
 
-Create a new function in the given module with the given name and function type.
+Create a new function in the given module with the given name and function type. The
+function is put in the given address space, or by default in the program address space of
+the data layout of the module.
 """
-Function(mod::Module, name::AbstractString, ft::FunctionType) =
-    Function(API.LLVMAddFunction(mod, name, ft))
+Function(mod::Module, name::AbstractString, ft::FunctionType;
+         addrspace::Union{Integer,Nothing}=nothing) =
+    Function(addrspace === nothing ? API.LLVMAddFunction(mod, name, ft) :
+             API.LLVMExtraAddFunctionInAddressSpace(mod, name, ft, addrspace))
 
 @vocabulary IR copy_attributes!
 
 """
     copy_attributes!(dest::LLVM.Function, src::LLVM.Function)
     copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+    copy_attributes!(dest::GlobalAlias, src::GlobalAlias)
+    copy_attributes!(dest::GlobalIFunc, src::GlobalIFunc)
 
 Copy the attributes of `src` that are not needed to create it to `dest`, like C++'s
 `copyAttributesFrom`, e.g., when replacing a function by one with a different signature.
-This copies the visibility, DLL storage class, `unnamed_addr`, thread-local mode,
-alignment and section, and for functions also the calling convention, garbage collector,
+This copies the visibility, DLL storage class, `unnamed_addr`, thread-local mode, whether
+the value is `dso_local`, and its partition, for functions, global variables and ifuncs also
+the alignment and section, and for functions also the calling convention, garbage collector,
 personality, and function, return and parameter attributes, and for global variables
 whether they are externally initialized, their attributes and code model. Returns `dest`.
 
-The name, linkage, body or initializer, and metadata are not copied. Parameter attributes
-are copied by position, so if the parameters of `dest` differ from those of `src`, fix up
-`dest.parameter_attributes` afterwards.
+The name, linkage, body, initializer or aliasee, and metadata are not copied. Parameter
+attributes are copied by position, so if the parameters of `dest` differ from those of
+`src`, fix up `dest.parameter_attributes` afterwards.
 COMDAT is not copied. If the source has no personality, prefix or prologue data, those
 fields on the destination are left as they were.
 """
-function copy_attributes!(dest::Function, src::Function)
-    API.LLVMExtraCopyAttributesFrom(dest, src)
-    return dest
-end
-function copy_attributes!(dest::GlobalVariable, src::GlobalVariable)
+function copy_attributes!(dest::T, src::T) where {T<:Union{Function,GlobalVariable,
+                                                         GlobalAlias,GlobalIFunc}}
     API.LLVMExtraCopyAttributesFrom(dest, src)
     return dest
 end
@@ -556,7 +560,7 @@ end
 
 # intrinsics
 
-@vocabulary IR isintrinsic, Intrinsic, isoverloaded
+@vocabulary IR isintrinsic, Intrinsic, isoverloaded, remangle_intrinsic
 @public overloaded_name, overload_types
 
 """
@@ -624,6 +628,22 @@ LLVM in use doesn't know it. This is the same as [`Intrinsic(name)`](@ref LLVM.I
 Base.parse(::Type{Intrinsic}, name::AbstractString) = Intrinsic(name)
 
 intrinsic(f::Function) = isintrinsic(f) ? Intrinsic(f) : nothing
+
+"""
+    remangle_intrinsic(f::LLVM.Function)
+
+Get the declaration of the overloaded intrinsic declared by `f` that is named after the
+types of the signature of `f`, if the name of `f` doesn't match them, e.g., after
+changing the address spaces of its pointer parameters, which turns
+`llvm.memcpy.p10.p10.i64` into `llvm.memcpy.p0.p0.i64`. Returns `nothing` if the name of `f`
+is correct, or if `f` isn't an overloaded intrinsic. The declaration is created if it
+doesn't exist yet (renaming another global value that has its name, but not its type); `f`
+is not changed, so replace its uses and delete it to switch to the returned declaration.
+"""
+function remangle_intrinsic(f::Function)
+    ref = API.LLVMExtraRemangleIntrinsicFunction(f)
+    ref == C_NULL ? nothing : Function(ref)
+end
 
 @property Function intrinsic
 

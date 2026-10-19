@@ -717,6 +717,24 @@ the `elements` property, see [`LLVM.ConstantAggregate`](@ref).
 end
 register(ConstantVector, API.LLVMConstantVectorValueKind)
 
+"""
+    ConstantVector(elements::AbstractVector{<:Constant})
+
+Create a constant vector of the given elements, which must be of the same type, like
+C++'s `ConstantVector::get`.
+
+!!! note
+
+    This constructor can return another constant kind, such as
+    [`ConstantDataVector`](@ref), `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
+"""
+function ConstantVector(elements::AbstractVector{<:Constant})
+    isempty(elements) && throw(ArgumentError("Cannot create a vector without elements"))
+    all(e -> value_type(e) == value_type(first(elements)), elements) ||
+        throw(ArgumentError("The elements of a vector must have the same type"))
+    return Value(API.LLVMConstVector(as_vector(elements), length(elements)))::Constant
+end
+
 
 ## aggregate elements
 
@@ -755,7 +773,7 @@ end
 
 ## constant expressions
 
-@vocabulary IR ConstantExpr
+@vocabulary IR ConstantExpr, with_operands
 @vocabulary Build const_neg, const_nswneg, const_not, const_add, const_nswadd,
                   const_nuwadd, const_sub, const_nswsub, const_nuwsub, const_xor, const_gep,
                   const_inbounds_gep, const_trunc, const_ptrtoint, const_inttoptr,
@@ -1110,6 +1128,26 @@ let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
     end
 end
 
+"""
+    with_operands(ce::ConstantExpr, ops::AbstractVector{<:Constant};
+                  [type::LLVMType], [source_type::LLVMType])
+
+Create a constant expression like `ce`, but with the operands `ops` and the result type
+`type` (by default that of `ce`), like C++'s `ConstantExpr::getWithOperands`, e.g., to
+rebuild a constant expression after mapping its operands. For a `getelementptr`
+expression, `source_type` is the type it indexes into (by default that of `ce`). The result
+may be folded into another kind of constant.
+"""
+function with_operands(ce::ConstantExpr, ops::AbstractVector{<:Constant};
+                       type::Union{LLVMType,Nothing}=nothing,
+                       source_type::Union{LLVMType,Nothing}=nothing)
+    length(ops) == length(operands(ce)) ||
+        throw(ArgumentError("Expected $(length(operands(ce))) operands, got $(length(ops))"))
+    Value(API.LLVMExtraConstantExprGetWithOperands(ce, as_vector(ops), length(ops),
+                                                   something(type, C_NULL),
+                                                   something(source_type, C_NULL)))
+end
+
 # TODO: alignof, sizeof
 
 
@@ -1210,6 +1248,14 @@ is, `LLVM.UnnamedAddr.Local` if it is insignificant within the module
 altogether (`unnamed_addr`), which allows merging it with other constants that have the
 same initializer.
 
+    gv.dso_local
+    gv.dso_local = flag::Bool
+
+Whether the global value is known to resolve to a definition in the same linkage unit
+(`dso_local`), so that it can be accessed directly instead of through a GOT or PLT. LLVM
+requires this for values with local linkage or non-default visibility, and sets it when
+assigning those.
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 abstract type GlobalValue <: Constant end
@@ -1230,7 +1276,15 @@ as a dictionary-like view that maps the kind of metadata to a metadata node. The
 an `MDKind`, like `LLVM.MD_dbg`, or the name of the kind, like `"tbaa"`. The view can be
 iterated (in the case of an instruction, this includes its debug location), and is mutable:
 assign to a kind to attach metadata, e.g., `inst.metadata["tbaa"] = node`, and use `delete!`
-to remove it.
+to remove it. Global objects can have several attachments of the same kind (e.g., a global
+variable that is described by several `!dbg` expressions), which are all iterated over;
+assigning replaces them, while [`add_metadata!`](@ref) adds one.
+
+    gv.comdat
+    gv.comdat = c::Union{LLVM.Comdat,Nothing}
+
+The [`Comdat`](@ref) of the global object, or `nothing` if it isn't part of one. Assigning
+`nothing` removes it from its COMDAT.
 
 The properties of [`GlobalValue`](@ref LLVM.GlobalValue), [`User`](@ref LLVM.User) and
 [`Value`](@ref LLVM.Value) are available too.
@@ -1238,7 +1292,7 @@ The properties of [`GlobalValue`](@ref LLVM.GlobalValue), [`User`](@ref LLVM.Use
 abstract type GlobalObject <: GlobalValue end
 @vocabulary IR GlobalObject
 
-@vocabulary IR GlobalValue, isdeclaration
+@vocabulary IR GlobalValue, isdeclaration, isinterposable
 
 parent(val::GlobalValue) = Module(API.LLVMGetGlobalParent(val))
 
@@ -1255,6 +1309,18 @@ parent(val::GlobalValue) = Module(API.LLVMGetGlobalParent(val))
 Check if the global value is a declaration, i.e. it does not have a definition.
 """
 isdeclaration(val::GlobalValue) = API.LLVMIsDeclaration(val) |> Bool
+
+"""
+    isinterposable(val::LLVM.GlobalValue)
+
+Check whether the definition of the given global value may be replaced by a different one
+at link or load time, e.g., because it has `weak` or `linkonce` linkage, or because the
+module uses semantic interposition and the value is not `dso_local`. Optimizations must not
+make assumptions about the definition of such a value, e.g., by inlining a function.
+
+This uses LLVM's `GlobalValue::isInterposable`.
+"""
+isinterposable(val::GlobalValue) = API.LLVMExtraIsInterposable(val) |> Bool
 
 linkage(val::GlobalValue) = API.LLVMGetLinkage(val)
 
@@ -1293,6 +1359,73 @@ unnamed_addr!(val::GlobalValue, kind::API.LLVMUnnamedAddr) =
     API.LLVMSetUnnamedAddress(val, kind)
 
 @property GlobalValue unnamed_addr unnamed_addr!
+
+dso_local(val::GlobalValue) = API.LLVMExtraIsDSOLocal(val) |> Bool
+
+dso_local!(val::GlobalValue, flag::Bool) = API.LLVMExtraSetDSOLocal(val, flag)
+
+@property GlobalValue dso_local dso_local!
+
+## comdats
+
+@vocabulary IR Comdat
+
+"""
+    Comdat(mod::LLVM.Module, name::AbstractString)
+
+Get the COMDAT with the given name in the module, creating it if it doesn't exist yet. A
+COMDAT groups global objects that the linker keeps or discards together; assign it to their
+`comdat` property to add them to it.
+
+# Properties
+
+    c.name
+
+The name of the COMDAT.
+
+    c.selection_kind
+    c.selection_kind = kind::LLVM.ComdatSelectionKind.T
+
+How the linker chooses between COMDATs with the same name in different object files, e.g.,
+`LLVM.ComdatSelectionKind.Any`.
+"""
+@checked struct Comdat
+    ref::API.LLVMComdatRef
+end
+@properties Comdat
+
+Base.unsafe_convert(::Type{API.LLVMComdatRef}, c::Comdat) = c.ref
+
+Comdat(mod::Module, name::AbstractString) = Comdat(API.LLVMGetOrInsertComdat(mod, name))
+
+function name(c::Comdat)
+    len = Ref{Csize_t}()
+    data = API.LLVMExtraGetComdatName(c, len)
+    unsafe_string(convert(Ptr{Int8}, data), len[])
+end
+
+@property Comdat name
+
+selection_kind(c::Comdat) = API.LLVMGetComdatSelectionKind(c)
+
+selection_kind!(c::Comdat, kind::API.LLVMComdatSelectionKind) =
+    API.LLVMSetComdatSelectionKind(c, kind)
+
+@property Comdat selection_kind selection_kind!
+
+function Base.show(io::IO, c::Comdat)
+    print(io, "Comdat(", repr(name(c)), ", ", selection_kind(c), ")")
+end
+
+function comdat(val::GlobalObject)
+    ref = API.LLVMGetComdat(val)
+    ref == C_NULL ? nothing : Comdat(ref)
+end
+
+comdat!(val::GlobalObject, c::Union{Comdat,Nothing}) =
+    API.LLVMSetComdat(val, something(c, C_NULL))
+
+@property GlobalObject comdat comdat!
 
 
 ## global variables
@@ -1449,7 +1582,7 @@ end
 
 ## global aliases
 
-@vocabulary IR GlobalAlias
+@vocabulary IR GlobalAlias, erase!
 
 """
     GlobalAlias <: LLVM.GlobalValue
@@ -1459,10 +1592,12 @@ A global alias, i.e., a new symbol for an existing global value or constant expr
 # Properties
 
     alias.aliasee
-    alias.aliasee = val::LLVM.Constant
+    alias.aliasee = val::Union{LLVM.Constant,Nothing}
 
-The value that the global alias refers to. The type of an assigned value must match that of
-the alias.
+The value that the global alias refers to, or `nothing` if it doesn't refer to anything
+(yet). The type of an assigned value must match that of the alias. Assigning `nothing`
+drops the reference to the current aliasee, e.g., before deleting it; the alias then has to
+be given another aliasee, or be deleted.
 
     alias.next
     alias.prev
@@ -1507,7 +1642,20 @@ value `aliasee`. The value type and address space of the alias are taken from `a
 GlobalAlias(mod::Module, aliasee::GlobalValue, name::AbstractString) =
     GlobalAlias(mod, global_value_type(aliasee), aliasee, name)
 
-aliasee(alias::GlobalAlias) = Value(API.LLVMAliasGetAliasee(alias))
+"""
+    GlobalAlias(mod::LLVM.Module, typ::LLVM.Type, name::AbstractString; addrspace=0)
+
+Create a global alias in the given module, with the given value type, name and address
+space, that doesn't refer to anything yet. Assign its `aliasee` property before using the
+module, e.g., when an alias needs to exist before what it refers to.
+"""
+GlobalAlias(mod::Module, typ::LLVMType, name::AbstractString; addrspace::Integer=0) =
+    GlobalAlias(API.LLVMExtraAddAlias(mod, typ, addrspace, C_NULL, name))
+
+function aliasee(alias::GlobalAlias)
+    ref = API.LLVMAliasGetAliasee(alias)
+    ref == C_NULL ? nothing : Value(ref)
+end
 
 function aliasee!(alias::GlobalAlias, val::Constant)
     if value_type(val) != value_type(alias)
@@ -1515,11 +1663,24 @@ function aliasee!(alias::GlobalAlias, val::Constant)
     end
     API.LLVMAliasSetAliasee(alias, val)
 end
+# the C API doesn't accept a null aliasee, but the aliasee is the only operand
+aliasee!(alias::GlobalAlias, ::Nothing) = API.LLVMSetOperand(alias, 0, C_NULL)
 
 @property GlobalAlias aliasee aliasee!
 
 # LLVM does not support setting the section of an alias
 @property GlobalAlias section
+
+"""
+    erase!(alias::GlobalAlias)
+
+Remove the global alias from its parent module and delete it.
+
+!!! warning
+
+    This function is unsafe as it does not check if the alias is still used elsewhere.
+"""
+erase!(alias::GlobalAlias) = API.LLVMExtraEraseGlobalAlias(alias)
 
 
 ## global ifuncs
@@ -1601,3 +1762,64 @@ function resolver!(ifunc::GlobalIFunc, val::Constant)
 end
 
 @property GlobalIFunc resolver resolver!
+
+
+## references to global values
+
+@vocabulary IR DSOLocalEquivalent, NoCFIValue
+
+"""
+    DSOLocalEquivalent <: LLVM.Constant
+    DSOLocalEquivalent(gv::LLVM.GlobalValue)
+
+A function that is equivalent to the function `gv`, but is known to be in the same linkage
+unit, `dso_local_equivalent @f` in LLVM IR.
+
+# Properties
+
+    c.global_value
+
+The global value that the constant refers to.
+"""
+@checked struct DSOLocalEquivalent <: Constant
+    ref::API.LLVMValueRef
+end
+
+DSOLocalEquivalent(gv::GlobalValue) =
+    DSOLocalEquivalent(API.LLVMExtraGetDSOLocalEquivalent(gv))
+
+"""
+    NoCFIValue <: LLVM.Constant
+    NoCFIValue(gv::LLVM.GlobalValue)
+
+The function `gv` without control-flow integrity checks, `no_cfi @f` in LLVM IR.
+
+# Properties
+
+    c.global_value
+
+The global value that the constant refers to.
+"""
+@checked struct NoCFIValue <: Constant
+    ref::API.LLVMValueRef
+end
+
+NoCFIValue(gv::GlobalValue) = NoCFIValue(API.LLVMExtraGetNoCFIValue(gv))
+
+# the C API reports these as instructions (see `identify_unknown_value`)
+function refcheck(::Type{T}, ref::API.LLVMValueRef) where {T<:Union{DSOLocalEquivalent,
+                                                                    NoCFIValue}}
+    ref == C_NULL && throw(UndefRefError())
+    if typecheck_enabled
+        T′ = identify(Instruction, ref)
+        T == T′ || error("invalid conversion of $T′ value reference to $T")
+    end
+end
+
+function global_value(c::Union{DSOLocalEquivalent,NoCFIValue})
+    gv, bb = Ref{API.LLVMValueRef}(), Ref{API.LLVMValueRef}()
+    API.LLVMExtraGetGlobalReference(c, gv, bb)
+    return Value(gv[])
+end
+
+@property Union{DSOLocalEquivalent,NoCFIValue} global_value

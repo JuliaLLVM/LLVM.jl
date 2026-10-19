@@ -22,12 +22,14 @@ page.
 
 ```@docs
 DefaultPipeline
+print_pipeline
 ```
 
 ## Custom passes
 
 ```@docs
 LLVM.CustomPass
+LoopPass
 register!
 run!(::LLVM.CustomPass, ::Union{LLVM.Function, LLVM.Module}, ::Union{Nothing, LLVM.TargetMachine})
 register_callbacks!
@@ -38,11 +40,17 @@ register_callbacks!
 ```@docs
 FunctionAnalysisManager
 ModuleAnalysisManager
+run!(::PassBuilder, ::LLVM.Function, ::FunctionAnalysisManager)
+LoopAnalysisResults
+LPMUpdater
 PreservedAnalyses
 AllAnalyses
+LoopAnalyses
 invalidate!
 remark!
+remark_enabled
 Remark
+RemarkFile
 ```
 
 ## Custom target info

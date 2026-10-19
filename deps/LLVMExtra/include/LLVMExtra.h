@@ -409,6 +409,51 @@ LLVMBool LLVMExtraGetRemarkInfo(LLVMDiagnosticInfoRef DI, LLVMExtraRemarkKind *K
                                 char **PassName, char **RemarkName, char **FunctionName,
                                 char **Message, char **File, unsigned *Line,
                                 unsigned *Column);
+// the arguments of a diagnostic that is an optimization remark, which make up its message:
+// the key of each (`String` for plain text) and its value as rendered by LLVM. The strings
+// are copies, to be disposed of with LLVMDisposeMessage.
+unsigned LLVMExtraGetRemarkNumArguments(LLVMDiagnosticInfoRef DI);
+void LLVMExtraGetRemarkArgument(LLVMDiagnosticInfoRef DI, unsigned Index, char **Key,
+                                char **Value);
+// whether a pass emitting remarks of this kind should build them, i.e., whether the
+// diagnostic handler of the context enables them for the pass (e.g., using -pass-remarks)
+// or the context writes remarks of the pass to a file. This is what
+// OptimizationRemarkEmitter checks before building a remark, but per kind and pass.
+LLVMBool LLVMExtraIsRemarkEnabled(LLVMContextRef C, LLVMExtraRemarkKind Kind,
+                                  const char *PassName);
+
+// an optimization remark under construction: its message is made of arguments, either
+// plain text or named values, which LLVM renders like the `ore::NV` arguments of its
+// passes.
+typedef struct LLVMOpaqueOptimizationRemark *LLVMOptimizationRemarkRef;
+LLVMOptimizationRemarkRef LLVMExtraCreateOptimizationRemark(LLVMExtraRemarkKind Kind,
+                                                            const char *PassName,
+                                                            const char *RemarkName,
+                                                            LLVMValueRef Inst);
+void LLVMExtraDisposeOptimizationRemark(LLVMOptimizationRemarkRef R);
+void LLVMExtraOptimizationRemarkAppendString(LLVMOptimizationRemarkRef R, const char *Str);
+void LLVMExtraOptimizationRemarkAppendNamedString(LLVMOptimizationRemarkRef R,
+                                                  const char *Key, const char *Str);
+void LLVMExtraOptimizationRemarkAppendValue(LLVMOptimizationRemarkRef R, const char *Key,
+                                            LLVMValueRef V);
+void LLVMExtraOptimizationRemarkAppendType(LLVMOptimizationRemarkRef R, const char *Key,
+                                           LLVMTypeRef T);
+void LLVMExtraOptimizationRemarkAppendInt(LLVMOptimizationRemarkRef R, const char *Key,
+                                          int64_t N);
+void LLVMExtraOptimizationRemarkAppendUnsigned(LLVMOptimizationRemarkRef R,
+                                               const char *Key, uint64_t N);
+void LLVMExtraOptimizationRemarkAppendBool(LLVMOptimizationRemarkRef R, const char *Key,
+                                           LLVMBool B);
+
+// write the optimization remarks emitted in a context to a file, in a format LLVM supports
+// (`yaml` or `bitstream`), optionally only those of passes matching a regular expression,
+// like the -pass-remarks-output option of opt. Returns NULL and sets the error message on
+// failure. Disposing of the handle finishes the file and stops writing remarks to it.
+typedef struct LLVMOpaqueRemarkFile *LLVMRemarkFileRef;
+LLVMRemarkFileRef LLVMExtraCreateRemarkFile(LLVMContextRef C, const char *Filename,
+                                            const char *Passes, const char *Format,
+                                            char **ErrorMessage);
+void LLVMExtraDisposeRemarkFile(LLVMRemarkFileRef F);
 
 // NewPM extensions
 typedef struct LLVMOpaquePassBuilderExtensions *LLVMPassBuilderExtensionsRef;
@@ -416,6 +461,11 @@ LLVMPassBuilderExtensionsRef LLVMCreatePassBuilderExtensions(void);
 void LLVMDisposePassBuilderExtensions(LLVMPassBuilderExtensionsRef Extensions);
 void LLVMPassBuilderExtensionsPushRegistrationCallbacks(LLVMPassBuilderExtensionsRef Options,
                                                         void (*RegistrationCallback)(void *));
+// mark the run of a pipeline as failed, e.g., because a custom pass threw an exception:
+// the passes that remain to run are skipped, except for required ones (like the pass
+// managers and adaptors, which skip the passes they contain); custom passes are skipped
+// even if they are required
+void LLVMExtraPassBuilderExtensionsAbort(LLVMPassBuilderExtensionsRef Extensions);
 typedef LLVMBool (*LLVMJuliaModulePassCallback)(LLVMModuleRef M, void *Thunk);
 typedef LLVMBool (*LLVMJuliaFunctionPassCallback)(LLVMValueRef F, void *Thunk);
 // Callbacks must not allow exceptions implemented with setjmp/longjmp to
@@ -471,25 +521,36 @@ void *LLVMExtraFunctionAnalysisManagerGetCachedResult(LLVMFunctionAnalysisManage
                                                       LLVMValueRef F,
                                                       LLVMExtraFunctionAnalysis Analysis);
 // a set of preserved analyses is passed as: whether all analyses are preserved, whether
-// all CFG analyses are preserved, and a list of individual analyses that are preserved
-void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All, LLVMBool CFG,
+// all function analyses are preserved (because the pass invalidated the ones it did not
+// preserve itself), whether all CFG analyses are preserved, and a list of individual
+// analyses that are preserved
+void LLVMExtraSetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                   LLVMBool Functions, LLVMBool CFG,
                                    const LLVMExtraFunctionAnalysis *Analyses,
                                    unsigned NumAnalyses);
+// query a set of preserved analyses, in the same terms
+void LLVMExtraGetPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool *All,
+                                   LLVMBool *Functions, LLVMBool *CFG);
+LLVMBool LLVMExtraPreservedAnalysesIsPreserved(LLVMPreservedAnalysesRef PA,
+                                               LLVMExtraFunctionAnalysis Analysis);
+void LLVMExtraDisposePreservedAnalyses(LLVMPreservedAnalysesRef PA);
 // invalidate the analyses of a function that are not in the given set
 void LLVMExtraFunctionAnalysisManagerInvalidate(LLVMFunctionAnalysisManagerRef AM,
-                                                LLVMValueRef F, LLVMBool All, LLVMBool CFG,
+                                                LLVMValueRef F, LLVMBool All,
+                                                LLVMBool Functions, LLVMBool CFG,
                                                 const LLVMExtraFunctionAnalysis *Analyses,
                                                 unsigned NumAnalyses);
 // forcibly remove all cached analysis results of a function, including those that survive
 // invalidation, e.g., before the function is deleted
 void LLVMExtraFunctionAnalysisManagerClear(LLVMFunctionAnalysisManagerRef AM, LLVMValueRef F);
-// emit an optimization remark about an instruction of the function, through the function's
-// OptimizationRemarkEmitter. It is passed to the diagnostic handler of the context.
-void LLVMExtraFunctionAnalysisManagerEmitRemark(LLVMFunctionAnalysisManagerRef AM,
-                                                LLVMExtraRemarkKind Kind,
-                                                const char *PassName,
-                                                const char *RemarkName, LLVMValueRef Inst,
-                                                const char *Message);
+// emit an optimization remark, and dispose of it. It is emitted through the
+// OptimizationRemarkEmitter of its function that the analysis manager caches, or, if AM
+// is NULL, through one that isn't cached, e.g., in a loop pass (which has no access to
+// function analyses that the loop pass manager does not provide). Either way, it is
+// passed to the diagnostic handler of the context, and written to its remark file if it
+// has one.
+void LLVMExtraEmitOptimizationRemark(LLVMOptimizationRemarkRef R,
+                                     LLVMFunctionAnalysisManagerRef AM);
 
 // Custom module passes that use analyses. The callback receives the module analysis manager
 // of the pipeline, from which the function analysis manager can be obtained, and an output
@@ -541,6 +602,24 @@ LLVMErrorRef LLVMRunJuliaPassesOnFunction(LLVMValueRef F, const char *Passes,
                                           LLVMTargetMachineRef TM,
                                           LLVMPassBuilderOptionsRef Options,
                                           LLVMPassBuilderExtensionsRef Extensions);
+// Run a function pipeline on a function from a custom function pass that runs on it, with
+// the function analysis manager of the pass. The passes share the analyses of the enclosing
+// pipeline, and are instrumented by it. Returns the analyses that the passes preserved, like
+// a nested function pass manager, as an object to be disposed of with
+// `LLVMExtraDisposePreservedAnalyses`, or NULL if the pipeline could not be parsed.
+LLVMErrorRef LLVMExtraRunJuliaPassesWithAnalyses(LLVMValueRef F, const char *Passes,
+                                                LLVMTargetMachineRef TM,
+                                                LLVMPassBuilderOptionsRef Options,
+                                                LLVMPassBuilderExtensionsRef Extensions,
+                                                LLVMFunctionAnalysisManagerRef AM,
+                                                LLVMPreservedAnalysesRef *PA);
+// Parse a module pipeline like `LLVMRunJuliaPasses` does, and print it with the names and
+// parameters that LLVM knows the passes by, like `opt -print-pipeline-passes`. The
+// printed pipeline should be disposed of with `LLVMDisposeMessage`.
+LLVMErrorRef LLVMExtraPrintJuliaPasses(const char *Passes, LLVMTargetMachineRef TM,
+                                       LLVMPassBuilderOptionsRef Options,
+                                       LLVMPassBuilderExtensionsRef Extensions,
+                                       char **Pipeline);
 
 // Custom TargetTransformInfo
 //
@@ -1142,6 +1221,77 @@ LLVMBasicBlockRef LLVMExtraLoopGetLatch(LLVMLoopRef L);
 LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L);
 // whether a value is defined outside of a loop
 LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V);
+
+// forget what scalar evolution knows about a value (and the values that use it), about a
+// loop (and its nested loops), or about which expressions are invariant in which loops,
+// after a pass changed them
+void LLVMExtraScalarEvolutionForgetValue(LLVMScalarEvolutionRef SE, LLVMValueRef V);
+void LLVMExtraScalarEvolutionForgetLoop(LLVMScalarEvolutionRef SE, LLVMLoopRef L);
+void LLVMExtraScalarEvolutionForgetLoopDispositions(LLVMScalarEvolutionRef SE);
+
+// whether an instruction can be executed without the conditions that guard it, i.e., it
+// has no side effects and cannot trap; the context instruction, assumption cache (only
+// used since LLVM 16) and dominator tree are optional
+LLVMBool LLVMExtraIsSafeToSpeculativelyExecute(LLVMValueRef Inst, LLVMValueRef CxtI,
+                                               LLVMAssumptionCacheRef AC,
+                                               LLVMDominatorTreeRef DT);
+
+// MemorySSA: verify its consistency with the IR (only in builds of LLVM with assertions,
+// which abort if it is inconsistent)
+typedef struct LLVMOpaqueMemorySSA *LLVMMemorySSARef;
+void LLVMExtraMemorySSAVerify(LLVMMemorySSARef MSSA);
+
+// Custom loop passes, which run in a loop pass manager (`loop(...)` or `loop-mssa(...)`),
+// or on their own if their name is the first of a pipeline (like LLVM's loop passes). The
+// callback receives the loop, the loop analysis manager, the standard analysis results of
+// the loop pass manager, the updater of its worklist, and an output object that it sets
+// (with `LLVMExtraSetLoopPreservedAnalyses`) to the analyses that remain valid. It starts
+// out as preserving nothing but MemorySSA (when the loop pass manager uses it), which is
+// what a pass that failed should report: the loop pass manager aborts the process if a
+// pass does not preserve MemorySSA. Once a custom pass failed (see
+// `LLVMExtraPassBuilderExtensionsAbort`), the callback is not called anymore.
+typedef struct LLVMOpaqueLoopAnalysisManager *LLVMLoopAnalysisManagerRef;
+typedef struct LLVMOpaqueLoopStandardAnalysisResults *LLVMLoopStandardAnalysisResultsRef;
+typedef struct LLVMOpaqueLPMUpdater *LLVMLPMUpdaterRef;
+typedef void (*LLVMJuliaLoopPassCallback)(LLVMLoopRef L, LLVMLoopAnalysisManagerRef AM,
+                                          LLVMLoopStandardAnalysisResultsRef AR,
+                                          LLVMLPMUpdaterRef U, LLVMPreservedAnalysesRef PA,
+                                          void *Thunk);
+void LLVMExtraPassBuilderExtensionsRegisterLoopPass(LLVMPassBuilderExtensionsRef Extensions,
+                                                    const char *PassName,
+                                                    LLVMJuliaLoopPassCallback Callback,
+                                                    void *Thunk, LLVMBool Required);
+// like the parametrized module and function passes
+void LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass(
+    LLVMPassBuilderExtensionsRef Extensions, const char *PassName,
+    LLVMJuliaLoopPassCallback Callback, LLVMJuliaPassParametersCallback ParametersCallback,
+    void *Thunk, LLVMBool Required);
+// the standard analyses that the loop pass manager provides to loop passes, of which it
+// keeps the ones that are always available up to date with the help of the passes
+typedef enum {
+  LLVMExtraLoopAAResults,
+  LLVMExtraLoopAssumptionCache,
+  LLVMExtraLoopDominatorTree,
+  LLVMExtraLoopLoopInfo,
+  LLVMExtraLoopScalarEvolution,
+  LLVMExtraLoopTargetLibraryInfo,
+  LLVMExtraLoopTargetTransformInfo,
+  // only available before LLVM 22, and only when requested by a pass of the pipeline
+  LLVMExtraLoopBlockFrequencyInfo,
+  LLVMExtraLoopBranchProbabilityInfo,
+  // only available in a `loop-mssa` pipeline
+  LLVMExtraLoopMemorySSA,
+} LLVMExtraLoopStandardAnalysis;
+// the result of one of the standard analyses (e.g. a `DominatorTree *`), or NULL if it is
+// not available
+void *LLVMExtraLoopStandardAnalysisResultsGet(LLVMLoopStandardAnalysisResultsRef AR,
+                                              LLVMExtraLoopStandardAnalysis Analysis);
+// set the analyses preserved by a loop pass: everything (`All`), or the analyses that a
+// loop pass that changed the loop keeps up to date (`getLoopPassPreservedAnalyses()`: the
+// dominator tree, loop info and scalar evolution), together with the CFG analyses and
+// MemorySSA if requested, or nothing at all (if no argument is set)
+void LLVMExtraSetLoopPreservedAnalyses(LLVMPreservedAnalysesRef PA, LLVMBool All,
+                                       LLVMBool LoopAnalyses, LLVMBool CFG, LLVMBool MSSA);
 
 // dominance of uses and blocks
 LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree,

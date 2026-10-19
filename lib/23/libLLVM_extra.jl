@@ -407,6 +407,70 @@ function LLVMExtraGetRemarkInfo(DI, Kind, PassName, RemarkName, FunctionName, Me
     ccall((:LLVMExtraGetRemarkInfo, libLLVMExtra), LLVMBool, (LLVMDiagnosticInfoRef, Ptr{LLVMExtraRemarkKind}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cstring}, Ptr{Cuint}, Ptr{Cuint}), DI, Kind, PassName, RemarkName, FunctionName, Message, File, Line, Column)
 end
 
+function LLVMExtraGetRemarkNumArguments(DI)
+    ccall((:LLVMExtraGetRemarkNumArguments, libLLVMExtra), Cuint, (LLVMDiagnosticInfoRef,), DI)
+end
+
+function LLVMExtraGetRemarkArgument(DI, Index, Key, Value)
+    ccall((:LLVMExtraGetRemarkArgument, libLLVMExtra), Cvoid, (LLVMDiagnosticInfoRef, Cuint, Ptr{Cstring}, Ptr{Cstring}), DI, Index, Key, Value)
+end
+
+function LLVMExtraIsRemarkEnabled(C, Kind, PassName)
+    ccall((:LLVMExtraIsRemarkEnabled, libLLVMExtra), LLVMBool, (LLVMContextRef, LLVMExtraRemarkKind, Cstring), C, Kind, PassName)
+end
+
+mutable struct LLVMOpaqueOptimizationRemark end
+
+const LLVMOptimizationRemarkRef = Ptr{LLVMOpaqueOptimizationRemark}
+
+function LLVMExtraCreateOptimizationRemark(Kind, PassName, RemarkName, Inst)
+    ccall((:LLVMExtraCreateOptimizationRemark, libLLVMExtra), LLVMOptimizationRemarkRef, (LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef), Kind, PassName, RemarkName, Inst)
+end
+
+function LLVMExtraDisposeOptimizationRemark(R)
+    ccall((:LLVMExtraDisposeOptimizationRemark, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef,), R)
+end
+
+function LLVMExtraOptimizationRemarkAppendString(R, Str)
+    ccall((:LLVMExtraOptimizationRemarkAppendString, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring), R, Str)
+end
+
+function LLVMExtraOptimizationRemarkAppendNamedString(R, Key, Str)
+    ccall((:LLVMExtraOptimizationRemarkAppendNamedString, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, Cstring), R, Key, Str)
+end
+
+function LLVMExtraOptimizationRemarkAppendValue(R, Key, V)
+    ccall((:LLVMExtraOptimizationRemarkAppendValue, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, LLVMValueRef), R, Key, V)
+end
+
+function LLVMExtraOptimizationRemarkAppendType(R, Key, T)
+    ccall((:LLVMExtraOptimizationRemarkAppendType, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, LLVMTypeRef), R, Key, T)
+end
+
+function LLVMExtraOptimizationRemarkAppendInt(R, Key, N)
+    ccall((:LLVMExtraOptimizationRemarkAppendInt, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, Int64), R, Key, N)
+end
+
+function LLVMExtraOptimizationRemarkAppendUnsigned(R, Key, N)
+    ccall((:LLVMExtraOptimizationRemarkAppendUnsigned, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, UInt64), R, Key, N)
+end
+
+function LLVMExtraOptimizationRemarkAppendBool(R, Key, B)
+    ccall((:LLVMExtraOptimizationRemarkAppendBool, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, Cstring, LLVMBool), R, Key, B)
+end
+
+mutable struct LLVMOpaqueRemarkFile end
+
+const LLVMRemarkFileRef = Ptr{LLVMOpaqueRemarkFile}
+
+function LLVMExtraCreateRemarkFile(C, Filename, Passes, Format, ErrorMessage)
+    ccall((:LLVMExtraCreateRemarkFile, libLLVMExtra), LLVMRemarkFileRef, (LLVMContextRef, Cstring, Cstring, Cstring, Ptr{Cstring}), C, Filename, Passes, Format, ErrorMessage)
+end
+
+function LLVMExtraDisposeRemarkFile(F)
+    ccall((:LLVMExtraDisposeRemarkFile, libLLVMExtra), Cvoid, (LLVMRemarkFileRef,), F)
+end
+
 mutable struct LLVMOpaquePassBuilderExtensions end
 
 const LLVMPassBuilderExtensionsRef = Ptr{LLVMOpaquePassBuilderExtensions}
@@ -421,6 +485,10 @@ end
 
 function LLVMPassBuilderExtensionsPushRegistrationCallbacks(Options, RegistrationCallback)
     ccall((:LLVMPassBuilderExtensionsPushRegistrationCallbacks, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Ptr{Cvoid}), Options, RegistrationCallback)
+end
+
+function LLVMExtraPassBuilderExtensionsAbort(Extensions)
+    ccall((:LLVMExtraPassBuilderExtensionsAbort, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef,), Extensions)
 end
 
 # typedef LLVMBool ( * LLVMJuliaModulePassCallback ) ( LLVMModuleRef M , void * Thunk )
@@ -477,20 +545,32 @@ function LLVMExtraFunctionAnalysisManagerGetCachedResult(AM, F, Analysis)
     ccall((:LLVMExtraFunctionAnalysisManagerGetCachedResult, libLLVMExtra), Ptr{Cvoid}, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMExtraFunctionAnalysis), AM, F, Analysis)
 end
 
-function LLVMExtraSetPreservedAnalyses(PA, All, CFG, Analyses, NumAnalyses)
-    ccall((:LLVMExtraSetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, CFG, Analyses, NumAnalyses)
+function LLVMExtraSetPreservedAnalyses(PA, All, Functions, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraSetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), PA, All, Functions, CFG, Analyses, NumAnalyses)
 end
 
-function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, CFG, Analyses, NumAnalyses)
-    ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, CFG, Analyses, NumAnalyses)
+function LLVMExtraGetPreservedAnalyses(PA, All, Functions, CFG)
+    ccall((:LLVMExtraGetPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, Ptr{LLVMBool}, Ptr{LLVMBool}, Ptr{LLVMBool}), PA, All, Functions, CFG)
+end
+
+function LLVMExtraPreservedAnalysesIsPreserved(PA, Analysis)
+    ccall((:LLVMExtraPreservedAnalysesIsPreserved, libLLVMExtra), LLVMBool, (LLVMPreservedAnalysesRef, LLVMExtraFunctionAnalysis), PA, Analysis)
+end
+
+function LLVMExtraDisposePreservedAnalyses(PA)
+    ccall((:LLVMExtraDisposePreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef,), PA)
+end
+
+function LLVMExtraFunctionAnalysisManagerInvalidate(AM, F, All, Functions, CFG, Analyses, NumAnalyses)
+    ccall((:LLVMExtraFunctionAnalysisManagerInvalidate, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef, LLVMBool, LLVMBool, LLVMBool, Ptr{LLVMExtraFunctionAnalysis}, Cuint), AM, F, All, Functions, CFG, Analyses, NumAnalyses)
 end
 
 function LLVMExtraFunctionAnalysisManagerClear(AM, F)
     ccall((:LLVMExtraFunctionAnalysisManagerClear, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMValueRef), AM, F)
 end
 
-function LLVMExtraFunctionAnalysisManagerEmitRemark(AM, Kind, PassName, RemarkName, Inst, Message)
-    ccall((:LLVMExtraFunctionAnalysisManagerEmitRemark, libLLVMExtra), Cvoid, (LLVMFunctionAnalysisManagerRef, LLVMExtraRemarkKind, Cstring, Cstring, LLVMValueRef, Cstring), AM, Kind, PassName, RemarkName, Inst, Message)
+function LLVMExtraEmitOptimizationRemark(R, AM)
+    ccall((:LLVMExtraEmitOptimizationRemark, libLLVMExtra), Cvoid, (LLVMOptimizationRemarkRef, LLVMFunctionAnalysisManagerRef), R, AM)
 end
 
 mutable struct LLVMOpaqueModuleAnalysisManager end
@@ -529,6 +609,14 @@ end
 
 function LLVMRunJuliaPassesOnFunction(F, Passes, TM, Options, Extensions)
     ccall((:LLVMRunJuliaPassesOnFunction, libLLVMExtra), LLVMErrorRef, (LLVMValueRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef), F, Passes, TM, Options, Extensions)
+end
+
+function LLVMExtraRunJuliaPassesWithAnalyses(F, Passes, TM, Options, Extensions, AM, PA)
+    ccall((:LLVMExtraRunJuliaPassesWithAnalyses, libLLVMExtra), LLVMErrorRef, (LLVMValueRef, Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef, LLVMFunctionAnalysisManagerRef, Ptr{LLVMPreservedAnalysesRef}), F, Passes, TM, Options, Extensions, AM, PA)
+end
+
+function LLVMExtraPrintJuliaPasses(Passes, TM, Options, Extensions, Pipeline)
+    ccall((:LLVMExtraPrintJuliaPasses, libLLVMExtra), LLVMErrorRef, (Cstring, LLVMTargetMachineRef, LLVMPassBuilderOptionsRef, LLVMPassBuilderExtensionsRef, Ptr{Cstring}), Passes, TM, Options, Extensions, Pipeline)
 end
 
 # typedef LLVMBool ( * LLVMTTIASPairPredicateFn ) ( unsigned FromAS , unsigned ToAS , void * UserData )
@@ -1179,6 +1267,74 @@ end
 
 function LLVMExtraLoopIsLoopInvariant(L, V)
     ccall((:LLVMExtraLoopIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMValueRef), L, V)
+end
+
+function LLVMExtraScalarEvolutionForgetValue(SE, V)
+    ccall((:LLVMExtraScalarEvolutionForgetValue, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef, LLVMValueRef), SE, V)
+end
+
+function LLVMExtraScalarEvolutionForgetLoop(SE, L)
+    ccall((:LLVMExtraScalarEvolutionForgetLoop, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef, LLVMLoopRef), SE, L)
+end
+
+function LLVMExtraScalarEvolutionForgetLoopDispositions(SE)
+    ccall((:LLVMExtraScalarEvolutionForgetLoopDispositions, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef,), SE)
+end
+
+function LLVMExtraIsSafeToSpeculativelyExecute(Inst, CxtI, AC, DT)
+    ccall((:LLVMExtraIsSafeToSpeculativelyExecute, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMAssumptionCacheRef, LLVMDominatorTreeRef), Inst, CxtI, AC, DT)
+end
+
+mutable struct LLVMOpaqueMemorySSA end
+
+const LLVMMemorySSARef = Ptr{LLVMOpaqueMemorySSA}
+
+function LLVMExtraMemorySSAVerify(MSSA)
+    ccall((:LLVMExtraMemorySSAVerify, libLLVMExtra), Cvoid, (LLVMMemorySSARef,), MSSA)
+end
+
+mutable struct LLVMOpaqueLoopAnalysisManager end
+
+const LLVMLoopAnalysisManagerRef = Ptr{LLVMOpaqueLoopAnalysisManager}
+
+mutable struct LLVMOpaqueLoopStandardAnalysisResults end
+
+const LLVMLoopStandardAnalysisResultsRef = Ptr{LLVMOpaqueLoopStandardAnalysisResults}
+
+mutable struct LLVMOpaqueLPMUpdater end
+
+const LLVMLPMUpdaterRef = Ptr{LLVMOpaqueLPMUpdater}
+
+# typedef void ( * LLVMJuliaLoopPassCallback ) ( LLVMLoopRef L , LLVMLoopAnalysisManagerRef AM , LLVMLoopStandardAnalysisResultsRef AR , LLVMLPMUpdaterRef U , LLVMPreservedAnalysesRef PA , void * Thunk )
+const LLVMJuliaLoopPassCallback = Ptr{Cvoid}
+
+function LLVMExtraPassBuilderExtensionsRegisterLoopPass(Extensions, PassName, Callback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterLoopPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaLoopPassCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, Thunk, Required)
+end
+
+function LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass(Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+    ccall((:LLVMExtraPassBuilderExtensionsRegisterParametrizedLoopPass, libLLVMExtra), Cvoid, (LLVMPassBuilderExtensionsRef, Cstring, LLVMJuliaLoopPassCallback, LLVMJuliaPassParametersCallback, Ptr{Cvoid}, LLVMBool), Extensions, PassName, Callback, ParametersCallback, Thunk, Required)
+end
+
+@cenum LLVMExtraLoopStandardAnalysis::UInt32 begin
+    LLVMExtraLoopAAResults = 0
+    LLVMExtraLoopAssumptionCache = 1
+    LLVMExtraLoopDominatorTree = 2
+    LLVMExtraLoopLoopInfo = 3
+    LLVMExtraLoopScalarEvolution = 4
+    LLVMExtraLoopTargetLibraryInfo = 5
+    LLVMExtraLoopTargetTransformInfo = 6
+    LLVMExtraLoopBlockFrequencyInfo = 7
+    LLVMExtraLoopBranchProbabilityInfo = 8
+    LLVMExtraLoopMemorySSA = 9
+end
+
+function LLVMExtraLoopStandardAnalysisResultsGet(AR, Analysis)
+    ccall((:LLVMExtraLoopStandardAnalysisResultsGet, libLLVMExtra), Ptr{Cvoid}, (LLVMLoopStandardAnalysisResultsRef, LLVMExtraLoopStandardAnalysis), AR, Analysis)
+end
+
+function LLVMExtraSetLoopPreservedAnalyses(PA, All, LoopAnalyses, CFG, MSSA)
+    ccall((:LLVMExtraSetLoopPreservedAnalyses, libLLVMExtra), Cvoid, (LLVMPreservedAnalysesRef, LLVMBool, LLVMBool, LLVMBool, LLVMBool), PA, All, LoopAnalyses, CFG, MSSA)
 end
 
 function LLVMExtraDominatorTreeInstructionDominatesUse(Tree, Inst, U)

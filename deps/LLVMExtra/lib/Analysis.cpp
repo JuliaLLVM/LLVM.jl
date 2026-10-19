@@ -1,9 +1,12 @@
 #include "LLVMExtra.h"
 
 #include <llvm/ADT/APInt.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/Analysis/AssumptionCache.h>
 #include <llvm/Analysis/ConstantFolding.h>
 #include <llvm/Analysis/DomTreeUpdater.h>
+#include <llvm/Analysis/InlineCost.h>
+#include <llvm/Analysis/InstructionSimplify.h>
 #include <llvm/Analysis/LazyValueInfo.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/ScalarEvolution.h>
@@ -13,6 +16,7 @@
 #include <llvm/Analysis/SimplifyQuery.h>
 #endif
 #include <llvm/IR/Attributes.h>
+#include <llvm/IR/CFG.h>
 #include <llvm/IR/ConstantRange.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/IntrinsicInst.h>
@@ -24,6 +28,7 @@
 #include <llvm/IR/Operator.h>
 #include <llvm/Support/KnownBits.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/Local.h>
 #include <llvm/Transforms/Utils/PromoteMemToReg.h>
 
@@ -807,22 +812,79 @@ void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F
   unwrap(Tree)->recalculate(*unwrap<Function>(F));
 }
 
+// the `!prof` node for the given branch weights, or NULL without weights
+static MDNode *createBranchWeights(LLVMContext &C, const unsigned *Weights,
+                                   unsigned NumWeights) {
+  if (NumWeights == 0)
+    return nullptr;
+  SmallVector<uint32_t, 2> W(Weights, Weights + NumWeights);
+  return MDBuilder(C).createBranchWeights(W);
+}
+
+// whether a dominator tree is one of the function containing an instruction. the root of a
+// tree is the entry block of its function (compared without dereferencing it, as the tree
+// may be stale), and LLVM asserts that blocks are of that function
+static bool isTreeOf(LLVMDominatorTreeRef Tree, Instruction *I) {
+  return unwrap(Tree)->getRoot() == &I->getFunction()->getEntryBlock();
+}
+
 LLVMValueRef LLVMExtraSplitBlockAndInsertIfThen(LLVMValueRef Cond, LLVMValueRef SplitBefore,
                                                 LLVMBool Unreachable,
+                                                const unsigned *BranchWeights,
+                                                unsigned NumBranchWeights,
                                                 LLVMDominatorTreeRef Tree) {
   Instruction *I = unwrap<Instruction>(SplitBefore);
   std::optional<DomTreeUpdater> DTU;
   if (Tree) {
-    // the root of a tree is the entry block of its function (compared without dereferencing
-    // it, as the tree may be stale), and LLVM asserts that blocks are of that function
-    if (unwrap(Tree)->getRoot() != &I->getFunction()->getEntryBlock())
+    if (!isTreeOf(Tree, I))
       return nullptr;
     DTU.emplace(*unwrap(Tree), DomTreeUpdater::UpdateStrategy::Eager);
   }
+  MDNode *Weights = createBranchWeights(I->getContext(), BranchWeights, NumBranchWeights);
   // the overload taking an instruction and a DomTreeUpdater exists in every version
   DomTreeUpdater *Updater = DTU ? &*DTU : nullptr;
-  return wrap(SplitBlockAndInsertIfThen(unwrap(Cond), I, Unreachable,
-                                        /*BranchWeights=*/nullptr, Updater));
+  return wrap(SplitBlockAndInsertIfThen(unwrap(Cond), I, Unreachable, Weights, Updater));
+}
+
+LLVMBool LLVMExtraSplitBlockAndInsertIfThenElse(LLVMValueRef Cond, LLVMValueRef SplitBefore,
+                                                const unsigned *BranchWeights,
+                                                unsigned NumBranchWeights,
+                                                LLVMDominatorTreeRef Tree,
+                                                LLVMValueRef *ThenTerm,
+                                                LLVMValueRef *ElseTerm) {
+  Instruction *I = unwrap<Instruction>(SplitBefore);
+  if (Tree && !isTreeOf(Tree, I))
+    return false;
+  MDNode *Weights = createBranchWeights(I->getContext(), BranchWeights, NumBranchWeights);
+  Instruction *Then, *Else;
+#if LLVM_VERSION_MAJOR >= 16
+  std::optional<DomTreeUpdater> DTU;
+  if (Tree)
+    DTU.emplace(*unwrap(Tree), DomTreeUpdater::UpdateStrategy::Eager);
+  DomTreeUpdater *Updater = DTU ? &*DTU : nullptr;
+  SplitBlockAndInsertIfThenElse(unwrap(Cond), I, &Then, &Else, Weights, Updater);
+#else
+  // LLVM 15 can't update a dominator tree here, so apply the updates that LLVM 16 does
+  BasicBlock *Head = I->getParent();
+  SmallPtrSet<BasicBlock *, 8> UniqueOrigSuccessors(succ_begin(Head), succ_end(Head));
+  SplitBlockAndInsertIfThenElse(unwrap(Cond), I, &Then, &Else, Weights);
+  if (Tree) {
+    BasicBlock *Tail = I->getParent();
+    SmallVector<DominatorTree::UpdateType, 8> Updates;
+    for (BasicBlock *Succ : successors(Head)) {
+      Updates.push_back({DominatorTree::Insert, Head, Succ});
+      Updates.push_back({DominatorTree::Insert, Succ, Tail});
+    }
+    for (BasicBlock *Succ : UniqueOrigSuccessors)
+      Updates.push_back({DominatorTree::Insert, Tail, Succ});
+    for (BasicBlock *Succ : UniqueOrigSuccessors)
+      Updates.push_back({DominatorTree::Delete, Head, Succ});
+    DomTreeUpdater(*unwrap(Tree), DomTreeUpdater::UpdateStrategy::Eager).applyUpdates(Updates);
+  }
+#endif
+  *ThenTerm = wrap(Then);
+  *ElseTerm = wrap(Else);
+  return true;
 }
 
 
@@ -885,4 +947,62 @@ LLVMBool LLVMExtraConstantFoldCastOperand(LLVMOpcode Opcode, LLVMValueRef C,
     return false;
   *Result = wrap(ConstantFoldCastOperand(Op, Const, Ty, *unwrap(TD)));
   return true;
+}
+
+LLVMValueRef LLVMExtraSimplifyInstruction(LLVMValueRef Inst) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  return wrap(simplifyInstruction(I, SimplifyQuery(I->getModule()->getDataLayout(), I)));
+}
+
+
+// Control flow
+
+LLVMBasicBlockRef LLVMExtraSplitBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Before,
+                                           LLVMBool Head, const char *Name) {
+  BasicBlock::iterator It = unwrap<Instruction>(Before)->getIterator();
+#if LLVM_VERSION_MAJOR >= 19
+  It.setHeadBit(Head);
+#endif
+  return wrap(unwrap(BB)->splitBasicBlock(It, Name));
+}
+
+
+// Inlining
+
+LLVMBool LLVMExtraInlineFunction(LLVMValueRef Call, LLVMBool MergeAttributes,
+                                 LLVMBool InsertLifetime, char **FailureReason) {
+  CallBase *CB = unwrap<CallBase>(Call);
+  Function *Caller = CB->getCaller();
+  InlineFunctionInfo IFI;
+#if LLVM_VERSION_MAJOR < 22
+  // before checking the personality functions, InlineFunction gives a caller without a GC
+  // strategy the one of the callee, which it doesn't undo when it then fails. it changes
+  // nothing else before failing (it only sets the personality function of a caller that
+  // has none, after which it can't fail anymore), so undo that to leave the IR unchanged.
+  bool CallerHadGC = Caller->hasGC();
+#endif
+#if LLVM_VERSION_MAJOR >= 16
+  InlineResult Result =
+      InlineFunction(*CB, IFI, MergeAttributes, /*CalleeAAR=*/nullptr, InsertLifetime);
+#else
+  // InlineFunction doesn't merge the attributes yet, which its callers did instead
+  Function *Callee = CB->getCalledFunction();
+  InlineResult Result = InlineFunction(*CB, IFI, /*CalleeAAR=*/nullptr, InsertLifetime);
+  if (Result.isSuccess() && MergeAttributes)
+    AttributeFuncs::mergeAttributesForInlining(*Caller, *Callee);
+#endif
+#if LLVM_VERSION_MAJOR < 22
+  if (!Result.isSuccess() && !CallerHadGC)
+    Caller->clearGC();
+#endif
+  if (FailureReason)
+    *FailureReason = Result.isSuccess() ? nullptr : strdup(Result.getFailureReason());
+  return Result.isSuccess();
+}
+
+LLVMBool LLVMExtraIsInlineViable(LLVMValueRef Fn, char **FailureReason) {
+  InlineResult Result = isInlineViable(*unwrap<Function>(Fn));
+  if (FailureReason)
+    *FailureReason = Result.isSuccess() ? nullptr : strdup(Result.getFailureReason());
+  return Result.isSuccess();
 }

@@ -128,11 +128,52 @@ end
 
 ## control flow
 
-@vocabulary IR split_block_and_insert_if_then!
+@vocabulary IR split_block!, split_block_and_insert_if_then!,
+               split_block_and_insert_if_then_else!
+
+"""
+    split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
+    split_block!(inst::Instruction, name::AbstractString="")
+
+Split a basic block in two at an insertion point, or before an instruction: the
+instructions from there on move to a new block with the given name, which is inserted after
+the original one, and which the original block branches to unconditionally:
+
+```
+head:                            ; the original block, up to the split point
+  br label %name
+name:                            ; the returned block, with the rest of the original one
+  ...
+```
+
+Returns the new block. The PHI nodes in the successors of the original block are updated
+to refer to the new block. The block must have a terminator, and the split point must not be
+at the end of the block or before an exception-handling pad. It can be before a PHI node, as
+in LLVM, but the PHI nodes that move to the new block are not updated: their only
+predecessor is the original block now, so the caller has to fix them. Debug records at the
+split point move along when the insertion point is at their head (e.g., `LLVM.after(prev)`),
+and stay in the original block otherwise (e.g., `LLVM.before(inst)`).
+
+Analyses, like the dominator tree, are not updated.
+
+This uses LLVM's `BasicBlock::splitBasicBlock`.
+"""
+function split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
+    bb = check_valid(pos)
+    terminator(bb) === nothing &&
+        throw(ArgumentError("Cannot split a basic block without a terminator"))
+    pos.anchor == C_NULL &&
+        throw(ArgumentError("Cannot split a basic block at its end"))
+    Instruction(pos.anchor) isa Union{LandingPadInst,CatchPadInst,CleanupPadInst,
+                                      CatchSwitchInst} &&
+        throw(ArgumentError("Cannot split a basic block before an exception-handling pad"))
+    BasicBlock(API.LLVMExtraSplitBasicBlock(bb, pos.anchor, pos.head, name))
+end
+split_block!(inst::Instruction, name::AbstractString="") = split_block!(before(inst), name)
 
 """
     split_block_and_insert_if_then!(cond::Value, at::Instruction; unreachable=false,
-                                    domtree=nothing)
+                                    weights=nothing, domtree=nothing)
 
 Split the block containing the instruction `at` before it, and make the first part branch
 on the `i1` value `cond` to a new block, which branches to the second part, the tail (or,
@@ -148,17 +189,78 @@ tail:                            ; `at` and the rest of the original block
 ```
 
 Returns the terminator of the new block, before which instructions can be inserted. The
-instruction `at` must not be a PHI node or an exception-handling pad.
+instruction `at` must not be an exception-handling pad. It can be a PHI node, as in LLVM,
+but the PHI nodes in the tail are not updated for its new predecessors, so the caller has
+to fix them (e.g., by creating a PHI node first, to split before it and add its incoming
+values afterwards). The new branches get the debug location of `at`.
+
+The `weights` of the conditional branch, a pair of integers for when `cond` is true and
+when it is false (e.g., `(1, 9)` when the new block is rarely executed), are attached to it
+as `!prof` branch-weight metadata.
 
 If a dominator tree of the function containing `at` is passed as `domtree`, it is updated
 for the new control flow, so that a pass can preserve it (e.g., with
 `PreservedAnalyses(DomTree)`).
 Other analyses, like [`LoopInfo`](@ref), are not updated, and the control-flow graph has
 changed, so `CFGAnalyses` are not preserved.
+
+This uses LLVM's `SplitBlockAndInsertIfThen`.
+
+See also: [`split_block_and_insert_if_then_else!`](@ref).
 """
 function split_block_and_insert_if_then!(cond::Value, at::Instruction;
-                                         unreachable::Bool=false,
+                                         unreachable::Bool=false, weights=nothing,
                                          domtree::Union{Nothing,DomTree}=nothing)
+    check_conditional_split(cond, at)
+    ws = branch_weights(weights)
+    term = API.LLVMExtraSplitBlockAndInsertIfThen(cond, at, unreachable, ws, length(ws),
+                                                  something(domtree, C_NULL))
+    term == C_NULL && throw(ArgumentError(stale_domtree_message))
+    return Instruction(term)
+end
+
+"""
+    split_block_and_insert_if_then_else!(cond::Value, at::Instruction; weights=nothing,
+                                         domtree=nothing)
+
+Split the block containing the instruction `at` before it, and make the first part branch
+on the `i1` value `cond` to one of two new blocks, which both branch to the second part,
+the tail:
+
+```
+head:                            ; the original block, up to `at`
+  br i1 %cond, label %then, label %else
+then:
+  br label %tail                 ; the first returned terminator
+else:
+  br label %tail                 ; the second returned terminator
+tail:                            ; `at` and the rest of the original block
+  ...
+```
+
+Returns the terminators of the new blocks, `(then, else)`, before which instructions can
+be inserted. The `weights` and `domtree` arguments, and the requirements on `at`, are as
+for [`split_block_and_insert_if_then!`](@ref).
+
+This uses LLVM's `SplitBlockAndInsertIfThenElse`.
+"""
+function split_block_and_insert_if_then_else!(cond::Value, at::Instruction;
+                                              weights=nothing,
+                                              domtree::Union{Nothing,DomTree}=nothing)
+    check_conditional_split(cond, at)
+    ws = branch_weights(weights)
+    then_term, else_term = Ref{API.LLVMValueRef}(), Ref{API.LLVMValueRef}()
+    API.LLVMExtraSplitBlockAndInsertIfThenElse(cond, at, ws, length(ws),
+                                               something(domtree, C_NULL),
+                                               then_term, else_term) |> Bool ||
+        throw(ArgumentError(stale_domtree_message))
+    return Instruction(then_term[]), Instruction(else_term[])
+end
+
+const stale_domtree_message =
+    "The dominator tree is not one of the function containing the instruction, or it is out of date"
+
+function check_conditional_split(cond::Value, at::Instruction)
     ty = value_type(cond)
     ty isa IntegerType && width(ty) == 1 ||
         throw(ArgumentError("The condition must be an i1 value"))
@@ -166,13 +268,78 @@ function split_block_and_insert_if_then!(cond::Value, at::Instruction;
     bb === nothing && throw(ArgumentError("Instruction is not part of a basic block"))
     terminator(bb) === nothing &&
         throw(ArgumentError("Cannot split a basic block without a terminator"))
-    at isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,CatchSwitchInst} &&
-        throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
-    term = API.LLVMExtraSplitBlockAndInsertIfThen(cond, at, unreachable,
-                                                  something(domtree, C_NULL))
-    term == C_NULL &&
-        throw(ArgumentError("The dominator tree is not one of the function containing the instruction, or it is out of date"))
-    return Instruction(term)
+    at isa Union{LandingPadInst,CatchPadInst,CleanupPadInst,CatchSwitchInst} &&
+        throw(ArgumentError("Cannot split a basic block before an exception-handling pad"))
+    return
+end
+
+branch_weights(::Nothing) = Cuint[]
+function branch_weights(weights)
+    length(weights) == 2 ||
+        throw(ArgumentError("Branch weights must be a pair of weights, for when the condition is true and when it is false"))
+    return Cuint[weights...]
+end
+
+
+## inlining
+
+@vocabulary IR inline!, inline_viability
+
+"""
+    inline!(call::CallBase; merge_attributes=false, insert_lifetime=true)
+
+Inline the function that is called by a `call` or `invoke` instruction at this call site:
+the body of the function is copied into the calling function, replacing the call. Returns
+`nothing` if the call was inlined, after which the call instruction is erased, or a message
+that describes why it could not be inlined, in which case the IR is unchanged:
+
+```julia
+reason = inline!(call)
+reason === nothing || @debug "Could not inline \$call" reason
+```
+
+This is LLVM's `InlineFunction`, which only refuses call sites that it cannot transform:
+indirect calls and calls of declarations, `callbr` instructions, calls with operand bundles
+it doesn't support, and callers whose garbage collector or exception-handling personality
+is incompatible with that of the called function. It does not check whether the body of the
+called function can be inlined at all: e.g., inlining a function that calls `llvm.va_start`
+into a function without variadic arguments results in invalid IR. Check that first with
+[`inline_viability`](@ref), unless the functions are known to be fine. Whether inlining
+is worth it (its cost, `noinline` attributes, or a definition that may be replaced at link
+or load time) is up to the caller as well.
+
+With `merge_attributes=true`, the attributes of the calling function are updated for the
+inlined code (e.g., to combine their target features or stack protection). With
+`insert_lifetime=true`, the static allocas of the inlined function are marked with lifetime
+intrinsics. No call graph is updated, and no alias analysis is used.
+"""
+function inline!(call::CallBase; merge_attributes::Bool=false, insert_lifetime::Bool=true)
+    bb = API.LLVMGetInstructionParent(check_attached(call))
+    API.LLVMGetBasicBlockParent(bb) == C_NULL &&
+        throw(ArgumentError("Call is not part of a function"))
+    reason = Ref{Cstring}(C_NULL)
+    API.LLVMExtraInlineFunction(call, merge_attributes, insert_lifetime, reason) |> Bool &&
+        return nothing
+    return unsafe_message(reason[])
+end
+
+"""
+    inline_viability(f::LLVM.Function)
+
+Check whether the body of a function can be inlined into other functions: returns `nothing`
+if it can, or a message that describes why not, e.g., because it calls `llvm.va_start`,
+uses `indirectbr` or `blockaddress`, calls itself, or calls a `returns_twice` function like
+`setjmp`. This is what [`inline!`](@ref) expects the caller to check. The check is
+conservative: a rejected function can sometimes still be inlined correctly (e.g., one level
+of a recursive function).
+
+This uses LLVM's `isInlineViable`.
+"""
+function inline_viability(f::Function)
+    isdeclaration(f) && throw(ArgumentError("Function is a declaration"))
+    reason = Ref{Cstring}(C_NULL)
+    API.LLVMExtraIsInlineViable(f, reason) |> Bool && return nothing
+    return unsafe_message(reason[])
 end
 
 
@@ -1019,9 +1186,9 @@ function ConstantRange(se::ScalarEvolution, s::SCEV; signed::Bool=false)
 end
 
 
-## constant folding
+## constant folding and simplification
 
-@vocabulary IR constant_fold_cast
+@vocabulary IR constant_fold_cast, simplify_instruction
 
 """
     constant_fold_cast(opcode, c::Constant, T::LLVMType, dl::DataLayout)
@@ -1038,6 +1205,28 @@ function constant_fold_cast(opcode::API.LLVMOpcode, c::Constant, T::LLVMType,
     API.LLVMExtraConstantFoldCastOperand(opcode, c, T, dl, result) |> Bool ||
         throw(ArgumentError("Invalid cast $opcode of $c to $T"))
     return result[] == C_NULL ? nothing : Value(result[])
+end
+
+"""
+    simplify_instruction(inst::Instruction)
+
+Simplify an instruction, like the `instsimplify` pass: returns a simpler value that the
+instruction is equivalent to (e.g., an operand, or a constant), or `nothing` if there is
+none, e.g., `add i32 %x, 0` simplifies to `%x`, and `and i1 %c, false` to `false`. This
+does not change the IR: to fold the instruction, replace its uses by the returned value
+(`replace_uses!`), and erase it. The instruction must be part of a function in a module,
+whose data layout is used.
+
+This uses LLVM's `simplifyInstruction`, which also implements the `InstSimplifyFolder`
+that C++ code can use to simplify instructions as an `IRBuilder` creates them.
+"""
+function simplify_instruction(inst::Instruction)
+    bb = API.LLVMGetInstructionParent(check_attached(inst))
+    f = API.LLVMGetBasicBlockParent(bb)
+    (f == C_NULL || API.LLVMGetGlobalParent(f) == C_NULL) &&
+        throw(ArgumentError("Instruction is not part of a function in a module"))
+    ref = API.LLVMExtraSimplifyInstruction(inst)
+    return ref == C_NULL ? nothing : Value(ref)
 end
 
 

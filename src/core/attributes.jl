@@ -299,7 +299,8 @@ if version() >= v"19"
         end
         return ConstantRangeAttribute(
             API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
-                                                 as_vector(lower), as_vector(upper)))
+                                                 convert(Vector{UInt64}, lower),
+                                                 convert(Vector{UInt64}, upper)))
     end
 end
 

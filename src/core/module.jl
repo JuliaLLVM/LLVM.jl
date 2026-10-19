@@ -283,7 +283,7 @@ end
 Base.in(gv::GlobalValue, set::ModuleUsedSet) = any(==(gv), set)
 
 function Base.union!(set::ModuleUsedSet, gvs)
-    vals = GlobalValue[gv for gv in gvs]
+    vals = as_refs(GlobalValue[gv for gv in gvs])
     if set.compiler
         API.LLVMAppendToCompilerUsed(set.mod, vals, length(vals))
     else
@@ -294,7 +294,7 @@ end
 Base.push!(set::ModuleUsedSet, gv::GlobalValue) = union!(set, (gv,))
 
 function Base.setdiff!(set::ModuleUsedSet, gvs)
-    vals = GlobalValue[gv for gv in gvs]
+    vals = as_refs(GlobalValue[gv for gv in gvs])
     if set.compiler
         API.LLVMRemoveFromCompilerUsed(set.mod, vals, length(vals))
     else

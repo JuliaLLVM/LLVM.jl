@@ -61,10 +61,10 @@ function clone_into!(new::Function, old::Function;
                      value_map::AbstractDict{<:Value,<:Value}=Dict{Value,Value}(),
                      changes=API.LLVMCloneFunctionChangeTypeLocalChangesOnly,
                      suffix::AbstractString="", type_mapper=nothing, materializer=nothing)
-    value_map_array = Value[]
+    value_map_array = API.LLVMValueRef[]
     for (src, dest) in value_map
-        push!(value_map_array, src)
-        push!(value_map_array, dest)
+        push!(value_map_array, Base.unsafe_convert(API.LLVMValueRef, src))
+        push!(value_map_array, Base.unsafe_convert(API.LLVMValueRef, dest))
     end
     callback_state = Ref(CloneCallbackState(type_mapper, materializer))
     if type_mapper === nothing
@@ -156,10 +156,10 @@ basic block.
 function clone(bb::BasicBlock; dest::Union{Nothing,Function}=parent(bb),
                suffix::AbstractString="",
                value_map::AbstractDict{<:Value,<:Value}=Dict{Value,Value}())
-    value_map_array = Value[]
+    value_map_array = API.LLVMValueRef[]
     for (src, dest) in value_map
-        push!(value_map_array, src)
-        push!(value_map_array, dest)
+        push!(value_map_array, Base.unsafe_convert(API.LLVMValueRef, src))
+        push!(value_map_array, Base.unsafe_convert(API.LLVMValueRef, dest))
     end
     BasicBlock(API.LLVMCloneBasicBlock(bb, suffix, value_map_array, length(value_map),
                                        something(dest, C_NULL)))

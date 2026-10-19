@@ -206,10 +206,24 @@ end
     GC.@preserve obj unsafe_load(Ptr{R}(ccall(:jl_value_ptr, Ptr{Cvoid}, (Any,), obj)))
 end
 
-# the C API wrappers convert `Vector`s of wrapper objects, so collect other vectors (like
-# the views that represent collections of IR objects) before passing them
-@inline as_vector(x::Vector) = x
-as_vector(x::AbstractVector) = collect(x)
+# the C API takes a vector of objects as an array of their references. convert vectors of
+# wrapper objects (and views that represent collections of IR objects) to such an array
+# with `as_refs` before calling a C API wrapper, instead of passing them for `ccall` to
+# convert: the wrapper may then not be inlined (e.g., when the type of the vector isn't
+# known concretely, like that of an `AbstractVector{<:Value}` argument of a `@nospecialize`d
+# method), and when it isn't, it converts each of its arguments with a dynamic dispatch,
+# which is slow for wrappers with many arguments. `as_refs` specializes on the type of the
+# vector, which is fine for a function this small, and has a method per hierarchy of
+# wrappers, as a dynamic call with a single argument is cheaper than one with a type
+# argument. the caller has to keep mutable wrappers (like operand bundles) alive while
+# their references are used.
+function as_refs end
+
+# the implementation of `as_refs` for wrappers with references of type `R`. the result is
+# asserted, as some versions of Julia infer a comprehension over an abstractly-typed
+# vector as `Any`.
+@inline collect_refs(::Type{R}, objs::AbstractVector) where {R<:Ptr} =
+    R[Base.unsafe_convert(R, obj) for obj in objs]::Vector{R}
 
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)

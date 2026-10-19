@@ -67,6 +67,8 @@ function Base.cconvert(::Type{Ptr{API.LLVMValueRef}},
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
 
+as_refs(objs::AbstractVector{<:Value}) = collect_refs(API.LLVMValueRef, objs)
+
 const value_kinds = Vector{Type}(fill(Nothing, typemax(API.LLVMValueKind)+1))
 function identify(::Type{Value}, ref::API.LLVMValueRef)
     kind = API.LLVMGetValueKind(ref)

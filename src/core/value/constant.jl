@@ -63,8 +63,9 @@ function convert_users_to_instructions!(consts::AbstractVector{<:Constant};
     end
     func === nothing || func isa Function ||
         throw(ArgumentError("`func` must be an LLVM.Function or `nothing`"))
+    refs = as_refs(consts)
     API.LLVMConvertUsersOfConstantsToInstructions(
-        as_vector(consts), length(consts), something(func, C_NULL),
+        refs, length(refs), something(func, C_NULL),
         remove_dead_constants, include_self) |> Bool
 end
 
@@ -594,13 +595,15 @@ function ConstantArray(typ::LLVMType, data::AbstractArray{<:Constant,N}) where {
     @assert all(x->x==typ, value_type.(data))
 
     if N == 1
-        return Value(API.LLVMConstArray(typ, Array(data), length(data)))::Constant
+        refs = as_refs(data)
+        return Value(API.LLVMConstArray(typ, refs, length(refs)))::Constant
     end
 
     ca_vec = map(x->ConstantArray(typ, x), eachslice(data, dims=1))
     ca_typ = foldr((n, eltyp)->ArrayType(eltyp, n), size(data)[2:end]; init=typ)
 
-    return Value(API.LLVMConstArray(ca_typ, ca_vec, length(ca_vec)))::Constant
+    refs = as_refs(ca_vec)
+    return Value(API.LLVMConstArray(ca_typ, refs, length(refs)))::Constant
 end
 
 # shorthands with arrays of plain Julia data
@@ -644,9 +647,10 @@ register(ConstantStruct, API.LLVMConstantStructValueKind)
 Create an anonymous constant struct of the given values.
 LLVM may fold the result to `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
 """
-ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
-    Value(API.LLVMConstStructInContext(context(), as_vector(values),
-                                       length(values), packed))::Constant
+function ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false)
+    refs = as_refs(values)
+    Value(API.LLVMConstStructInContext(context(), refs, length(refs), packed))::Constant
+end
 
 """
     ConstantStruct(typ::LLVM.StructType, values::AbstractVector{<:Constant})
@@ -654,8 +658,10 @@ ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false) =
 Create a constant struct of the given type and values.
 LLVM may fold the result to `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
 """
-ConstantStruct(typ::StructType, values::AbstractVector{<:Constant}) =
-    Value(API.LLVMConstNamedStruct(typ, as_vector(values), length(values)))::Constant
+function ConstantStruct(typ::StructType, values::AbstractVector{<:Constant})
+    refs = as_refs(values)
+    Value(API.LLVMConstNamedStruct(typ, refs, length(refs)))::Constant
+end
 
 """
     ConstantStruct(value::T, [name=String(nameof(T)), anonymous=false, packed=false])
@@ -822,12 +828,14 @@ const_xor(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstXor(lhs, rhs))
 
 function const_gep(Ty::LLVMType, val::Constant, Indices::AbstractVector{<:Constant})
-    Value(API.LLVMConstGEP2(Ty, val, as_vector(Indices), length(Indices)))
+    indices = as_refs(Indices)
+    Value(API.LLVMConstGEP2(Ty, val, indices, length(indices)))
 end
 
 function const_inbounds_gep(Ty::LLVMType, val::Constant,
                             Indices::AbstractVector{<:Constant})
-    Value(API.LLVMConstInBoundsGEP2(Ty, val, as_vector(Indices), length(Indices)))
+    indices = as_refs(Indices)
+    Value(API.LLVMConstInBoundsGEP2(Ty, val, indices, length(indices)))
 end
 
 const_trunc(val::Constant, ToType::LLVMType) =

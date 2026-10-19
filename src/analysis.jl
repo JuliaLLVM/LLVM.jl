@@ -148,9 +148,11 @@ name:                            ; the returned block, with the rest of the orig
 
 Returns the new block. The PHI nodes in the successors of the original block are updated
 to refer to the new block. The block must have a terminator, and the split point must not be
-at the end of the block, before a PHI node or before an exception-handling pad. Debug
-records at the split point move along when the insertion point is at their head (e.g.,
-`LLVM.after(prev)`), and stay in the original block otherwise (e.g., `LLVM.before(inst)`).
+at the end of the block or before an exception-handling pad. It can be before a PHI node, as
+in LLVM, but the PHI nodes that move to the new block are not updated: their only
+predecessor is the original block now, so the caller has to fix them. Debug records at the
+split point move along when the insertion point is at their head (e.g., `LLVM.after(prev)`),
+and stay in the original block otherwise (e.g., `LLVM.before(inst)`).
 
 Analyses, like the dominator tree, are not updated.
 
@@ -162,9 +164,9 @@ function split_block!(pos::InsertionPoint{Instruction}, name::AbstractString="")
         throw(ArgumentError("Cannot split a basic block without a terminator"))
     pos.anchor == C_NULL &&
         throw(ArgumentError("Cannot split a basic block at its end"))
-    Instruction(pos.anchor) isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,
+    Instruction(pos.anchor) isa Union{LandingPadInst,CatchPadInst,CleanupPadInst,
                                       CatchSwitchInst} &&
-        throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
+        throw(ArgumentError("Cannot split a basic block before an exception-handling pad"))
     BasicBlock(API.LLVMExtraSplitBasicBlock(bb, pos.anchor, pos.head, name))
 end
 split_block!(inst::Instruction, name::AbstractString="") = split_block!(before(inst), name)
@@ -187,8 +189,10 @@ tail:                            ; `at` and the rest of the original block
 ```
 
 Returns the terminator of the new block, before which instructions can be inserted. The
-instruction `at` must not be a PHI node or an exception-handling pad. The new branches get
-the debug location of `at`.
+instruction `at` must not be an exception-handling pad. It can be a PHI node, as in LLVM,
+but the PHI nodes in the tail are not updated for its new predecessors, so the caller has
+to fix them (e.g., by creating a PHI node first, to split before it and add its incoming
+values afterwards). The new branches get the debug location of `at`.
 
 The `weights` of the conditional branch, a pair of integers for when `cond` is true and
 when it is false (e.g., `(1, 9)` when the new block is rarely executed), are attached to it
@@ -264,8 +268,8 @@ function check_conditional_split(cond::Value, at::Instruction)
     bb === nothing && throw(ArgumentError("Instruction is not part of a basic block"))
     terminator(bb) === nothing &&
         throw(ArgumentError("Cannot split a basic block without a terminator"))
-    at isa Union{PHIInst,LandingPadInst,CatchPadInst,CleanupPadInst,CatchSwitchInst} &&
-        throw(ArgumentError("Cannot split a basic block before a PHI node or an exception-handling pad"))
+    at isa Union{LandingPadInst,CatchPadInst,CleanupPadInst,CatchSwitchInst} &&
+        throw(ArgumentError("Cannot split a basic block before an exception-handling pad"))
     return
 end
 

@@ -599,8 +599,6 @@ end
         end
 
         @test_throws ArgumentError split_block_and_insert_if_then!(f.parameters[1], d)
-        @test_throws ArgumentError split_block_and_insert_if_then!(
-            ConstantInt(true), first(exit.instructions))
     end
 
     # the dominator tree must be one of the function that is changed
@@ -731,6 +729,60 @@ end
 
         @test_throws ArgumentError split_block_and_insert_if_then_else!(f.parameters[1], d)
         @test_throws ArgumentError split_block_and_insert_if_then_else!(c, d; weights=(1,))
+    end
+
+    # before a PHI node, created first to be given its incoming values afterwards (like
+    # Julia's LowerPTLS pass does), or before an exception-handling pad, which is invalid
+    @dispose ctx=Context() builder=IRBuilder() begin
+        pers = supports_typed_pointers(ctx) ? "i8* bitcast (i32 (...)* @pers to i8*)" :
+                                              "ptr @pers"
+        lp = supports_typed_pointers(ctx) ? "{ i8*, i32 }" : "{ ptr, i32 }"
+        mod = parse(LLVM.Module, """
+            declare void @g()
+            declare i32 @pers(...)
+
+            define i32 @f(i32 %x, i1 %c) personality $pers {
+            entry:
+              %a = add i32 %x, 1
+              invoke void @g() to label %exit unwind label %pad
+            exit:
+              ret i32 %a
+            pad:
+              %lp = landingpad $lp cleanup
+              ret i32 0
+            }""")
+        f = mod.functions["f"]
+        entry, exit, pad = f.blocks
+        a = first(entry.instructions)
+        ret = exit.terminator
+        c = f.parameters[2]
+        position!(builder, LLVM.before(ret))
+        p = phi!(builder, LLVM.Int32Type())
+        replace_uses!(a, p)
+        then_term, else_term = split_block_and_insert_if_then_else!(c, p)
+        @test p.parent == only(then_term.successors)
+        push!(p.incoming, (a, then_term.parent))
+        push!(p.incoming, (ConstantInt(Int32(0)), else_term.parent))
+        @test ret.operands[1] == p
+        verify(f)
+
+        # the same with a single new block
+        position!(builder, LLVM.before(ret))
+        q = phi!(builder, LLVM.Int32Type())
+        replace_uses!(p, q)
+        head = p.parent
+        term = split_block_and_insert_if_then!(c, q)
+        @test q.parent == only(term.successors)
+        push!(q.incoming, (ConstantInt(Int32(1)), term.parent))
+        push!(q.incoming, (p, head))
+        @test ret.operands[1] == q
+        verify(f)
+
+        @test_throws ArgumentError split_block_and_insert_if_then_else!(
+            c, first(pad.instructions))
+        @test_throws ArgumentError split_block_and_insert_if_then!(c, first(pad.instructions))
+        @test_throws ArgumentError split_block!(first(pad.instructions))
+        dispose(mod)
     end
 
     # the dominator tree must be one of the function that is changed
@@ -1015,8 +1067,15 @@ end
         @test only(tail2.instructions) == br
         verify(f)
 
+        # before a PHI node, which moves to the new block without being updated
+        tail3 = split_block!(r)
+        @test collect(tail3.instructions)[1] == r
+        @test only(exit.terminator.successors) == tail3
+        @test verification_error(f) !== nothing
+        move!(r, LLVM.before(exit.terminator))
+        verify(f)
+
         @test_throws ArgumentError split_block!(LLVM.at_end(tail2))
-        @test_throws ArgumentError split_block!(r)
         detached = BasicBlock("detached")
         @test_throws ArgumentError split_block!(LLVM.at_begin(detached))
         erase!(detached)

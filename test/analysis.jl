@@ -599,8 +599,6 @@ end
         end
 
         @test_throws ArgumentError split_block_and_insert_if_then!(f.parameters[1], d)
-        @test_throws ArgumentError split_block_and_insert_if_then!(
-            ConstantInt(true), first(exit.instructions))
     end
 
     # the dominator tree must be one of the function that is changed
@@ -637,6 +635,169 @@ end
             recalculate!(domtree, f)
             @test dominates(domtree, new_entry, exit)
             @test !dominates(domtree, exit, new_entry)
+        end
+    end
+end
+
+@testset "conditional control flow" begin
+    ir = """
+        define i32 @f(i32 %a, i1 %c) !dbg !4 {
+        entry:
+          %d = add i32 %a, 1, !dbg !7
+          ret i32 %d
+        }
+
+        !llvm.dbg.cu = !{!1}
+        !llvm.module.flags = !{!3}
+        !1 = distinct !DICompileUnit(language: DW_LANG_Julia, file: !2, producer: "julia", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
+        !2 = !DIFile(filename: "f.jl", directory: ".")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !4 = distinct !DISubprogram(name: "f", scope: !2, file: !2, line: 1, type: !5, scopeLine: 1, spFlags: DISPFlagDefinition, unit: !1)
+        !5 = !DISubroutineType(types: !6)
+        !6 = !{}
+        !7 = !DILocation(line: 2, scope: !4)"""
+
+    # if-then, with and without branch weights
+    @dispose ctx=Context() mod=parse(LLVM.Module, ir) begin
+        f = mod.functions["f"]
+        entry = f.entry
+        d = first(entry.instructions)
+        c = f.parameters[2]
+        term = split_block_and_insert_if_then!(c, d; weights=(1, 9))
+        br = entry.terminator
+        @test br.condition == c
+        @test collect(br.successors) == [term.parent, d.parent]
+        prof = br.metadata[LLVM.MD_prof]
+        @test endswith(string(prof), "!{!\"branch_weights\", i32 1, i32 9}")
+        @test term.debug_location == d.debug_location
+
+        term2 = split_block_and_insert_if_then!(c, d)
+        head2 = only(term2.parent.predecessors)
+        @test !haskey(head2.terminator.metadata, LLVM.MD_prof)
+        @test verify(f) === nothing
+
+        @test_throws ArgumentError split_block_and_insert_if_then!(c, d; weights=(1, 2, 3))
+        @test_throws InexactError split_block_and_insert_if_then!(c, d; weights=(-1, 1))
+    end
+
+    # if-then-else, updating a dominator tree
+    @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, ir) begin
+        f = mod.functions["f"]
+        entry = f.entry
+        d = first(entry.instructions)
+        c = f.parameters[2]
+        @dispose domtree=DomTree(f) begin
+            then_term, else_term = split_block_and_insert_if_then_else!(c, d; weights=(9, 1),
+                                                                        domtree)
+            then, els, tail = then_term.parent, else_term.parent, d.parent
+            br = entry.terminator
+            @test br.condition == c
+            @test collect(br.successors) == [then, els]
+            @test only(then_term.successors) == tail
+            @test only(else_term.successors) == tail
+            @test collect(f.blocks) == [entry, then, els, tail]
+            @test endswith(string(br.metadata[LLVM.MD_prof]),
+                           "!{!\"branch_weights\", i32 9, i32 1}")
+            @test then_term.debug_location == d.debug_location
+            @test else_term.debug_location == d.debug_location
+
+            @test dominates(domtree, entry, tail)
+            @test !dominates(domtree, then, tail)
+            @test !dominates(domtree, els, tail)
+            @dispose fresh=DomTree(f) begin
+                for x in f.blocks, y in f.blocks
+                    @test dominates(domtree, x, y) == dominates(fresh, x, y)
+                end
+            end
+
+            # select a value in the new blocks
+            position!(builder, LLVM.before(then_term))
+            x = add!(builder, f.parameters[1], ConstantInt(Int32(2)))
+            position!(builder, LLVM.at_begin(tail))
+            p = phi!(builder, LLVM.Int32Type())
+            push!(p.incoming, (x, then))
+            push!(p.incoming, (f.parameters[1], els))
+            d.operands[1] = p
+            @test verify(f) === nothing
+        end
+
+        # without weights
+        then_term, _ = split_block_and_insert_if_then_else!(c, d)
+        head = only(then_term.parent.predecessors)
+        @test !haskey(head.terminator.metadata, LLVM.MD_prof)
+        @test verify(f) === nothing
+
+        @test_throws ArgumentError split_block_and_insert_if_then_else!(f.parameters[1], d)
+        @test_throws ArgumentError split_block_and_insert_if_then_else!(c, d; weights=(1,))
+    end
+
+    # before a PHI node, created first to be given its incoming values afterwards (like
+    # Julia's LowerPTLS pass does), or before an exception-handling pad, which is invalid
+    @dispose ctx=Context() builder=IRBuilder() begin
+        pers = supports_typed_pointers(ctx) ? "i8* bitcast (i32 (...)* @pers to i8*)" :
+                                              "ptr @pers"
+        lp = supports_typed_pointers(ctx) ? "{ i8*, i32 }" : "{ ptr, i32 }"
+        mod = parse(LLVM.Module, """
+            declare void @g()
+            declare i32 @pers(...)
+
+            define i32 @f(i32 %x, i1 %c) personality $pers {
+            entry:
+              %a = add i32 %x, 1
+              invoke void @g() to label %exit unwind label %pad
+            exit:
+              ret i32 %a
+            pad:
+              %lp = landingpad $lp cleanup
+              ret i32 0
+            }""")
+        f = mod.functions["f"]
+        entry, exit, pad = f.blocks
+        a = first(entry.instructions)
+        ret = exit.terminator
+        c = f.parameters[2]
+        position!(builder, LLVM.before(ret))
+        p = phi!(builder, LLVM.Int32Type())
+        replace_uses!(a, p)
+        then_term, else_term = split_block_and_insert_if_then_else!(c, p)
+        @test p.parent == only(then_term.successors)
+        push!(p.incoming, (a, then_term.parent))
+        push!(p.incoming, (ConstantInt(Int32(0)), else_term.parent))
+        @test ret.operands[1] == p
+        verify(f)
+
+        # the same with a single new block
+        position!(builder, LLVM.before(ret))
+        q = phi!(builder, LLVM.Int32Type())
+        replace_uses!(p, q)
+        head = p.parent
+        term = split_block_and_insert_if_then!(c, q)
+        @test q.parent == only(term.successors)
+        push!(q.incoming, (ConstantInt(Int32(1)), term.parent))
+        push!(q.incoming, (p, head))
+        @test ret.operands[1] == q
+        verify(f)
+
+        @test_throws ArgumentError split_block_and_insert_if_then_else!(
+            c, first(pad.instructions))
+        @test_throws ArgumentError split_block_and_insert_if_then!(c, first(pad.instructions))
+        @test_throws ArgumentError split_block!(first(pad.instructions))
+        dispose(mod)
+    end
+
+    # the dominator tree must be one of the function that is changed
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i1 %c) {
+          ret void
+        }
+        define void @g() {
+          ret void
+        }""") begin
+        f, g = mod.functions["f"], mod.functions["g"]
+        @dispose domtree=DomTree(g) begin
+            @test_throws ArgumentError split_block_and_insert_if_then_else!(
+                f.parameters[1], f.entry.terminator; domtree)
+            @test length(collect(f.blocks)) == 1
         end
     end
 end
@@ -868,6 +1029,234 @@ end
                 @test folded isa ConstantExpr
             end
         end
+    end
+end
+
+
+@testset "split_block!" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %x, i1 %c) {
+        entry:
+          br i1 %c, label %body, label %exit
+        body:
+          %a = add i32 %x, 1
+          %b = mul i32 %a, 2
+          br label %exit
+        exit:
+          %r = phi i32 [ 0, %entry ], [ %b, %body ]
+          ret i32 %r
+        }""") begin
+        f = mod.functions["f"]
+        entry, body, exit = f.blocks
+        a, b, br = body.instructions
+        r = first(exit.instructions)
+
+        tail = split_block!(b, "tail")
+        @test tail.name == "tail"
+        @test collect(f.blocks) == [entry, body, tail, exit]
+        @test collect(body.instructions)[1] == a
+        @test only(body.terminator.successors) == tail
+        @test collect(tail.instructions) == [b, br]
+        # PHI nodes of the successors refer to the new block
+        @test collect(r.incoming) == [(ConstantInt(Int32(0)), entry), (b, tail)]
+        verify(f)
+
+        # at an insertion point, without a name
+        tail2 = split_block!(LLVM.after(b))
+        @test collect(tail.instructions)[1] == b
+        @test only(tail2.instructions) == br
+        verify(f)
+
+        # before a PHI node, which moves to the new block without being updated
+        tail3 = split_block!(r)
+        @test collect(tail3.instructions)[1] == r
+        @test only(exit.terminator.successors) == tail3
+        @test verification_error(f) !== nothing
+        move!(r, LLVM.before(exit.terminator))
+        verify(f)
+
+        @test_throws ArgumentError split_block!(LLVM.at_end(tail2))
+        detached = BasicBlock("detached")
+        @test_throws ArgumentError split_block!(LLVM.at_begin(detached))
+        erase!(detached)
+    end
+
+    # debug records at the split point
+    if LLVM.version() >= v"19"
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i32 %x) !dbg !5 {
+          %a = add i32 %x, %x
+            #dbg_value(i32 %x, !9, !DIExpression(), !10)
+          %b = add i32 %x, %x
+            #dbg_value(i32 %x, !9, !DIExpression(), !10)
+          ret void, !dbg !10
+        }
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+
+        !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "test.c", directory: "/tmp")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+        !6 = !DISubroutineType(types: !7)
+        !7 = !{null}
+        !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+        !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
+        !10 = !DILocation(line: 2, column: 1, scope: !5)
+        """) begin
+        f = mod.functions["f"]
+        a, b, ret = f.entry.instructions
+        records(inst) = collect(inst.debug_records)
+        (rb,) = records(b)
+        (rret,) = records(ret)
+
+        # at the head of an instruction's records, they move to the new block
+        bb2 = split_block!(LLVM.after(a))
+        @test first(bb2.instructions) == b && records(b) == [rb]
+
+        # before the instruction, they stay in the original block
+        bb3 = split_block!(LLVM.before(ret))
+        @test isempty(records(ret)) && records(bb2.terminator) == [rret]
+        @test only(bb3.instructions) == ret
+        verify(mod)
+    end
+    end
+end
+
+@testset "simplify_instruction" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define i32 @f(i32 %x, i32 %y, i1 %c) {
+          %a = add i32 %x, 0
+          %b = and i1 %c, false
+          %d = add i32 %x, %y
+          %e = sub i32 %d, %y
+          ret i32 %e
+        }""") begin
+        f = mod.functions["f"]
+        a, b, d, e, ret = f.entry.instructions
+        x, y, c = f.parameters
+        @test simplify_instruction(a) == x
+        @test simplify_instruction(b) == ConstantInt(false)
+        @test simplify_instruction(d) === nothing
+        @test simplify_instruction(e) == x
+        # the IR is unchanged
+        @test collect(f.entry.instructions) == [a, b, d, e, ret]
+
+        a2 = copy(a)
+        @test_throws ArgumentError simplify_instruction(a2)
+        erase!(a2)
+    end
+end
+
+@testset "inline!" begin
+    @dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i32*" : "ptr"
+    mod = parse(LLVM.Module, """
+        declare i32 @external(i32)
+
+        define i32 @callee(i32 %x) sspstrong {
+          %p = alloca i32
+          store i32 %x, $ptr %p
+          %v = load i32, $ptr %p
+          %r = add i32 %v, 1
+          ret i32 %r
+        }
+
+        define i32 @caller(i32 %x) ssp {
+          %a = call i32 @callee(i32 %x)
+          %b = call i32 @callee(i32 %a)
+          %c = call i32 @external(i32 %b)
+          %d = call i32 @callee(i32 %c)
+          ret i32 %d
+        }""")
+    caller, callee = mod.functions["caller"], mod.functions["callee"]
+    a, b, c, d, ret = caller.entry.instructions
+    calls(f, prefix) = count(inst -> inst isa LLVM.CallInst &&
+                                     startswith(inst.called_operand.name, prefix),
+                             [inst for bb in f.blocks for inst in bb.instructions])
+
+    # calls of declarations can't be inlined, and are left alone
+    reason = inline!(c)
+    @test reason isa String && !isempty(reason)
+    @test c.parent == caller.entry
+
+    # by default, allocas are marked using lifetime intrinsics
+    @test inline!(a) === nothing
+    @test calls(caller, "callee") == 2
+    @test calls(caller, "llvm.lifetime.start") == 1
+    @test !haskey(caller.function_attributes, :sspstrong)
+    verify(caller)
+
+    # without lifetime intrinsics, and merging the attributes of the functions
+    @test inline!(b; insert_lifetime=false, merge_attributes=true) === nothing
+    @test calls(caller, "callee") == 1
+    @test calls(caller, "llvm.lifetime.start") == 1
+    @test haskey(caller.function_attributes, :sspstrong)
+    verify(caller)
+
+    # the result of the call is replaced
+    @test inline!(d) === nothing
+    @test calls(caller, "callee") == 0
+    @test ret.operands[1] isa LLVM.AddInst
+    verify(mod)
+
+    c2 = copy(c)
+    @test_throws ArgumentError inline!(c2)
+    erase!(c2)
+    dispose(mod)
+    end
+
+    # InlineFunction doesn't check whether the body of the callee can be inlined
+    @dispose ctx=Context() begin
+    ptr = supports_typed_pointers(ctx) ? "i8*" : "ptr"
+    va_start = LLVM.version() >= v"19" ? "llvm.va_start.p0" : "llvm.va_start"
+    mod = parse(LLVM.Module, """
+        declare void @$va_start($ptr)
+
+        define i32 @variadic(i32 %n, ...) {
+          %ap = alloca i8, i32 32
+          call void @$va_start($ptr %ap)
+          ret i32 %n
+        }
+
+        define i32 @fixed(i32 %n) {
+          ret i32 %n
+        }
+
+        define i32 @caller(i32 %x) {
+          %a = call i32 (i32, ...) @variadic(i32 %x)
+          %b = call i32 @fixed(i32 %a)
+          ret i32 %b
+        }""")
+    variadic, fixed = mod.functions["variadic"], mod.functions["fixed"]
+    @test occursin("va_start", inline_viability(variadic))
+    @test inline_viability(fixed) === nothing
+    @test_throws ArgumentError inline_viability(mod.functions[va_start])
+    verify(mod)
+    dispose(mod)
+    end
+
+    # a failure leaves the IR unchanged, also where InlineFunction changes it before failing
+    @dispose ctx=Context() begin
+    pers(f) = supports_typed_pointers(ctx) ? "i8* bitcast (i32 (...)* @$f to i8*)" : "ptr @$f"
+    mod = parse(LLVM.Module, """
+        declare i32 @pers1(...)
+        declare i32 @pers2(...)
+
+        define void @callee() gc "statepoint-example" personality $(pers("pers1")) {
+          ret void
+        }
+
+        define void @caller() personality $(pers("pers2")) {
+          call void @callee()
+          ret void
+        }""")
+    ir = string(mod)
+    call = first(mod.functions["caller"].entry.instructions)
+    @test occursin("personality", inline!(call))
+    @test string(mod) == ir
+    dispose(mod)
     end
 end
 

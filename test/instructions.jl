@@ -726,6 +726,23 @@ let calls_wrapper(f, types) = any(only(code_typed(f, types))[1].code) do stmt
     @test !calls_wrapper(LLVM.Function,
                          Tuple{LLVM.Module, LLVM.Intrinsic, Vector{LLVMType}})
     @test !calls_wrapper(MDTuple, Tuple{Vector{Metadata}})
+
+    # the same for builders with integer arguments, which are compiled for `Integer`
+    @test !calls_wrapper(extract_value!, Tuple{IRBuilder, Value, Integer, AbstractString})
+    @test !calls_wrapper(insert_value!,
+                         Tuple{IRBuilder, Value, Value, Integer, AbstractString})
+    @test !calls_wrapper(struct_gep!,
+                         Tuple{IRBuilder, LLVM.StructType, Value, Integer, AbstractString})
+    @test !calls_wrapper(landingpad!,
+                         Tuple{IRBuilder, LLVMType, Value, Integer, AbstractString})
+    # the debug checks of converting each of the values make these too costly to inline
+    if !LLVM.typecheck_enabled && !LLVM.memcheck_enabled
+        @test !calls_wrapper(memset!, Tuple{IRBuilder, Value, Value, Value, Integer})
+        @test !calls_wrapper(memcpy!,
+                             Tuple{IRBuilder, Value, Integer, Value, Integer, Value})
+        @test !calls_wrapper(memmove!,
+                             Tuple{IRBuilder, Value, Integer, Value, Integer, Value})
+    end
 end
 
 end

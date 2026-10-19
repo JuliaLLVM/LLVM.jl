@@ -3,6 +3,11 @@
 
 # instruction builders are thin wrappers around the C API, so don't specialize them on the
 # concrete type of their operands (which would compile them for every combination).
+#
+# arguments declared as `Integer` then reach the C API wrappers abstractly typed. Julia
+# only obeys `@inline` for concrete argument types; otherwise its cost model decides, and the
+# dynamic conversion of such arguments can make a wrapper too costly to inline. so integers
+# are converted to the C type here.
 @nospecialize
 
 @vocabulary Build IRBuilder, InsertionPoint,
@@ -395,7 +400,7 @@ length can be handled the same way. This also works for values that aren't aggre
 function extract_value!(builder::IRBuilder, AggVal::Value, Index::Integer,
                         Name::AbstractString="")
     check_aggregate_indices(value_type(AggVal), (Index,))
-    Value(API.LLVMBuildExtractValue(builder, AggVal, Index, Name))
+    Value(API.LLVMBuildExtractValue(builder, AggVal, Cuint(Index), Name))
 end
 
 function extract_value!(builder::IRBuilder, AggVal::Value,
@@ -420,7 +425,7 @@ have the same type, is returned without creating an instruction or changing its 
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value, Index::Integer,
                        Name::AbstractString="")
     check_inserted_value(AggVal, EltVal, (Index,))
-    Value(API.LLVMBuildInsertValue(builder, AggVal, EltVal, Index, Name))
+    Value(API.LLVMBuildInsertValue(builder, AggVal, EltVal, Cuint(Index), Name))
 end
 
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value,
@@ -494,7 +499,7 @@ array_malloc!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::AbstractString
 # positionally) doesn't add an `align` attribute to the pointer argument
 function memset!(builder::IRBuilder, Ptr::Value, Val::Value, Len::Value, Align::Integer)
     check_alignment(Align; allow_zero=true)
-    Instruction(API.LLVMBuildMemSet(builder, Ptr, Val, Len, Align))
+    Instruction(API.LLVMBuildMemSet(builder, Ptr, Val, Len, Cuint(Align)))
 end
 function memset!(builder::IRBuilder, Ptr::Value, Val::Value, Len::Value; align=nothing)
     check_alignment(align)
@@ -505,7 +510,8 @@ function memcpy!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value,
                  SrcAlign::Integer, Size::Value)
     check_alignment(DstAlign; allow_zero=true)
     check_alignment(SrcAlign; allow_zero=true)
-    Instruction(API.LLVMBuildMemCpy(builder, Dst, DstAlign, Src, SrcAlign, Size))
+    Instruction(API.LLVMBuildMemCpy(builder, Dst, Cuint(DstAlign), Src, Cuint(SrcAlign),
+                                    Size))
 end
 function memcpy!(builder::IRBuilder, Dst::Value, Src::Value, Size::Value;
                  dst_align=nothing, src_align=nothing)
@@ -518,7 +524,8 @@ function memmove!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value,
                   SrcAlign::Integer, Size::Value)
     check_alignment(DstAlign; allow_zero=true)
     check_alignment(SrcAlign; allow_zero=true)
-    Instruction(API.LLVMBuildMemMove(builder, Dst, DstAlign, Src, SrcAlign, Size))
+    Instruction(API.LLVMBuildMemMove(builder, Dst, Cuint(DstAlign), Src, Cuint(SrcAlign),
+                                     Size))
 end
 function memmove!(builder::IRBuilder, Dst::Value, Src::Value, Size::Value;
                   dst_align=nothing, src_align=nothing)
@@ -785,7 +792,7 @@ end
 function struct_gep!(builder::IRBuilder, Ty::StructType, Pointer::Value, Idx::Integer,
                      Name::AbstractString="")
     check_aggregate_indices(Ty, (Idx,))
-    Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, Idx, Name))
+    Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, Cuint(Idx), Name))
 end
 
 # conversion operations
@@ -893,7 +900,7 @@ va_arg!(builder::IRBuilder, List::Value, Ty::LLVMType, Name::AbstractString="") 
 
 landingpad!(builder::IRBuilder, Ty::LLVMType, PersFn::Value, NumClauses::Integer,
             Name::AbstractString="") =
-    Instruction(API.LLVMBuildLandingPad(builder, Ty, PersFn, NumClauses, Name))
+    Instruction(API.LLVMBuildLandingPad(builder, Ty, PersFn, Cuint(NumClauses), Name))
 
 neg!(builder::IRBuilder, V::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNeg(builder, V, Name))

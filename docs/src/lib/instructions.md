@@ -224,6 +224,7 @@ does_not_capture
 
 ```@docs
 OperandBundle
+with_operand_bundles
 ```
 
 ## Terminator instructions

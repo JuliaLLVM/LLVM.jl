@@ -243,6 +243,11 @@ LLVMBuildCallWithOperandBundles(LLVMBuilderRef, LLVMTypeRef, LLVMValueRef Fn,
                                 LLVMOperandBundleRef *Bundles,
                                 unsigned NumBundles, const char *Name);
 #endif
+// a copy of a call, invoke or callbr instruction with the given operand bundles instead of
+// its own, which isn't inserted into a basic block (like CallBase::Create(CB, Bundles))
+LLVMValueRef LLVMExtraCallBaseWithOperandBundles(LLVMValueRef Call,
+                                                 LLVMOperandBundleRef *Bundles,
+                                                 unsigned NumBundles);
 
 // Metadata API extensions
 LLVMValueRef LLVMMetadataAsValue2(LLVMContextRef C, LLVMMetadataRef Metadata);
@@ -883,6 +888,9 @@ void LLVMExtraRemoveDeadConstantUsers(LLVMValueRef C);
 LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef *Ops,
                                                   unsigned NumOps, LLVMTypeRef Ty,
                                                   LLVMTypeRef SrcTy);
+// the mask of a shufflevector constant expression: returns its number of elements, and
+// writes them to Mask if that isn't NULL (-1 for a poison element)
+unsigned LLVMExtraConstantExprGetShuffleMask(LLVMValueRef CE, int *Mask);
 // Constants that refer to a global value, which the C API reports as instructions or
 // doesn't expose the global value of: returns the kind of constant, and the global value
 // (and the block of a blockaddress) it refers to.

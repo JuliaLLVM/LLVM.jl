@@ -852,6 +852,7 @@ end
     # like `ConstantVector::get`, simple data and zeros give other kinds of constants
     let cv = ConstantVector([ConstantInt(Int32(1)), ConstantInt(Int32(2))])
         @test cv isa ConstantDataVector
+        @test cv isa LLVM.ConstantData
         @test [convert(Int, x) for x in cv.elements] == [1, 2]
     end
     @test ConstantVector([ConstantInt(Int32(0)), ConstantInt(Int32(0))]) isa
@@ -940,6 +941,19 @@ end
         @test cda isa ConstantDataArray
         @test cda.value_type == LLVM.ArrayType(eltyp, 4)
         @test collect(cda.elements) == ConstantInt.(vec)
+    end
+
+    # like in LLVM, arrays of simple data are constant data: they have no operands, and
+    # since LLVM 21 no uses either
+    @dispose mod=LLVM.Module("data") begin
+        cda = ConstantDataArray(Int32[1, 2])
+        @test cda isa LLVM.ConstantDataSequential
+        @test cda isa LLVM.ConstantData
+        @test isempty(cda.operands)
+        gv = GlobalVariable(mod, cda.value_type, "data")
+        gv.initializer = cda
+        @test isempty(cda.uses) == (LLVM.version() >= v"21")
+        @test isempty(collect(cda.users)) == (LLVM.version() >= v"21")
     end
     for vec in (UInt8[], zeros(UInt8, 3), zeros(UInt32, 2))
         c = ConstantDataArray(vec)
@@ -1216,6 +1230,29 @@ end
         @test LLVM.constant_offset(ce, dl) == -4
         @test_throws InexactError LLVM.constant_offset(UInt, ce, dl)
 
+        # no-wrap flags (on an out-of-bounds index, which LLVM can't infer them for)
+        idx = [ConstantInt(Int64(2))]
+        @test !const_gep(LLVM.Int8Type(), gv8, idx).inbounds
+        @test ce.inbounds
+        let ce = const_gep(LLVM.Int8Type(), gv8, idx; inbounds=true)
+            @test ce.inbounds
+            @check_ir ce "getelementptr inbounds (i8, "
+        end
+        if LLVM.version() >= v"19"
+            @test ce.nusw && !ce.nuw
+            plain = const_gep(LLVM.Int8Type(), gv8, idx)
+            @test !plain.nusw && !plain.nuw
+            ce = const_gep(LLVM.Int8Type(), gv8, idx; nusw=true, nuw=true)
+            @test !ce.inbounds && ce.nusw && ce.nuw
+            @check_ir ce "getelementptr nusw nuw (i8, "
+            ce = const_gep(LLVM.Int8Type(), gv8, idx; inbounds=true, nuw=true)
+            @test ce.inbounds && ce.nusw && ce.nuw
+            @check_ir ce "getelementptr inbounds nuw (i8, "
+        else
+            @test !hasproperty(ce, :nusw)
+            @test_throws ArgumentError const_gep(LLVM.Int8Type(), gv8, idx; nuw=true)
+        end
+
         # the index width of the address space determines the width of the offset
         gv1 = GlobalVariable(mod, LLVM.Int8Type(), "gv1", 1)
         ce = const_gep(LLVM.Int8Type(), gv1, [ConstantInt(Int64(2)^32 - 1)])
@@ -1225,6 +1262,8 @@ end
         @test ce isa ConstantExpr
         @test_throws ArgumentError ce.source_element_type
         @test_throws ArgumentError ce.indices
+        @test_throws ArgumentError ce.inbounds
+        LLVM.version() >= v"19" && @test_throws ArgumentError ce.nuw
         @test_throws ArgumentError LLVM.constant_offset(ce, dl)
 
         # instructions

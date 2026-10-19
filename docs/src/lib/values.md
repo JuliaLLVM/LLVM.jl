@@ -23,6 +23,7 @@ LLVM.User
 
 ```@docs
 LLVM.Constant
+LLVM.ConstantData
 null
 all_ones
 PointerNull

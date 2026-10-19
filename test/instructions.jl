@@ -318,6 +318,26 @@
     @check_ir gepinst "getelementptr inbounds i32"
     gepinst.inbounds = false
     @test !gepinst.inbounds
+    if LLVM.version() >= v"19"
+        # `inbounds` implies `nusw`, which LLVM keeps when clearing `inbounds`
+        @test gepinst.nusw && !gepinst.nuw
+        gepinst.nusw = false
+        @test !gepinst.nusw && !gepinst.nuw
+        gepinst.nuw = true
+        @test gepinst.nuw && !gepinst.nusw
+        @check_ir gepinst "getelementptr nuw i32"
+        gepinst.nusw = true
+        @check_ir gepinst "getelementptr nusw nuw i32"
+        gepinst.nuw = false
+        @test gepinst.nusw && !gepinst.nuw && !gepinst.inbounds
+        gepinst.inbounds = true
+        @test gepinst.inbounds && gepinst.nusw
+        gepinst.nusw = false
+        @test !gepinst.inbounds && !gepinst.nusw
+        @check_ir gepinst "getelementptr i32"
+    else
+        @test !hasproperty(gepinst, :nuw)
+    end
 
     gepinst1 = inbounds_gep!(builder, LLVM.Int32Type(), ptr1, [int1])
     if supports_typed_pointers(ctx)
@@ -1025,6 +1045,41 @@ end
 end
 end
 
+@testset "vector shuffles" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T = LLVM.VectorType(LLVM.Int32Type(), 4)
+    S = LLVM.ScalableVectorType(LLVM.Int32Type(), 2)
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [T, T, S]))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    a, b, s = f.parameters
+
+    mask = ConstantVector([ConstantInt(Int32(0)), ConstantInt(Int32(4)),
+                           PoisonValue(LLVM.Int32Type())])
+    inst = shuffle_vector!(builder, a, b, mask)
+    @test inst.shuffle_mask == [0, 4, -1]
+    @test inst.shuffle_mask isa Vector{Int}
+
+    # scalable vectors only have splat masks, of their minimum number of elements
+    splat = shuffle_vector!(builder, s, PoisonValue(S),
+                            null(LLVM.ScalableVectorType(LLVM.Int32Type(), 2)))
+    @test splat.shuffle_mask == [0, 0]
+
+    # constant expressions, which LLVM only keeps for scalable vectors (it folds the others)
+    gv = GlobalVariable(mod, LLVM.Int8Type(), "gv")
+    P = LLVM.ScalableVectorType(gv.value_type, 2)
+    elt = LLVM.const_insertelement(PoisonValue(P), gv, ConstantInt(Int64(0)))
+    ce = const_shufflevector(elt, PoisonValue(P),
+                             null(LLVM.ScalableVectorType(LLVM.Int32Type(), 2)))
+    @test ce isa ConstantExpr
+    @test ce.shuffle_mask == [0, 0]
+    @test_throws ArgumentError const_ptrtoint(gv, LLVM.Int64Type()).shuffle_mask
+    @test !hasproperty(add!(builder, a, b), :shuffle_mask)
+
+    ret!(builder)
+    verify(mod)
+end
+end
+
 @testset "operations" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type(), LLVM.PointerType(LLVM.Int32Type())])
@@ -1456,6 +1511,106 @@ end
                 @test bundle2.tag == "unknown"
                 @test bundle2.inputs == inputs
                 @test string(bundle2) == "\"unknown\"(i32 1, i64 2)"
+            end
+        end
+
+        @testset "replacement" begin
+            @dispose builder=IRBuilder() mod=LLVM.Module("bundles") begin
+                ft = LLVM.FunctionType(LLVM.FloatType(), [LLVM.FloatType()])
+                h = LLVM.Function(mod, "h", ft)
+                f = LLVM.Function(mod, "f", ft)
+                x = only(f.parameters)
+                position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+                call = call!(builder, ft, h, [x], [OperandBundle("deopt", [x])], "r")
+                call.callconv = LLVM.CallConv.Fast
+                call.tailcall_kind = LLVM.TailCallKind.Tail
+                call.fast_math = (; nnan=true)
+                push!(call.function_attributes, EnumAttribute("nounwind"))
+                push!(call.argument_attributes[1], EnumAttribute("noundef"))
+                push!(call.return_attributes, EnumAttribute("noundef"))
+                call.metadata["foo"] = MDNode(Metadata[])
+                ret!(builder, call)
+
+                DIBuilder(mod) do dib
+                    file = LLVM.file!(dib, "test.jl", "/tmp")
+                    LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia, file,
+                                       "LLVM.jl Tests")
+                    sp = LLVM.subprogram!(dib, file, "f", file, 1,
+                                          LLVM.subroutine_type!(dib, file, nothing))
+                    f.subprogram = sp
+                    call.debug_location = DILocation(1, 1, sp)
+                end
+
+                # a copy of the call with other bundles, which isn't inserted yet
+                new = with_operand_bundles(call, [OperandBundle("unknown")])
+                @test new isa LLVM.CallInst
+                @test new.parent === nothing
+                @test [b.tag for b in new.operand_bundles] == ["unknown"]
+                @test new.called_operand == h
+                @test new.arguments == [x]
+                @test new.callconv == LLVM.CallConv.Fast
+                @test new.tailcall_kind == LLVM.TailCallKind.Tail
+                @test new.fast_math.nnan && !new.fast_math.ninf
+                @test collect(new.function_attributes) == [EnumAttribute("nounwind")]
+                @test collect(new.argument_attributes[1]) == [EnumAttribute("noundef")]
+                @test collect(new.return_attributes) == [EnumAttribute("noundef")]
+                @test new.debug_location == call.debug_location
+                @test !haskey(new.metadata, "foo")
+                @test [b.tag for b in call.operand_bundles] == ["deopt"]
+
+                move!(new, LLVM.before(call))
+                @test new.name != call.name && startswith(new.name, "r")
+                replace_uses!(call, new)
+                erase!(call)
+                @check_ir new "\"unknown\"()"
+
+                # the bundles of another call, or none
+                newer = with_operand_bundles(new, OperandBundle[])
+                @test isempty(newer.operand_bundles)
+                again = with_operand_bundles(newer, new.operand_bundles)
+                @test [b.tag for b in again.operand_bundles] == ["unknown"]
+                erase!(again)
+                erase!(newer)
+                verify(mod)
+            end
+
+            # other kinds of calls
+            @dispose builder=IRBuilder() mod=LLVM.Module("bundles") begin
+                ft = LLVM.FunctionType(LLVM.VoidType())
+                h = LLVM.Function(mod, "h", ft)
+                f = LLVM.Function(mod, "f", ft)
+                entry, ok, bad = BasicBlock(f, "entry"), BasicBlock(f, "ok"),
+                                 BasicBlock(f, "bad")
+                position!(builder, LLVM.at_end(entry))
+                inv = invoke!(builder, ft, h, Value[], ok, bad)
+                new = with_operand_bundles(inv, [OperandBundle("deopt")])
+                @test new isa LLVM.InvokeInst
+                @test new.successors == [ok, bad]
+                @test [b.tag for b in new.operand_bundles] == ["deopt"]
+                erase!(new)
+            end
+            if LLVM.version() >= v"16"
+                # `!i` marks the indirect destinations of an `asm goto` since LLVM 16
+                @dispose mod=parse(LLVM.Module, """
+                        define void @f(i32 %x) {
+                        entry:
+                          callbr void asm "", "r,!i"(i32 %x) to label %ok [label %other]
+                        ok:
+                          ret void
+                        other:
+                          ret void
+                        }""") begin
+                    cb = first(first(mod.functions["f"].blocks).instructions)
+                    new = with_operand_bundles(cb, [OperandBundle("deopt")])
+                    @test new isa LLVM.CallBrInst
+                    @test new.parent === nothing
+                    @test new.successors == cb.successors
+                    @test new.arguments == cb.arguments
+                    @test new.called_operand == cb.called_operand
+                    @test [b.tag for b in new.operand_bundles] == ["deopt"]
+                    @test isempty(cb.operand_bundles)
+                    erase!(new)
+                end
             end
         end
 

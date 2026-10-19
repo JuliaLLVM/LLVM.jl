@@ -893,9 +893,9 @@ LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuff
 // Operand bundles
 //
 
-#if LLVM_VERSION_MAJOR < 18
-
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(OperandBundleDef, LLVMOperandBundleRef)
+
+#if LLVM_VERSION_MAJOR < 18
 
 LLVMOperandBundleRef LLVMCreateOperandBundle(const char *Tag, size_t TagLen,
                                              LLVMValueRef *Args,
@@ -963,6 +963,15 @@ LLVMBuildCallWithOperandBundles(LLVMBuilderRef B, LLVMTypeRef Ty,
 }
 
 #endif
+
+LLVMValueRef LLVMExtraCallBaseWithOperandBundles(LLVMValueRef Call,
+                                                 LLVMOperandBundleRef *Bundles,
+                                                 unsigned NumBundles) {
+  SmallVector<OperandBundleDef, 8> OBs;
+  for (auto *Bundle : ArrayRef(Bundles, NumBundles))
+    OBs.push_back(*unwrap(Bundle));
+  return wrap(CallBase::Create(unwrap<CallBase>(Call), OBs));
+}
 
 
 //
@@ -2051,6 +2060,13 @@ LLVMValueRef LLVMExtraConstantExprGetWithOperands(LLVMValueRef CE, LLVMValueRef 
       SourceTy = GEP->getSourceElementType();
   return wrap(Expr->getWithOperands(Operands, Ty ? unwrap(Ty) : Expr->getType(),
                                     /*OnlyIfReduced=*/false, SourceTy));
+}
+
+unsigned LLVMExtraConstantExprGetShuffleMask(LLVMValueRef CE, int *Mask) {
+  ArrayRef<int> ShuffleMask = unwrap<ConstantExpr>(CE)->getShuffleMask();
+  if (Mask)
+    std::copy(ShuffleMask.begin(), ShuffleMask.end(), Mask);
+  return ShuffleMask.size();
 }
 
 LLVMExtraGlobalReferenceKind LLVMExtraGetGlobalReference(LLVMValueRef C, LLVMValueRef *GV,

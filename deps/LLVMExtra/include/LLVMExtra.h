@@ -197,18 +197,21 @@ void LLVMExtraCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
                                 LLVMValueRef (*Materializer)(LLVMValueRef, void *),
                                 void *MaterializerData);
 
-// What the value mapper looks at that the C API doesn't expose: the result element type of
-// a GEP instruction, the arguments of a DIArgList, and the values and metadata that the
-// debug records attached to an instruction refer to (none before LLVM 19, which used
-// intrinsics instead). The latter fills the arrays if they are not NULL, and returns their
-// lengths in NumValues and NumMDs.
-LLVMTypeRef LLVMExtraGetGEPResultElementType(LLVMValueRef GEP);
-unsigned LLVMExtraDIArgListGetNumArgs(LLVMMetadataRef ArgList);
-LLVMMetadataRef LLVMExtraDIArgListGetArg(LLVMMetadataRef ArgList, unsigned Index);
-void LLVMExtraGetDbgRecordOperands(LLVMValueRef Inst, LLVMValueRef *Values,
-                                   unsigned *NumValues, LLVMMetadataRef *MDs,
-                                   unsigned *NumMDs);
-LLVMTypeRef LLVMExtraGetInlineAsmFunctionType(LLVMValueRef InlineAsm);
+// Prepare mapping a value or metadata, or cloning a function, with a value map and type
+// mapper: call the type mapper on every type that the operation will map (so that a type
+// mapper that fails can do so before anything is mapped), and remove the entries for
+// deleted values that the operation would look up (the value mapper expects every entry to
+// have a value). The type mapper may be NULL.
+void LLVMExtraPrepareMapValue(LLVMValueRef V, LLVMValueMapRef VM,
+                              LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                              void *TypeMapperData);
+void LLVMExtraPrepareMapMetadata(LLVMMetadataRef MD, LLVMValueMapRef VM,
+                                 LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                 void *TypeMapperData);
+void LLVMExtraPrepareCloneFunctionInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
+                                       LLVMCloneFunctionChangeType Changes,
+                                       LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                       void *TypeMapperData);
 
 LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuffix,
                                       LLVMValueRef *ValueMap, unsigned ValueMapElements,

@@ -258,181 +258,12 @@ function materialize_global_reference(state::MapperCallbackState, val::API.LLVMV
     end
 end
 
-# Before LLVM maps anything, walk what it will map, like the value mapper (ValueMapper.cpp)
-# and CloneFunctionInto do, to call the type mapper on the types that they will ask for (so
-# that a type mapper that fails does so before anything is mapped), and to remove the
-# entries for deleted values that they would look up (the value mapper expects every entry
-# to have a value). The walk stops where LLVM stops: at values and metadata in the map, and
-# at global values, which LLVM maps to themselves (their types are only needed when the
-# materializer failed, see `failed_mapping`).
-struct MapperPrepass
-    state::MapperCallbackState
-    vmap::ValueMap
-    values::Set{API.LLVMValueRef}
-    metadata::Set{API.LLVMMetadataRef}
-    # compile units that LLVM doesn't map (when cloning within a module)
-    keep_compile_units::Bool
-
-    MapperPrepass(state, vmap; keep_compile_units=false) =
-        new(state, vmap, Set{API.LLVMValueRef}(), Set{API.LLVMMetadataRef}(),
-            keep_compile_units)
-end
-
-prepare_type!(p::MapperPrepass, typ::API.LLVMTypeRef) = (mapped_type(p.state, typ); nothing)
-
-# Mapper::mapValue
-function prepare_value!(p::MapperPrepass, val::API.LLVMValueRef)
-    val == C_NULL && return
-    val in p.values && return
-    push!(p.values, val)
-    API.LLVMExtraValueMapLookup(p.vmap, val) == C_NULL || return
-    # the entry of a value that was deleted, if any
-    API.LLVMExtraValueMapErase(p.vmap, val)
-
-    if API.LLVMGetValueKind(val) == API.LLVMMetadataAsValueValueKind
-        prepare_metadata!(p, API.LLVMValueAsMetadata(val))
-        return
-    end
-    if API.LLVMIsAInlineAsm(val) != C_NULL
-        prepare_type!(p, API.LLVMExtraGetInlineAsmFunctionType(val))
-        return
-    end
-    # other values that aren't constants are not rebuilt
-    API.LLVMIsAConstant(val) == C_NULL && return
-    prepare_type!(p, API.LLVMTypeOf(val))
-    API.LLVMIsAGlobalValue(val) == C_NULL || return
-    # the operands of a `blockaddress` aren't the same in every version of LLVM
-    gv, bb = Ref{API.LLVMValueRef}(), Ref{API.LLVMValueRef}()
-    if API.LLVMExtraGetGlobalReference(val, gv, bb) != API.LLVMExtraNoGlobalReference
-        prepare_value!(p, gv[])
-        prepare_value!(p, bb[])
-        return
-    end
-    if API.LLVMIsAConstantExpr(val) != C_NULL &&
-       API.LLVMGetConstOpcode(val) == API.LLVMGetElementPtr
-        prepare_type!(p, API.LLVMGetGEPSourceElementType(val))
-    end
-    for i in 0:API.LLVMGetNumOperands(val)-1
-        prepare_value!(p, API.LLVMGetOperand(val, i))
-    end
-end
-
-# Mapper::mapMetadata, and the DIArgList case of Mapper::mapValue
-function prepare_metadata!(p::MapperPrepass, md::API.LLVMMetadataRef)
-    md == C_NULL && return
-    md in p.metadata && return
-    push!(p.metadata, md)
-    API.LLVMExtraValueMapLookupMetadata(p.vmap, md) == C_NULL || return
-    kind = API.LLVMGetMetadataKind(md)
-    if kind == API.LLVMConstantAsMetadataMetadataKind ||
-       kind == API.LLVMLocalAsMetadataMetadataKind
-        prepare_value!(p, API.LLVMMetadataAsValue2(C_NULL, md))
-    elseif kind == API.LLVMDIArgListMetadataKind
-        for i in 0:API.LLVMExtraDIArgListGetNumArgs(md)-1
-            prepare_metadata!(p, API.LLVMExtraDIArgListGetArg(md, i))
-        end
-    elseif kind == API.LLVMMDStringMetadataKind ||
-           kind == API.LLVMDistinctMDOperandPlaceholderMetadataKind ||
-           (kind == API.LLVMDICompileUnitMetadataKind && p.keep_compile_units)
-    else
-        for i in 0:API.LLVMGetMDNodeNumOperands2(md)-1
-            prepare_metadata!(p, API.LLVMGetMDNodeOperand2(md, i))
-        end
-    end
-end
-
-function prepare_metadata_entries!(p::MapperPrepass, entries, n)
-    try
-        for i in 1:n
-            prepare_metadata!(p, API.LLVMValueMetadataEntriesGetMetadata(entries, i-1))
-        end
-    finally
-        API.LLVMDisposeValueMetadataEntries(entries)
-    end
-end
-
-# CloneFunctionInto: the personality, prefix and prologue data and the metadata of the
-# function, and Mapper::remapInstruction and Mapper::remapDbgRecord for its body
-function prepare_function!(p::MapperPrepass, f::Function)
-    ref = f.ref
-    for i in 0:API.LLVMGetNumOperands(ref)-1
-        prepare_value!(p, API.LLVMGetOperand(ref, i))
-    end
-    n = Ref{Csize_t}()
-    prepare_metadata_entries!(p, API.LLVMGlobalCopyAllMetadata(ref, n), n[])
-    for arg in parameters(f)
-        prepare_value!(p, arg.ref)
-    end
-    for bb in blocks(f), inst in instructions(bb)
-        prepare_instruction!(p, inst.ref)
-    end
-end
-
-function prepare_instruction!(p::MapperPrepass, inst::API.LLVMValueRef)
-    prepare_type!(p, API.LLVMTypeOf(inst))
-    if API.LLVMIsAAllocaInst(inst) != C_NULL
-        prepare_type!(p, API.LLVMGetAllocatedType(inst))
-    elseif API.LLVMIsAGetElementPtrInst(inst) != C_NULL
-        prepare_type!(p, API.LLVMGetGEPSourceElementType(inst))
-        prepare_type!(p, API.LLVMExtraGetGEPResultElementType(inst))
-    elseif API.LLVMIsACallInst(inst) != C_NULL || API.LLVMIsAInvokeInst(inst) != C_NULL ||
-           API.LLVMIsACallBrInst(inst) != C_NULL
-        # LLVM rebuilds the function type of a call from its mapped parameter types and the
-        # mapped type of the call, while inline assembly is mapped with its function type
-        fty = API.LLVMGetCalledFunctionType(inst)
-        params = Vector{API.LLVMTypeRef}(undef, API.LLVMCountParamTypes(fty))
-        isempty(params) || API.LLVMGetParamTypes(fty, params)
-        foreach(typ -> prepare_type!(p, typ), params)
-        API.LLVMIsAInlineAsm(API.LLVMGetCalledValue(inst)) == C_NULL ||
-            prepare_type!(p, fty)
-        # the types of attributes like `byval` and `elementtype`
-        for idx in 0:API.LLVMGetNumArgOperands(inst)
-            n = API.LLVMGetCallSiteAttributeCount(inst, idx)
-            n == 0 && continue
-            attrs = Vector{API.LLVMAttributeRef}(undef, n)
-            API.LLVMGetCallSiteAttributes(inst, idx, attrs)
-            for attr in attrs
-                Bool(API.LLVMIsTypeAttribute(attr)) &&
-                    prepare_type!(p, API.LLVMGetTypeAttributeValue(attr))
-            end
-        end
-    end
-    for i in 0:API.LLVMGetNumOperands(inst)-1
-        prepare_value!(p, API.LLVMGetOperand(inst, i))
-    end
-    if API.LLVMIsAPHINode(inst) != C_NULL
-        for i in 0:API.LLVMCountIncoming(inst)-1
-            prepare_value!(p, API.LLVMBasicBlockAsValue(API.LLVMGetIncomingBlock(inst, i)))
-        end
-    end
-    prepare_metadata!(p, API.LLVMInstructionGetDebugLoc(inst))
-    n = Ref{Csize_t}()
-    prepare_metadata_entries!(p,
-        API.LLVMInstructionGetAllMetadataOtherThanDebugLoc(inst, n), n[])
-
-    num_values, num_mds = Ref{Cuint}(), Ref{Cuint}()
-    API.LLVMExtraGetDbgRecordOperands(inst, C_NULL, num_values, C_NULL, num_mds)
-    if num_values[] > 0 || num_mds[] > 0
-        values = Vector{API.LLVMValueRef}(undef, num_values[])
-        mds = Vector{API.LLVMMetadataRef}(undef, num_mds[])
-        API.LLVMExtraGetDbgRecordOperands(inst, values, num_values, mds, num_mds)
-        foreach(val -> prepare_value!(p, val), values)
-        foreach(md -> prepare_metadata!(p, md), mds)
-    end
-end
-
-# call `prepare!` with a prepass, and `f(type_mapper_ptr, type_mapper_data,
-# materializer_ptr, materializer_data)`, which passes the callbacks to LLVM, and rethrow
-# what they threw
-function with_mapper_callbacks(f, prepare!, what, vmap, flags, type_mapper, materializer;
-                               keep_compile_units=false)
+# call `prepare(type_mapper_ptr, type_mapper_data)`, which calls one of LLVMExtra's
+# `LLVMExtraPrepare*` functions (so that a type mapper that fails does so before anything is
+# mapped), and then `f(type_mapper_ptr, type_mapper_data, materializer_ptr,
+# materializer_data)`, which passes the callbacks to LLVM, and rethrow what they threw
+function with_mapper_callbacks(f, prepare, what, vmap, flags, type_mapper, materializer)
     callback_state = Ref(MapperCallbackState(type_mapper, materializer, vmap, flags))
-    prepare!(MapperPrepass(callback_state[], vmap; keep_compile_units))
-    if callback_state[].exception !== nothing
-        err, bt = callback_state[].exception
-        throw(CallbackException(what, err, bt))
-    end
-
     if type_mapper === nothing
         type_mapper_ptr = C_NULL
         type_mapper_data = C_NULL
@@ -451,6 +282,11 @@ function with_mapper_callbacks(f, prepare!, what, vmap, flags, type_mapper, mate
         materializer_data = callback_state
     end
     ret = GC.@preserve callback_state begin
+        prepare(type_mapper_ptr, type_mapper_data)
+        if callback_state[].exception !== nothing
+            err, bt = callback_state[].exception
+            throw(CallbackException(what, err, bt))
+        end
         f(type_mapper_ptr, type_mapper_data, materializer_ptr, materializer_data)
     end
     if callback_state[].exception !== nothing
@@ -533,8 +369,8 @@ function map_value(val::Value, vmap::ValueMap; type_mapper=nothing, materializer
 end
 
 function map_value(val::Value, vmap::ValueMap, flags::UInt32, type_mapper, materializer)
-    prepare!(p) = prepare_value!(p, val.ref)
-    ref = with_mapper_callbacks(prepare!, "value mapping", vmap, flags, type_mapper,
+    prepare(tm, tmd) = API.LLVMExtraPrepareMapValue(val, vmap, tm, tmd)
+    ref = with_mapper_callbacks(prepare, "value mapping", vmap, flags, type_mapper,
                                 materializer) do tm, tmd, mat, matd
         API.LLVMExtraMapValue(val, vmap, flags, tm, tmd, mat, matd)
     end
@@ -559,8 +395,8 @@ function map_metadata(md::Metadata, vmap::ValueMap; type_mapper=nothing,
                       null_map_missing_globals::Bool=false)
     flags = remap_flags(no_module_level_changes, ignore_missing_locals,
                         reuse_and_mutate_distinct_mds, null_map_missing_globals)
-    prepare!(p) = prepare_metadata!(p, md.ref)
-    ref = with_mapper_callbacks(prepare!, "metadata mapping", vmap, flags, type_mapper,
+    prepare(tm, tmd) = API.LLVMExtraPrepareMapMetadata(md, vmap, tm, tmd)
+    ref = with_mapper_callbacks(prepare, "metadata mapping", vmap, flags, type_mapper,
                                 materializer) do tm, tmd, mat, matd
         API.LLVMExtraMapMetadata(md, vmap, flags, tm, tmd, mat, matd)
     end
@@ -622,15 +458,12 @@ end
 
 function clone_into!(new::Function, old::Function, vmap::ValueMap, changes, suffix,
                      type_mapper, materializer)
-    prepare!(p) = prepare_function!(p, old)
-    # when cloning within a module, LLVM doesn't map compile units
-    keep_compile_units = changes in (API.LLVMCloneFunctionChangeTypeLocalChangesOnly,
-                                     API.LLVMCloneFunctionChangeTypeGlobalChanges)
+    prepare(tm, tmd) = API.LLVMExtraPrepareCloneFunctionInto(old, vmap, changes, tm, tmd)
     # the flags that CloneFunctionInto maps with (for nested mappings, see
     # `materialize_global_reference`)
     flags = UInt32(0)
-    with_mapper_callbacks(prepare!, "function cloning", vmap, flags, type_mapper,
-                          materializer; keep_compile_units) do tm, tmd, mat, matd
+    with_mapper_callbacks(prepare, "function cloning", vmap, flags, type_mapper,
+                          materializer) do tm, tmd, mat, matd
         API.LLVMExtraCloneFunctionInto(new, old, vmap, changes, suffix, tm, tmd, mat, matd)
     end
 end

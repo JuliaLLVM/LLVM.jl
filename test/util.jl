@@ -509,7 +509,7 @@ end
 @testset "what function cloning maps" begin
     # the type mapper is called before anything is cloned for all the types that LLVM maps,
     # and entries for deleted values are not used, also in parts of the function other
-    # than instructions (see `prepare_function!`)
+    # than instructions (see `LLVMExtraPrepareCloneFunctionInto`)
     ir = """
         @g = global i64 0
         @g1 = addrspace(1) global i64 0

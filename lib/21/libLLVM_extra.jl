@@ -270,24 +270,16 @@ function LLVMExtraCloneFunctionInto(NewFunc, OldFunc, VM, Changes, NameSuffix, T
     ccall((:LLVMExtraCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef, LLVMValueMapRef, LLVMCloneFunctionChangeType, Cstring, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), NewFunc, OldFunc, VM, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
 end
 
-function LLVMExtraGetGEPResultElementType(GEP)
-    ccall((:LLVMExtraGetGEPResultElementType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), GEP)
+function LLVMExtraPrepareMapValue(V, VM, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareMapValue, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, Ptr{Cvoid}, Ptr{Cvoid}), V, VM, TypeMapper, TypeMapperData)
 end
 
-function LLVMExtraDIArgListGetNumArgs(ArgList)
-    ccall((:LLVMExtraDIArgListGetNumArgs, libLLVMExtra), Cuint, (LLVMMetadataRef,), ArgList)
+function LLVMExtraPrepareMapMetadata(MD, VM, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareMapMetadata, libLLVMExtra), Cvoid, (LLVMMetadataRef, LLVMValueMapRef, Ptr{Cvoid}, Ptr{Cvoid}), MD, VM, TypeMapper, TypeMapperData)
 end
 
-function LLVMExtraDIArgListGetArg(ArgList, Index)
-    ccall((:LLVMExtraDIArgListGetArg, libLLVMExtra), LLVMMetadataRef, (LLVMMetadataRef, Cuint), ArgList, Index)
-end
-
-function LLVMExtraGetDbgRecordOperands(Inst, Values, NumValues, MDs, NumMDs)
-    ccall((:LLVMExtraGetDbgRecordOperands, libLLVMExtra), Cvoid, (LLVMValueRef, Ptr{LLVMValueRef}, Ptr{Cuint}, Ptr{LLVMMetadataRef}, Ptr{Cuint}), Inst, Values, NumValues, MDs, NumMDs)
-end
-
-function LLVMExtraGetInlineAsmFunctionType(InlineAsm)
-    ccall((:LLVMExtraGetInlineAsmFunctionType, libLLVMExtra), LLVMTypeRef, (LLVMValueRef,), InlineAsm)
+function LLVMExtraPrepareCloneFunctionInto(OldFunc, VM, Changes, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, LLVMCloneFunctionChangeType, Ptr{Cvoid}, Ptr{Cvoid}), OldFunc, VM, Changes, TypeMapper, TypeMapperData)
 end
 
 function LLVMCloneBasicBlock(BB, NameSuffix, ValueMap, ValueMapElements, F)

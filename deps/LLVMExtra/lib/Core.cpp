@@ -29,6 +29,9 @@
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
+#if LLVM_VERSION_MAJOR >= 19
+#include <llvm/IR/MemoryModelRelaxationAnnotations.h>
+#endif
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/IR/ReplaceConstant.h>
@@ -921,6 +924,10 @@ unsigned LLVMExtraGetAtomicRMWBinOp(LLVMValueRef Inst) {
     default: return LLVMGetAtomicRMWBinOp(Inst);
   }
 }
+
+void LLVMExtraSetAtomicRMWBinOp(LLVMValueRef Inst, unsigned op) {
+  unwrap<AtomicRMWInst>(Inst)->setOperation(mapFromLLVMRMWBinOp(op));
+}
 #endif
 
 #if LLVM_VERSION_MAJOR < 18
@@ -1356,6 +1363,22 @@ void LLVMExtraMoveInstruction(LLVMValueRef Inst, LLVMBasicBlockRef BB, LLVMValue
 #endif
 }
 
+void LLVMExtraMoveInstructionPreserving(LLVMValueRef Inst, LLVMBasicBlockRef BB,
+                                        LLVMValueRef Before, LLVMBool Head) {
+  Instruction *I = unwrap<Instruction>(Inst);
+  // the debug records attached to the instruction move along with it, so moving it before
+  // itself doesn't change anything, also at the head position
+  if (Before == Inst)
+    return;
+  if (!I->getParent())
+    return LLVMExtraMoveInstruction(Inst, BB, Before, Head);
+#if LLVM_VERSION_MAJOR >= 19
+  I->moveBeforePreserving(*unwrap(BB), insertionPoint(BB, Before, Head));
+#else
+  I->moveBefore(*unwrap(BB), insertionPoint(BB, Before, Head));
+#endif
+}
+
 void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlockRef Before) {
   BasicBlock *B = unwrap(BB);
   Function *F = unwrap<Function>(Fn);
@@ -1531,6 +1554,27 @@ LLVMBool LLVMExtraMayWriteToMemory(LLVMValueRef Inst) {
 
 LLVMBool LLVMExtraMayHaveSideEffects(LLVMValueRef Inst) {
   return unwrap<Instruction>(Inst)->mayHaveSideEffects();
+}
+
+LLVMBool LLVMExtraIsCommutative(LLVMValueRef Inst) {
+  return unwrap<Instruction>(Inst)->isCommutative();
+}
+
+void LLVMExtraDropUnknownNonDebugMetadata(LLVMValueRef Inst, const unsigned *KnownIDs,
+                                          unsigned NumKnownIDs) {
+  unwrap<Instruction>(Inst)->dropUnknownNonDebugMetadata(
+      ArrayRef<unsigned>(KnownIDs, NumKnownIDs));
+}
+
+#if LLVM_VERSION_MAJOR >= 19
+LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst) {
+  return canInstructionHaveMMRAs(*unwrap<Instruction>(Inst));
+}
+#endif
+
+LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE) {
+  // LLVM 15-18 can also insert the instruction; it is inserted by the caller instead
+  return wrap(unwrap<ConstantExpr>(CE)->getAsInstruction());
 }
 
 

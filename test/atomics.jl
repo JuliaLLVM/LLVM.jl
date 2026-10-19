@@ -117,6 +117,14 @@ end
     @test all(op -> op isa MDNode, rmw.metadata["mmra"].operands)
     mmra!(rmw)
     @test !haskey(rmw.metadata, "mmra")
+    if LLVM.version() >= v"19"
+        @test supports_mmra(rmw)
+        @test supports_mmra(load!(builder, T_int, ptr))
+        @test supports_mmra(fence!(builder, AC))
+        @test !supports_mmra(add!(builder, int, int))
+    else
+        @test_throws ErrorException supports_mmra(rmw)
+    end
 
     mmra!(rmw, "amdgpu-as" => "local")
     rmw.metadata["amdgpu.no.fine.grained.memory"] = MDNode(Metadata[])

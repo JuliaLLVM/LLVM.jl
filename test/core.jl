@@ -1286,6 +1286,54 @@ end
     @test_throws ArgumentError with_operands(ce, [gv])
 end
 
+# constant expressions as instructions
+@dispose ctx=Context(; opaque_pointers=true) mod=parse(LLVM.Module, """
+        @gv = global [4 x i64] zeroinitializer
+        define i64 @f() {
+          %v = load i64, ptr getelementptr inbounds ([4 x i64], ptr @gv, i64 0, i64 2)
+          ret i64 %v
+        }""") begin
+    f = mod.functions["f"]
+    load = first(f.entry.instructions)
+    ce = load.operands[1]
+    @test ce isa ConstantExpr
+    inst = Instruction(LLVM.before(load), ce, "addr")
+    @test inst isa LLVM.GetElementPtrInst
+    @test inst.parent == f.entry
+    @test inst.name == "addr"
+    @test collect(inst.operands) == collect(ce.operands)
+    @test inst.source_element_type == ce.source_element_type
+    @test first(f.entry.instructions) == inst
+    # the constant expression is left alone
+    @test load.operands[1] == ce
+    load.operands[1] = inst
+    @test verify(mod) === nothing
+    @check_ir inst "getelementptr inbounds [4 x i64], ptr @gv, i64 0, i64 2"
+
+    let ce = const_ptrtoint(mod.globals["gv"], LLVM.Int64Type())
+        inst = Instruction(LLVM.before(f.entry.terminator), ce)
+        @test inst isa LLVM.PtrToIntInst
+        @test isempty(inst.name)
+        @test inst.operands[1] == mod.globals["gv"]
+    end
+
+    # a detached instruction, inserted later
+    let ce = const_ptrtoint(mod.globals["gv"], LLVM.Int32Type())
+        inst = Instruction(ce)
+        @test inst isa LLVM.PtrToIntInst
+        @test inst.parent === nothing
+        @test LLVM.value_type(inst) == LLVM.Int32Type()
+        move!(inst, LLVM.before(f.entry.terminator))
+        @test inst.parent == f.entry
+        detached = Instruction(ce)
+        erase!(detached)
+    end
+
+    # an instruction can't be inserted after the terminator
+    @test_throws ArgumentError Instruction(LLVM.at_end(f.entry), ce)
+    @test verify(mod) === nothing
+end
+
 # other constants
 @dispose ctx=Context() begin
     @testset "other constants" begin
@@ -1974,6 +2022,32 @@ end
         gv.metadata[MD_dbg] = md
         @test collect(gv.metadata) == [MD_dbg => md]
     end
+end
+
+# dropping the metadata that may not hold elsewhere
+@dispose ctx=Context() mod=parse(LLVM.Module, let ptr = supports_typed_pointers() ? "i64*" : "ptr"; """
+    define i64 @f($ptr %p) !dbg !4 {
+      %v = load i64, $ptr %p, !range !0, !noundef !1, !custom !1, !dbg !7
+      ret i64 %v
+    }
+    !llvm.module.flags = !{!3}
+    !llvm.dbg.cu = !{!2}
+    !0 = !{i64 0, i64 10}
+    !1 = !{}
+    !2 = distinct !DICompileUnit(language: DW_LANG_C99, file: !5, emissionKind: FullDebug)
+    !3 = !{i32 2, !"Debug Info Version", i32 3}
+    !4 = distinct !DISubprogram(name: "f", scope: !5, file: !5, type: !6, unit: !2, spFlags: DISPFlagDefinition)
+    !5 = !DIFile(filename: "f.c", directory: "/")
+    !6 = !DISubroutineType(types: !{})
+    !7 = !DILocation(line: 1, scope: !4)""" end) begin
+    load = first(mod.functions["f"].entry.instructions)
+    @test drop_unknown_metadata!(load, [MD_noundef, "custom"]) == load
+    @test haskey(load.metadata, MD_noundef)
+    @test haskey(load.metadata, "custom")
+    @test !haskey(load.metadata, MD_range)
+    @test drop_unknown_metadata!(load) == load
+    @test collect(keys(load.metadata)) == [MD_dbg]
+    @test load.debug_location !== nothing
 end
 
 @dispose ctx=Context() begin

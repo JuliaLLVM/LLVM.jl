@@ -3893,6 +3893,26 @@ end
     @test !hasproperty(ft, :next)
 end
 
+# module flags with the behaviors that the C API lacks
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        !llvm.module.flags = !{!0, !1}
+        !0 = !{i32 7, !"max", i32 1}
+        !1 = !{i32 8, !"min", i32 2}
+        """)
+    flags = mod.flags
+    one, two = Metadata(ConstantInt(Int32(1))), Metadata(ConstantInt(Int32(2)))
+    @test collect(flags) == ["max" => one, "min" => two]
+    @test flags["max"] == one
+    flags["max2", LLVM.ModuleFlagBehavior.Max] = one
+    flags["min2", LLVM.ModuleFlagBehavior.Min] = two
+    @test occursin("!{i32 7, !\"max2\", i32 1}", string(mod))
+    @test occursin("!{i32 8, !\"min2\", i32 2}", string(mod))
+    @test length(flags) == 4
+    @test verification_error(mod) === nothing
+    dispose(mod)
+end
+
 # instruction metadata and module flags can be iterated
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType())

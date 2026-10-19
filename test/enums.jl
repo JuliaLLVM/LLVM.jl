@@ -14,6 +14,7 @@
 
 # including values that the API backfills on older versions of LLVM
 @test LLVM.AtomicRMWBinOp.FMinimumNum === LLVM.API.LLVMAtomicRMWBinOpFMinimumNum
+@test LLVM.ModuleFlagBehavior.Max === LLVM.API.LLVMModuleFlagBehaviorMax
 
 for (scope, typename) in ((s[1], s[2]) for s in LLVM.enum_scopes)
     mod = getfield(LLVM, scope)

@@ -141,6 +141,47 @@ ModuleMetadataIterator for module :
 ```
 
 
+Assigning to `obj.metadata[kind]` replaces the attachments of that kind. Global objects can
+have several attachments of one kind, e.g., a global variable that is described by several
+`!dbg` expressions, and `add_metadata!` adds one while keeping the others:
+
+```jldoctest
+julia> gv = GlobalVariable(mod, LLVM.Int32Type(), "gv");
+
+julia> add_metadata!(gv, "annotation", MDNode([MDString("first")]));
+
+julia> add_metadata!(gv, "annotation", MDNode([MDString("second")]))
+@gv = external global i32, !annotation !0, !annotation !1
+```
+
+Some metadata of an instruction only holds where the instruction is: e.g., a load can be
+annotated with the `!range` of values it loads because a branch checked it. A pass that
+moves such an instruction elsewhere needs to drop that metadata, which
+`drop_unknown_metadata!` does for all kinds except for debug information and the kinds
+that are passed to it:
+
+```jldoctest
+julia> mod = parse(LLVM.Module, """
+         define i32 @f(ptr %p) {
+           %v = load i32, ptr %p, !range !0, !noundef !1
+           ret i32 %v
+         }
+         !0 = !{i32 0, i32 10}
+         !1 = !{}""");
+
+julia> load = first(only(mod.functions).entry.instructions)
+%v = load i32, ptr %p, align 4, !range !0, !noundef !1
+
+julia> drop_unknown_metadata!(load, ("noundef",));
+
+julia> load
+%v = load i32, ptr %p, align 4, !noundef !0
+```
+
+When IR is cloned or remapped (see [IR cloning](transforms.md#IR-cloning)), the metadata it refers to is
+mapped as well, using `map_metadata`.
+
+
 ## Debug information
 
 When generating IR, it is possible to add debug information metadata to the generated code.

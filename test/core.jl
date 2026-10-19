@@ -2075,6 +2075,9 @@ end
     @test string(ret) == "  ret void, !foo !0, !bar !1, !baz !2"
     delete!(ret.metadata, "bar")
     @test !haskey(ret.metadata, "bar")
+    @test get(ret.metadata, "bar", nothing) === nothing
+    @test get(ret.metadata, LLVM.MD_tbaa, 42) == 42
+    @test get(ret.metadata, "foo", nothing) == call.metadata["foo"]
     dispose(mod)
 end
 

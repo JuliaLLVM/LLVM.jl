@@ -520,6 +520,11 @@ Base.isempty(md::InstructionMetadataDict) = !Bool(API.LLVMHasMetadata(md.val))
 Base.haskey(md::InstructionMetadataDict, key) =
     API.LLVMGetMetadata2(md.val, md_kind(md.val, key)) != C_NULL
 
+function Base.get(md::InstructionMetadataDict, key, default)
+    ref = API.LLVMGetMetadata2(md.val, md_kind(md.val, key))
+    return ref == C_NULL ? default : Metadata(ref)
+end
+
 function Base.getindex(md::InstructionMetadataDict, key)
     kind = md_kind(md.val, key)
     ref = API.LLVMGetMetadata2(md.val, kind)

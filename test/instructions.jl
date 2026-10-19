@@ -743,6 +743,11 @@ let calls_wrapper(f, types) = any(only(code_typed(f, types))[1].code) do stmt
         @test !calls_wrapper(memmove!,
                              Tuple{IRBuilder, Value, Integer, Value, Integer, Value})
     end
+    # documented wrappers are inlined too
+    @test !calls_wrapper(intcast!, Tuple{IRBuilder, Value, LLVMType, AbstractString})
+    @test !calls_wrapper(LLVM.Interop._generate_llvmcall,
+                         Tuple{Any, Any, Any, Vector{Any}, String,
+                               Union{Nothing, Vector{Any}}})
 end
 
 end

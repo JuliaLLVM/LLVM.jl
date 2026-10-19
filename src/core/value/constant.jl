@@ -1543,8 +1543,7 @@ Create a global variable in the given module with the given type, name, and opti
 address space.
 """
 GlobalVariable(mod::Module, typ::LLVMType, name::AbstractString, addrspace::Integer=0) =
-    GlobalVariable(API.LLVMAddGlobalInAddressSpace(mod, typ,
-                                                   name, addrspace))
+    GlobalVariable(API.LLVMAddGlobalInAddressSpace(mod, typ, name, Cuint(addrspace)))
 
 """
     erase!(gv::GlobalVariable)

@@ -407,7 +407,7 @@ function extract_value!(builder::IRBuilder, AggVal::Value,
                         Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     check_aggregate_indices(value_type(AggVal), Indices)
     isempty(Indices) && return AggVal
-    idxs = Vector{Cuint}(Indices)
+    idxs = convert(Vector{Cuint}, Indices)
     Value(API.LLVMExtraBuildExtractValue(builder, AggVal, idxs, length(idxs), Name))
 end
 
@@ -432,7 +432,7 @@ function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value,
                        Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     check_inserted_value(AggVal, EltVal, Indices)
     isempty(Indices) && return EltVal
-    idxs = Vector{Cuint}(Indices)
+    idxs = convert(Vector{Cuint}, Indices)
     Value(API.LLVMExtraBuildInsertValue(builder, AggVal, EltVal, idxs, length(idxs), Name))
 end
 
@@ -440,10 +440,10 @@ end
 # memory access and addressing operations
 
 # address spaces are 24-bit numbers
-function check_addrspace(addrspace)
+function check_addrspace(addrspace)::Cuint
     addrspace isa Integer && 0 <= addrspace < 2^24 ||
         throw(ArgumentError("Address spaces must be integers between 0 and 2^24-1, got $addrspace"))
-    return Cuint(addrspace)
+    return addrspace
 end
 
 """

@@ -41,11 +41,18 @@ end
 # for every combination of, e.g., value types). that makes calls with abstractly-typed
 # arguments resolve statically, and inlining them makes the argument conversions do so too.
 function inline_wrapper(ex)
-    if Meta.isexpr(ex, :function) && Meta.isexpr(ex.args[2], :block)
-        pushfirst!(ex.args[2].args, Expr(:meta, :inline))
+    def = undocumented(ex)
+    if Meta.isexpr(def, :function) && Meta.isexpr(def.args[2], :block)
+        pushfirst!(def.args[2].args, Expr(:meta, :inline))
     end
     return ex
 end
+
+# the definition in a top-level expression of the wrappers, which is wrapped in a call to
+# `@doc` if it is documented
+undocumented(ex) =
+    Meta.isexpr(ex, :macrocall) && ex.args[1] == GlobalRef(Core, Symbol("@doc")) ?
+        ex.args[end] : ex
 
 # enum members that the C API lacks, at least on older versions of LLVM, numbered as in newer
 # C APIs or as their next values, so that they can be named and enumerated on every LLVM
@@ -64,9 +71,8 @@ const backfilled_enum_members = (
 )
 const backfilled_enum_definitions = Dict{Symbol,Int}()
 function backfill_enum_members(ex)
-    # the definition is `@cenum Name::UInt32 begin ... end`, documented
-    def = Meta.isexpr(ex, :macrocall) && ex.args[1] == GlobalRef(Core, Symbol("@doc")) ?
-          ex.args[end] : ex
+    # the definition is `@cenum Name::UInt32 begin ... end`
+    def = undocumented(ex)
     Meta.isexpr(def, :macrocall) && def.args[1] === Symbol("@cenum") &&
         Meta.isexpr(def.args[3], :(::)) || return ex
     enum = def.args[3].args[1]

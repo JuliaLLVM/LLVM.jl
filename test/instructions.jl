@@ -743,6 +743,30 @@ let calls_wrapper(f, types) = any(only(code_typed(f, types))[1].code) do stmt
         @test !calls_wrapper(memmove!,
                              Tuple{IRBuilder, Value, Integer, Value, Integer, Value})
     end
+    indices = AbstractVector{<:Integer}
+    @test !calls_wrapper(extract_value!, Tuple{IRBuilder, Value, indices, AbstractString})
+    @test !calls_wrapper(insert_value!,
+                         Tuple{IRBuilder, Value, Value, indices, AbstractString})
+
+    # methods with keyword arguments are compiled for the keyword arguments' declared types
+    kwbody(f, types) = Base.bodyfunction(which(f, types))
+    @test !calls_wrapper(kwbody(alloca!, Tuple{IRBuilder, LLVMType, AbstractString}),
+                         Tuple{Any, Any, typeof(alloca!), IRBuilder, LLVMType,
+                               AbstractString})
+    @test !calls_wrapper(kwbody(array_alloca!,
+                                Tuple{IRBuilder, LLVMType, Value, AbstractString}),
+                         Tuple{Any, Any, typeof(array_alloca!), IRBuilder, LLVMType,
+                               Value, AbstractString})
+    @test !calls_wrapper(kwbody(globalstring!,
+                                Tuple{LLVM.Module, AbstractString, AbstractString}),
+                         Tuple{Union{Nothing, Integer}, Bool, typeof(globalstring!),
+                               LLVM.Module, AbstractString, AbstractString})
+
+    # documented wrappers are inlined too
+    @test !calls_wrapper(intcast!, Tuple{IRBuilder, Value, LLVMType, AbstractString})
+    @test !calls_wrapper(LLVM.Interop._generate_llvmcall,
+                         Tuple{Any, Any, Any, Vector{Any}, String,
+                               Union{Nothing, Vector{Any}}})
 end
 
 end

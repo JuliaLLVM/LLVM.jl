@@ -557,7 +557,7 @@ end
 
 Base.length(md::InstructionMetadataDict) = count(Returns(true), md)
 
-@vocabulary IR drop_unknown_metadata!
+@vocabulary IR drop_unknown_metadata!, copy_metadata!
 
 """
     drop_unknown_metadata!(inst::Instruction, known=())
@@ -572,6 +572,25 @@ function drop_unknown_metadata!(inst::Instruction, known=())
     ids = Cuint[md_kind(inst, kind) for kind in known]
     API.LLVMExtraDropUnknownNonDebugMetadata(inst, ids, length(ids))
     return inst
+end
+
+"""
+    copy_metadata!(dest::Instruction, src::Instruction, kinds=())
+
+Copy the metadata of `src`, including its debug location, to `dest`, e.g., when replacing
+an instruction by a new one. If `kinds` (metadata kinds or their names) are given, only
+the metadata of those kinds is copied, and the debug location only if they include
+`MD_dbg`. Metadata of `dest` is overwritten by that of `src`, but kept for kinds that `src`
+doesn't have.
+
+This uses LLVM's `Instruction::copyMetadata`, so it follows that function's handling of the
+debug location: if `src` has none, LLVM 21 and later keep the debug location of `dest`,
+while earlier versions remove it, unless `src` has no metadata at all.
+"""
+function copy_metadata!(dest::Instruction, src::Instruction, kinds=())
+    ids = Cuint[md_kind(src, kind) for kind in kinds]
+    API.LLVMExtraCopyMetadata(dest, src, ids, length(ids))
+    return dest
 end
 
 # global objects (using Metadata values)

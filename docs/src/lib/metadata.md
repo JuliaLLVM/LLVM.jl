@@ -37,6 +37,7 @@ NamedMDNode
 MDKind
 add_metadata!
 drop_unknown_metadata!
+copy_metadata!
 ```
 
 ```@docs

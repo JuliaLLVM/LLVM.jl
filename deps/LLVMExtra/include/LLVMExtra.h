@@ -755,6 +755,10 @@ LLVMBool LLVMExtraIsCommutative(LLVMValueRef Inst);
 // metadata (`Instruction::dropUnknownNonDebugMetadata`), and the given kinds
 void LLVMExtraDropUnknownNonDebugMetadata(LLVMValueRef Inst, const unsigned *KnownIDs,
                                           unsigned NumKnownIDs);
+// copy the metadata of an instruction, or only that of the given kinds if there are any
+// (`Instruction::copyMetadata`)
+void LLVMExtraCopyMetadata(LLVMValueRef Dest, LLVMValueRef Src, const unsigned *KindIDs,
+                           unsigned NumKindIDs);
 #if LLVM_VERSION_MAJOR >= 19
 LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst);
 #endif

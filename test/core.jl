@@ -2104,7 +2104,7 @@ end
     # a source without debug location, but with other metadata
     copy_metadata!(e, d)
     @test haskey(e.metadata, "custom")
-    if version() >= v"21"
+    if LLVM.version() >= v"21"
         @test e.debug_location == loc_b
     else
         @test e.debug_location === nothing
@@ -3565,6 +3565,65 @@ end
 
     empty!(fn)
     @test isempty(fn.blocks)
+end
+
+# call site iteration
+@dispose ctx=Context() mod=parse(LLVM.Module, let typed = supports_typed_pointers()
+    personality = typed ? "i32 (...)*" : "ptr"
+    ptr = typed ? "i8*" : "ptr"
+    """
+    declare void @g()
+    declare i32 @__gxx_personality_v0(...)
+
+    define void @f(i1 %c) personality $personality @__gxx_personality_v0 {
+    entry:
+      %x = add i32 1, 2
+      call void @g()
+      br i1 %c, label %a, label %b
+    a:
+      invoke void @g() to label %b unwind label %lp
+    b:
+      call void @g()
+      call void @g()
+      ret void
+    lp:
+      %l = landingpad { $ptr, i32 } cleanup
+      ret void
+    }""" end) begin
+    f = mod.functions["f"]
+    @test isempty(mod.functions["g"].calls)
+
+    calls = f.calls
+    @test eltype(calls) == LLVM.CallBase
+    @test Base.IteratorSize(calls) == Base.SizeUnknown()
+    found = collect(calls)
+    @test map(typeof, found) == [LLVM.CallInst, LLVM.InvokeInst, LLVM.CallInst, LLVM.CallInst]
+    @test map(LLVM.parent, found) == [f.entry, f.blocks[2], f.blocks[3], f.blocks[3]]
+    @test all(call -> call.called_function == mod.functions["g"], found)
+
+    # the call that was just returned can be erased
+    n = 0
+    for call in f.calls
+        n += 1
+        call isa LLVM.CallInst && erase!(call)
+    end
+    @test n == 4
+    @test map(typeof, collect(f.calls)) == [LLVM.InvokeInst]
+end
+
+# inline assembly that can jump to a block
+@dispose ctx=Context() mod=parse(LLVM.Module, """
+    define void @f() {
+    entry:
+      callbr void asm "", "!i"() to label %a [label %b]
+    a:
+      ret void
+    b:
+      ret void
+    }""") begin
+    call = only(collect(mod.functions["f"].calls))
+    @test call isa LLVM.CallBrInst
+    @test call.called_function === nothing
 end
 
 end

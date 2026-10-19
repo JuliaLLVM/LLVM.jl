@@ -281,3 +281,14 @@ top:
 In addition to iterating the blocks of a function, it is possible to move from one basic
 block to the previous or next one using respectively the `bb.prev` and `bb.next`
 properties, which are `nothing` at the start and the end of the function.
+
+To look only at the call sites in a function, iterate over `fun.calls`, which yields its
+`call`, `invoke` and `callbr` instructions in order. This is cheaper than iterating over
+the instructions of every block and checking their type, as it only wraps the calls:
+
+```julia
+for call in fun.calls
+    callee = call.called_function
+    # ...
+end
+```

@@ -89,6 +89,15 @@ current body of the function. Create a `BasicBlock` to add one, and use operatio
 of blocks, so iterate instead of indexing each block. While iterating over the view, it is
 safe to remove or erase the block that was just returned, but not other blocks.
 
+    f.calls
+
+The call sites in the body of the function (`call`, `invoke` and `callbr` instructions, as
+[`LLVM.CallBase`](@ref) values), in the order of `f.blocks` and their instructions, as a
+read-only view. Unlike filtering the instructions of every block, this only wraps the
+calls, so it is cheaper for passes that only look at those. While iterating over the view,
+it is safe to remove or erase the call that was just returned, but not other instructions
+or blocks.
+
     f.subprogram
     f.subprogram = sp::Union{DISubprogram,Nothing}
 
@@ -555,6 +564,47 @@ function Base.collect(iter::FunctionBlockSet)
     elems = Vector{API.LLVMBasicBlockRef}(undef, length(iter))
     API.LLVMGetBasicBlocks(iter.f, elems)
     return BasicBlock[BasicBlock(elem) for elem in elems]
+end
+
+
+# call site iteration
+
+struct FunctionCallSet
+    f::Function
+end
+
+calls(f::Function) = FunctionCallSet(f)
+
+@property Function calls
+
+Base.eltype(::Type{FunctionCallSet}) = CallBase
+Base.IteratorSize(::Type{FunctionCallSet}) = Base.SizeUnknown()
+
+is_call_opcode(opcode) =
+    opcode == API.LLVMCall || opcode == API.LLVMInvoke || opcode == API.LLVMCallBr
+
+# the opcode is checked before wrapping an instruction, which is what makes this cheaper
+# than filtering the instructions of every block. the state is the block and the
+# instruction to look at next, so that the call that was returned can be erased.
+function Base.iterate(iter::FunctionCallSet, state=nothing)
+    if state === nothing
+        bb = API.LLVMGetFirstBasicBlock(iter.f)
+        inst = bb == C_NULL ? C_NULL : API.LLVMGetFirstInstruction(bb)
+    else
+        bb, inst = state
+    end
+    while bb != C_NULL
+        while inst != C_NULL
+            next = API.LLVMGetNextInstruction(inst)
+            if is_call_opcode(API.LLVMGetInstructionOpcode(inst))
+                return Instruction(inst)::CallBase, (bb, next)
+            end
+            inst = next
+        end
+        bb = API.LLVMGetNextBasicBlock(bb)
+        inst = bb == C_NULL ? C_NULL : API.LLVMGetFirstInstruction(bb)
+    end
+    return nothing
 end
 
 

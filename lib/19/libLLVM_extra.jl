@@ -155,6 +155,14 @@ function LLVMReplaceMDNodeOperandWith2(MD, I, New)
     ccall((:LLVMReplaceMDNodeOperandWith2, libLLVMExtra), Cvoid, (LLVMMetadataRef, Cuint, LLVMMetadataRef), MD, I, New)
 end
 
+function LLVMGetMetadata2(Inst, KindID)
+    ccall((:LLVMGetMetadata2, libLLVMExtra), LLVMMetadataRef, (LLVMValueRef, Cuint), Inst, KindID)
+end
+
+function LLVMSetMetadata2(Inst, KindID, Node)
+    ccall((:LLVMSetMetadata2, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint, LLVMMetadataRef), Inst, KindID, Node)
+end
+
 mutable struct LLVMOrcOpaqueIRCompileLayer end
 
 const LLVMOrcIRCompileLayerRef = Ptr{LLVMOrcOpaqueIRCompileLayer}

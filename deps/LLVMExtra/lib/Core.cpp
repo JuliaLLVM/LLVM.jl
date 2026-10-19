@@ -372,6 +372,16 @@ void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataR
   unwrap<MDNode>(MD)->replaceOperandWith(I, unwrap(New));
 }
 
+// LLVMGetMetadata and LLVMSetMetadata pass the node as a MetadataAsValue, which turns a node
+// with a single constant operand into that constant (and back into a uniqued node)
+LLVMMetadataRef LLVMGetMetadata2(LLVMValueRef Inst, unsigned KindID) {
+  return wrap(unwrap<Instruction>(Inst)->getMetadata(KindID));
+}
+
+void LLVMSetMetadata2(LLVMValueRef Inst, unsigned KindID, LLVMMetadataRef Node) {
+  unwrap<Instruction>(Inst)->setMetadata(KindID, Node ? unwrap<MDNode>(Node) : nullptr);
+}
+
 
 //
 // ORC API extensions

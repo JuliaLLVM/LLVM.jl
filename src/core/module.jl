@@ -799,18 +799,19 @@ flags(mod::Module) = ModuleFlagDict(mod)
 
 @property Module flags
 
-# LLVM only supports fetching all flags at once
+# the C API can't represent the Max and Min behaviors of module flags (enumerating and adding
+# flags hits `llvm_unreachable`), so they are read from and added to the module's
+# `llvm.module.flags` metadata, like Module::getModuleFlagsMetadata and addModuleFlag do.
+# every flag is a node of its behavior, name and value.
 function Base.iterate(iter::ModuleFlagDict)
-    len = Ref{Csize_t}()
-    ptr = API.LLVMCopyModuleFlagsMetadata(iter.mod, len)
     entries = Pair{String,Metadata}[]
-    for i in 1:len[]
-        keylen = Ref{Csize_t}()
-        key = API.LLVMModuleFlagEntriesGetKey(ptr, i-1, keylen)
-        md = API.LLVMModuleFlagEntriesGetMetadata(ptr, i-1)
-        push!(entries, unsafe_string(convert(Ptr{UInt8}, key), keylen[]) => Metadata(md))
+    node = get(metadata(iter.mod), "llvm.module.flags", nothing)
+    if node !== nothing
+        for flag in operands(node)
+            _, key, val = operands(flag)
+            push!(entries, convert(String, key) => val)
+        end
     end
-    ptr == C_NULL || API.LLVMDisposeModuleFlagsMetadata(ptr)
     iterate(iter, (entries, 1))
 end
 function Base.iterate(::ModuleFlagDict, (entries, i))
@@ -833,8 +834,12 @@ end
 
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
                         (name, behavior)::Tuple{AbstractString, API.LLVMModuleFlagBehavior})
-    name = String(name)
-    API.LLVMAddModuleFlag(iter.mod, behavior, name, ncodeunits(name), val)
+    flag = context!(context(iter.mod)) do
+        # the behaviors are numbered from 1 in the IR, and from 0 in the C API
+        id = Metadata(ConstantInt(Int32(Integer(behavior) + 1)))
+        MDNode([id, MDString(String(name)), val])
+    end
+    push!(operands(get!(metadata(iter.mod), "llvm.module.flags")), flag)
     return iter
 end
 

@@ -41,7 +41,7 @@ abstract type Attribute end
 end
 
 @inline propref(@nospecialize(x::Attribute)) = Base.unsafe_convert(API.LLVMAttributeRef, x)
-getprop(@nospecialize(x::Attribute), ::Val{S}) where {S} = property_error(x, S)
+field_prop(@nospecialize(x::Attribute), ::Val{S}) where {S} = property_error(x, S)
 
 Base.cconvert(::Type{API.LLVMAttributeRef}, @nospecialize(obj::Attribute)) = obj
 

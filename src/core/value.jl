@@ -56,7 +56,7 @@ abstract type Value end
 end
 
 @inline propref(@nospecialize(x::Value)) = Base.unsafe_convert(API.LLVMValueRef, x)
-getprop(@nospecialize(x::Value), ::Val{S}) where {S} = property_error(x, S)
+field_prop(@nospecialize(x::Value), ::Val{S}) where {S} = property_error(x, S)
 
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.

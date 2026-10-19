@@ -327,15 +327,32 @@ const property_registry = Tuple{Type,Symbol}[]
 
 # fall back to the object's fields, or error with a list of the available properties.
 # hierarchies of wrappers that consist of nothing but their reference (values, types,
-# metadata, ...) only error, so that a property of an abstractly-typed object is inferred
-# as the union of what the types that have it return, instead of as `Any`.
-@inline function getprop(x, ::Val{S}) where {S}
+# metadata, ...) only error (with a method of `field_prop`, which keeps `getprop` free of
+# methods that are ambiguous with the ones below), so that a property of an abstractly-typed
+# object is inferred as the union of what the types that have it return, instead of `Any`.
+@inline getprop(x, ::Val{S}) where {S} = field_prop(x, Val(S))
+@inline function field_prop(x, ::Val{S}) where {S}
     hasfield(typeof(x), S) || property_error(x, S)
     getfield(x, S)
 end
 @inline function setprop!(x, ::Val{S}, v) where {S}
     hasfield(typeof(x), S) || property_error(x, S, v)
     setfield!(x, S, v)
+end
+# Julia infers a property read with a constant name, `x.name`, first as if the name weren't
+# known (as `getproperty(x, s)` for a variable `s`), and only then propagates the constant.
+# with an unknown name, inference considers each `getprop` method that matches the type of
+# `x` if there are at most `max_methods` (3) of them: it infers the getters of all of the
+# object's properties. that creates inference cycles, as getters read properties of their
+# object, also to convert it to a reference for the C API, and Julia doesn't inline the
+# functions of a cycle into each other: e.g., `isoverloaded(::Intrinsic)` didn't inline the
+# C API wrapper it calls, and took 90 ns for a 2 ns call. these three methods, which no
+# property uses, and the fallback above make any read with an unknown name match more than
+# three methods, so that inference gives up on it right away. constant names don't match
+# them.
+Base.Experimental.@max_methods 3 function getprop end
+for name in (Symbol("#placeholder1"), Symbol("#placeholder2"), Symbol("#placeholder3"))
+    @eval getprop(x, ::Val{$(QuoteNode(name))}) = property_error(x, $(QuoteNode(name)))
 end
 # the error paths don't need to be fast, so don't compile them for every type
 @noinline Base.@nospecializeinfer function property_error(@nospecialize(x), s::Symbol,

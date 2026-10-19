@@ -23,7 +23,7 @@ abstract type LLVMType end
 end
 
 @inline propref(@nospecialize(x::LLVMType)) = Base.unsafe_convert(API.LLVMTypeRef, x)
-getprop(@nospecialize(x::LLVMType), ::Val{S}) where {S} = property_error(x, S)
+field_prop(@nospecialize(x::LLVMType), ::Val{S}) where {S} = property_error(x, S)
 
 # avoid specializing the conversions performed by `ccall` on the concrete wrapper type.
 # wrappers consist of nothing but their reference, so there's nothing else to keep alive.

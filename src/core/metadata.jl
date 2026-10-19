@@ -503,7 +503,7 @@ end
 md_kind(val::Value, kind) = MDKind(kind)
 md_kind(val::Value, name::AbstractString) = MDKind(name; context=context(val))
 
-# instructions (using MetadataAsValue values)
+# instructions
 
 struct InstructionMetadataDict <: AbstractDict{MDKind,Metadata}
     val::Instruction
@@ -515,23 +515,25 @@ metadata(inst::Instruction) = InstructionMetadataDict(inst)
 
 Base.isempty(md::InstructionMetadataDict) = !Bool(API.LLVMHasMetadata(md.val))
 
+# not using LLVMGetMetadata and LLVMSetMetadata, which pass the node as a MetadataAsValue,
+# turning a node with a single constant operand into that constant
 Base.haskey(md::InstructionMetadataDict, key) =
-  API.LLVMGetMetadata(md.val, md_kind(md.val, key)) != C_NULL
+    API.LLVMGetMetadata2(md.val, md_kind(md.val, key)) != C_NULL
 
 function Base.getindex(md::InstructionMetadataDict, key)
     kind = md_kind(md.val, key)
-    objref = API.LLVMGetMetadata(md.val, kind)
-    objref == C_NULL && throw(KeyError(kind))
-    return Metadata(MetadataAsValue(objref))
-  end
+    ref = API.LLVMGetMetadata2(md.val, kind)
+    ref == C_NULL && throw(KeyError(kind))
+    return Metadata(ref)
+end
 
 function Base.setindex!(md::InstructionMetadataDict, node::MDNode, key)
-    API.LLVMSetMetadata(md.val, md_kind(md.val, key), Value(node))
+    API.LLVMSetMetadata2(md.val, md_kind(md.val, key), node)
     return md
 end
 
 function Base.delete!(md::InstructionMetadataDict, key)
-    API.LLVMSetMetadata(md.val, md_kind(md.val, key), C_NULL)
+    API.LLVMSetMetadata2(md.val, md_kind(md.val, key), C_NULL)
     return md
 end
 

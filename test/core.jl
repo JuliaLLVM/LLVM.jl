@@ -2050,6 +2050,34 @@ end
     end
 end
 
+# instruction attachments are looked up and attached as nodes, also those with a single
+# constant operand (which LLVM's C API turns into that constant)
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        declare void @f()
+        define void @g() {
+          call void @f(), !foo !0, !bar !1, !baz !2
+          ret void
+        }
+        !0 = !{i64 1}
+        !1 = distinct !{i64 1}
+        !2 = !{i64 1, i64 2}
+        """)
+    call, ret = collect(mod.functions["g"].entry.instructions)
+    attachments = Dict(call.metadata)
+    for kind in ("foo", "bar", "baz")
+        md = call.metadata[kind]
+        @test md isa MDTuple
+        @test md == attachments[MDKind(kind)]
+        ret.metadata[kind] = md
+        @test ret.metadata[kind] == md
+    end
+    @test string(ret) == "  ret void, !foo !0, !bar !1, !baz !2"
+    delete!(ret.metadata, "bar")
+    @test !haskey(ret.metadata, "bar")
+    dispose(mod)
+end
+
 @dispose ctx=Context() begin
     str = MDString("foo")
     node = MDNode([str])

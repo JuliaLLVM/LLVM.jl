@@ -102,6 +102,8 @@ void LLVMAddNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef Val);
 void LLVMClearNamedMetadataOperands(LLVMNamedMDNodeRef NMD);
 void LLVMSetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I, LLVMMetadataRef Val);
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New);
+LLVMMetadataRef LLVMGetMetadata2(LLVMValueRef Inst, unsigned KindID);
+void LLVMSetMetadata2(LLVMValueRef Inst, unsigned KindID, LLVMMetadataRef Node);
 
 // ORC API extensions
 typedef struct LLVMOrcOpaqueIRCompileLayer *LLVMOrcIRCompileLayerRef;

@@ -26,6 +26,11 @@ DataLayout
 
 Base.unsafe_convert(::Type{API.LLVMTargetDataRef}, dl::DataLayout) = mark_use(dl).ref
 
+# wrap a handle of the current library
+DataLayout(ref::API.LLVMTargetDataRef) = DataLayout(ref, library())
+
+argument_library(dl::DataLayout) = dl.library
+
 """
     DataLayout(rep::AbstractString)
 
@@ -33,7 +38,8 @@ Create a target data layout from the given string representation.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-DataLayout(rep::AbstractString) = mark_alloc(DataLayout(API.LLVMCreateTargetData(rep)))
+DataLayout(rep::AbstractString) =
+    mark_alloc(DataLayout(API.LLVMCreateTargetData(rep), library()))
 
 """
     DataLayout(tm::TargetMachine)
@@ -42,7 +48,8 @@ Create a target data layout from the given target machine.
 
 This object needs to be disposed of using [`dispose`](@ref).
 """
-DataLayout(tm::TargetMachine) = mark_alloc(DataLayout(API.LLVMCreateTargetDataLayout(tm)))
+DataLayout(tm::TargetMachine) =
+    mark_alloc(DataLayout(API.LLVMCreateTargetDataLayout(tm), tm.library))
 
 """
     dispose(dl::DataLayout)
@@ -55,7 +62,7 @@ DataLayout(f::Core.Function, args...; kwargs...) =
     with_disposal(f, DataLayout(args...; kwargs...))
 
 Base.string(dl::DataLayout) =
-    unsafe_message(API.LLVMCopyStringRepOfTargetData(dl))
+    unsafe_message(dl.library, API.LLVMCopyStringRepOfTargetData(dl))
 
 function Base.show(io::IO, dl::DataLayout)
     @printf(io, "DataLayout(%s)", string(dl))

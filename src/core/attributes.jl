@@ -98,11 +98,11 @@ function Attribute(ref::API.LLVMAttributeRef)
     elseif Bool(API.LLVMIsTypeAttribute(ref))
         return TypeAttribute(ref)
     else
-        @static if version() >= v"20"
+        if atleast(19)
             Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
+        end
+        if atleast(20)
             Bool(API.LLVMIsConstantRangeListAttribute(ref)) && return ConstantRangeListAttribute(ref)
-        elseif version() >= v"19"
-            Bool(API.LLVMIsConstantRangeAttribute(ref)) && return ConstantRangeAttribute(ref)
         end
         error("unknown attribute kind")
     end
@@ -112,7 +112,7 @@ end
 function Base.show(io::IO, attr::Attribute)
     print(io, nameof(typeof(attr)), "(")
     show(io, kind(attr))
-    if attr isa ConstantRangeAttribute && version() >= v"19"
+    if attr isa ConstantRangeAttribute && atleast(19)
         print(io, ", ")
         show(io, value(attr))
     elseif attr isa Union{EnumAttribute,StringAttribute,TypeAttribute}
@@ -130,28 +130,25 @@ end
 # LLVM's attribute kinds are an enum that is not part of the C API, so we identify them by
 # their name, as used in textual IR. these are the integer IDs that the C API works with.
 # looking up a kind by name is a string switch in LLVM, and getting its name back requires
-# a string, so all kinds are tabulated when LLVM.jl is loaded (see `init_attribute_kinds`).
-const attribute_kind_names = Symbol[]                   # by ID
-const attribute_kind_categories = Symbol[]              # by ID, see `attribute_kind_category`
-const attribute_kind_ids = Dict{Symbol,Cuint}()
-
-function init_attribute_kinds()
-    empty!(attribute_kind_names)
-    empty!(attribute_kind_categories)
-    empty!(attribute_kind_ids)
+# a string, so all kinds are tabulated when a library is loaded, in its `attribute_kinds`.
+function init_attribute_kinds!(lib::Library)
+    kinds = lib.attribute_kinds
+    empty!(kinds.names)
+    empty!(kinds.categories)
+    empty!(kinds.ids)
     len = Ref{Csize_t}()
-    for id in Cuint(1):(API.LLVMGetLastEnumAttributeKind() - Cuint(1))
-        data = API.LLVMExtraGetAttributeKindName(id, len)
+    for id in Cuint(1):(API.LLVMGetLastEnumAttributeKind(lib) - Cuint(1))
+        data = API.LLVMExtraGetAttributeKindName(lib, id, len)
         name = data == C_NULL ? Symbol() :
                                 Symbol(unsafe_string(convert(Ptr{UInt8}, data), len[]))
-        push!(attribute_kind_names, name)
-        push!(attribute_kind_categories, lookup_attribute_kind_category(id))
-        name == Symbol() || (attribute_kind_ids[name] = id)
+        push!(kinds.names, name)
+        push!(kinds.categories, lookup_attribute_kind_category(lib, id))
+        name == Symbol() || (kinds.ids[name] = id)
     end
 end
 
 attribute_kind_id(attr::Attribute) = API.LLVMGetEnumAttributeKind(attr)
-attribute_kind_id(name::Symbol) = get(attribute_kind_ids, name, Cuint(0))
+attribute_kind_id(name::Symbol) = get(library().attribute_kinds.ids, name, Cuint(0))
 function attribute_kind_id(name::AbstractString)
     name = String(name)
     API.LLVMGetEnumAttributeKindForName(name, ncodeunits(name))
@@ -159,15 +156,16 @@ end
 
 # the category of an attribute kind, which determines the kind of attribute it is used for
 function attribute_kind_category(id::Integer)
-    1 <= id <= length(attribute_kind_categories) || return :other
-    return @inbounds attribute_kind_categories[id]
+    categories = library().attribute_kinds.categories
+    1 <= id <= length(categories) || return :other
+    return @inbounds categories[id]
 end
-function lookup_attribute_kind_category(id::Integer)
-    Bool(API.LLVMExtraIsEnumAttributeKind(id)) && return :enum
-    Bool(API.LLVMExtraIsIntAttributeKind(id)) && return :int
-    Bool(API.LLVMExtraIsTypeAttributeKind(id)) && return :type
-    @static if version() >= v"19"
-        Bool(API.LLVMExtraIsConstantRangeAttributeKind(id)) && return :range
+function lookup_attribute_kind_category(lib::Library, id::Integer)
+    Bool(API.LLVMExtraIsEnumAttributeKind(lib, id)) && return :enum
+    Bool(API.LLVMExtraIsIntAttributeKind(lib, id)) && return :int
+    Bool(API.LLVMExtraIsTypeAttributeKind(lib, id)) && return :type
+    if atleast(19, lib)
+        Bool(API.LLVMExtraIsConstantRangeAttributeKind(lib, id)) && return :range
     end
     return :other
 end
@@ -191,8 +189,8 @@ function checked_attribute_kind_id(name::Union{Symbol,AbstractString},
 end
 
 function attribute_kind_name(id::Integer)
-    name = 1 <= id <= length(attribute_kind_names) ? @inbounds(attribute_kind_names[id]) :
-                                                     Symbol()
+    names = library().attribute_kinds.names
+    name = 1 <= id <= length(names) ? @inbounds(names[id]) : Symbol()
     name == Symbol() && error("Unknown attribute kind ID $id")
     return name
 end
@@ -277,48 +275,44 @@ end
 
 ## constant range attribute
 
-if version() >= v"19"
-    function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, nbits::Integer,
-                                    lower::AbstractVector{UInt64},
-                                    upper::AbstractVector{UInt64})
-        enum_kind = checked_attribute_kind_id(kind, :range)
-        # LLVM reads the words of both bounds, cld(nbits, 64) each (ignoring bits beyond
-        # nbits), and asserts that the range is valid and not the full range
-        0 < nbits <= typemax(Cuint) ||
-            throw(ArgumentError("Invalid number of bits for a range: $nbits"))
-        nwords = cld(nbits, 64)
-        length(lower) == length(upper) == nwords ||
-            throw(ArgumentError("The bounds of a $nbits-bit range need $nwords words each, got $(length(lower)) and $(length(upper))"))
-        bound(words) = foldl((x, (i, w)) -> x | big(w) << (64*(i-1)), enumerate(words);
-                             init=big(0)) & (big(1) << nbits - 1)
-        lo, hi = bound(lower), bound(upper)
-        if lo == hi
-            lo == 0 || lo == big(1) << nbits - 1 ||
-                throw(ArgumentError("The bounds of a range can only be equal to denote the empty range (0, 0)"))
-            lo == 0 || throw(ArgumentError("A range attribute cannot be the full range"))
-        end
-        return ConstantRangeAttribute(
-            API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
-                                                 convert(Vector{UInt64}, lower),
-                                                 convert(Vector{UInt64}, upper)))
+function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, nbits::Integer,
+                                lower::AbstractVector{UInt64},
+                                upper::AbstractVector{UInt64})
+    enum_kind = checked_attribute_kind_id(kind, :range)
+    # LLVM reads the words of both bounds, cld(nbits, 64) each (ignoring bits beyond
+    # nbits), and asserts that the range is valid and not the full range
+    0 < nbits <= typemax(Cuint) ||
+        throw(ArgumentError("Invalid number of bits for a range: $nbits"))
+    nwords = cld(nbits, 64)
+    length(lower) == length(upper) == nwords ||
+        throw(ArgumentError("The bounds of a $nbits-bit range need $nwords words each, got $(length(lower)) and $(length(upper))"))
+    bound(words) = foldl((x, (i, w)) -> x | big(w) << (64*(i-1)), enumerate(words);
+                         init=big(0)) & (big(1) << nbits - 1)
+    lo, hi = bound(lower), bound(upper)
+    if lo == hi
+        lo == 0 || lo == big(1) << nbits - 1 ||
+            throw(ArgumentError("The bounds of a range can only be equal to denote the empty range (0, 0)"))
+        lo == 0 || throw(ArgumentError("A range attribute cannot be the full range"))
     end
+    return ConstantRangeAttribute(
+        API.LLVMCreateConstantRangeAttribute(context(), enum_kind, Cuint(nbits),
+                                             convert(Vector{UInt64}, lower),
+                                             convert(Vector{UInt64}, upper)))
 end
 
-if version() >= v"19"
-    function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, r::ConstantRange)
-        isfullset(r) && throw(ArgumentError("A range attribute cannot be the full range"))
-        return ConstantRangeAttribute(kind, bitwidth(r), collect(getfield(r, :lower)),
-                                      collect(getfield(r, :upper)))
-    end
+function ConstantRangeAttribute(kind::Union{Symbol,AbstractString}, r::ConstantRange)
+    isfullset(r) && throw(ArgumentError("A range attribute cannot be the full range"))
+    return ConstantRangeAttribute(kind, bitwidth(r), collect(getfield(r, :lower)),
+                                  collect(getfield(r, :upper)))
+end
 
-    function value(attr::ConstantRangeAttribute)
-        nbits = API.LLVMExtraGetConstantRangeAttributeValue(attr, C_NULL, C_NULL)
-        n = nwords(nbits)
-        lower = Vector{UInt64}(undef, n)
-        upper = Vector{UInt64}(undef, n)
-        API.LLVMExtraGetConstantRangeAttributeValue(attr, lower, upper)
-        return unsafe_range(nbits, Tuple(lower)::Words, Tuple(upper)::Words)
-    end
+function value(attr::ConstantRangeAttribute)
+    nbits = API.LLVMExtraGetConstantRangeAttributeValue(attr, C_NULL, C_NULL)
+    n = nwords(nbits)
+    lower = Vector{UInt64}(undef, n)
+    upper = Vector{UInt64}(undef, n)
+    API.LLVMExtraGetConstantRangeAttributeValue(attr, lower, upper)
+    return unsafe_range(nbits, Tuple(lower)::Words, Tuple(upper)::Words)
 end
 
 kind(attr::ConstantRangeAttribute) = attribute_kind_name(attribute_kind_id(attr))
@@ -646,4 +640,4 @@ end
 
 @property Attribute kind
 @property Union{EnumAttribute,StringAttribute,TypeAttribute} value
-version() >= v"19" && @property ConstantRangeAttribute value
+@property ConstantRangeAttribute value since=19

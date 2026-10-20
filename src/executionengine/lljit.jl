@@ -8,14 +8,18 @@ do-block form, which do nothing once it has been consumed.
 """
 mutable struct LLJITBuilder
     ref::API.LLVMOrcLLJITBuilderRef
+    const library::Library
     roots::Vector{Any}
     owned::Bool
 
-    function LLJITBuilder(ref::API.LLVMOrcLLJITBuilderRef, roots::Vector{Any})
+    function LLJITBuilder(ref::API.LLVMOrcLLJITBuilderRef, roots::Vector{Any};
+                          library::Library=LLVM.library())
         ref == C_NULL && throw(UndefRefError())
-        mark_alloc(new(ref, roots, true))
+        mark_alloc(new(ref, library, roots, true))
     end
 end
+
+argument_library(builder::LLJITBuilder) = builder.library
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITBuilderRef}, builder::LLJITBuilder) =
     check_owned(builder).ref
 
@@ -62,9 +66,12 @@ materialization unit with [`emit!`](@ref). By default, it does not change module
 """
 @checked mutable struct LLJIT
     ref::API.LLVMOrcLLJITRef
+    library::Library
     roots::Vector{Any}  # Julia objects that LLVM holds on to, e.g., for callbacks
 end
-LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, Any[])
+LLJIT(ref::API.LLVMOrcLLJITRef) = LLJIT(ref, library(), Any[])
+
+argument_library(lljit::LLJIT) = lljit.library
 @properties LLJIT
 
 Base.unsafe_convert(::Type{API.LLVMOrcLLJITRef}, lljit::LLJIT) = mark_use(lljit).ref
@@ -82,6 +89,7 @@ Use `tmb` to create the JIT's target machines, consuming it.
 """
 function target_machine_builder!(builder::LLJITBuilder, tmb::TargetMachineBuilder)
     check_owned(builder)
+    check_library(builder.library, tmb)
     API.LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder, consume!(tmb))
     return
 end
@@ -109,10 +117,10 @@ Create an LLJIT as configured by `builder`, taking ownership of the builder.
 function LLJIT(builder::LLJITBuilder)
     ref = Ref{API.LLVMOrcLLJITRef}()
     # LLVMOrcCreateLLJIT consumes the builder on both success and failure
-    err = API.LLVMOrcCreateLLJIT(ref, consume!(builder))
-    @check err
+    err = API.LLVMOrcCreateLLJIT(builder.library, ref, consume!(builder))
+    @check builder.library err
 
-    lljit = mark_alloc(LLJIT(ref[]))
+    lljit = mark_alloc(LLJIT(ref[], builder.library, Any[]))
     for root in builder.roots
         if root isa ObjectLinkingLayerCreator && root.exception !== nothing
             err, bt = root.exception
@@ -125,7 +133,7 @@ end
 
 function dispose(lljit::LLJIT)
     mark_dispose(lljit) do lljit
-        @check API.LLVMOrcDisposeLLJIT(lljit)
+        @check lljit.library API.LLVMOrcDisposeLLJIT(lljit)
     end
     empty!(lljit.roots)
     return
@@ -139,6 +147,12 @@ Create an LLJIT that compiles for the host, or for the target machine `tm`, taki
 ownership of it. The do-block form disposes of the JIT after calling `f(lljit)`.
 """
 function LLJIT(; tm::Union{Nothing, TargetMachine} = nothing)
+    # the JIT uses the library of the target machine
+    tm === nothing || return library!(() -> _LLJIT(tm), tm.library)
+    _LLJIT(tm)
+end
+
+function _LLJIT(tm::Union{Nothing, TargetMachine})
     builder = LLJITBuilder()
     try
         tmb = tm === nothing ? TargetMachineBuilder() : TargetMachineBuilder(tm)
@@ -220,9 +234,12 @@ Julia code. Only available before Julia 1.14; see above for what to use on newer
 end
 @properties JuliaOJIT
 
+argument_library(::JuliaOJIT) = julia_library
+
 Base.unsafe_convert(::Type{API.JuliaOJITRef}, jljit::JuliaOJIT) = jljit.ref
 
 function JuliaOJIT()
+    check_julia_library("JuliaOJIT")
     JuliaOJIT(API.JLJITGetJuliaOJIT())
 end
 

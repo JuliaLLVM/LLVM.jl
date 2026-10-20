@@ -75,10 +75,10 @@ find_symbol(name::AbstractString) = API.LLVMSearchForAddressOfSymbol(name)
 # SPS wrapper silently swallowed it), so we publish no-op symbols to satisfy the lookup.
 noop_register_frame(::Ptr{Cvoid})::Cvoid = nothing
 
-function register_eh_frame_stubs()
+function register_eh_frame_stubs(lib::Library)
     Sys.iswindows() || return
     fp = @cfunction(noop_register_frame, Cvoid, (Ptr{Cvoid},))
-    add_symbol("__register_frame", fp)
-    add_symbol("__deregister_frame", fp)
+    API.LLVMAddSymbol(lib, "__register_frame", fp)
+    API.LLVMAddSymbol(lib, "__deregister_frame", fp)
     return
 end

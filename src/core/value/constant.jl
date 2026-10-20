@@ -30,6 +30,7 @@ end
 @public Module
 @checked struct Module
     ref::API.LLVMModuleRef
+    library::Library
 end
 abstract type Instruction <: User end
 
@@ -191,9 +192,7 @@ only exists on LLVM 16 and later.
 @checked struct ConstantTargetNone <: ConstantData
     ref::API.LLVMValueRef
 end
-if version() >= v"16"
-    register(ConstantTargetNone, API.LLVMConstantTargetNoneValueKind)
-end
+register(ConstantTargetNone, API.LLVMConstantTargetNoneValueKind)
 
 
 """
@@ -210,7 +209,7 @@ register(ConstantInt, API.LLVMConstantIntValueKind)
 const WideInteger = Union{Int64, UInt64}
 function ConstantInt(typ::IntegerType, val::WideInteger, signed=false)
     word = reinterpret(Culonglong, val)
-    if version() >= v"23"
+    if atleast(23)
         # LLVM 23's constant constructor no longer truncates implicitly.
         bits = width(typ)
         if bits < 64
@@ -290,22 +289,20 @@ end
 # Booleans aren't Signed or Unsigned
 Base.convert(::Type{Bool}, val::ConstantInt) = convert(Int, val) != 0
 
-if version() >= v"23"
-    @checked struct ConstantByte <: ConstantData
-        ref::API.LLVMValueRef
-    end
-    @doc """
-        ConstantByte(typ::LLVM.ByteType, val::Integer)
+@checked struct ConstantByte <: ConstantData
+    ref::API.LLVMValueRef
+end
+@doc """
+    ConstantByte(typ::LLVM.ByteType, val::Integer)
 
-    A constant of an arbitrary-width byte type. The value's bit pattern is truncated
-    to the type's width. Requires LLVM 23+.
-    """ ConstantByte
-    @vocabulary IR ConstantByte
-    register(ConstantByte, API.LLVMConstantByteValueKind)
-    function ConstantByte(typ::ByteType, val::Integer)
-        words = [(val >> (64 * (i - 1))) % UInt64 for i in 1:cld(width(typ), 64)]
-        ConstantByte(API.LLVMConstByteOfArbitraryPrecision(typ, length(words), words))
-    end
+A constant of an arbitrary-width byte type. The value's bit pattern is truncated
+to the type's width. Requires LLVM 23+.
+""" ConstantByte
+@vocabulary IR ConstantByte
+register(ConstantByte, API.LLVMConstantByteValueKind)
+function ConstantByte(typ::ByteType, val::Integer)
+    words = [(val >> (64 * (i - 1))) % UInt64 for i in 1:cld(width(typ), 64)]
+    ConstantByte(API.LLVMConstByteOfArbitraryPrecision(typ, length(words), words))
 end
 
 
@@ -875,7 +872,7 @@ const_xor(lhs::Constant, rhs::Constant) =
 function const_gep(Ty::LLVMType, val::Constant, Indices::AbstractVector{<:Constant};
                    inbounds::Bool=false, nusw::Bool=false, nuw::Bool=false)
     indices = as_refs(Indices)
-    @static if version() >= v"19"
+    if atleast(19)
         flags = (inbounds ? UInt32(API.LLVMGEPFlagInBounds) : UInt32(0)) |
                 (nusw ? UInt32(API.LLVMGEPFlagNUSW) : UInt32(0)) |
                 (nuw ? UInt32(API.LLVMGEPFlagNUW) : UInt32(0))
@@ -966,16 +963,10 @@ function const_splat(typ::VectorType, value::Real)
     const_splat(typ, element)
 end
 
-if version() < v"17"
-
 @vocabulary Build const_select
 
 const_select(cond::Constant, if_true::Value, if_false::Value) =
     Value(API.LLVMConstSelect(cond, if_true, if_false))
-
-end
-
-if version() < v"18"
 
 @vocabulary Build const_and, const_or, const_lshr, const_ashr, const_sext, const_zext,
                   const_fptrunc, const_fpext, const_fptoui, const_fptosi, const_uitofp,
@@ -1030,10 +1021,6 @@ const_zextorbitcast(val::Constant, ToType::LLVMType) =
 const_sextorbitcast(val::Constant, ToType::LLVMType) =
     Value(API.LLVMConstSExtOrBitCast(val, ToType))
 
-end
-
-if version() < v"19"
-
 @vocabulary Build const_icmp, const_fcmp, const_shl
 
 const_icmp(Predicate::API.LLVMIntPredicate, lhs::Constant, rhs::Constant) =
@@ -1044,10 +1031,6 @@ const_fcmp(Predicate::API.LLVMRealPredicate, lhs::Constant, rhs::Constant) =
 
 const_shl(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstShl(lhs, rhs))
-
-end
-
-if version() < v"21"
 
 @vocabulary Build const_mul, const_nswmul, const_nuwmul
 
@@ -1060,9 +1043,17 @@ const_nswmul(lhs::Constant, rhs::Constant) =
 const_nuwmul(lhs::Constant, rhs::Constant) =
     Value(API.LLVMConstNUWMul(lhs, rhs))
 
-end
+# the version of LLVM that removed a constant expression from the C API
+const constant_expression_until = Dict(
+    :const_select => 17,
+    (f => 18 for f in (:const_and, :const_or, :const_lshr, :const_ashr, :const_sext,
+                       :const_zext, :const_fptrunc, :const_fpext, :const_fptoui,
+                       :const_fptosi, :const_uitofp, :const_sitofp, :const_intcast,
+                       :const_fpcast, :const_zextorbitcast, :const_sextorbitcast))...,
+    (f => 19 for f in (:const_icmp, :const_fcmp, :const_shl))...,
+    (f => 21 for f in (:const_mul, :const_nswmul, :const_nuwmul))...)
 
-# the documentation of the constant expressions that this version of LLVM supports
+# the documentation of the constant expressions
 let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
              (:const_not, "`xor val, -1`")],
     binary = [(:const_add, "`add`"), (:const_nswadd, "`add nsw`"), (:const_nuwadd, "`add nuw`"),
@@ -1159,11 +1150,13 @@ let unary = [(:const_neg, "`sub 0, val`"), (:const_nswneg, "`sub nsw 0, val`"),
             `predicate`. $note
             """])
     for (f, doc) in docs
-        isdefined(@__MODULE__, f) || continue
+        until = get(constant_expression_until, f, nothing)
+        if until !== nothing
+            doc *= "\nOnly available before LLVM $until, which removed it from the C API.\n"
+        end
         @eval @doc $doc $f
     end
     for (f, other) in (:const_inbounds_gep => :const_gep, :const_fcmp => :const_icmp)
-        isdefined(@__MODULE__, f) || continue
         @eval @doc (@doc $other) $f
     end
 end
@@ -1204,9 +1197,7 @@ A signed pointer, `ptrauth (ptr @f, i32 0)` in LLVM IR, as used for pointer auth
 @checked struct ConstantPtrAuth <: Constant
     ref::API.LLVMValueRef
 end
-if version() >= v"19"
-    register(ConstantPtrAuth, API.LLVMConstantPtrAuthValueKind)
-end
+register(ConstantPtrAuth, API.LLVMConstantPtrAuthValueKind)
 
 
 ## inline assembly

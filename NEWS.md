@@ -3,6 +3,16 @@
 
 ## LLVM.jl v10.3
 
+The wrappers of the C API (`LLVM.API`) are now generated once for every supported version of
+LLVM, instead of per version. Functions of the C API are defined on every version, and
+throw an error when called on a version of LLVM that lacks them. Enums contain the values
+of every version, e.g. `LLVM.Opcode.Br` next to `LLVM.Opcode.CondBr`, and
+`LLVM.isavailable` says whether the version in use has a value; passing a value that it
+lacks to LLVM throws an error. Enum values have the same number on every version of LLVM,
+even where the C API numbers them differently (value kinds, DWARF source languages), so
+these numbers do not always match those of LLVM's C headers.
+`res/ABI.md` lists how the C APIs of the supported versions differ.
+
 ### Promoting allocas to registers
 
 `promote_mem_to_reg!(allocas, domtree)` replaces allocas by SSA values, like the `mem2reg`

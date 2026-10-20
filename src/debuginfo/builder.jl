@@ -18,8 +18,11 @@ labels, lexical blocks and locations require a [`DILocalScope`](@ref).
 """
 @checked mutable struct DIBuilder
     ref::API.LLVMDIBuilderRef
+    library::Library
     needs_finalization::Bool
 end
+
+argument_library(builder::DIBuilder) = builder.library
 
 Base.unsafe_convert(::Type{API.LLVMDIBuilderRef}, builder::DIBuilder) =
     mark_use(builder).ref
@@ -36,7 +39,7 @@ metadata nodes attached to the module so that cycles can be resolved during
 function DIBuilder(mod::Module; allow_unresolved::Bool=true)
     ref = allow_unresolved ? API.LLVMCreateDIBuilder(mod) :
                              API.LLVMCreateDIBuilderDisallowUnresolved(mod)
-    mark_alloc(DIBuilder(ref, false))
+    mark_alloc(DIBuilder(ref, mod.library, false))
 end
 
 """

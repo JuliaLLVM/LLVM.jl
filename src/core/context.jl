@@ -14,6 +14,10 @@ threads simultaneously.
 
 # Properties
 
+    ctx.library
+
+The [`LLVM.Library`](@ref) that the context belongs to, as do the objects in it.
+
     ctx.types
 
 The named types of the context, as a view that supports looking up a type by its name
@@ -22,25 +26,38 @@ is not a collection.
 """
 @checked struct Context
     ref::API.LLVMContextRef
+    library::Library
 end
 @properties Context
+
+# wrap a handle of the current library
+Context(ref::API.LLVMContextRef) = Context(ref, library())
+
+argument_library(ctx::Context) = ctx.library
 
 Base.unsafe_convert(::Type{API.LLVMContextRef}, ctx::Context) = mark_use(ctx).ref
 
 """
-    LLVM.Context(; opaque_pointers=nothing)
+    LLVM.Context(; opaque_pointers=nothing, library=LLVM.library())
 
-Create a new LLVM context. If `opaque_pointers` is `true`, the context will use opaque
-pointers instead of typed pointers (if suppoprted). Otherwise the behavior of the context
-depends on the LLVM version.
+Create a new LLVM context, and make it the active context (see [`context`](@ref)). If
+`opaque_pointers` is `true`, the context will use opaque pointers instead of typed pointers
+(if suppoprted). Otherwise the behavior of the context depends on the LLVM version.
+
+The context belongs to `library` (an [`LLVM.Library`](@ref) or the name of one). The
+do-block form `Context(...) do ctx ... end` also makes that library the current one (see
+[`LLVM.library!`](@ref)), which is required for using a context that does not belong to the
+current library.
 
 This object needs to be disposed of using [`dispose(::Context)`](@ref).
 """
-function Context(; opaque_pointers::Union{Nothing,Bool}=nothing)
-    @static if version() >= v"17"
+function Context(; opaque_pointers::Union{Nothing,Bool}=nothing,
+                 library::Union{Nothing,Library,Symbol}=nothing)
+    lib = resolve_library(library)
+    if lib.version >= v"17"
         opaque_pointers === false && throw(ArgumentError("LLVM >=17 does not support typed pointers"))
     end
-    ctx = mark_alloc(Context(API.LLVMContextCreate()))
+    ctx = mark_alloc(Context(API.LLVMContextCreate(lib), lib))
     memcheck_register_context(ctx, ctx)
     if opaque_pointers !== nothing
         opaque_pointers!(ctx, opaque_pointers)
@@ -107,8 +124,13 @@ function dispose(ctx::Context)
     mark_dispose(leak ? Returns(nothing) : API.LLVMContextDispose, ctx)
 end
 
-Context(f::Core.Function; kwargs...) =
-    with_disposal(f, Context(; kwargs...))
+function Context(f::Core.Function; library::Union{Nothing,Library,Symbol}=nothing,
+                 kwargs...)
+    lib = resolve_library(library)
+    library!(lib) do
+        with_disposal(f, Context(; library=lib, kwargs...))
+    end
+end
 
 function adopt(ctx::Context)
     mark_adopt(ctx)
@@ -118,7 +140,8 @@ end
 
 function Base.show(io::IO, ctx::Context)
     @printf(io, "LLVM.Context(%p", ctx.ref)
-    if version() < v"17"
+    ctx.library === library() || print(io, ", library=:", ctx.library.name)
+    if ctx.library.version < v"17"
         # migration to opaque pointers
         print(io, ", ", supports_typed_pointers(ctx) ? "typed ptrs" : "opaque ptrs")
     end
@@ -144,25 +167,14 @@ Check whether the current context supports typed pointers.
 """
 supports_typed_pointers() = supports_typed_pointers(context())
 
-if version() >= v"17"
-    supports_typed_pointers(ctx::Context) = false
-else
-    supports_typed_pointers(ctx::Context) =
-        API.LLVMContextSupportsTypedPointers(ctx) |> Bool
-
-    unsafe_opaque_pointers!(ctx::Context, enable::Bool) =
-        API.LLVMContextSetOpaquePointers(ctx, enable)
-end
+supports_typed_pointers(ctx::Context) =
+    !atleast(17, ctx.library) && Bool(API.LLVMContextSupportsTypedPointers(ctx))
 
 function opaque_pointers!(ctx::Context, opaque_pointers::Bool)
-    @static if version() >= v"17"
-        if !opaque_pointers
-            error("LLVM >=17 does not support typed pointers")
-        end
-    end
-
-    @static if version() < v"17"
-        unsafe_opaque_pointers!(ctx, opaque_pointers)
+    if atleast(17, ctx.library)
+        opaque_pointers || error("LLVM >=17 does not support typed pointers")
+    else
+        API.LLVMContextSetOpaquePointers(ctx, opaque_pointers)
     end
 end
 
@@ -199,31 +211,7 @@ message(di::DiagnosticInfo) = unsafe_message(API.LLVMGetDiagInfoDescription(di))
 function handle_diagnostic(diag_ref::API.LLVMDiagnosticInfoRef, args::Ptr{Cvoid})
     state = Base.unsafe_pointer_to_objref(args)::DiagnosticState
     try
-        di = DiagnosticInfo(diag_ref)
-        sev = severity(di)
-        msg = message(di)
-
-        if sev == API.LLVMDSError
-            state.error === nothing && (state.error = msg)
-        elseif sev == API.LLVMDSWarning
-            @warn msg
-        elseif sev == API.LLVMDSRemark && state.remark_callback !== nothing
-            remark = Remark(di)
-            if remark === nothing
-                @debug msg
-            elseif state.remark_exception === nothing
-                try
-                    state.remark_callback(remark)
-                catch err
-                    state.remark_exception = (err, catch_backtrace())
-                end
-            end
-        elseif sev == API.LLVMDSRemark || sev == API.LLVMDSNote
-            @debug msg
-        else
-            state.error === nothing &&
-                (state.error = "unknown diagnostic severity level $sev")
-        end
+        library!(() -> process_diagnostic(state, diag_ref), state.library)
     catch
         # Diagnostic callbacks have no error return and must never unwind
         # through their C++ caller, including when logging itself fails.
@@ -232,7 +220,40 @@ function handle_diagnostic(diag_ref::API.LLVMDiagnosticInfoRef, args::Ptr{Cvoid}
     return nothing
 end
 
+function process_diagnostic(state, diag_ref::API.LLVMDiagnosticInfoRef)
+    di = DiagnosticInfo(diag_ref)
+    sev = severity(di)
+    msg = message(di)
+
+    if sev == API.LLVMDSError
+        state.error === nothing && (state.error = msg)
+    elseif sev == API.LLVMDSWarning
+        @warn msg
+    elseif sev == API.LLVMDSRemark && state.remark_callback !== nothing
+        remark = Remark(di)
+        if remark === nothing
+            @debug msg
+        elseif state.remark_exception === nothing
+            try
+                state.remark_callback(remark)
+            catch err
+                state.remark_exception = (err, catch_backtrace())
+            end
+        end
+    elseif sev == API.LLVMDSRemark || sev == API.LLVMDSNote
+        @debug msg
+    else
+        state.error === nothing &&
+            (state.error = "unknown diagnostic severity level $sev")
+    end
+    return nothing
+end
+
 mutable struct DiagnosticState
+    # diagnostics are reported while the library of the context runs, which may not be the
+    # current library (e.g., when operating on a module outside of its context's scope)
+    library::Library
+
     error::Union{Nothing,String}
 
     # a callback for optimization remarks, while a pass builder that collects them runs,
@@ -240,7 +261,7 @@ mutable struct DiagnosticState
     remark_callback::Any
     remark_exception::Union{Nothing,Tuple{Any,Vector}}
 
-    DiagnosticState() = new(nothing, nothing, nothing)
+    DiagnosticState(library) = new(library, nothing, nothing, nothing)
 end
 
 # contexts are created and disposed concurrently, e.g., by generated functions that build
@@ -271,7 +292,6 @@ function check_diagnostic(ctx::Context, failed::Bool=false,
 end
 
 function yield_callback(ctx_ref::API.LLVMContextRef, args::Ptr{Cvoid})
-    ctx = Context(ctx_ref)
     @assert args == C_NULL
 
     # TODO: is this allowed? can we yield out of an active `ccall`?
@@ -280,12 +300,12 @@ end
 
 function _install_handlers(ctx::Context)
     # set yield callback
-    callback = @cfunction(yield_callback, Cvoid, (Context, Ptr{Cvoid}))
+    callback = @cfunction(yield_callback, Cvoid, (API.LLVMContextRef, Ptr{Cvoid}))
     # NOTE: disabled until proven safe
     #API.LLVMContextSetYieldCallback(ctx, callback, C_NULL)
 
     # set diagnostic callback
-    state = DiagnosticState()
+    state = DiagnosticState(ctx.library)
     @lock DIAGNOSTIC_STATES_LOCK DIAGNOSTIC_STATES[ctx.ref] = state
     handler = @cfunction(handle_diagnostic, Cvoid, (API.LLVMDiagnosticInfoRef, Ptr{Cvoid}))
     API.LLVMContextSetDiagnosticHandler(ctx, handler, Base.pointer_from_objref(state))

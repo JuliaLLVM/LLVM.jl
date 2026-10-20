@@ -147,10 +147,8 @@ align_in_bits(typ::DIType) = Int(API.LLVMDITypeGetAlignInBits(typ))
 @property DIType line
 @property DIType flags
 
-@static if version() >= v"17"
 tag(node::DINode) = Int(API.LLVMGetDINodeTag(node))
-@property DINode tag
-end
+@property DINode tag since=17
 
 
 # basic types
@@ -306,19 +304,18 @@ artificial_type!(builder::DIBuilder, type::DIType) =
                         implicit::Bool=true) -> DIType
 
 Create a new type identifying an object pointer (`DI_FLAG_OBJECT_POINTER`).
-The concrete subtype matches the input. On LLVM 20+ an `implicit::Bool` keyword
-is accepted: when `true` (the default, matching LLVM ≤ 19 behavior) the clone
-also sets `DI_FLAG_ARTIFICIAL`.
+The concrete subtype matches the input. When `implicit` is `true` (the default, and the only
+behavior before LLVM 20) the clone also sets `DI_FLAG_ARTIFICIAL`.
 """
-object_pointer_type!
-
-@static if version() >= v"20"
-object_pointer_type!(builder::DIBuilder, type::DIType; implicit::Bool=true) =
-    Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type, implicit))::DIType
-else
-object_pointer_type!(builder::DIBuilder, type::DIType) =
-    Metadata(API.LLVMDIBuilderCreateObjectPointerType(builder, type))::DIType
-end # @static
+function object_pointer_type!(builder::DIBuilder, type::DIType; implicit::Bool=true)
+    ref = if atleast(20, builder.library)
+        API.LLVMDIBuilderCreateObjectPointerType(builder, type, implicit)
+    else
+        implicit || throw(ArgumentError("Object pointer types that are not implicit require LLVM 20+"))
+        API.LLVMDIBuilderCreateObjectPointerType(builder, type)
+    end
+    Metadata(ref)::DIType
+end
 
 """
     inheritance!(builder::DIBuilder, derived::DIType, base::DIType, base_offset::Integer;
@@ -558,7 +555,7 @@ function enumerator!(builder::DIBuilder, name::AbstractString, value::Integer;
         return DIEnumerator(API.LLVMDIBuilderCreateEnumerator(
             builder, name, Csize_t(ncodeunits(name)), bits, unsigned))
     end
-    @static if version() >= v"21"
+    if atleast(21, builder.library)
         # the two's complement words of the value, as LLVM's APInt stores them
         val = big(value)
         words = UInt64[(val >> (64*(i-1))) % UInt64 for i in 1:cld(size_in_bits, 64)]
@@ -759,7 +756,6 @@ end
 
 # LLVM 21+ additions
 
-@static if version() >= v"21"
 
 @vocabulary IR DISubrangeType
 @vocabulary Build set_type!, subrange_type!, dynamic_array_type!
@@ -853,10 +849,6 @@ function dynamic_array_type!(builder::DIBuilder, scope::Union{DIScope,Nothing}, 
 end
 
 
-end # @static if version() >= v"21"
-
-@static if version() >= v"21"
-
 @vocabulary Build replace_arrays!
 
 @doc """
@@ -875,4 +867,3 @@ function replace_arrays!(builder::DIBuilder, T::DICompositeType,
     return Metadata(tref[])::DICompositeType
 end
 
-end # @static version check

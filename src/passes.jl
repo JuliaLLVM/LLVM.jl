@@ -1127,7 +1127,10 @@ disposed of before the context, e.g., using the do-block form.
 """
 mutable struct RemarkFile
     ref::API.LLVMRemarkFileRef
+    library::Library
 end
+
+argument_library(file::RemarkFile) = file.library
 
 Base.unsafe_convert(::Type{API.LLVMRemarkFileRef}, file::RemarkFile) = mark_use(file).ref
 
@@ -1138,7 +1141,7 @@ function RemarkFile(path::AbstractString; passes::AbstractString="",
     ref = API.LLVMExtraCreateRemarkFile(ctx, path, passes, format, error_ref)
     ref == C_NULL && throw(LLVMException(unsafe_message(error_ref[])))
     # not owned by the context, which doesn't dispose of it
-    mark_alloc(RemarkFile(ref))
+    mark_alloc(RemarkFile(ref, ctx.library))
 end
 
 RemarkFile(f::Core.Function, args...; kwargs...) =
@@ -1208,6 +1211,7 @@ See also: [`register!`](@ref), [`add!`](@ref), [`run!`](@ref)
 """
 mutable struct PassBuilder <: AbstractPassManager
     opts::API.LLVMPassBuilderOptionsRef
+    const library::Library
     passes::Vector{String}
     aa_passes::Vector{String}
     custom_passes::Vector{CustomPass}
@@ -1221,9 +1225,11 @@ Base.string(pm::PassBuilder) = join(pm.passes, ",")
 Base.unsafe_convert(::Type{API.LLVMPassBuilderOptionsRef}, pb::PassBuilder) =
     mark_use(pb).opts
 
+argument_library(pb::PassBuilder) = pb.library
+
 function PassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
-    obj = mark_alloc(PassBuilder(opts, [], [], [], nothing, [], nothing))
+    obj = mark_alloc(PassBuilder(opts, library(), [], [], [], nothing, [], nothing))
 
     # dispose of the options if a keyword argument is invalid
     try
@@ -1354,6 +1360,14 @@ run!
 
 function run!(pb::PassBuilder, target::Union{Module,Function}, tm::Union{Nothing,TargetMachine}=nothing)
     isempty(pb.passes) && return
+    # passes run with the library of the module, which may not be the current one
+    lib = target isa Module ? target.library : library()
+    check_library(lib, pb, tm)
+    library!(() -> _run!(pb, target, tm), lib)
+end
+
+function _run!(pb::PassBuilder, target::Union{Module,Function},
+               tm::Union{Nothing,TargetMachine})
     pipeline = join(pb.passes, ",")
     # without an AA manager, LLVM uses its default alias analyses
     aa_pipeline = isempty(pb.aa_passes) ? nothing : join(filter(!isempty, pb.aa_passes), ",")
@@ -1411,7 +1425,7 @@ function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
 
         # register AA pipeline
         if aa_pipeline !== nothing
-            if version() >= v"20"
+            if atleast(20, pb.library)
                 API.LLVMPassBuilderOptionsSetAAPipeline(pb, aa_pipeline)
             else
                 API.LLVMPassBuilderExtensionsSetAAPipeline(exts, aa_pipeline)
@@ -1427,12 +1441,12 @@ function run_pipeline!(pb::PassBuilder, exts::API.LLVMPassBuilderExtensionsRef,
             end
         finally
             # the options keep a pointer to the AA pipeline, which is only valid during the run
-            if aa_pipeline !== nothing && version() >= v"20"
+            if aa_pipeline !== nothing && atleast(20, pb.library)
                 API.LLVMPassBuilderOptionsSetAAPipeline(pb, C_NULL)
             end
         end
 
-        check_custom_passes(err, states, tti_state)
+        check_custom_passes(err, states, pb.library, tti_state)
         check_diagnostic(ctx)
     end
 end
@@ -1498,9 +1512,11 @@ function register_extensions!(exts::API.LLVMPassBuilderExtensionsRef, pb::PassBu
         api(exts, pass.name, cb, Ref(states, i), pass.required)
     end
 
-    # register Julia passes
-    julia_callback = cglobal(:jl_register_passbuilder_callbacks)
-    API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+    # register Julia passes, which only work with Julia's LLVM
+    if pb.library === julia_library
+        julia_callback = cglobal(:jl_register_passbuilder_callbacks)
+        API.LLVMPassBuilderExtensionsPushRegistrationCallbacks(exts, julia_callback)
+    end
 
     # register native callbacks
     for callback in pb.registration_callbacks
@@ -1511,7 +1527,8 @@ end
 # throw the error that LLVM returned, or an exception that was caught in a custom pass
 # callback, which takes precedence over LLVM's errors (e.g., the failure to parse the
 # pipeline when parsing the options of a pass threw)
-function check_custom_passes(err::API.LLVMErrorRef, states, tti_state=nothing)
+function check_custom_passes(err::API.LLVMErrorRef, states, lib::Library,
+                             tti_state=nothing)
     exception = nothing
     for state in states
         if state.exception !== nothing
@@ -1526,7 +1543,11 @@ function check_custom_passes(err::API.LLVMErrorRef, states, tti_state=nothing)
         err == C_NULL || API.LLVMConsumeError(err)
         throw(PassException(exception...))
     end
-    @check err
+    if err != C_NULL
+        exception = convert(LLVMException, LLVMError(err, lib))
+        check_julia_pass_names(exception, lib)
+        throw(exception)
+    end
 end
 
 @vocabulary Passes print_pipeline
@@ -1556,6 +1577,12 @@ globaldce,function(instsimplify)
 print_pipeline(pb::PassBuilder, args...) = print_pipeline(stdout, pb, args...)
 
 function print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine}=nothing)
+    # the pipeline is parsed by the library of the pass builder
+    check_library(pb.library, tm)
+    library!(() -> _print_pipeline(io, pb, tm), pb.library)
+end
+
+function _print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine})
     states = [CustomPassState(pass) for pass in pb.custom_passes]
     exts = API.LLVMCreatePassBuilderExtensions()
     try
@@ -1564,7 +1591,7 @@ function print_pipeline(io::IO, pb::PassBuilder, tm::Union{Nothing,TargetMachine
             out = Ref{Cstring}()
             err = API.LLVMExtraPrintJuliaPasses(string(pb), something(tm, C_NULL), pb, exts,
                                                 out)
-            check_custom_passes(err, states)
+            check_custom_passes(err, states, pb.library)
             print(io, unsafe_message(out[]))
         end
     finally
@@ -1625,7 +1652,12 @@ function run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
     isempty(pb.aa_passes) && pb.custom_tti === nothing && pb.remarks === nothing ||
         throw(ArgumentError("Passes that run from a pass use the alias analyses, target transform info and remarks of the enclosing pipeline"))
     isempty(pb.passes) && return PreservedAnalyses(AllAnalyses)
+    check_library(pb.library, tm)
+    library!(() -> _run!(pb, f, am, tm), pb.library)
+end
 
+function _run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
+               tm::Union{Nothing,TargetMachine})
     exts = API.LLVMCreatePassBuilderExtensions()
     states = [CustomPassState(pass, exts) for pass in pb.custom_passes]
     try
@@ -1635,7 +1667,7 @@ function run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
             err = API.LLVMExtraRunJuliaPassesWithAnalyses(f, string(pb), something(tm, C_NULL),
                                                           pb, exts, am, ref)
             try
-                check_custom_passes(err, states)
+                check_custom_passes(err, states, pb.library)
                 return PreservedAnalyses(ref[])
             finally
                 ref[] == C_NULL || API.LLVMExtraDisposePreservedAnalyses(ref[])
@@ -1658,9 +1690,11 @@ function run!(pass::CustomPass, f::Function, am::FunctionAnalysisManager,
 end
 
 function run!(pass::AbstractString, args...; kwargs...)
-    @dispose pb=PassBuilder(; kwargs...) begin
-        add!(pb, pass)
-        run!(pb, args...)
+    library!(route_library(args...)) do
+        @dispose pb=PassBuilder(; kwargs...) begin
+            add!(pb, pass)
+            run!(pb, args...)
+        end
     end
 end
 
@@ -1679,26 +1713,28 @@ function run!(pass::CustomPass, target::Union{Module,Function},
     if pass.type === :module && target isa Function
         throw(ArgumentError("Cannot run module pass $(pass.name) on a function"))
     end
-    @dispose pb=PassBuilder(; kwargs...) begin
-        register!(pb, pass)
-        if pass.type === :function && target isa Module
-            add!(pb, FunctionPassManager()) do fpm
-                add!(fpm, pass)
-            end
-        elseif pass.type === :loop
-            lpm = LoopPassManager()
-            add!(lpm, pass)
-            if target isa Module
+    library!(route_library(target, tm)) do
+        @dispose pb=PassBuilder(; kwargs...) begin
+            register!(pb, pass)
+            if pass.type === :function && target isa Module
                 add!(pb, FunctionPassManager()) do fpm
-                    add!(fpm, lpm)
+                    add!(fpm, pass)
+                end
+            elseif pass.type === :loop
+                lpm = LoopPassManager()
+                add!(lpm, pass)
+                if target isa Module
+                    add!(pb, FunctionPassManager()) do fpm
+                        add!(fpm, lpm)
+                    end
+                else
+                    add!(pb, lpm)
                 end
             else
-                add!(pb, lpm)
+                add!(pb, pass)
             end
-        else
-            add!(pb, pass)
+            run!(pb, target, tm)
         end
-        run!(pb, target, tm)
     end
 end
 
@@ -1726,10 +1762,65 @@ end
 # the functions that return the names of passes, for the reference documentation
 const pass_functions = Tuple{Core.Module,Symbol,String}[]
 
-function define_pass(mod, pass_name, class_name, kind, define_class=true)
-    # don't re-define passes (some work with multiple types of managers,
-    # or could be manually-defined)
-    if isdefined(LLVM, class_name)
+# the passes that the functions defined by `@module_pass` etc. return, by function name.
+# some passes were renamed, or changed kind, so a function can have several entries, of
+# which the one for the version of the current library is used.
+struct PassEntry
+    name::String
+    kind::String
+    # the first and (exclusive) last major versions of LLVM that have the pass, if limited
+    since::Union{Nothing,Int}
+    until::Union{Nothing,Int}
+    # whether it is one of Julia's passes, which only work with Julia's LLVM
+    julia::Bool
+end
+const pass_entries = Dict{Symbol,Vector{PassEntry}}()
+# all entries, in the order they were defined
+const pass_table = PassEntry[]
+
+isavailable(entry::PassEntry, lib::Library) =
+    (entry.since === nothing || atleast(entry.since, lib)) &&
+    (entry.until === nothing || !atleast(entry.until, lib)) &&
+    (!entry.julia || lib === julia_library)
+
+# the name of a pass, for the current library
+function pass_name(class_name::Symbol)
+    lib = library()
+    entries = pass_entries[class_name]
+    for entry in entries
+        isavailable(entry, lib) && return entry.name
+    end
+    throw_unavailable_pass(class_name, entries, lib)
+end
+
+@noinline function throw_unavailable_pass(class_name, entries, lib)
+    any(entry -> entry.julia, entries) &&
+        check_julia_library(string(class_name), lib)
+    error("$class_name is not available on LLVM $(lib.version) (only on $(pass_availability(entries)))")
+end
+
+function pass_availability(entries)
+    join(map(entries) do entry
+        if entry.since === nothing && entry.until === nothing
+            "every version"
+        elseif entry.since === nothing
+            "LLVM $(entry.until-1) and earlier"
+        elseif entry.until === nothing
+            "LLVM $(entry.since) and later"
+        else
+            "LLVM $(entry.since) to $(entry.until-1)"
+        end
+    end, ", ")
+end
+
+function define_pass(mod, pass_name, class_name, kind, define_class, since, until, julia)
+    entry = PassEntry(pass_name, kind, since, until, julia)
+    # some passes work with multiple types of managers, or have been renamed, so only
+    # define their function once
+    defined = haskey(pass_entries, class_name)
+    push!(get!(Vector{PassEntry}, pass_entries, class_name), entry)
+    push!(pass_table, entry)
+    if defined || isdefined(LLVM, class_name)
         return
     end
     push!(pass_functions, (mod, class_name, kind))
@@ -1746,45 +1837,110 @@ function define_pass(mod, pass_name, class_name, kind, define_class=true)
         end
     end
     if define_class
-        options = occursin('<', pass_name) ? "" : """
-
-            Keyword arguments become options of the pass, e.g., `$class_name(; foo=true, bar=2)`
-            is `"$pass_name<foo;bar=2>"`, while `false` values become `no-` options."""
-        doc = """
-            $class_name(; options...) -> String
-
-        The `$pass_name` $kind, as a string for use with [`add!`](@ref) or [`run!`](@ref)$(kind == "alias analysis" ? " (in an [`AAManager`](@ref))" : "").$options
-        """
+        # the documentation is attached once all passes are defined (see `document_passes`)
         push!(ex.args, :(
-            @doc $doc function $(esc(class_name))(; kwargs...)
-                return $pass_name * kwargs_to_params(kwargs)
+            function $(esc(class_name))(; kwargs...)
+                return $(GlobalRef(LLVM, :pass_name))($(QuoteNode(class_name))) *
+                       kwargs_to_params(kwargs)
             end
         ))
     end
     return ex
 end
 
-# for testing purposes, keep track of all defined passes
-const module_passes = String[]
-const cgscc_passes = String[]
-const function_passes = String[]
-const loop_passes = String[]
+# document the functions that return the names of passes, mentioning all of their names
+function document_passes(mod::Core.Module)
+    for (mod′, class_name, _) in pass_functions
+        mod′ === mod || continue
+        entries = get(pass_entries, class_name, nothing)
+        entries === nothing && continue
+        f = getfield(mod, class_name)
+        # passes defined manually are documented with their definition
+        haskey(Base.Docs.meta(mod), Base.Docs.Binding(mod, class_name)) && continue
+        main = first(entries)
+        aa = main.kind == "alias analysis" ? " (in an [`AAManager`](@ref))" : ""
+        options = occursin('<', main.name) ? "" : """
 
-macro module_pass(pass_name, class_name, define_class=true)
-    push!(module_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, "module pass", define_class)
+            Keyword arguments become options of the pass, e.g., `$class_name(; foo=true, bar=2)`
+            is `"$(main.name)<foo;bar=2>"`, while `false` values become `no-` options."""
+        # passes that work with several kinds of pass managers, on every version
+        unlimited = filter(e -> e.since === nothing && e.until === nothing, entries)
+        also = filter(!=(main.kind), unique(e.kind for e in unlimited if e.name == main.name))
+        versions = isempty(also) ? "" :
+                   "\n\nIt can also be used as a " * join(also, ", ", " or ") * "."
+        # passes that were added, removed, renamed or changed kind
+        limited = filter(e -> e.since !== nothing || e.until !== nothing, entries)
+        if length(limited) > 1
+            versions *= "\n\nDepending on the version of LLVM, this is " *
+                        join(["the `$(e.name)` $(e.kind) on $(pass_availability([e]))"
+                              for e in limited], ", or ") * "."
+        elseif length(limited) == 1
+            versions *= "\n\nAvailable on $(pass_availability(limited))."
+        end
+        julia = main.julia ? "\n\nRequires the LLVM library that Julia uses." : ""
+        doc = """
+            $class_name(; options...) -> String
+
+        The `$(main.name)` $(main.kind), as a string for use with [`add!`](@ref) or [`run!`](@ref)$aa.$options$versions$julia
+        """
+        @eval mod @doc $doc $class_name
+    end
 end
-macro cgscc_pass(pass_name, class_name, define_class=true)
-    push!(cgscc_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, "CGSCC pass", define_class)
+
+# naming one of Julia's passes in a pipeline for another library fails to parse it, so
+# explain why when that happens
+function check_julia_pass_names(exception::LLVMException, lib::Library)
+    lib === julia_library && return
+    m = match(r"unknown pass name '([^']*)'", exception.info)
+    m === nothing && return
+    name = m.captures[1]
+    for entry in pass_table
+        if entry.julia && entry.name == name
+            error("""Julia's $(entry.kind) `$name` requires the LLVM library that Julia uses, but the pipeline runs with LLVM library :$(lib.name) (LLVM $(lib.version)).
+                     $(exception.info)""")
+        end
+    end
 end
-macro function_pass(pass_name, class_name, define_class=true)
-    push!(function_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, "function pass", define_class)
+
+# the passes of a kind that are available on a library, e.g., for testing them all
+passes_of_kind(kind::String, lib::Library) =
+    unique!([entry.name for entry in pass_table if entry.kind == kind && isavailable(entry, lib)])
+module_passes(lib::Library=library()) = passes_of_kind("module pass", lib)
+cgscc_passes(lib::Library=library()) = passes_of_kind("CGSCC pass", lib)
+function_passes(lib::Library=library()) = passes_of_kind("function pass", lib)
+loop_passes(lib::Library=library()) = passes_of_kind("loop pass", lib)
+
+# `@module_pass "name" Name [define_class] [since=major] [until=major] [julia=true]`
+function pass_macro(mod, kind, pass_name, class_name, args)
+    define_class = true
+    since = until = nothing
+    julia = false
+    for arg in args
+        if Meta.isexpr(arg, :(=)) && arg.args[1] === :since
+            since = arg.args[2]::Int
+        elseif Meta.isexpr(arg, :(=)) && arg.args[1] === :until
+            until = arg.args[2]::Int
+        elseif Meta.isexpr(arg, :(=)) && arg.args[1] === :julia
+            julia = arg.args[2]::Bool
+        elseif arg isa Bool
+            define_class = arg
+        else
+            error("unsupported argument to a pass macro: $arg")
+        end
+    end
+    define_pass(mod, pass_name, class_name, kind, define_class, since, until, julia)
 end
-macro loop_pass(pass_name, class_name, define_class=true)
-    push!(loop_passes, pass_name)
-    define_pass(__module__, pass_name, class_name, "loop pass", define_class)
+macro module_pass(pass_name, class_name, args...)
+    pass_macro(__module__, "module pass", pass_name, class_name, args)
+end
+macro cgscc_pass(pass_name, class_name, args...)
+    pass_macro(__module__, "CGSCC pass", pass_name, class_name, args)
+end
+macro function_pass(pass_name, class_name, args...)
+    pass_macro(__module__, "function pass", pass_name, class_name, args)
+end
+macro loop_pass(pass_name, class_name, args...)
+    pass_macro(__module__, "loop pass", pass_name, class_name, args)
 end
 
 # module passes
@@ -1808,11 +1964,8 @@ end
 @module_pass "extract-blocks" BlockExtractorPass
 @module_pass "forceattrs" ForceFunctionAttrsPass
 @module_pass "function-import" FunctionImportPass
-@static if version() < v"16"
-    @module_pass "function-specialization" FunctionSpecializationPass
-else
-    @module_pass "ipsccp<func-spec>" FunctionSpecializationPass
-end
+@module_pass "ipsccp<func-spec>" FunctionSpecializationPass since=16
+@module_pass "function-specialization" FunctionSpecializationPass until=16
 @module_pass "globaldce" GlobalDCEPass
 @module_pass "globalopt" GlobalOptPass
 @module_pass "globalsplit" GlobalSplitPass
@@ -1823,9 +1976,7 @@ end
 @module_pass "print<inline-advisor>" InlineAdvisorAnalysisPrinterPass
 @module_pass "inliner-wrapper-no-mandatory-first" ModuleInlinerWrapperNoMandatoryFirstPass
 @module_pass "insert-gcov-profiling" GCOVProfilerPass
-@static if version() < v"21"
-    @module_pass "instrorderfile" InstrOrderFilePass
-end
+@module_pass "instrorderfile" InstrOrderFilePass until=21
 @module_pass "instrprof" InstrProfiling
 @module_pass "invalidate<all>" InvalidateAllAnalysesPass
 @module_pass "ipsccp" IPSCCPPass
@@ -1837,9 +1988,7 @@ end
 @module_pass "mergefunc" MergeFunctionsPass
 @module_pass "name-anon-globals" NameAnonGlobalPass
 @module_pass "no-op-module" NoOpModulePass
-@static if version() < v"22"
-    @module_pass "objc-arc-apelim" ObjCARCAPElimPass
-end
+@module_pass "objc-arc-apelim" ObjCARCAPElimPass until=22
 @module_pass "partial-inliner" PartialInlinerPass
 @module_pass "pgo-icall-prom" PGOIndirectCallPromotion
 @module_pass "pgo-instr-gen" PGOInstrumentationGen
@@ -1865,14 +2014,9 @@ end
 @module_pass "strip-debug-declare" StripDebugDeclarePass
 @module_pass "strip-nondebug" StripNonDebugSymbolsPass
 @module_pass "strip-nonlinetable-debuginfo" StripNonLineTableDebugInfoPass
-@static if version() < v"20"
-    @module_pass "synthetic-counts-propagation" SyntheticCountsPropagation
-end
-@static if version() < v"19"
-    @module_pass "trigger-crash" TriggerCrashPass
-else
-    @module_pass "trigger-crash-module" TriggerCrashModulePass
-end
+@module_pass "synthetic-counts-propagation" SyntheticCountsPropagation until=20
+@module_pass "trigger-crash-module" TriggerCrashModulePass since=19
+@module_pass "trigger-crash" TriggerCrashPass until=19
 @module_pass "verify" VerifierPass
 @module_pass "view-callgraph" CallGraphViewerPass
 @module_pass "wholeprogramdevirt" WholeProgramDevirtPass
@@ -1881,22 +2025,14 @@ end
 @module_pass "tsan-module" ModuleThreadSanitizerPass
 @module_pass "sancov-module" SanitizerCoveragePass
 @module_pass "memprof-module" ModuleMemProfilerPass
-@static if version() < v"20"
-    @module_pass "poison-checking" PoisonCheckingPass
-end
+@module_pass "poison-checking" PoisonCheckingPass until=20
 @module_pass "pseudo-probe-update" PseudoProbeUpdatePass
 @module_pass "loop-extract" LoopExtractorPass
 @module_pass "hwasan" HWAddressSanitizerPass
-@static if version() < v"16"
-    @module_pass "asan-module" AddressSanitizerPass
-else
-    @module_pass "asan" AddressSanitizerPass
-end
-@static if version() < v"16"
-    @function_pass "msan" MemorySanitizerPass
-else
-    @module_pass "msan" MemorySanitizerPass
-end
+@module_pass "asan" AddressSanitizerPass since=16
+@module_pass "asan-module" AddressSanitizerPass until=16
+@module_pass "msan" MemorySanitizerPass since=16
+@function_pass "msan" MemorySanitizerPass until=16
 @module_pass "internalize" InternalizePass false
 """
     InternalizePass(; preserved_gvs=String[], options...) -> String
@@ -1918,34 +2054,35 @@ end
 
 # Helper for extension-point callback passes (not part of general pass sweep).
 # Back-ported by LLVMExtra to LLVM 17..21; supported upstream from LLVM 22 on.
-function ep_callbacks_pass(name; opt_level=0)
+function ep_callbacks_pass(name, since; opt_level=0)
+    lib = library()
+    atleast(since, lib) ||
+        error("The $name pass is not available on LLVM $(lib.version) (only on LLVM $since and later)")
     name * kwargs_to_params(Dict{Symbol,Any}(Symbol("O$opt_level") => true))
 end
 
-macro callbacks_pass(pass_name, name)
+macro callbacks_pass(pass_name, name, since=17)
     doc = """
         $name(; opt_level=0) -> String
 
     The `$pass_name` pass, as a string for use with [`add!`](@ref) or [`run!`](@ref). It
     runs the passes that pass builder callbacks (e.g., registered with
     [`register_callbacks!`](@ref)) add to the corresponding extension point of LLVM's
-    default pipelines, for the optimization level `opt_level`. Requires LLVM 17+.
+    default pipelines, for the optimization level `opt_level`. Requires LLVM $since+.
     """
     quote
-        @doc $doc $(esc(name))(; opt_level=0) = ep_callbacks_pass($pass_name; opt_level)
+        @doc $doc $(esc(name))(; opt_level=0) = ep_callbacks_pass($pass_name, $since; opt_level)
         push!(pass_functions, ($__module__, $(QuoteNode(name)), "extension point callbacks"))
     end
 end
 
 # module callbacks
-@static if version() >= v"17"
 @vocabulary Passes PipelineStartCallbacks, PipelineEarlySimplificationCallbacks,
                    OptimizerEarlyCallbacks, OptimizerLastCallbacks
 @callbacks_pass "pipeline-start-callbacks" PipelineStartCallbacks
 @callbacks_pass "pipeline-early-simplification-callbacks" PipelineEarlySimplificationCallbacks
 @callbacks_pass "optimizer-early-callbacks" OptimizerEarlyCallbacks
 @callbacks_pass "optimizer-last-callbacks" OptimizerLastCallbacks
-end
 
 # CGSCC passes
 
@@ -1959,10 +2096,8 @@ end
 @cgscc_pass "coro-split" CoroSplitPass
 
 # CGSCC callbacks
-@static if version() >= v"17"
 @vocabulary Passes CGSCCOptimizerLateCallbacks
 @callbacks_pass "cgscc-optimizer-late-callbacks" CGSCCOptimizerLateCallbacks
-end
 
 # function passes
 
@@ -2001,18 +2136,13 @@ end
 # supported versions
 @function_pass "expand-reductions" ExpandReductionsPass
 @function_pass "fix-irreducible" FixIrreduciblePass
-@static if version() < v"19"
-    @function_pass "flattencfg" FlattenCFGPass
-else
-    @function_pass "flatten-cfg" FlattenCFGPass
-end
+@function_pass "flatten-cfg" FlattenCFGPass since=19
+@function_pass "flattencfg" FlattenCFGPass until=19
 @function_pass "make-guards-explicit" MakeGuardsExplicitPass
 @function_pass "gvn-hoist" GVNHoistPass
 @function_pass "gvn-sink" GVNSinkPass
 @function_pass "helloworld" HelloWorldPass
-@static if version() >= v"19"
-    @function_pass "trigger-crash-function" TriggerCrashFunctionPass
-end
+@function_pass "trigger-crash-function" TriggerCrashFunctionPass since=19
 @function_pass "infer-address-spaces" InferAddressSpacesPass
 @function_pass "instcombine" InstCombinePass false
 """
@@ -2042,11 +2172,8 @@ end
 @function_pass "lint" LintPass
 @function_pass "inject-tli-mappings" InjectTLIMappings
 @function_pass "instnamer" InstructionNamerPass
-@static if version() < v"19"
-    @function_pass "loweratomic" LowerAtomicPass
-else
-    @function_pass "lower-atomic" LowerAtomicPass
-end
+@function_pass "lower-atomic" LowerAtomicPass since=19
+@function_pass "loweratomic" LowerAtomicPass until=19
 @function_pass "lower-expect" LowerExpectIntrinsicPass
 @function_pass "lower-guard-intrinsic" LowerGuardIntrinsicPass
 @function_pass "lower-constant-intrinsics" LowerConstantIntrinsicsPass
@@ -2055,19 +2182,14 @@ end
 @function_pass "load-store-vectorizer" LoadStoreVectorizerPass
 @function_pass "loop-simplify" LoopSimplifyPass
 @function_pass "loop-sink" LoopSinkPass
-@static if version() < v"19"
-    @function_pass "lowerinvoke" LowerInvokePass
-    @function_pass "lowerswitch" LowerSwitchPass
-else
-    @function_pass "lower-invoke" LowerInvokePass
-    @function_pass "lower-switch" LowerSwitchPass
-end
+@function_pass "lower-invoke" LowerInvokePass since=19
+@function_pass "lower-switch" LowerSwitchPass since=19
+@function_pass "lowerinvoke" LowerInvokePass until=19
+@function_pass "lowerswitch" LowerSwitchPass until=19
 @function_pass "mem2reg" PromotePass
 @function_pass "memcpyopt" MemCpyOptPass
 @function_pass "mergeicmps" MergeICmpsPass
-@static if version() < v"23"
-    @function_pass "mergereturn" UnifyFunctionExitNodesPass
-end
+@function_pass "mergereturn" UnifyFunctionExitNodesPass until=23
 @function_pass "nary-reassociate" NaryReassociatePass
 @function_pass "newgvn" NewGVNPass
 @function_pass "jump-threading" JumpThreadingPass
@@ -2089,9 +2211,7 @@ end
 @function_pass "print<cost-model>" CostModelPrinterPass
 @function_pass "print<cycles>" CycleInfoPrinterPass
 @function_pass "print<da>" DependenceAnalysisPrinterPass
-@static if version() < v"17"
-    @function_pass "print<divergence>" DivergenceAnalysisPrinterPass
-end
+@function_pass "print<divergence>" DivergenceAnalysisPrinterPass until=17
 @function_pass "print<domtree>" DominatorTreePrinterPass
 @function_pass "print<postdomtree>" PostDominatorTreePrinterPass
 @function_pass "print<delinearization>" DelinearizationPrinterPass
@@ -2110,11 +2230,8 @@ end
 @function_pass "print-predicateinfo" PredicateInfoPrinterPass
 @function_pass "print-mustexecute" MustExecutePrinterPass
 @function_pass "print-memderefs" MemDerefPrinterPass
-@static if version() < v"16"
-    @loop_pass "print-access-info" LoopAccessInfoPrinterPass
-else
-    @function_pass "print<access-info>" LoopAccessInfoPrinterPass
-end
+@function_pass "print<access-info>" LoopAccessInfoPrinterPass since=16
+@loop_pass "print-access-info" LoopAccessInfoPrinterPass until=16
 @function_pass "reassociate" ReassociatePass
 @function_pass "redundant-dbg-inst-elim" RedundantDbgInstEliminationPass
 @function_pass "reg2mem" RegToMemPass
@@ -2155,9 +2272,7 @@ end
 @function_pass "verify<scalar-evolution>" ScalarEvolutionVerifierPass
 @function_pass "view-cfg" CFGViewerPass
 @function_pass "view-cfg-only" CFGOnlyViewerPass
-@static if version() < v"20"
-    @function_pass "tlshoist" TLSVariableHoistPass
-end
+@function_pass "tlshoist" TLSVariableHoistPass until=20
 @function_pass "transform-warning" WarnMissedTransformationsPass
 @function_pass "tsan" ThreadSanitizerPass
 @function_pass "memprof" MemProfilerPass
@@ -2184,16 +2299,12 @@ end
 @function_pass "print<stack-lifetime>" StackLifetimePrinterPass
 
 # Function pass callbacks
-@static if version() >= v"17"
 @vocabulary Passes PeepholeCallbacks, ScalarOptimizerLateCallbacks, VectorizerStartCallbacks
 @callbacks_pass "peephole-callbacks" PeepholeCallbacks
 @callbacks_pass "scalar-optimizer-late-callbacks" ScalarOptimizerLateCallbacks
 @callbacks_pass "vectorizer-start-callbacks" VectorizerStartCallbacks
-@static if version() >= v"21"
-    @vocabulary Passes VectorizerEndCallbacks
-    @callbacks_pass "vectorizer-end-callbacks" VectorizerEndCallbacks
-end
-end # version() >= v"17"
+@vocabulary Passes VectorizerEndCallbacks
+@callbacks_pass "vectorizer-end-callbacks" VectorizerEndCallbacks 21
 # loop nest passes
 
 @loop_pass "loop-flatten" LoopFlattenPass
@@ -2223,20 +2334,16 @@ end # version() >= v"17"
 @loop_pass "loop-predication" LoopPredicationPass
 @loop_pass "guard-widening" GuardWideningPass
 @loop_pass "loop-bound-split" LoopBoundSplitPass
-@static if version() < v"19"
-    @loop_pass "loop-reroll" LoopRerollPass
-end
+@loop_pass "loop-reroll" LoopRerollPass until=19
 @loop_pass "loop-versioning-licm" LoopVersioningLICMPass
 @loop_pass "simple-loop-unswitch" SimpleLoopUnswitchPass
 @loop_pass "licm" LICMPass
 @loop_pass "lnicm" LNICMPass
 
 # loop callbacks
-@static if version() >= v"17"
 @vocabulary Passes LateLoopOptimizationsCallbacks, LoopOptimizerEndCallbacks
 @callbacks_pass "late-loop-optimizations-callbacks" LateLoopOptimizationsCallbacks
 @callbacks_pass "loop-optimizer-end-callbacks" LoopOptimizerEndCallbacks
-end
 
 
 ## alias analyses
@@ -2263,8 +2370,8 @@ function add!(f::Base.Callable, pb::PassBuilder, aa::AAManager)
     return add!(pb, aa)
 end
 
-macro aa_pass(pass_name, class_name)
-    define_pass(__module__, pass_name, class_name, "alias analysis")
+macro aa_pass(pass_name, class_name, args...)
+    pass_macro(__module__, "alias analysis", pass_name, class_name, args)
 end
 
 @aa_pass "basic-aa" BasicAA
@@ -2286,6 +2393,9 @@ targets that have no alias analyses of their own, it adds nothing. This is not o
 LLVM's alias analyses: LLVM.jl adds it to the pipelines it runs.
 """
 TargetAA() = "target-aa"
+
+
+document_passes(LLVM)
 
 
 ## pipelines

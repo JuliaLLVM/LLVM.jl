@@ -20,7 +20,7 @@ This uses LLVM's `buildAtomicRMWValue`.
 """
 function atomic_rmw_value!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, loaded::Value,
                            val::Value)
-    check_available(op)
+    check_available(op, builder.library)
     Value(API.LLVMExtraBuildAtomicRMWValue(builder, Integer(op), loaded, val))
 end
 

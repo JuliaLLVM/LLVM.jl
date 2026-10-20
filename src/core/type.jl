@@ -151,23 +151,21 @@ width(inttyp::IntegerType) = Int(API.LLVMGetIntTypeWidth(inttyp))
 
 @property IntegerType width
 
-if version() >= v"23"
-    @checked struct ByteType <: LLVMType
-        ref::API.LLVMTypeRef
-    end
-    @doc """
-        LLVM.ByteType(bits::Integer)
-
-    An arbitrary-width byte type, which holds uninterpreted bits. Requires LLVM 23+.
-
-    Its `width` property gives the bit width.
-    """ ByteType
-    @vocabulary IR ByteType
-    register(ByteType, API.LLVMByteTypeKind)
-    ByteType(bits::Integer) = ByteType(API.LLVMByteTypeInContext(context(), bits))
-    width(typ::ByteType) = Int(API.LLVMGetByteTypeWidth(typ))
-    @property ByteType width
+@checked struct ByteType <: LLVMType
+    ref::API.LLVMTypeRef
 end
+@doc """
+    LLVM.ByteType(bits::Integer)
+
+An arbitrary-width byte type, which holds uninterpreted bits. Requires LLVM 23+.
+
+Its `width` property gives the bit width.
+""" ByteType
+@vocabulary IR ByteType
+register(ByteType, API.LLVMByteTypeKind)
+ByteType(bits::Integer) = ByteType(API.LLVMByteTypeInContext(context(), bits))
+width(typ::ByteType) = Int(API.LLVMGetByteTypeWidth(typ))
+@property ByteType width
 
 
 ## floating-point
@@ -362,14 +360,12 @@ end
 
 isopaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool
 
-@static if version() < v"17"
-    # typed pointers
-    function element_type(typ::PointerType)
-        isopaque(typ) && return nothing
-        LLVMType(API.LLVMGetElementType(typ))
-    end
-    @property PointerType element_type
+# typed pointers
+function element_type(typ::PointerType)
+    isopaque(typ) && return nothing
+    LLVMType(API.LLVMGetElementType(typ))
 end
+@property PointerType element_type until=17
 
 """
     isopaque(ptrtyp::LLVM.PointerType)
@@ -414,7 +410,7 @@ register(ArrayType, API.LLVMArrayTypeKind)
 Create an array type with `count` elements of type `eltyp`.
 """
 function ArrayType(eltyp::LLVMType, count)
-    @static if version() >= v"17"
+    if atleast(17)
         return ArrayType(API.LLVMArrayType2(eltyp, count))
     else
         return ArrayType(API.LLVMArrayType(eltyp, count))
@@ -422,7 +418,7 @@ function ArrayType(eltyp::LLVMType, count)
 end
 
 function array_length(arrtyp::ArrayType)
-    @static if version() >= v"17"
+    if atleast(17)
         Int(API.LLVMGetArrayLength2(arrtyp))
     else
         Int(API.LLVMGetArrayLength(arrtyp))
@@ -658,66 +654,65 @@ end
 
 ## target extension types
 
-if version() >= v"16"
-    @checked struct TargetExtType <: LLVMType
-        ref::API.LLVMTypeRef
-    end
-    @doc """
-        LLVM.TargetExtType <: LLVMType
-
-    A target extension type, representing a type that is only meaningful to a specific
-    target, e.g., `target("spirv.Image", void, 0, 0, 0, 0, 0, 0, 0)`. It is identified by a
-    name, a list of type parameters and a list of integer parameters, and is opaque to the
-    rest of LLVM. Requires LLVM 16+.
-
-    # Properties
-
-        typ.name
-
-    The name of the target extension type.
-
-        typ.type_parameters
-
-    The type parameters of the target extension type.
-
-        typ.int_parameters
-
-    The integer parameters of the target extension type.
-
-    The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
-    """ TargetExtType
-    @vocabulary IR TargetExtType
-    register(TargetExtType, API.LLVMTargetExtTypeKind)
-
-    @doc """
-        LLVM.TargetExtType(name::AbstractString, types::LLVMType[]=[], ints::Integer[]=[])
-
-    Create a target extension type with the given `name`, `types` type parameters and
-    `ints` integer parameters.
-    """
-    function TargetExtType(name::AbstractString,
-                           types::AbstractVector{<:LLVMType}=LLVMType[],
-                           ints::AbstractVector{<:Integer}=Cuint[])
-        return TargetExtType(API.LLVMTargetExtTypeInContext(context(), name,
-                                                            as_refs(types), length(types),
-                                                            Vector{Cuint}(ints),
-                                                            length(ints)))
-    end
-
-    name(typ::TargetExtType) = unsafe_string(API.LLVMGetTargetExtTypeName(typ))
-
-    type_parameters(typ::TargetExtType) =
-        LLVMType[LLVMType(API.LLVMGetTargetExtTypeTypeParam(typ, i-1))
-                 for i in 1:API.LLVMGetTargetExtTypeNumTypeParams(typ)]
-
-    int_parameters(typ::TargetExtType) =
-        Int[API.LLVMGetTargetExtTypeIntParam(typ, i-1)
-            for i in 1:API.LLVMGetTargetExtTypeNumIntParams(typ)]
-
-    @property TargetExtType name
-    @property TargetExtType type_parameters
-    @property TargetExtType int_parameters
+@checked struct TargetExtType <: LLVMType
+    ref::API.LLVMTypeRef
 end
+@doc """
+    LLVM.TargetExtType <: LLVMType
+
+A target extension type, representing a type that is only meaningful to a specific
+target, e.g., `target("spirv.Image", void, 0, 0, 0, 0, 0, 0, 0)`. It is identified by a
+name, a list of type parameters and a list of integer parameters, and is opaque to the
+rest of LLVM. Requires LLVM 16+.
+
+# Properties
+
+    typ.name
+
+The name of the target extension type.
+
+    typ.type_parameters
+
+The type parameters of the target extension type.
+
+    typ.int_parameters
+
+The integer parameters of the target extension type.
+
+The properties of [`LLVMType`](@ref LLVM.LLVMType) are available too.
+""" TargetExtType
+@vocabulary IR TargetExtType
+register(TargetExtType, API.LLVMTargetExtTypeKind)
+
+@doc """
+    LLVM.TargetExtType(name::AbstractString, types::LLVMType[]=[], ints::Integer[]=[])
+
+Create a target extension type with the given `name`, `types` type parameters and
+`ints` integer parameters.
+"""
+function TargetExtType(name::AbstractString,
+                       types::AbstractVector{<:LLVMType}=LLVMType[],
+                       ints::AbstractVector{<:Integer}=Cuint[])
+    return TargetExtType(API.LLVMTargetExtTypeInContext(context(), name,
+                                                        as_refs(types), length(types),
+                                                        Vector{Cuint}(ints),
+                                                        length(ints)))
+end
+
+name(typ::TargetExtType) = unsafe_string(API.LLVMGetTargetExtTypeName(typ))
+
+type_parameters(typ::TargetExtType) =
+    LLVMType[LLVMType(API.LLVMGetTargetExtTypeTypeParam(typ, i-1))
+             for i in 1:API.LLVMGetTargetExtTypeNumTypeParams(typ)]
+
+int_parameters(typ::TargetExtType) =
+    Int[API.LLVMGetTargetExtTypeIntParam(typ, i-1)
+        for i in 1:API.LLVMGetTargetExtTypeNumIntParams(typ)]
+
+@property TargetExtType name
+@property TargetExtType type_parameters
+@property TargetExtType int_parameters
+
 
 
 ## other
@@ -806,25 +801,24 @@ register(X86AMXType, API.LLVMX86_AMXTypeKind)
 
 X86AMXType() = X86AMXType(API.LLVMX86AMXTypeInContext(context()))
 
-if version() < v"20"
-    @checked struct X86MMXType <: LLVMType
-        ref::API.LLVMTypeRef
-    end
-    @doc """
-        LLVM.X86MMXType <: LLVMType
-
-    The `x86_mmx` type, representing a value in an x86 MMX register. Only available before
-    LLVM 20, which removed this type in favor of `<1 x i64>`.
-
-        LLVM.X86MMXType()
-
-    Create the `x86_mmx` type in the active context.
-    """ X86MMXType
-    @vocabulary IR X86MMXType
-    register(X86MMXType, API.LLVMX86_MMXTypeKind)
-
-    X86MMXType() = X86MMXType(API.LLVMX86MMXTypeInContext(context()))
+@checked struct X86MMXType <: LLVMType
+    ref::API.LLVMTypeRef
 end
+@doc """
+    LLVM.X86MMXType <: LLVMType
+
+The `x86_mmx` type, representing a value in an x86 MMX register. Only available before
+LLVM 20, which removed this type in favor of `<1 x i64>`.
+
+    LLVM.X86MMXType()
+
+Create the `x86_mmx` type in the active context.
+""" X86MMXType
+@vocabulary IR X86MMXType
+register(X86MMXType, API.LLVMX86_MMXTypeKind)
+
+X86MMXType() = X86MMXType(API.LLVMX86MMXTypeInContext(context()))
+
 
 
 ## type iteration

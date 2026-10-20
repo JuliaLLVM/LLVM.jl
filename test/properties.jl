@@ -166,7 +166,7 @@ end
     # has a do-block form, and a form that clears the position)
     unrelated = (:context!, :binop!, :expression!, :file!, :subprogram!, :elements!,
                  :position!)
-    for name in unique(last.(LLVM.property_registry))
+    for name in unique(getindex.(LLVM.property_registry, 2))
         name === :context && continue
         @test !Base.ispublic(LLVM, name)
         setter = Symbol(name, :!)

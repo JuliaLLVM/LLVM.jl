@@ -39,6 +39,63 @@ Special versions of these functions are available to initialize all available ta
 e.g., `LLVM.InitializeAllTargetInfos`, or to initialize the native target, e.g.,
 `LLVM.InitializeNativeTarget`.
 
+### Using other LLVM libraries
+
+LLVM.jl uses the LLVM library that Julia uses, but it can also use other ones, even in the
+same process: standalone libraries that contain LLVM, linked in statically with its C++
+symbols hidden, and LLVMExtra, LLVM.jl's library of extensions to the C API.
+`deps/build_standalone.jl` builds such a library for a version of LLVM from LLVM_full_jll,
+and prints its path:
+
+```
+$ julia --project=deps deps/build_standalone.jl 21
+/path/to/libLLVM-standalone-21.so
+```
+
+Register it under a name, and make it the current library for a block of code, either
+directly or by creating a context for it:
+
+```julia
+LLVM.register_library!(:llvm21, "/path/to/libLLVM-standalone-21.so")
+
+LLVM.library!(:llvm21) do
+    LLVM.version()  # v"21.1.8"
+end
+
+LLVM.Context(library=:llvm21) do ctx
+    mod = parse(LLVM.Module, bitcode)
+    # ...
+end
+```
+
+Objects that own LLVM resources, like contexts, modules, memory buffers, target machines
+and pass builders, belong to the library that created them (`mod.library`), and are always
+used with it, also outside of the block. For example, a module that was created with
+another library can be printed, serialized and disposed of afterwards. Objects of different
+libraries cannot be combined, e.g., linked: transfer IR between libraries by serializing it
+to bitcode, which newer versions of LLVM can read.
+
+Values, types and metadata don't remember their library, so they need to be used while
+their library is the current one, which `context!(ctx) do ... end` ensures for the objects
+of `ctx`. The active context also needs to belong to the current library:
+[`context`](@ref) throws an error otherwise.
+
+Functionality that integrates with Julia's code generator always uses Julia's LLVM:
+`LLVM.Interop` generates `llvmcall`s with it also when another library is current, and
+`JuliaOJIT` and Julia's passes require it.
+
+The `libLLVM` preference makes another library the default one, i.e., the current one
+outside of these blocks, for testing LLVM.jl with versions of LLVM that Julia doesn't use:
+
+```toml
+# LocalPreferences.toml
+[LLVM]
+libLLVM = "/path/to/libLLVM-standalone-21.so"
+```
+
+Code that depends on the version of LLVM when LLVM.jl is compiled then uses the version of
+that library. Julia's LLVM remains available as the library `:julia`.
+
 
 ## Vocabularies
 
@@ -586,9 +643,10 @@ julia> LLVM.IntPredicate.EQ, LLVM.Opcode.BitCast, LLVM.AtomicOrdering.Acquire
 ```
 
 These names are those of the C API, without their common prefix and suffix. The modules
-contain the values that `LLVM.API` defines for the current version of LLVM (including
-values that LLVM.jl backfills, like newer `atomicrmw` operations, whose availability can be
-checked with `LLVM.isavailable`), and `T`, their type (e.g., `LLVM.Linkage.T ===
+contain the values that `LLVM.API` defines, which are those of every version of LLVM that
+LLVM.jl supports (whether the version in use has a value can be checked with
+`LLVM.isavailable`, and passing a value that it lacks to LLVM throws an error), and `T`,
+their type (e.g., `LLVM.Linkage.T ===
 LLVM.API.LLVMLinkage`), to use in type annotations or with functions like
 `parse(LLVM.AtomicOrdering.T, "acquire")`. The modules are public, but not
 part of any vocabulary, so they are always qualified by default. To use them unqualified,

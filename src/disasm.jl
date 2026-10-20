@@ -12,7 +12,13 @@ See also: [`disassemble`](@ref).
 """
 @checked struct Disassembler
     ref::API.LLVMDisasmContextRef
+    library::Library
 end
+
+# wrap a handle of the current library
+Disassembler(ref::API.LLVMDisasmContextRef) = Disassembler(ref, library())
+
+argument_library(x::Disassembler) = x.library
 
 Base.unsafe_convert(::Type{API.LLVMDisasmContextRef}, dis::Disassembler) = mark_use(dis).ref
 

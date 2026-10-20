@@ -219,12 +219,14 @@ end
         @test calls[] == 0
     end
 
-    # Julia's passes and pipeline
-    @dispose pb=PassBuilder() begin
-        add!(pb, JuliaPipeline(opt_level=2))
-        printed = sprint(print_pipeline, pb)
-        @test occursin("AllocOpt", printed)
-        @test !occursin("julia<", printed)
+    # Julia's passes and pipeline, which only exist in Julia's LLVM
+    if julia_llvm_in_use()
+        @dispose pb=PassBuilder() begin
+            add!(pb, JuliaPipeline(opt_level=2))
+            printed = sprint(print_pipeline, pb)
+            @test occursin("AllocOpt", printed)
+            @test !occursin("julia<", printed)
+        end
     end
 
     # with the passes of a target machine
@@ -297,11 +299,11 @@ end
             "check-debugify",
             "debugify",
         ]
-        test_passes("module", LLVM.module_passes, bad_passes)
+        test_passes("module", LLVM.module_passes(), bad_passes)
     end
 
     @testset "cgscc" begin
-        test_passes("cgscc", LLVM.cgscc_passes)
+        test_passes("cgscc", LLVM.cgscc_passes())
     end
 
     @testset "function" begin
@@ -315,11 +317,11 @@ end
             "chr",
             "helloworld"
         ]
-        test_passes("function", LLVM.function_passes, bad_passes)
+        test_passes("function", LLVM.function_passes(), bad_passes)
     end
 
     @testset "loop" begin
-        test_passes("loop", LLVM.loop_passes)
+        test_passes("loop", LLVM.loop_passes())
     end
 end
 
@@ -1749,9 +1751,9 @@ end
     # This deliberately violates the raw callback's no-throw contract. Run it
     # in a child process so native state abandoned by longjmp cannot affect the
     # rest of the test suite.
-    script = joinpath(@__DIR__, "raw_newpm_longjmp.jl")
+    script = julia_script("include($(repr(joinpath(@__DIR__, "raw_newpm_longjmp.jl"))))")
     project = dirname(Base.active_project())
-    @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project $script`)
+    @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`)
 end
 
 @testset "custom loop passes" begin
@@ -2531,6 +2533,7 @@ end
     @test occursin("memset", result.out)
 end
 
+if julia_llvm_in_use()
 @testset "julia" begin
     @testset "passes" begin
         @dispose ctx=Context() pb=PassBuilder() begin
@@ -2675,6 +2678,7 @@ end
             end
         end
     end
+end
 end
 
 # on Windows, instrumentation needs LLVM 20 to work across libraries, including

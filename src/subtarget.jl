@@ -35,8 +35,11 @@ mutable struct SubtargetInfo
     ref::API.LLVMMCSubtargetInfoRef
     # whether this handle owns the subtarget, or the subtarget belongs to a target machine
     owned::Bool
+    library::Library
 end
 @properties SubtargetInfo
+
+argument_library(sti::SubtargetInfo) = sti.library
 
 Base.unsafe_convert(::Type{API.LLVMMCSubtargetInfoRef}, sti::SubtargetInfo) =
     mark_use(sti).ref
@@ -68,7 +71,7 @@ function SubtargetInfo(target::Target, triple::Union{Triple,AbstractString};
                             "initialize its machine code layer first (e.g., using " *
                             "`LLVM.InitializeAllTargetMCs()`)"))
     end
-    mark_alloc(SubtargetInfo(ref, true))
+    mark_alloc(SubtargetInfo(ref, true, target.library))
 end
 
 """
@@ -87,7 +90,7 @@ function SubtargetInfo(tm::TargetMachine, f::Function)
     if ref == C_NULL
         throw(ArgumentError("Target machine for $(triple(tm)) does not have subtargets"))
     end
-    mark_alloc(SubtargetInfo(ref, false); owner=tm)
+    mark_alloc(SubtargetInfo(ref, false, tm.library); owner=tm)
 end
 
 SubtargetInfo(f::Core.Function, args...; kwargs...) =

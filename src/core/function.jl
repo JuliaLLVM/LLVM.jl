@@ -204,7 +204,9 @@ end
 
 callconv(f::Function) = API.LLVMGetFunctionCallConv(f)
 
-callconv!(f::Function, cc) = API.LLVMSetFunctionCallConv(f, cc)
+# calling conventions are passed as integers, as LLVM supports more than the C API names
+callconv!(f::Function, cc) =
+    API.LLVMSetFunctionCallConv(f, API.to_abi(library(), API.LLVMCallConv, cc))
 
 @property Function callconv callconv!
 

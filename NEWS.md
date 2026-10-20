@@ -3,41 +3,130 @@
 
 ## LLVM.jl v10.3
 
-The wrappers of the C API (`LLVM.API`) are now generated once for every supported version of
-LLVM, instead of per version. Functions of the C API are defined on every version, and
-throw an error when called on a version of LLVM that lacks them. Enums contain the values
-of every version, e.g. `LLVM.Opcode.Br` next to `LLVM.Opcode.CondBr`, and
-`LLVM.isavailable` says whether the version in use has a value; passing a value that it
-lacks to LLVM throws an error. Enum values have the same number on every version of LLVM,
-even where the C API numbers them differently (value kinds, DWARF source languages), so
-these numbers do not always match those of LLVM's C headers.
-`res/ABI.md` lists how the C APIs of the supported versions differ.
+LLVM.jl can now use LLVM libraries other than Julia's, also several in one process. Many
+new APIs cover what passes written in Julia need, such as the ports of Julia's C++ passes
+in [JuliaIR.jl](https://github.com/JuliaLLVM/JuliaIR.jl).
 
-### Library and context scopes
+### Multiple LLVM libraries
 
-Values, types and metadata remain lightweight wrappers. When using several LLVM libraries,
-select the context and its library with `context!(ctx) do ... end` for a group of operations;
-handles used inside that scope must belong to that library. Owning objects remember their
-library, and `LLVM.version(ctx)` queries the version of the context's library.
+`deps/build_standalone.jl` builds a standalone library for LLVM 15 to 23 using
+LLVM_full_jll. It contains LLVM and LLVMExtra, with LLVM's C++ symbols hidden, so that it
+can be loaded next to Julia's LLVM. Register it under a name, and use it for a block of
+code:
 
-Pass execution now activates the target's context as well as its library, including for
-custom callbacks and nested pipelines, and restores the caller's scope afterwards.
-`DataLayout(jit)` uses the JIT's library even when another library is selected.
-Metadata mapping with `no_module_level_changes=true` no longer traverses the unchanged
-metadata graph during preparation.
+```julia
+LLVM.register_library!(:llvm23, "/path/to/libLLVM-standalone-23.so")
 
-### Promoting allocas to registers
+LLVM.Context(library=:llvm23) do ctx
+    LLVM.@dispose mod=parse(LLVM.Module, bitcode) begin
+        LLVM.run!("default<O2>", mod)
+    end
+end
+```
 
-`promote_mem_to_reg!(allocas, domtree)` replaces allocas by SSA values, like the `mem2reg`
-pass but for chosen allocas, e.g. ones a custom pass created. `is_promotable(alloca)`
-checks whether an alloca can be promoted.
+`LLVM.library!(lib) do ... end` selects a library for a block, without creating a context.
+The `Context` do-block above also creates and activates a context, disposes it afterwards,
+and restores the previous scope. For an existing context, `context!(ctx) do ... end`
+selects both the context and its library. The plain `Context(library=...)` constructor
+activates the context in that library's context stack, but does not switch the current
+library.
 
-### Metadata strings
+Contexts, modules, target machines, pass builders and other objects that own LLVM
+resources record their library (`mod.library`), and keep using it outside of the block.
+Values, types and metadata remain lightweight wrappers: they must be used while their
+library is the current one. Select a scope for a whole transformation; LLVM.jl cannot
+always detect handles from different libraries being mixed. Objects of different libraries
+cannot be combined; transfer IR as bitcode that the other version can read.
+`LLVM.Interop` always generates code with Julia's LLVM, and `JuliaOJIT`, Julia's passes
+and converting Julia types to LLVM types require it.
 
-The value of an `MDString` is now obtained with `String(md)`. `convert(String, md)` still
-works, but is deprecated and will be removed in the next breaking release: methods of
-`convert(::Type{String}, x)` invalidate compiled code across Base, costing load time to
-every package that depends on LLVM.jl.
+Intrinsic IDs also belong to a library and can differ between LLVM versions. Resolve
+`Intrinsic("llvm.memcpy")` inside the selected scope, rather than storing IDs in global
+constants during package precompilation. They can be retained for the transformation.
+
+Version-dependent functionality, like properties (`hasproperty(inst, :nuw)`), passes and
+types, follows the library in use. Downstream code should likewise check the version at
+run time, with `LLVM.version(mod)` (for objects that record their library) or
+`LLVM.version()` (the current library), rather than with `@static if`.
+
+The `libLLVM` preference makes another library the default for the whole session.
+
+`LLVM.API` now has a single set of wrappers for all supported versions of LLVM. Functions
+that the version in use lacks throw an error when called, so `isdefined(LLVM.API,
+:LLVMFoo)` no longer tells whether a function is available. Enums contain the values of
+every version, e.g. `LLVM.Opcode.Br` next to `LLVM.Opcode.CondBr`; `LLVM.isavailable`
+checks whether the version in use supports one. Enum values have the same number on every
+version, which does not always match LLVM's C headers (value kinds, DWARF source
+languages). `res/ABI.md` lists how the C APIs of the supported versions differ.
+
+### APIs for writing LLVM passes
+
+- **Pass infrastructure**: custom loop passes (`LoopPass`), which receive the loop's
+  analyses, including MemorySSA in `loop-mssa` pipelines; `run!(pb, f, am)` runs a
+  pipeline from within a custom function pass, sharing its analyses; `print_pipeline`
+  prints a pipeline like `opt -print-pipeline-passes`; custom passes are reported under
+  their own name (e.g. for `-print-before`); `FunctionPassManager(; eager_invalidate=true)`
+  invalidates analyses after each function; `VectorCombinePass(; early=true)` only runs
+  the folds meant for before vectorization (LLVM 16+).
+- **Alias analysis**: an empty `AAManager` now disables alias analysis, instead of keeping
+  LLVM's defaults; `TargetAA()` adds the target's alias analyses.
+- **Optimization remarks**: `remark!` takes a do-block that only builds the message when
+  the remark is wanted (`remark_enabled`), from strings and `key => value` arguments that
+  LLVM renders as in its own passes. `RemarkFile` writes remarks to a file.
+- **Analyses**: MemorySSA accesses (`memory_access`, `memory_accesses`, `live_on_entry`),
+  updates (`MemorySSAUpdater`) and `verify`; the blocks of a loop in reverse post-order
+  (`reverse_postorder(loop, li)`); `forget!` and `forget_loop_dispositions!` for scalar
+  evolution; `is_safe_to_speculatively_execute`.
+- **Transforms**: promote selected allocas to SSA values (`promote_mem_to_reg!`,
+  `is_promotable`); find a simpler equivalent value without changing the IR
+  (`simplify_instruction`); inline a single call (`inline!`, `inline_viability`); split
+  blocks (`split_block!`, `split_block_and_insert_if_then_else!`, and branch weights for
+  `split_block_and_insert_if_then!`). `ValueMap`, `map_value` and `map_metadata` help to
+  rebuild IR with other types; `clone_into!` accepts and extends a `ValueMap`.
+- **Instructions**: `rmw.binop = op` changes the operation of an `atomicrmw`;
+  `iscommutative`; `supports_mmra` (LLVM 19+); `move!(inst, pos; debug_records=true)`
+  moves an instruction together with its debug records; `drop_unknown_metadata!` and
+  `copy_metadata!`; `Instruction(ce)` creates the instruction equivalent to a constant
+  expression; `f.calls` views the `call`, `invoke` and `callbr` instructions in a function;
+  `with_operand_bundles` recreates a call with other operand bundles;
+  `shuffle.shuffle_mask` reads the mask of a `shufflevector`; the `nusw` and `nuw` flags of
+  GEPs (LLVM 19+), also in `const_gep`, and `ce.inbounds` for GEP constant expressions.
+- **Global values and constants**: `isinterposable`; COMDATs (`Comdat`, `gv.comdat`);
+  `gv.dso_local`; `add_metadata!`, which keeps other attachments of the same kind; aliases
+  without an aliasee; `LLVM.Function(mod, name, ft; addrspace)`; `copy_attributes!` for
+  aliases and ifuncs; renaming struct types (`typ.name = ...`) and `isliteral`;
+  `remangle_intrinsic`; `with_operands(ce, ops)`; `ConstantVector(elements)`;
+  `DSOLocalEquivalent` and `NoCFIValue`.
+- **Types**: `ScalableVectorType`, `TargetExtType` (LLVM 16+), `X86AMXType` and
+  `X86MMXType` (before LLVM 20), which could not be wrapped before.
+- **Targets**: `LLVM.Triple` interprets a target triple with LLVM (`arch`, `os`, `isx86`,
+  ...), and `LLVM.SubtargetInfo` queries the features of a CPU (`hasfeature`,
+  `hasfeatures`).
+
+Common operations on IR objects whose type is only known at run time, like property
+accesses, constructors that use the active context, attribute lookups and instruction
+builders, dispatch less dynamically and allocate less, making them considerably faster.
+
+### Other changes
+
+- When a custom pass throws, the remaining optional passes and all custom passes are
+  skipped, also in the enclosing pipeline of a nested `run!`.
+- Pass execution activates the target's context and library for custom callbacks and
+  nested pipelines, restoring the caller's scope afterwards. For a function target,
+  select its library before calling `run!`, since function wrappers do not retain it.
+- `DataLayout(jit)` uses the JIT's library even when another library is selected.
+- `map_metadata(...; no_module_level_changes=true)` no longer traverses the unchanged
+  metadata graph during preparation.
+- `ConstantDataArray` and `ConstantDataVector` are subtypes of `ConstantData`, as in LLVM.
+  Their `uses` and `users` are empty on LLVM 21+, which no longer tracks them.
+- `call.called_operand = callee` accepts any pointer, not only one of the old callee's type.
+- Instruction metadata with a single constant operand (e.g. `!{i64 1}`) is read and
+  attached as metadata, and `get(inst.metadata, kind, default)` works.
+- `Max` and `Min` module flags can be added and enumerated. Enumerating them used to abort
+  on LLVM builds with assertions.
+- Use `String(md)` to get the value of an `MDString`. `convert(String, md)` is deprecated,
+  and will be removed in the next breaking release, as it invalidates compiled code in
+  Base, which costs load time to packages that depend on LLVM.jl.
 
 
 ## LLVM.jl v10.2

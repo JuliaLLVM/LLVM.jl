@@ -74,7 +74,8 @@ function main()
 
     if ci
         deploydocs(
-            repo = "github.com/JuliaLLVM/LLVM.jl.git"
+            repo = "github.com/JuliaLLVM/LLVM.jl.git",
+            push_preview = true
         )
     end
 end

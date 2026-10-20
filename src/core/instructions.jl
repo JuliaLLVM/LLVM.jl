@@ -1296,7 +1296,7 @@ argument_library(bundle::OperandBundle) = bundle.library
 Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
-as_refs(bundles::AbstractVector{OperandBundle}) =
+bundle_refs(bundles::AbstractVector) =
     collect_refs(API.LLVMOperandBundleRef, bundles)
 
 """
@@ -1306,7 +1306,7 @@ Create a new operand bundle with the given tag and arguments.
 """
 function OperandBundle(tag::AbstractString, args::AbstractVector{<:Value}=Value[])
     tag = String(tag)
-    refs = as_refs(args)
+    refs = value_refs(args)
     bundle = OperandBundle(API.LLVMCreateOperandBundle(tag, ncodeunits(tag),
                                                        refs, length(refs)),
                            library())
@@ -1391,7 +1391,7 @@ function with_operand_bundles(call::CallBase, bundles::AbstractVector{OperandBun
     # the bundles of a view are created when indexing it, so collect them to keep them alive
     bundles = bundles isa Vector ? bundles : collect(bundles)::Vector{OperandBundle}
     GC.@preserve bundles begin
-        refs = as_refs(bundles)
+        refs = bundle_refs(bundles)
         Instruction(API.LLVMExtraCallBaseWithOperandBundles(call, refs, length(refs)))
     end
 end

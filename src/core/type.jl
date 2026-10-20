@@ -34,7 +34,7 @@ function Base.cconvert(::Type{Ptr{API.LLVMTypeRef}},
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
 
-as_refs(objs::AbstractVector{<:LLVMType}) = collect_refs(API.LLVMTypeRef, objs)
+type_refs(objs::AbstractVector) = collect_refs(API.LLVMTypeRef, objs)
 
 
 Base.sizeof(typ::LLVMType) = error("LLVM types are not sized")
@@ -258,7 +258,7 @@ See also: [`isvararg`](@ref), and the [`return_type`](@ref LLVM.FunctionType) an
 """
 function FunctionType(rettyp::LLVMType, params::AbstractVector{<:LLVMType}=LLVMType[];
                       vararg::Bool=false)
-    refs = as_refs(params)
+    refs = type_refs(params)
     FunctionType(API.LLVMFunctionType(rettyp, refs, length(refs), vararg))
 end
 
@@ -569,7 +569,7 @@ the structure should be packed, i.e., without padding between fields.
 See also: [`ispacked`](@ref), and the [`elements`](@ref LLVM.StructType) property.
 """
 function StructType(elems::AbstractVector{<:LLVMType}; packed::Bool=false)
-    refs = as_refs(elems)
+    refs = type_refs(elems)
     StructType(API.LLVMStructTypeInContext(context(), refs, length(refs), packed))
 end
 
@@ -619,7 +619,7 @@ See also the [`elements`](@ref LLVM.StructType) property.
 """
 function elements!(structtyp::StructType, elems::AbstractVector{<:LLVMType};
                    packed::Bool=false)
-    refs = as_refs(elems)
+    refs = type_refs(elems)
     API.LLVMStructSetBody(structtyp, refs, length(refs), packed)
 end
 
@@ -694,7 +694,7 @@ function TargetExtType(name::AbstractString,
                        types::AbstractVector{<:LLVMType}=LLVMType[],
                        ints::AbstractVector{<:Integer}=Cuint[])
     return TargetExtType(API.LLVMTargetExtTypeInContext(context(), name,
-                                                        as_refs(types), length(types),
+                                                        type_refs(types), length(types),
                                                         Vector{Cuint}(ints),
                                                         length(ints)))
 end

@@ -64,7 +64,7 @@ function convert_users_to_instructions!(consts::AbstractVector{<:Constant};
     end
     func === nothing || func isa Function ||
         throw(ArgumentError("`func` must be an LLVM.Function or `nothing`"))
-    refs = as_refs(consts)
+    refs = value_refs(consts)
     API.LLVMConvertUsersOfConstantsToInstructions(
         refs, length(refs), something(func, C_NULL),
         remove_dead_constants, include_self) |> Bool
@@ -604,14 +604,14 @@ function ConstantArray(typ::LLVMType, data::AbstractArray{<:Constant,N}) where {
     @assert all(x->x==typ, value_type.(data))
 
     if N == 1
-        refs = as_refs(data)
+        refs = value_refs(data)
         return Value(API.LLVMConstArray(typ, refs, length(refs)))::Constant
     end
 
     ca_vec = map(x->ConstantArray(typ, x), eachslice(data, dims=1))
     ca_typ = foldr((n, eltyp)->ArrayType(eltyp, n), size(data)[2:end]; init=typ)
 
-    refs = as_refs(ca_vec)
+    refs = value_refs(ca_vec)
     return Value(API.LLVMConstArray(ca_typ, refs, length(refs)))::Constant
 end
 
@@ -657,7 +657,7 @@ Create an anonymous constant struct of the given values.
 LLVM may fold the result to `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
 """
 function ConstantStruct(values::AbstractVector{<:Constant}; packed::Bool=false)
-    refs = as_refs(values)
+    refs = value_refs(values)
     Value(API.LLVMConstStructInContext(context(), refs, length(refs), packed))::Constant
 end
 
@@ -668,7 +668,7 @@ Create a constant struct of the given type and values.
 LLVM may fold the result to `ConstantAggregateZero`, `UndefValue`, or `PoisonValue`.
 """
 function ConstantStruct(typ::StructType, values::AbstractVector{<:Constant})
-    refs = as_refs(values)
+    refs = value_refs(values)
     Value(API.LLVMConstNamedStruct(typ, refs, length(refs)))::Constant
 end
 
@@ -741,7 +741,7 @@ function ConstantVector(elements::AbstractVector{<:Constant})
     isempty(elements) && throw(ArgumentError("Cannot create a vector without elements"))
     all(e -> value_type(e) == value_type(first(elements)), elements) ||
         throw(ArgumentError("The elements of a vector must have the same type"))
-    return Value(API.LLVMConstVector(as_refs(elements), length(elements)))::Constant
+    return Value(API.LLVMConstVector(value_refs(elements), length(elements)))::Constant
 end
 
 
@@ -871,7 +871,7 @@ const_xor(lhs::Constant, rhs::Constant) =
 
 function const_gep(Ty::LLVMType, val::Constant, Indices::AbstractVector{<:Constant};
                    inbounds::Bool=false, nusw::Bool=false, nuw::Bool=false)
-    indices = as_refs(Indices)
+    indices = value_refs(Indices)
     if atleast(19)
         flags = (inbounds ? UInt32(API.LLVMGEPFlagInBounds) : UInt32(0)) |
                 (nusw ? UInt32(API.LLVMGEPFlagNUSW) : UInt32(0)) |
@@ -887,7 +887,7 @@ end
 
 function const_inbounds_gep(Ty::LLVMType, val::Constant,
                             Indices::AbstractVector{<:Constant})
-    indices = as_refs(Indices)
+    indices = value_refs(Indices)
     Value(API.LLVMConstInBoundsGEP2(Ty, val, indices, length(indices)))
 end
 
@@ -1176,7 +1176,7 @@ function with_operands(ce::ConstantExpr, ops::AbstractVector{<:Constant};
                        source_type::Union{LLVMType,Nothing}=nothing)
     length(ops) == length(operands(ce)) ||
         throw(ArgumentError("Expected $(length(operands(ce))) operands, got $(length(ops))"))
-    Value(API.LLVMExtraConstantExprGetWithOperands(ce, as_refs(ops), length(ops),
+    Value(API.LLVMExtraConstantExprGetWithOperands(ce, value_refs(ops), length(ops),
                                                    something(type, C_NULL),
                                                    something(source_type, C_NULL)))
 end

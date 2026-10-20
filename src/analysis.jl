@@ -1729,7 +1729,7 @@ anymore.
 erase_trivially_dead!(inst::Instruction) =
     API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructions(inst) |> Bool
 function erase_trivially_dead!(insts::AbstractVector{<:Instruction})
-    refs = as_refs(insts)
+    refs = value_refs(insts)
     return API.LLVMExtraRecursivelyDeleteTriviallyDeadInstructionsPermissive(
         refs, length(refs)) |> Bool
 end
@@ -1769,7 +1769,7 @@ promote_mem_to_reg!(alloca::AllocaInst, domtree::DomTree; kwargs...) =
     promote_mem_to_reg!([alloca], domtree; kwargs...)
 function promote_mem_to_reg!(allocas::AbstractVector{<:AllocaInst}, domtree::DomTree;
                              assumptions::Union{Nothing,AssumptionCache}=nothing)
-    refs = as_refs(allocas)
+    refs = value_refs(allocas)
     allunique(refs) || throw(ArgumentError("Cannot promote an alloca more than once"))
     fn = C_NULL
     for (ref, alloca) in zip(refs, allocas)

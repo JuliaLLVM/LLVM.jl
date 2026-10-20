@@ -278,4 +278,5 @@ of types.
 
 This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
-DataLayout(jit::Union{LLJIT,JuliaOJIT}) = DataLayout(jit.datalayout_string)
+DataLayout(jit::Union{LLJIT,JuliaOJIT}) =
+    library!(() -> DataLayout(jit.datalayout_string), argument_library(jit))

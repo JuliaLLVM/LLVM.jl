@@ -479,6 +479,24 @@ end
             @test all(op -> op isa PoisonValue, new.operands)
         end
 
+        # With no module-level changes, metadata is not traversed, even by the
+        # preparation of a type mapper. Existing metadata mappings still take priority.
+        ValueMap() do vmap
+            md = MDNode([Metadata(ce), MDString("unchanged")])
+            failing(typ) = error("metadata should not be traversed")
+            @test map_metadata(md, vmap; no_module_level_changes=true,
+                               type_mapper=failing) == md
+            @test isempty(vmap)
+            @test isempty(vmap.metadata)
+            other = MDNode([MDString("replacement")])
+            vmap.metadata[md] = other
+            @test map_metadata(md, vmap; no_module_level_changes=true,
+                               type_mapper=failing) == other
+            empty!(vmap.metadata)
+            @test_throws LLVM.CallbackException map_metadata(md, vmap; type_mapper=failing)
+            @test isempty(vmap)
+        end
+
         # metadata
         ValueMap() do vmap
             vmap[a] = b

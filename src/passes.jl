@@ -1355,6 +1355,11 @@ end
 
 Run passes on a module. The passes are specified by a pass builder or a string that
 represents a pass pipeline. The target machine is used to optimize the passes.
+
+The target's context and library are active while the passes run, including in custom
+pass callbacks. The caller's context and library are restored afterwards.
+For a function target, select its library before calling `run!`, since function wrappers
+do not remember their library.
 """
 run!
 
@@ -1363,7 +1368,7 @@ function run!(pb::PassBuilder, target::Union{Module,Function}, tm::Union{Nothing
     # passes run with the library of the module, which may not be the current one
     lib = target isa Module ? target.library : library()
     check_library(lib, pb, tm)
-    library!(() -> _run!(pb, target, tm), lib)
+    context!(() -> _run!(pb, target, tm), context(target))
 end
 
 function _run!(pb::PassBuilder, target::Union{Module,Function},
@@ -1652,8 +1657,8 @@ function run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,
     isempty(pb.aa_passes) && pb.custom_tti === nothing && pb.remarks === nothing ||
         throw(ArgumentError("Passes that run from a pass use the alias analyses, target transform info and remarks of the enclosing pipeline"))
     isempty(pb.passes) && return PreservedAnalyses(AllAnalyses)
-    check_library(pb.library, tm)
-    library!(() -> _run!(pb, f, am, tm), pb.library)
+    check_library(library(), pb, tm)
+    context!(() -> _run!(pb, f, am, tm), context(f))
 end
 
 function _run!(pb::PassBuilder, f::Function, am::FunctionAnalysisManager,

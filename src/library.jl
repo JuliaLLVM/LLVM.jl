@@ -28,7 +28,9 @@ Objects that own LLVM resources, like contexts, modules and target machines, rem
 library that created them in their `library` property, and are always used with it.
 Values, types and metadata do not: they need to be used with the current library (see
 [`LLVM.library!`](@ref)), typically by working with them inside a
-[`context!`](@ref) block.
+[`context!`](@ref) block. They can be kept after leaving the block while their LLVM
+objects are alive, but using them requires selecting that library again. Mixing such
+handles from different libraries is a caller error that LLVM.jl cannot always detect.
 
 # Properties
 

@@ -4,7 +4,7 @@
 LLVM.Metadata
 MDString
 MDString(::AbstractString)
-convert(::Type{String}, ::MDString)
+String(::MDString)
 MDNode
 MDTuple
 MDTuple(::AbstractVector)

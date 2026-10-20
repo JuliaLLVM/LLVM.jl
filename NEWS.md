@@ -9,6 +9,13 @@
 pass but for chosen allocas, e.g. ones a custom pass created. `is_promotable(alloca)`
 checks whether an alloca can be promoted.
 
+### Metadata strings
+
+The value of an `MDString` is now obtained with `String(md)`. `convert(String, md)` still
+works, but is deprecated and will be removed in the next breaking release: methods of
+`convert(::Type{String}, x)` invalidate compiled code across Base, costing load time to
+every package that depends on LLVM.jl.
+
 
 ## LLVM.jl v10.2
 

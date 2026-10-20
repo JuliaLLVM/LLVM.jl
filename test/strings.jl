@@ -215,7 +215,7 @@ end
         @test string(MDString(sub("mëtadata"))) == string(MDString("mëtadata"))
 
         tag = LLVM.Interop.tbaa_make_child(sub("custom"))
-        @test convert(String, tag.operands[1].operands[1]) == "custom_tbaa_custom"
+        @test String(tag.operands[1].operands[1]) == "custom_tbaa_custom"
 
         # attribute kinds
         @test EnumAttribute(sub("nounwind")) == EnumAttribute(:nounwind)

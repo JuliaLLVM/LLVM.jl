@@ -2152,7 +2152,7 @@ end
 
 @dispose ctx=Context() begin
     str = MDString("foo")
-    @test convert(String, str) == "foo"
+    @test String(str) == "foo"
 
     # wrap as Value
     val = Value(str)
@@ -2655,7 +2655,7 @@ end
 
 # strings are passed to LLVM by their number of bytes, not characters
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
-    @test convert(String, MDString("é")) == "é"
+    @test String(MDString("é")) == "é"
     mod.name = "módulo"
     @test mod.name == "módulo"
     push!(get!(mod.metadata, "métadonnées").operands, MDNode([MDString("x")]))

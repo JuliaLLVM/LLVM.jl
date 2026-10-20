@@ -809,7 +809,7 @@ function Base.iterate(iter::ModuleFlagDict)
     if node !== nothing
         for flag in operands(node)
             _, key, val = operands(flag)
-            push!(entries, convert(String, key) => val)
+            push!(entries, String(key) => val)
         end
     end
     iterate(iter, (entries, 1))

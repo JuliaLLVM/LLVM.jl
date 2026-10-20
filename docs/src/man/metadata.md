@@ -15,13 +15,13 @@ metadata object types exist, each prefixed with `MD`, and with a variety of APIs
 and manipulate them. The abstract supertype of all metadata objects is `Metadata`.
 
 Metadata strings can be constructed with the `MDString` constructor, and converted back to
-Julia strings with a `convert` call:
+Julia strings with the `String` constructor:
 
 ```jldoctest
 julia> md = MDString("hello")
 !"hello"
 
-julia> convert(String, md)
+julia> String(md)
 "hello"
 ```
 

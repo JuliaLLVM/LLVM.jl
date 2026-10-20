@@ -163,15 +163,19 @@ function MDString(val::AbstractString)
 end
 
 """
-    convert(String, md::MDString)
+    String(md::MDString)
 
 Get the string value of the given string metadata node.
 """
-function Base.convert(::Type{String}, md::MDString)
+function Base.String(md::MDString)
     len = Ref{Cuint}()
     ptr = API.LLVMGetMDString2(md, len)
     return unsafe_string(convert(Ptr{Int8}, ptr), len[])
 end
+
+# Methods of `convert(::Type{String}, x)` invalidate all code that converts an
+# abstractly-typed value to a `String`, which is common in Base. Kept for compatibility.
+Base.convert(::Type{String}, md::MDString) = String(md)
 
 
 ## nodes

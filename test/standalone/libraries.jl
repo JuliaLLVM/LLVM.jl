@@ -173,12 +173,30 @@ end
     LLVM.Context(; library=other) do ctx
         @dispose mod=parse(LLVM.Module, IR) pb=LLVM.PassBuilder() begin
             seen = Ref{Any}(nothing)
-            pass = LLVM.ModulePass("seen", m -> (seen[] = library(); false))
+            pass = LLVM.ModulePass("seen", m -> begin
+                seen[] = library()
+                @test LLVM.context() == ctx
+                @test LLVM.Int32Type().context == ctx
+                false
+            end)
             LLVM.register!(pb, pass)
             LLVM.add!(pb, pass)
             LLVM.add!(pb, "default<O2>")
             LLVM.run!(pb, mod)
             @test seen[] === other
+            LLVM.Context(; library=julia) do caller
+                LLVM.run!(pb, mod)
+                @test seen[] === other
+                @test library() === julia
+                @test LLVM.context() == caller
+                failing = LLVM.ModulePass("fail", m -> begin
+                    @test LLVM.context() == ctx
+                    error("oops")
+                end)
+                @test_throws LLVM.PassException LLVM.run!(failing, mod)
+                @test library() === julia
+                @test LLVM.context() == caller
+            end
         end
     end
 end
@@ -268,6 +286,10 @@ end
         jit, obj
     end
     @test jit.library === other
+    @dispose dl=LLVM.DataLayout(jit) begin
+        @test dl.library === other
+        @test string(dl) == jit.datalayout_string
+    end
     jd = jit.main_dylib
     @test jd.library === other
     @test jit.execution_session.library === other

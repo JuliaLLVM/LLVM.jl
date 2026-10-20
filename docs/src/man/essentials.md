@@ -75,10 +75,43 @@ another library can be printed, serialized and disposed of afterwards. Objects o
 libraries cannot be combined, e.g., linked: transfer IR between libraries by serializing it
 to bitcode, which newer versions of LLVM can read.
 
-Values, types and metadata don't remember their library, so they need to be used while
-their library is the current one, which `context!(ctx) do ... end` ensures for the objects
-of `ctx`. The active context also needs to belong to the current library:
-[`context`](@ref) throws an error otherwise.
+Values, types, metadata and borrowed analysis handles are lightweight wrappers that don't
+remember their library. Select their library once for a group of operations, using
+`context!(ctx) do ... end` to select both the context and its library:
+
+```julia
+ctx = LLVM.Context(library=:llvm21)
+try
+    mod = LLVM.context!(ctx) do
+        parse(LLVM.Module, bitcode)
+    end
+    # The context and its objects are still alive. Re-enter its scope to work on the IR.
+    try
+        LLVM.context!(ctx) do
+            for f in mod.functions
+                # Inspect or transform f using LLVM 21.
+            end
+        end
+    finally
+        LLVM.dispose(mod)
+    end
+finally
+    LLVM.dispose(ctx)
+end
+```
+
+The plain `Context(library=...)` constructor activates the context in that library's
+stack, but does not change the current library; its do-block form also selects the
+library. The active context must belong to the current library: [`context`](@ref) throws
+an error otherwise.
+
+Keeping a lightweight handle after leaving a scope is allowed while its LLVM object is
+alive, but using it requires selecting its library again. The caller is responsible for
+this and for not mixing handles from different libraries. Checks reject mismatched owning
+objects, but cannot detect all misuse of lightweight handles. Use a context scope for a
+whole transformation, rather than switching libraries for individual IR operations.
+Pass execution activates the target's context and library for custom pass callbacks, and
+restores the caller's scope afterwards.
 
 Functionality that integrates with Julia's code generator always uses Julia's LLVM:
 `LLVM.Interop` generates `llvmcall`s with it also when another library is current, and

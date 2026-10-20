@@ -325,6 +325,54 @@ end
     end
 end
 
+@testset "pass contexts" begin
+    @dispose ctx=Context() mod=test_module() begin
+        fun = only(mod.functions)
+        function check_context(target)
+            @test context() == ctx
+            @test LLVM.Int32Type().context == ctx
+            @dispose builder=IRBuilder() begin
+                @test builder.context == ctx
+            end
+            return false
+        end
+        # Selecting the library alone doesn't select the target's context.
+        @dispose other=Context() begin
+            run!(ModulePass("module-context", check_context), mod)
+            @test context() == other
+            run!(FunctionPass("function-context", check_context), fun)
+            @test context() == other
+            failing = ModulePass("failing-context", m -> (check_context(m); error("oops")))
+            @test_throws LLVM.PassException run!(failing, mod)
+            @test context() == other
+
+            outer = FunctionPass("outer-context", (f, am) -> begin
+                @test context() == ctx
+                context!(other) do
+                    run!(FunctionPass("inner-context", check_context), f, am)
+                    @test context() == other
+                    inner = FunctionPass("inner-error", f -> (check_context(f); error("oops")))
+                    @test_throws LLVM.PassException run!(inner, f, am)
+                    @test context() == other
+                end
+                @test context() == ctx
+                return false
+            end; analyses=true)
+            run!(outer, mod)
+            @test context() == other
+        end
+        # A live module can also be processed without its context on the active stack.
+        deactivate(ctx)
+        previous = context(; throw_error=false)
+        try
+            run!(ModulePass("inactive-context", check_context), mod)
+            @test context(; throw_error=false) === previous
+        finally
+            activate(ctx)
+        end
+    end
+end
+
 @testset "custom passes" begin
     module_pass_calls = 0
     function custom_module_pass!(mod::LLVM.Module)

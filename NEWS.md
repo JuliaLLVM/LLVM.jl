@@ -13,6 +13,19 @@ even where the C API numbers them differently (value kinds, DWARF source languag
 these numbers do not always match those of LLVM's C headers.
 `res/ABI.md` lists how the C APIs of the supported versions differ.
 
+### Library and context scopes
+
+Values, types and metadata remain lightweight wrappers. When using several LLVM libraries,
+select the context and its library with `context!(ctx) do ... end` for a group of operations;
+handles used inside that scope must belong to that library. Owning objects remember their
+library, and `LLVM.version(ctx)` queries the version of the context's library.
+
+Pass execution now activates the target's context as well as its library, including for
+custom callbacks and nested pipelines, and restores the caller's scope afterwards.
+`DataLayout(jit)` uses the JIT's library even when another library is selected.
+Metadata mapping with `no_module_level_changes=true` no longer traverses the unchanged
+metadata graph during preparation.
+
 ### Promoting allocas to registers
 
 `promote_mem_to_reg!(allocas, domtree)` replaces allocas by SSA values, like the `mem2reg`

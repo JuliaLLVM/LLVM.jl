@@ -626,6 +626,11 @@ intrinsic; use [`tryparse`](@ref tryparse(::Type{LLVM.Intrinsic}, ::AbstractStri
 look up a name that the version of LLVM in use may not know, and the `intrinsic` property
 of functions to check whether a function is an intrinsic.
 
+An `Intrinsic` stores an ID from the current library. Construct and use it within that
+library's scope: IDs can differ between LLVM versions. In particular, don't store
+`Intrinsic` objects in global constants evaluated during package precompilation; look
+them up by name when running a transformation.
+
 # Properties
 
     intr.name

@@ -399,7 +399,10 @@ function map_metadata(md::Metadata, vmap::ValueMap; type_mapper=nothing,
                       null_map_missing_globals::Bool=false)
     flags = remap_flags(no_module_level_changes, ignore_missing_locals,
                         reuse_and_mutate_distinct_mds, null_map_missing_globals)
-    prepare(tm, tmd) = API.LLVMExtraPrepareMapMetadata(md, vmap, tm, tmd)
+    # With no module-level changes, LLVM only looks up the metadata's existing mapping
+    # or returns it unchanged. There are no types or value-map entries to prepare.
+    prepare(tm, tmd) = no_module_level_changes ? nothing :
+        API.LLVMExtraPrepareMapMetadata(md, vmap, tm, tmd)
     ref = with_mapper_callbacks(prepare, "metadata mapping", vmap, flags, type_mapper,
                                 materializer) do tm, tmd, mat, matd
         API.LLVMExtraMapMetadata(md, vmap, flags, tm, tmd, mat, matd)

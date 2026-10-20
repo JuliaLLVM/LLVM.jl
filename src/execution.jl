@@ -33,7 +33,7 @@ argument_library(x::GenericValue) = x.library
 
 Base.unsafe_convert(::Type{API.LLVMGenericValueRef}, val::GenericValue) = mark_use(val).ref
 
-as_refs(vals::AbstractVector{GenericValue}) = collect_refs(API.LLVMGenericValueRef, vals)
+generic_value_refs(vals::AbstractVector) = collect_refs(API.LLVMGenericValueRef, vals)
 
 @properties GenericValue
 
@@ -287,7 +287,7 @@ result. The arguments are only borrowed, while the result needs to be disposed o
 """
 function execute(engine::ExecutionEngine, f::Function,
                  args::AbstractVector{GenericValue}=GenericValue[])
-    vals = as_refs(args)
+    vals = generic_value_refs(args)
     mark_alloc(GenericValue(API.LLVMRunFunction(engine, f, length(vals), vals),
                             engine.library))
 end

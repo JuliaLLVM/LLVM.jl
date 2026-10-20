@@ -235,7 +235,7 @@ ret!(builder::IRBuilder, V::Value) =
     Instruction(API.LLVMBuildRet(builder, V))
 
 function ret!(builder::IRBuilder, RetVals::AbstractVector{<:Value})
-    vals = as_refs(RetVals)
+    vals = value_refs(RetVals)
     Instruction(API.LLVMBuildAggregateRet(builder, vals, length(vals)))
 end
 
@@ -253,7 +253,7 @@ indirectbr!(builder::IRBuilder, Addr::Value, NumDests::Integer=10) =
 
 function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                  Then::BasicBlock, Catch::BasicBlock, Name::AbstractString="")
-    args = as_refs(Args)
+    args = value_refs(Args)
     Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, args, length(args), Then, Catch,
                                      Name))
 end
@@ -788,13 +788,13 @@ atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
 
 function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
               Indices::AbstractVector{<:Value}, Name::AbstractString="")
-    indices = as_refs(Indices)
+    indices = value_refs(Indices)
     Value(API.LLVMBuildGEP2(builder, Ty, Pointer, indices, length(indices), Name))
 end
 
 function inbounds_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
                        Indices::AbstractVector{<:Value}, Name::AbstractString="")
-    indices = as_refs(Indices)
+    indices = value_refs(Indices)
     Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, indices, length(indices), Name))
 end
 
@@ -887,19 +887,19 @@ select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::AbstractS
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
                Args::AbstractVector{<:Value}=Value[], Name::AbstractString="")
-    args = as_refs(Args)
+    args = value_refs(Args)
     Instruction(API.LLVMBuildCall2(builder, Ty, Fn, args, length(args), Name))
 end
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                Bundles::AbstractVector{OperandBundle}, Name::AbstractString="")
-    args = as_refs(Args)
+    args = value_refs(Args)
     # the bundles of a view are created when indexing it, so collect them to keep them alive
     bundles = Bundles isa Vector ? Bundles : collect(Bundles)::Vector{OperandBundle}
     GC.@preserve bundles begin
-        bundle_refs = as_refs(bundles)
+        brefs = bundle_refs(bundles)
         Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, args, length(args),
-                                                        bundle_refs, length(bundle_refs),
+                                                        brefs, length(brefs),
                                                         Name))
     end
 end

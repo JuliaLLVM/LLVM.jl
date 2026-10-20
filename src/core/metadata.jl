@@ -31,7 +31,7 @@ function Base.cconvert(::Type{Ptr{API.LLVMMetadataRef}},
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
 
-as_refs(objs::AbstractVector{<:Metadata}) = collect_refs(API.LLVMMetadataRef, objs)
+metadata_refs(objs::AbstractVector) = collect_refs(API.LLVMMetadataRef, objs)
 
 # XXX: LLVMMetadataKind is simply unsigned, so we don't know the max enum
 const metadata_kinds = Vector{Type}(fill(Nothing, 64))
@@ -258,7 +258,7 @@ existing one, in the task-local [`context`](@ref).
 Passing `nothing` as an element will result in a null operand.
 """
 function MDTuple(elements::AbstractVector)
-    refs = as_refs(convert(Vector{Metadata}, elements))
+    refs = metadata_refs(convert(Vector{Metadata}, elements))
     MDTuple(API.LLVMMDNodeInContext2(context(), refs, length(refs)))
 end
 
@@ -363,7 +363,7 @@ end
 ```
 """
 function TemporaryMDNode(operands::AbstractVector=Metadata[])
-    refs = as_refs(convert(Vector{Metadata}, operands))
+    refs = metadata_refs(convert(Vector{Metadata}, operands))
     TemporaryMDNode{MDTuple}(API.LLVMTemporaryMDNode(context(), refs, length(refs)))
 end
 

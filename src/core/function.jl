@@ -747,7 +747,7 @@ function overloaded_name(intr::Intrinsic, params::AbstractVector{<:LLVMType})
     isoverloaded(intr) ||
         throw(ArgumentError("Intrinsic $(name(intr)) is not overloaded"))
     len = Ref{Csize_t}()
-    refs = as_refs(params)
+    refs = type_refs(params)
     str = API.LLVMIntrinsicCopyOverloadedName(intr, refs, length(refs), len)
     unsafe_message(convert(Ptr{Cchar}, str), len[])
 end
@@ -790,7 +790,7 @@ declaration, and missing ones crash LLVM.
 function Function(mod::Module, intr::Intrinsic,
                   params::AbstractVector{<:LLVMType}=LLVMType[])
     check_overloaded_types(intr, params)
-    refs = as_refs(params)
+    refs = type_refs(params)
     Value(API.LLVMGetIntrinsicDeclaration(mod, intr, refs, length(refs)))
 end
 
@@ -831,7 +831,7 @@ function Function(mod::Module, intr::Intrinsic, ft::FunctionType)
     params = overload_types(intr, ft)
     params === nothing &&
         throw(ArgumentError("Invalid signature for intrinsic $(name(intr)): $(strip(string(ft)))"))
-    refs = as_refs(params)
+    refs = type_refs(params)
     Value(API.LLVMGetIntrinsicDeclaration(mod, intr, refs, length(refs)))
 end
 
@@ -844,7 +844,7 @@ parameters, like for [`LLVM.Function(mod, intr, params)`](@ref LLVM.Function(::L
 """
 function FunctionType(intr::Intrinsic, params::AbstractVector{<:LLVMType}=LLVMType[])
     check_overloaded_types(intr, params)
-    refs = as_refs(params)
+    refs = type_refs(params)
     LLVMType(API.LLVMIntrinsicGetType(context(), intr, refs, length(refs)))
 end
 

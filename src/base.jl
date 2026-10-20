@@ -208,19 +208,20 @@ end
 
 # the C API takes a vector of objects as an array of their references. convert vectors of
 # wrapper objects (and views that represent collections of IR objects) to such an array
-# with `as_refs` before calling a C API wrapper, instead of passing them for `ccall` to
-# convert: the wrapper may then not be inlined (e.g., when the type of the vector isn't
-# known concretely, like that of an `AbstractVector{<:Value}` argument of a `@nospecialize`d
+# before calling a C API wrapper, instead of passing them for `ccall` to convert: the
+# wrapper may then not be inlined (e.g., when the type of the vector isn't known
+# concretely, like that of an `AbstractVector{<:Value}` argument of a `@nospecialize`d
 # method), and when it isn't, it converts each of its arguments with a dynamic dispatch,
-# which is slow for wrappers with many arguments. `as_refs` specializes on the type of the
-# vector, which is fine for a function this small, and has a method per hierarchy of
-# wrappers, as a dynamic call with a single argument is cheaper than one with a type
-# argument. the caller has to keep mutable wrappers (like operand bundles) alive while
-# their references are used.
-function as_refs end
+# which is slow for wrappers with many arguments. each hierarchy of wrappers has its own
+# conversion function (e.g. `value_refs` and `type_refs`), as a dynamic call with a single
+# argument is cheaper than one with a type argument. these functions specialize on the
+# type of the vector, which is fine for functions this small. they don't dispatch on its
+# element type, because an empty `Vector{Union{}}` (e.g., from `collect(())`) is accepted
+# by every signature taking a vector of wrappers. the caller has to keep mutable wrappers
+# (like operand bundles) alive while their references are used.
 
-# the implementation of `as_refs` for wrappers with references of type `R`. the result is
-# asserted, as some versions of Julia infer a comprehension over an abstractly-typed
+# the implementation of these conversion functions, for references of type `R`. the result
+# is asserted, as some versions of Julia infer a comprehension over an abstractly-typed
 # vector as `Any`.
 @inline collect_refs(::Type{R}, objs::AbstractVector) where {R<:Ptr} =
     R[Base.unsafe_convert(R, obj) for obj in objs]::Vector{R}

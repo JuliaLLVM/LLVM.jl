@@ -4220,6 +4220,26 @@ end
     @test length(md.operands) == 2
 end
 
+# including empty vectors without an element type, as returned by `collect(())`
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    none = collect(())
+    @test none isa Vector{Union{}}
+
+    ft = LLVM.FunctionType(LLVM.VoidType(), none)
+    @test isempty(ft.parameters)
+    @test isempty(LLVM.StructType(none).elements)
+    @test isempty(ConstantStruct(none).elements)
+    @test isempty(MDNode(none).operands)
+    @test isempty(OperandBundle("deopt", none).inputs)
+
+    f = LLVM.Function(mod, "f", ft)
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    @test isempty(call!(builder, ft, f, none).arguments)
+    @test isempty(call!(builder, ft, f, none, OperandBundle[]).arguments)
+    ret!(builder)
+    @test verify(mod) === nothing
+end
+
 end
 
 end

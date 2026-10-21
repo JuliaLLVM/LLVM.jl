@@ -235,6 +235,18 @@ end
     return refs
 end
 
+# strings passed to the C API are often abstractly typed, and inferring their conversion to a
+# `Cstring` depends on generic methods that packages adding string types invalidate. so
+# convert them to a `String` first, behind an inference barrier unless they're one already.
+# builders that also build a vector of references convert their name before it, as a
+# dynamic call in between keeps Julia from eliding the vector's allocation.
+@inline function api_string(@nospecialize(str::AbstractString))
+    str isa String && return str
+    return Base.inferencebarrier(String)(str)::String
+end
+# the C API wrappers do so for every `Cstring` argument, passing others (like pointers) as is
+@inline api_cstring_arg(@nospecialize(x)) = x isa AbstractString ? api_string(x) : x
+
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)
     ref==C_NULL && throw(UndefRefError())

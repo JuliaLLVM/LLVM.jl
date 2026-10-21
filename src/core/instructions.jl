@@ -740,7 +740,8 @@ doesn't spell out: an instruction in it has no `syncscope`.
 """
 function SyncScope(name::AbstractString; context::Context=LLVM.context())
     # the default, system syncscope gets encoded as an empty string
-    str = name == "system" ? "" : String(name)
+    str = api_string(name)
+    str == "system" && (str = "")
     SyncScope(API.LLVMGetSyncScopeID(context, str, ncodeunits(str)), context)
 end
 
@@ -792,7 +793,7 @@ function syncscope!(inst::AtomicInst, scope::SyncScope)
     API.LLVMSetAtomicSyncScopeID(inst, scope.id)
 end
 syncscope!(inst::AtomicInst, name::Union{AbstractString,Symbol}) =
-    syncscope!(inst, SyncScope(String(name); context=context(inst)))
+    syncscope!(inst, SyncScope(name isa Symbol ? String(name) : name; context=context(inst)))
 
 @property AtomicInst syncscope syncscope!
 

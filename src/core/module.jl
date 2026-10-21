@@ -527,7 +527,7 @@ if another kind of global value, like a function, already uses the name. Like C+
 a different type.
 """
 function Base.get!(f::Base.Callable, iter::ModuleGlobalSet, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     objref = API.LLVMGetNamedGlobal(iter.mod, name)
     objref == C_NULL || return GlobalVariable(objref)
     check_unused_name(iter.mod, name)
@@ -648,7 +648,7 @@ different function type, so call it using the function type you expect, e.g.,
 `call!(builder, ft, abort)`.
 """
 function Base.get!(f::Base.Callable, iter::ModuleFunctionSet, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     objref = API.LLVMGetNamedFunction(iter.mod, name)
     objref == C_NULL || return Function(objref)
     check_unused_name(iter.mod, name)
@@ -723,19 +723,19 @@ end
 # partial associative interface
 
 function Base.haskey(iter::ModuleAliasSet, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     return API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
 function Base.getindex(iter::ModuleAliasSet, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     objref = API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return GlobalAlias(objref)
 end
 
 function Base.get(iter::ModuleAliasSet, name::AbstractString, default)
-    name = String(name)
+    name = api_string(name)
     objref = API.LLVMGetNamedGlobalAlias(iter.mod, name, ncodeunits(name))
     objref == C_NULL ? default : GlobalAlias(objref)
 end
@@ -789,19 +789,19 @@ end
 # partial associative interface
 
 function Base.haskey(iter::ModuleIFuncSet, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     return API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
 function Base.getindex(iter::ModuleIFuncSet, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     objref = API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return GlobalIFunc(objref)
 end
 
 function Base.get(iter::ModuleIFuncSet, name::AbstractString, default)
-    name = String(name)
+    name = api_string(name)
     objref = API.LLVMGetNamedGlobalIFunc(iter.mod, name, ncodeunits(name))
     objref == C_NULL ? default : GlobalIFunc(objref)
 end
@@ -839,12 +839,12 @@ end
 Base.length(iter::ModuleFlagDict) = count(Returns(true), iter)
 
 function Base.haskey(iter::ModuleFlagDict, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
 function Base.getindex(iter::ModuleFlagDict, name::AbstractString)
-    name = String(name)
+    name = api_string(name)
     objref = API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name))
     objref == C_NULL && throw(KeyError(name))
     return library!(() -> Metadata(objref), iter.mod.library)

@@ -253,9 +253,10 @@ indirectbr!(builder::IRBuilder, Addr::Value, NumDests::Integer=10) =
 
 function invoke!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                  Then::BasicBlock, Catch::BasicBlock, Name::AbstractString="")
+    name = api_string(Name)
     args = value_refs(Args)
     Instruction(API.LLVMBuildInvoke2(builder, Ty, Fn, args, length(args), Then, Catch,
-                                     Name))
+                                     name))
 end
 
 resume!(builder::IRBuilder, Exn::Value) =
@@ -414,10 +415,11 @@ end
 
 function extract_value!(builder::IRBuilder, AggVal::Value,
                         Indices::AbstractVector{<:Integer}, Name::AbstractString="")
+    name = api_string(Name)
     check_aggregate_indices(value_type(AggVal), Indices)
     isempty(Indices) && return AggVal
     idxs = convert(Vector{Cuint}, Indices)
-    Value(API.LLVMExtraBuildExtractValue(builder, AggVal, idxs, length(idxs), Name))
+    Value(API.LLVMExtraBuildExtractValue(builder, AggVal, idxs, length(idxs), name))
 end
 
 """
@@ -439,10 +441,11 @@ end
 
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value,
                        Indices::AbstractVector{<:Integer}, Name::AbstractString="")
+    name = api_string(Name)
     check_inserted_value(AggVal, EltVal, Indices)
     isempty(Indices) && return EltVal
     idxs = convert(Vector{Cuint}, Indices)
-    Value(API.LLVMExtraBuildInsertValue(builder, AggVal, EltVal, idxs, length(idxs), Name))
+    Value(API.LLVMExtraBuildInsertValue(builder, AggVal, EltVal, idxs, length(idxs), name))
 end
 
 
@@ -565,7 +568,7 @@ atomic_scope(builder::IRBuilder, ::Nothing) = SyncScope(1, context(builder))
 atomic_scope(builder::IRBuilder, scope::SyncScope) =
     check_context(scope, context(builder))
 atomic_scope(builder::IRBuilder, name::Union{AbstractString,Symbol}) =
-    SyncScope(String(name); context=context(builder))
+    SyncScope(name isa Symbol ? String(name) : name; context=context(builder))
 
 # atomic accesses must be of a byte-sized power-of-two size. only integers are checked, as
 # the size of other types can depend on the data layout.
@@ -788,14 +791,16 @@ atomic_cmpxchg!(builder::IRBuilder, ptr::Value, cmp::Value, new::Value,
 
 function gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
               Indices::AbstractVector{<:Value}, Name::AbstractString="")
+    name = api_string(Name)
     indices = value_refs(Indices)
-    Value(API.LLVMBuildGEP2(builder, Ty, Pointer, indices, length(indices), Name))
+    Value(API.LLVMBuildGEP2(builder, Ty, Pointer, indices, length(indices), name))
 end
 
 function inbounds_gep!(builder::IRBuilder, Ty::LLVMType, Pointer::Value,
                        Indices::AbstractVector{<:Value}, Name::AbstractString="")
+    name = api_string(Name)
     indices = value_refs(Indices)
-    Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, indices, length(indices), Name))
+    Value(API.LLVMBuildInBoundsGEP2(builder, Ty, Pointer, indices, length(indices), name))
 end
 
 function struct_gep!(builder::IRBuilder, Ty::StructType, Pointer::Value, Idx::Integer,
@@ -887,12 +892,14 @@ select!(builder::IRBuilder, If::Value, Then::Value, Else::Value, Name::AbstractS
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value,
                Args::AbstractVector{<:Value}=Value[], Name::AbstractString="")
+    name = api_string(Name)
     args = value_refs(Args)
-    Instruction(API.LLVMBuildCall2(builder, Ty, Fn, args, length(args), Name))
+    Instruction(API.LLVMBuildCall2(builder, Ty, Fn, args, length(args), name))
 end
 
 function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector{<:Value},
                Bundles::AbstractVector{OperandBundle}, Name::AbstractString="")
+    name = api_string(Name)
     args = value_refs(Args)
     # the bundles of a view are created when indexing it, so collect them to keep them alive
     bundles = Bundles isa Vector ? Bundles :
@@ -900,8 +907,7 @@ function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector
     GC.@preserve bundles begin
         brefs = bundle_refs(bundles)
         Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, args, length(args),
-                                                        brefs, length(brefs),
-                                                        Name))
+                                                        brefs, length(brefs), name))
     end
 end
 

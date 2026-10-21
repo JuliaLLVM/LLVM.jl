@@ -174,7 +174,9 @@ function generate_julia_llvmcall(@nospecialize(gen), @nospecialize(rettyp),
     for i in abi_args
         push!(abi_types, params[i])
     end
-    push!(stmts, Expr(:call, GlobalRef(Base, :llvmcall), Expr(:tuple, ir, fn),
+    # Base only re-exports `llvmcall`, and Julia 1.13 reports edges to that binding as
+    # invalidations when it hasn't been looked up yet (JuliaLang/julia#59135)
+    push!(stmts, Expr(:call, GlobalRef(Core.Intrinsics, :llvmcall), Expr(:tuple, ir, fn),
                       rettyp, Tuple{abi_types...}, call_args...))
     return Expr(:block, stmts...)
 end

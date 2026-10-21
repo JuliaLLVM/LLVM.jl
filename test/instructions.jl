@@ -150,6 +150,14 @@
     @test_throws ArgumentError allocainst.alignment = 3
     @test_throws ArgumentError allocainst.alignment = 2^32
     @test allocainst.alignment == 16
+    # other integer types
+    allocainst.alignment = UInt8(8)
+    @test allocainst.alignment == 8
+    @test_throws ArgumentError allocainst.alignment = Int32(-4)
+    @test_throws ArgumentError allocainst.alignment = UInt64(2)^32
+    @test_throws ArgumentError allocainst.alignment = big(3)
+    @test allocainst.alignment == 8
+    allocainst.alignment = 16
 
     # only stack allocations and memory accesses have an alignment
     @test !hasproperty(xorinst, :alignment)
@@ -1070,6 +1078,13 @@ end
     @test_throws ArgumentError extract_value!(builder, agg, [0, 0])
     @test_throws ArgumentError insert_value!(builder, agg, ev3, [1, 1])
     @test_throws ArgumentError insert_value!(builder, agg, ev3, 0)
+    # other integer types
+    @test extract_value!(builder, agg, UInt32(1)).indices == [1]
+    @test extract_value!(builder, agg, Int32[1, 0]).indices == [1, 0]
+    @test_throws ArgumentError extract_value!(builder, agg, -1)
+    @test_throws ArgumentError extract_value!(builder, agg, Int8(-1))
+    @test_throws ArgumentError extract_value!(builder, agg, UInt64(2)^40)
+    @test_throws ArgumentError extract_value!(builder, agg, UInt64[1, 2])
 
     # the field index of struct_gep! is zero-based too, and checked
     ptr = alloca!(builder, outer)

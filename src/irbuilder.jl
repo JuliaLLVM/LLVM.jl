@@ -370,28 +370,45 @@ shuffle_vector!(builder::IRBuilder, V1::Value, V2::Value, Mask::Value,
 
 # aggregate operations
 
-# check that indices select an element of an aggregate type, as LLVM asserts this, and
-# return the type of that element (the aggregate type itself without indices)
-function check_aggregate_indices(typ::LLVMType, indices)
-    for idx in indices
-        n = if typ isa StructType
-            length(typ.elements)
-        elseif typ isa ArrayType
-            array_length(typ)
-        else
-            throw(ArgumentError("Cannot index into non-aggregate type $typ"))
-        end
-        0 <= idx < n && idx <= typemax(Cuint) ||
-            throw(ArgumentError("Index $idx is out of bounds for type $typ"))
-        typ = typ isa StructType ? typ.elements[idx+1] : element_type(typ)
+# check that an index selects an element of an aggregate type, as LLVM asserts this, and
+# return the element type and the index as a `Cuint`. indices are often abstractly typed,
+# so check other than `Int`s behind an inference barrier.
+function aggregate_element(typ::LLVMType, idx::Integer)
+    n = if typ isa StructType
+        length(typ.elements)
+    elseif typ isa ArrayType
+        array_length(typ)
+    else
+        throw(ArgumentError("Cannot index into non-aggregate type $typ"))
     end
-    return typ
+    i = idx isa Int ? checked_aggregate_index(idx, n, typ) :
+        Base.inferencebarrier(checked_aggregate_index)(idx, n, typ)::Cuint
+    elty = typ isa StructType ? typ.elements[Int(i)+1] : element_type(typ)
+    return elty, i
+end
+function checked_aggregate_index(@specialize(idx), n::Int, typ::LLVMType)
+    0 <= idx < n && idx <= typemax(Cuint) ||
+        throw(ArgumentError("Index $idx is out of bounds for type $typ"))
+    return Cuint(idx)
 end
 
-function check_inserted_value(agg::Value, val::Value, indices)
-    elty = check_aggregate_indices(value_type(agg), indices)
+# the same for a path of indices (empty to select the aggregate itself)
+aggregate_element(typ::LLVMType, indices::AbstractVector) =
+    Base.inferencebarrier(aggregate_path)(typ, indices)::Tuple{LLVMType,Vector{Cuint}}
+function aggregate_path(typ::LLVMType, @specialize(indices::AbstractVector))
+    idxs = Vector{Cuint}(undef, length(indices))
+    for (k, idx) in enumerate(indices)
+        typ, idxs[k] = aggregate_element(typ, idx)
+    end
+    return typ, idxs
+end
+
+# check that a value can be inserted at an index or path, and return the converted indices
+function check_inserted_value(agg::Value, val::Value, index_or_indices)
+    elty, idx = aggregate_element(value_type(agg), index_or_indices)
     value_type(val) == elty ||
         throw(ArgumentError("Cannot insert a value of type $(value_type(val)) into an element of type $elty"))
+    return idx
 end
 
 """
@@ -409,16 +426,15 @@ length can be handled the same way. This also works for values that aren't aggre
 """
 function extract_value!(builder::IRBuilder, AggVal::Value, Index::Integer,
                         Name::AbstractString="")
-    check_aggregate_indices(value_type(AggVal), (Index,))
-    Value(API.LLVMBuildExtractValue(builder, AggVal, Cuint(Index), Name))
+    _, idx = aggregate_element(value_type(AggVal), Index)
+    Value(API.LLVMBuildExtractValue(builder, AggVal, idx, Name))
 end
 
 function extract_value!(builder::IRBuilder, AggVal::Value,
                         Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     name = api_string(Name)
-    check_aggregate_indices(value_type(AggVal), Indices)
-    isempty(Indices) && return AggVal
-    idxs = convert(Vector{Cuint}, Indices)
+    _, idxs = aggregate_element(value_type(AggVal), Indices)
+    isempty(idxs) && return AggVal
     Value(API.LLVMExtraBuildExtractValue(builder, AggVal, idxs, length(idxs), name))
 end
 
@@ -435,16 +451,15 @@ have the same type, is returned without creating an instruction or changing its 
 """
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value, Index::Integer,
                        Name::AbstractString="")
-    check_inserted_value(AggVal, EltVal, (Index,))
-    Value(API.LLVMBuildInsertValue(builder, AggVal, EltVal, Cuint(Index), Name))
+    idx = check_inserted_value(AggVal, EltVal, Index)
+    Value(API.LLVMBuildInsertValue(builder, AggVal, EltVal, idx, Name))
 end
 
 function insert_value!(builder::IRBuilder, AggVal::Value, EltVal::Value,
                        Indices::AbstractVector{<:Integer}, Name::AbstractString="")
     name = api_string(Name)
-    check_inserted_value(AggVal, EltVal, Indices)
-    isempty(Indices) && return EltVal
-    idxs = convert(Vector{Cuint}, Indices)
+    idxs = check_inserted_value(AggVal, EltVal, Indices)
+    isempty(idxs) && return EltVal
     Value(API.LLVMExtraBuildInsertValue(builder, AggVal, EltVal, idxs, length(idxs), name))
 end
 
@@ -469,7 +484,7 @@ different `addrspace` is given.
 """
 function alloca!(builder::IRBuilder, Ty::LLVMType, Name::AbstractString=""; align=nothing,
                  addrspace=nothing)
-    check_alignment(align)
+    align = check_alignment(align)
     inst = if addrspace === nothing
         Instruction(API.LLVMBuildAlloca(builder, Ty, Name))
     else
@@ -490,7 +505,7 @@ of `align` and `addrspace`.
 function array_alloca!(builder::IRBuilder, Ty::LLVMType, Val::Value,
                        Name::AbstractString="";
                        align=nothing, addrspace=nothing)
-    check_alignment(align)
+    align = check_alignment(align)
     inst = if addrspace === nothing
         Instruction(API.LLVMBuildArrayAlloca(builder, Ty, Val, Name))
     else
@@ -510,39 +525,37 @@ array_malloc!(builder::IRBuilder, Ty::LLVMType, Val::Value, Name::AbstractString
 # the alignments of the memory intrinsics are optional: `nothing` (or 0 when passed
 # positionally) doesn't add an `align` attribute to the pointer argument
 function memset!(builder::IRBuilder, Ptr::Value, Val::Value, Len::Value, Align::Integer)
-    check_alignment(Align; allow_zero=true)
-    Instruction(API.LLVMBuildMemSet(builder, Ptr, Val, Len, Cuint(Align)))
+    align = check_alignment(Align; allow_zero=true)::Cuint
+    Instruction(API.LLVMBuildMemSet(builder, Ptr, Val, Len, align))
 end
 function memset!(builder::IRBuilder, Ptr::Value, Val::Value, Len::Value; align=nothing)
-    check_alignment(align)
+    align = check_alignment(align)
     memset!(builder, Ptr, Val, Len, something(align, 0))
 end
 
 function memcpy!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value,
                  SrcAlign::Integer, Size::Value)
-    check_alignment(DstAlign; allow_zero=true)
-    check_alignment(SrcAlign; allow_zero=true)
-    Instruction(API.LLVMBuildMemCpy(builder, Dst, Cuint(DstAlign), Src, Cuint(SrcAlign),
-                                    Size))
+    dst_align = check_alignment(DstAlign; allow_zero=true)::Cuint
+    src_align = check_alignment(SrcAlign; allow_zero=true)::Cuint
+    Instruction(API.LLVMBuildMemCpy(builder, Dst, dst_align, Src, src_align, Size))
 end
 function memcpy!(builder::IRBuilder, Dst::Value, Src::Value, Size::Value;
                  dst_align=nothing, src_align=nothing)
-    check_alignment(dst_align)
-    check_alignment(src_align)
+    dst_align = check_alignment(dst_align)
+    src_align = check_alignment(src_align)
     memcpy!(builder, Dst, something(dst_align, 0), Src, something(src_align, 0), Size)
 end
 
 function memmove!(builder::IRBuilder, Dst::Value, DstAlign::Integer, Src::Value,
                   SrcAlign::Integer, Size::Value)
-    check_alignment(DstAlign; allow_zero=true)
-    check_alignment(SrcAlign; allow_zero=true)
-    Instruction(API.LLVMBuildMemMove(builder, Dst, Cuint(DstAlign), Src, Cuint(SrcAlign),
-                                     Size))
+    dst_align = check_alignment(DstAlign; allow_zero=true)::Cuint
+    src_align = check_alignment(SrcAlign; allow_zero=true)::Cuint
+    Instruction(API.LLVMBuildMemMove(builder, Dst, dst_align, Src, src_align, Size))
 end
 function memmove!(builder::IRBuilder, Dst::Value, Src::Value, Size::Value;
                   dst_align=nothing, src_align=nothing)
-    check_alignment(dst_align)
-    check_alignment(src_align)
+    dst_align = check_alignment(dst_align)
+    src_align = check_alignment(src_align)
     memmove!(builder, Dst, something(dst_align, 0), Src, something(src_align, 0), Size)
 end
 
@@ -615,7 +628,7 @@ function load!(builder::IRBuilder, Ty::LLVMType, PointerVal::Value, Name::Abstra
     elseif scope !== nothing && scope.id != 1
         throw(ArgumentError("Non-atomic loads cannot have a synchronization scope"))
     end
-    check_alignment(align)
+    align = check_alignment(align)
     inst = Instruction(API.LLVMBuildLoad2(builder, Ty, PointerVal, Name))
     set_access_flags!(inst, ordering, scope, align, volatile)
 end
@@ -638,7 +651,7 @@ function store!(builder::IRBuilder, Val::Value, Ptr::Value;
     elseif scope !== nothing && scope.id != 1
         throw(ArgumentError("Non-atomic stores cannot have a synchronization scope"))
     end
-    check_alignment(align)
+    align = check_alignment(align)
     inst = Instruction(API.LLVMBuildStore(builder, Val, Ptr))
     set_access_flags!(inst, ordering, scope, align, volatile)
 end
@@ -721,7 +734,7 @@ function atomic_rmw!(builder::IRBuilder, op::API.LLVMAtomicRMWBinOp, Ptr::Value,
     T = value_type(Val)
     check_rmw_type(op, T)
     check_atomic_type(T, "atomicrmw")
-    check_alignment(align)
+    align = check_alignment(align)
     inst = _build_atomic_rmw!(builder, op, Ptr, Val, ordering, atomic_scope(builder, scope))
     align === nothing || alignment!(inst, align)
     volatile && volatile!(inst, true)
@@ -761,7 +774,7 @@ function atomic_cmpxchg!(builder::IRBuilder, Ptr::Value, Cmp::Value, New::Value,
     T isa Union{IntegerType,PointerType} ||
         throw(ArgumentError("cmpxchg requires integer or pointer values, got $(string(T))"))
     check_atomic_type(T, "cmpxchg")
-    check_alignment(align)
+    align = check_alignment(align)
     inst = _build_atomic_cmpxchg!(builder, Ptr, Cmp, New, success, failure,
                                   atomic_scope(builder, scope))
     align === nothing || alignment!(inst, align)
@@ -805,8 +818,8 @@ end
 
 function struct_gep!(builder::IRBuilder, Ty::StructType, Pointer::Value, Idx::Integer,
                      Name::AbstractString="")
-    check_aggregate_indices(Ty, (Idx,))
-    Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, Cuint(Idx), Name))
+    _, idx = aggregate_element(Ty, Idx)
+    Value(API.LLVMBuildStructGEP2(builder, Ty, Pointer, idx, Name))
 end
 
 # conversion operations
@@ -916,7 +929,7 @@ va_arg!(builder::IRBuilder, List::Value, Ty::LLVMType, Name::AbstractString="") 
 
 landingpad!(builder::IRBuilder, Ty::LLVMType, PersFn::Value, NumClauses::Integer,
             Name::AbstractString="") =
-    Instruction(API.LLVMBuildLandingPad(builder, Ty, PersFn, Cuint(NumClauses), Name))
+    Instruction(API.LLVMBuildLandingPad(builder, Ty, PersFn, api_cuint(NumClauses), Name))
 
 neg!(builder::IRBuilder, V::Value, Name::AbstractString="") =
     Value(API.LLVMBuildNeg(builder, V, Name))

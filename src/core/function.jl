@@ -135,7 +135,7 @@ the data layout of the module.
 Function(mod::Module, name::AbstractString, ft::FunctionType;
          addrspace::Union{Integer,Nothing}=nothing) =
     Function(addrspace === nothing ? API.LLVMAddFunction(mod, name, ft) :
-             API.LLVMExtraAddFunctionInAddressSpace(mod, name, ft, addrspace))
+             API.LLVMExtraAddFunctionInAddressSpace(mod, name, ft, api_cuint(addrspace)))
 
 @vocabulary IR copy_attributes!
 
@@ -222,8 +222,7 @@ gc!(f::Function, name::AbstractString) = API.LLVMSetGC(f, name)
 alignment(f::Function) = API.LLVMGetAlignment(f)
 
 function alignment!(f::Function, bytes::Integer)
-    check_alignment(bytes; allow_zero=true)
-    API.LLVMSetAlignment(f, bytes)
+    API.LLVMSetAlignment(f, check_alignment(bytes; allow_zero=true)::Cuint)
 end
 
 @property Function alignment alignment!

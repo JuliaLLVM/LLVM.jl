@@ -2156,8 +2156,7 @@ const AlignedInst = Union{AllocaInst, MemAccessInst}
 alignment(inst::AlignedInst) = API.LLVMGetAlignment(inst)
 
 function alignment!(inst::AlignedInst, bytes::Integer)
-    check_alignment(bytes)
-    API.LLVMSetAlignment(inst, bytes)
+    API.LLVMSetAlignment(inst, check_alignment(bytes)::Cuint)
 end
 
 # LLVM only supports querying the alignment of memory instructions

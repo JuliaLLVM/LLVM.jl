@@ -247,6 +247,14 @@ end
 # the C API wrappers do so for every `Cstring` argument, passing others (like pointers) as is
 @inline api_cstring_arg(@nospecialize(x)) = x isa AbstractString ? api_string(x) : x
 
+# similarly, convert integers to a `Cuint`, behind an inference barrier unless they're an
+# `Int` or a `Cuint` already
+@inline function api_cuint(@nospecialize(x))
+    x isa Cuint && return x
+    x isa Int && return Cuint(x)
+    return Base.inferencebarrier(Cuint)(x)::Cuint
+end
+
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)
     ref==C_NULL && throw(UndefRefError())

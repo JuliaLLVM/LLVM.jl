@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Transforms · LLVM.jl</title><meta name="title" content="Transforms · LLVM.jl"/><meta property="og:title" content="Transforms · LLVM.jl"/><meta property="twitter:title" content="Transforms · LLVM.jl"/><meta name="description" content="Documentation for LLVM.jl."/><meta property="og:description" content="Documentation for LLVM.jl."/><meta property="twitter:description" content="Documentation for LLVM.jl."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.63.2/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">LLVM.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Usage</span><ul><li><a class="tocitem" href="../essentials/">Essentials</a></li><li><a class="tocitem" href="../types/">Types</a></li><li><a class="tocitem" href="../values/">Values</a></li><li><a class="tocitem" href="../modules/">Modules</a></li><li><a class="tocitem" href="../functions/">Functions</a></li><li><a class="tocitem" href="../blocks/">Basic blocks</a></li><li><a class="tocitem" href="../instructions/">Instructions</a></li><li><a class="tocitem" href="../metadata/">Metadata</a></li><li><a class="tocitem" href="../analyses/">Analyses</a></li><li class="is-active"><a class="tocitem" href>Transforms</a><ul class="internal"><li><a class="tocitem" href="#Pass-builders"><span>Pass builders</span></a></li><li><a class="tocitem" href="#Passes"><span>Passes</span></a></li><li><a class="tocitem" href="#Pass-managers"><span>Pass managers</span></a></li><li><a class="tocitem" href="#Alias-analyses"><span>Alias analyses</span></a></li><li><a class="tocitem" href="#Custom-passes"><span>Custom passes</span></a></li><li><a class="tocitem" href="#Custom-target-info"><span>Custom target info</span></a></li><li><a class="tocitem" href="#IR-transforms"><span>IR transforms</span></a></li><li><a class="tocitem" href="#IR-cloning"><span>IR cloning</span></a></li></ul></li><li><a class="tocitem" href="../codegen/">Code generation</a></li><li><a class="tocitem" href="../execution/">Execution</a></li><li><a class="tocitem" href="../interop/">Julia integration</a></li></ul></li><li><span class="tocitem">API reference</span><ul><li><a class="tocitem" href="../../lib/essentials/">Essentials</a></li><li><a class="tocitem" href="../../lib/enums/">Enumerations</a></li><li><a class="tocitem" href="../../lib/types/">Types</a></li><li><a class="tocitem" href="../../lib/values/">Values</a></li><li><a class="tocitem" href="../../lib/modules/">Modules</a></li><li><a class="tocitem" href="../../lib/functions/">Functions</a></li><li><a class="tocitem" href="../../lib/blocks/">Basic blocks</a></li><li><a class="tocitem" href="../../lib/instructions/">Instructions</a></li><li><a class="tocitem" href="../../lib/instruction-types/">Instruction types</a></li><li><a class="tocitem" href="../../lib/metadata/">Metadata</a></li><li><a class="tocitem" href="../../lib/analyses/">Analyses</a></li><li><a class="tocitem" href="../../lib/transforms/">Transforms</a></li><li><a class="tocitem" href="../../lib/passes/">Passes</a></li><li><a class="tocitem" href="../../lib/codegen/">Code generation</a></li><li><a class="tocitem" href="../../lib/execution/">Execution</a></li><li><a class="tocitem" href="../../lib/interop/">Julia integration</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Usage</a></li><li class="is-active"><a href>Transforms</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Transforms</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaLLVM/LLVM.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaLLVM/LLVM.jl/blob/main/docs/src/man/transforms.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Transforms"><a class="docs-heading-anchor" href="#Transforms">Transforms</a><a id="Transforms-1"></a><a class="docs-heading-anchor-permalink" href="#Transforms" title="Permalink"></a></h1><p>LLVM contains a variety of passes that can be used to transform IR. With LLVM.jl, it is also possible to write your own passes in Julia. LLVM.jl uses LLVM&#39;s new pass manager; the legacy pass manager, which LLVM deprecated, is not supported.</p><h2 id="Pass-builders"><a class="docs-heading-anchor" href="#Pass-builders">Pass builders</a><a id="Pass-builders-1"></a><a class="docs-heading-anchor-permalink" href="#Pass-builders" title="Permalink"></a></h2><p>The core abstraction for running passes is the <code>PassBuilder</code> object, which aggregates passes via the <code>add!</code> function and runs them over a function or module using the <code>run!</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; @dispose pb=PassBuilder() begin
+         add!(pb, &quot;loop-unroll&quot;)
+         run!(pb, mod)
+       end</code></pre><p>When only running a single pass or pipeline, it is possible to bypass the construction of the pass builder and directly use the <code>run!</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; run!(&quot;loop-unroll&quot;, mod)</code></pre><p>Pass builders also support a number of keyword argument, mostly for debugging purposes. Refer to the <code>PassBuilder</code> docstring for more details.</p><h2 id="Passes"><a class="docs-heading-anchor" href="#Passes">Passes</a><a id="Passes-1"></a><a class="docs-heading-anchor-permalink" href="#Passes" title="Permalink"></a></h2><p>In LLVM&#39;s new pass manager, passes are simply strings, as shown above. LLVM.jl also provides a function for each pass that returns its string, which helps to avoid typos in pass names, and turns keyword arguments into the pass&#39;s options.</p><p>The <code>loop-unroll</code> pass from above, for example, can also be written using the <code>LoopUnrollPass</code> function:</p><pre><code class="language-julia-repl hljs">julia&gt; LoopUnrollPass(; partial=true)
+&quot;loop-unroll&lt;O0;partial&gt;&quot;
+
+julia&gt; run!(LoopUnrollPass(; partial=true), mod)</code></pre><p>Custom passes implemented in Julia, on the other hand, are objects (see below).</p><h3 id="Pipelines"><a class="docs-heading-anchor" href="#Pipelines">Pipelines</a><a id="Pipelines-1"></a><a class="docs-heading-anchor-permalink" href="#Pipelines" title="Permalink"></a></h3><p>Pipelines, such as LLVM&#39;s default pipeline, are similarly strings (<code>&quot;default&lt;O3&gt;&quot;</code>), which functions like <code>DefaultPipeline(; opt_level=3)</code> can construct.</p><p>LLVM&#39;s default pipeline doesn&#39;t support many options (as opposed to, e.g., Julia&#39;s pipeline). Instead, the pipeline can be tuned through pipeline tuning keyword arguments that have to be set on the <code>PassBuilder</code> object. Refer to the <code>PassBuilder</code> docstrings for more details.</p><p>To see what a pipeline consists of, <code>print_pipeline</code> prints it as LLVM parses it, like <code>opt -print-pipeline-passes</code> does: with the pass managers that LLVM inserts, every pass under its name, and the options of passes that take them. Pipelines like <code>default&lt;O2&gt;</code> are printed as the passes they consist of.</p><pre><code class="language-julia-repl hljs">julia&gt; @dispose pb=PassBuilder() begin
+         add!(pb, &quot;globaldce,instsimplify,dce&quot;)
+         print_pipeline(pb)
+       end
+globaldce,function(instsimplify),function(dce)</code></pre><h2 id="Pass-managers"><a class="docs-heading-anchor" href="#Pass-managers">Pass managers</a><a id="Pass-managers-1"></a><a class="docs-heading-anchor-permalink" href="#Pass-managers" title="Permalink"></a></h2><p>When running or adding passes directly to a pass builder, LLVM will guess the appropriate pass manager to use. When combining multiple types of passes, it is required to manually construct the appropriate pass manager:</p><pre><code class="language-julia-repl hljs">julia&gt; @dispose pb=PassBuilder() begin
+         add!(pb, ModulePassManager()) do mpm
+           add!(mpm, NoOpModulePass())
+           add!(mpm, FunctionPassManager()) do fpm
+             add!(fpm, NoOpFunctionPass())
+             add!(fpm, LoopPassManager()) do lpm
+               add!(lpm, NoOpLoopPass())
+             end
+           end
+         end
+         run!(pb, mod)
+       end</code></pre><h2 id="Alias-analyses"><a class="docs-heading-anchor" href="#Alias-analyses">Alias analyses</a><a id="Alias-analyses-1"></a><a class="docs-heading-anchor-permalink" href="#Alias-analyses" title="Permalink"></a></h2><p>When not specified, LLVM will use the default alias analyses passes when optimizing code. It is possible to customize this selection through the <code>AAManager</code> object. This object behaves like other pass managers, and alias analysis passes can, like regular passes, be given by name or by using their functions (e.g., <code>BasicAA()</code>):</p><pre><code class="language-julia-repl hljs">julia&gt; @dispose pb=PassBuilder() begin
+         add!(pb, AAManager()) do aam
+           add!(aam, &quot;basic-aa&quot;)
+           add!(aam, SCEVAA())
+         end
+         add!(pb, &quot;aa-eval&quot;)
+         run!(pb, mod)
+       end</code></pre><p>An empty <code>AAManager</code> disables alias analysis. LLVM&#39;s default alias analyses include those that the target machine provides, e.g., ones that know about the address spaces of a GPU. To use them together with other alias analyses, list them using <code>TargetAA()</code>:</p><pre><code class="language-julia hljs">@dispose pb=PassBuilder() begin
+    add!(pb, AAManager()) do aam
+        add!(aam, BasicAA())
+        add!(aam, TargetAA())
+    end
+    add!(pb, &quot;gvn&quot;)
+    run!(pb, mod, tm)
+end</code></pre><h2 id="Custom-passes"><a class="docs-heading-anchor" href="#Custom-passes">Custom passes</a><a id="Custom-passes-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-passes" title="Permalink"></a></h2><p>Simple LLVM passes can be implemented in Julia by defining a function that takes a single argument (a module or function), and returns a boolean indicating whether the module or function was modified. This function is then to be wrapped in a <code>ModulePass</code> or <code>FunctionPass</code> object, and registered with the pass builder:</p><pre><code class="language-julia-repl hljs">julia&gt; function custom_module_pass!(mod::LLVM.Module)
+         println(&quot;Hello, World!&quot;)
+         return false
+       end;
+
+julia&gt; CustomModulePass() = ModulePass(&quot;custom_module_pass&quot;, custom_module_pass!);
+
+julia&gt; @dispose pb=PassBuilder() begin
+         register!(pb, CustomModulePass())
+         add!(pb, CustomModulePass())
+         run!(pb, mod)
+       end
+Hello, World!</code></pre><p>To run a single custom pass, <code>run!</code> can also be called with the pass itself, which registers it with a temporary pass builder:</p><pre><code class="language-julia-repl hljs">julia&gt; run!(CustomModulePass(), mod)
+Hello, World!</code></pre><p>Function passes can use LLVM&#39;s analyses, which LLVM computes and caches for the pipeline. To do so, pass <code>analyses=true</code> when creating the pass: the function is then also given the pipeline&#39;s <code>FunctionAnalysisManager</code>, which provides analysis results by type. Instead of a boolean, such a pass may return the set of analyses that remain valid after it ran, so that LLVM does not need to recompute them:</p><pre><code class="language-julia-repl hljs">julia&gt; function check_dominance!(f::LLVM.Function, am)
+         domtree = am[DomTree]
+         entry, then, join = f.blocks
+         println(&quot;entry dominates join: &quot;, dominates(domtree, entry.terminator, join.terminator))
+         println(&quot;then dominates join: &quot;, dominates(domtree, then.terminator, join.terminator))
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia&gt; diamond = parse(LLVM.Module, &quot;&quot;&quot;
+         define void @diamond(i1 %c) {
+         entry:
+           br i1 %c, label %then, label %join
+         then:
+           br label %join
+         join:
+           ret void
+         }&quot;&quot;&quot;);
+
+julia&gt; run!(FunctionPass(&quot;check-dominance&quot;, check_dominance!; analyses=true), diamond)
+entry dominates join: true
+then dominates join: false</code></pre><p>Module passes can use analyses too. With <code>analyses=true</code>, a module pass is given the pipeline&#39;s <code>ModuleAnalysisManager</code>, which provides the analyses of each function of the module by indexing it with that function. For example, a pass that looks at the dominator trees and value ranges (see the <code>LLVM.Analysis</code> vocabulary) of several functions:</p><pre><code class="language-julia-repl hljs">julia&gt; function check_ranges!(mod::LLVM.Module, am)
+         for f in mod.functions
+           x = only(f.parameters)
+           entry, then, exit = f.blocks
+           @assert dominates(am[f][DomTree], entry.terminator, then.terminator)
+           range = ConstantRange(am[f][LazyValueInfo], x; at=then.terminator)
+           println(f.name, &quot;: &quot;, range)
+         end
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia&gt; bounds = parse(LLVM.Module, &quot;&quot;&quot;
+         define void @small(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 10
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }
+         define void @large(i32 %x) {
+         entry:
+           %c = icmp ult i32 %x, 1000
+           br i1 %c, label %then, label %exit
+         then:
+           ret void
+         exit:
+           ret void
+         }&quot;&quot;&quot;);
+
+julia&gt; run!(ModulePass(&quot;check-ranges&quot;, check_ranges!; analyses=true), bounds)
+small: ConstantRange(32, 0, 10)
+large: ConstantRange(32, 0, 1000)</code></pre><p>Analysis results are owned by the analysis manager, and borrowed by the pass:</p><ul><li>they must not be disposed of, or used after the pass has returned;</li><li>they must not be used after they were invalidated, e.g., using <code>invalidate!</code>;</li><li>they are not updated when the pass changes the IR. A pass that queries analyses after changing the IR needs to keep them up to date itself, or invalidate them using <code>invalidate!</code> (e.g., <code>invalidate!(am)</code> in a function pass, or <code>invalidate!(am[f])</code> for a function <code>f</code> in a module pass).</li></ul><p>What a pass returns only determines which analyses remain valid after it ran. A module pass that returns <code>true</code> (or <code>PreservedAnalyses()</code>) invalidates the analyses of all functions. To keep those of the functions it did not change, it can invalidate the analyses of the functions it changed itself, and return <code>PreservedAnalyses(FunctionAnalyses)</code>. Before a module pass deletes a function, it needs to remove all of its analyses using <code>empty!(am[f])</code>, as some of them (like the assumption cache) survive invalidation.</p><p>A function pass with analyses can also run other passes on its function, e.g., <code>run!(InstCombinePass(), f, am)</code>. These run as part of the pipeline, with its analyses, like a nested function pass manager would, and <code>run!</code> returns the analyses that they preserved. Unlike a nested pass manager, the pass can decide whether to run them, and what to do with their result:</p><pre><code class="language-julia-repl hljs">julia&gt; function simplify_twice!(f::LLVM.Function, am)
+         preserved = run!(InstSimplifyPass(), f, am)
+         println(f.name, &quot;: &quot;, preserved)
+         if preserved != PreservedAnalyses(AllAnalyses)
+           preserved = intersect(preserved, run!(InstSimplifyPass(), f, am))
+         end
+         return preserved
+       end;
+
+julia&gt; run!(FunctionPass(&quot;simplify-twice&quot;, simplify_twice!; analyses=true), diamond)
+diamond: PreservedAnalyses(AllAnalyses)</code></pre><p>Passes with analyses can report what they did, or why they didn&#39;t, using optimization remarks, like LLVM&#39;s passes do. A remark&#39;s message is made of strings and named arguments, <code>key =&gt; value</code>, whose values LLVM renders like in the remarks of its own passes (e.g., an instruction as its opcode). In the do-block form of <code>remark!</code>, the message is only built when remarks of the pass are wanted, e.g., because they are collected using the <code>remarks</code> keyword argument of the pass builder (or of <code>run!</code>):</p><pre><code class="language-julia-repl hljs">julia&gt; function report!(f::LLVM.Function, am)
+         remark!(am, :missed, &quot;report&quot;, &quot;NoChange&quot;, f.entry.terminator) do
+           &quot;nothing to do before &quot;, &quot;Inst&quot; =&gt; f.entry.terminator
+         end
+         return false
+       end;
+
+julia&gt; run!(FunctionPass(&quot;report&quot;, report!; analyses=true), diamond;
+            remarks = r -&gt; println(r.function_name, &quot;: &quot;, r.message))
+diamond: nothing to do before br</code></pre><p>Remarks can also be enabled using LLVM&#39;s <code>-pass-remarks</code> options, or written to a file using a <code>RemarkFile</code>, like the <code>-pass-remarks-output</code> option of LLVM&#39;s tools does.</p><p>Custom passes can also take options, which are written in a pipeline like those of LLVM&#39;s passes, e.g., <code>my-pass&lt;limit=10&gt;</code>. To support them, pass a function that parses the text between the angle brackets using the <code>parse_options</code> keyword argument; the pass callback is then called with the parsed options as an extra argument:</p><pre><code class="language-julia-repl hljs">julia&gt; pass = FunctionPass(&quot;print-limit&quot;, (f, limit) -&gt; (println(f.name, &quot;: &quot;, limit); false);
+                           parse_options = str -&gt; isempty(str) ? 10 : parse(Int, str));
+
+julia&gt; @dispose pb=PassBuilder() begin
+         register!(pb, pass)
+         add!(pb, &quot;function(print-limit&lt;42&gt;,print-limit)&quot;)
+         run!(pb, diamond)
+       end
+diamond: 42
+diamond: 10</code></pre><p>LLVM knows custom passes by their name, like it knows its own passes by theirs. This is the name that its instrumentation reports (e.g., the passes that <code>debug_logging=true</code> lists), and that its command-line options for debugging pipelines select passes with, e.g., <code>-print-before=print-limit</code> to print the IR before each occurrence of the pass above.</p><p>Loop passes run on each loop of a function, innermost loops first, in a loop pass manager: a <code>loop(...)</code> pipeline, or a <code>loop-mssa(...)</code> pipeline that also maintains MemorySSA. A custom loop pass is created using <code>LoopPass</code>, and its callback is given the loop and the <code>LoopAnalysisResults</code> of the loop pass manager, which provide the analyses that loop passes use. Like LLVM&#39;s loop passes, it can also be named on its own at the start of a pipeline:</p><pre><code class="language-julia-repl hljs">julia&gt; function count_blocks!(loop::Loop, ar::LoopAnalysisResults)
+         se = ar[ScalarEvolution]
+         println(loop.header.name, &quot;: &quot;, length(loop.blocks), &quot; block(s), &quot;,
+                 backedge_taken_count(se, loop), &quot; backedges taken&quot;)
+         return PreservedAnalyses(AllAnalyses)
+       end;
+
+julia&gt; counted = parse(LLVM.Module, &quot;&quot;&quot;
+         define void @counted() {
+         entry:
+           br label %loop
+         loop:
+           %i = phi i32 [ 0, %entry ], [ %i.next, %loop ]
+           %i.next = add i32 %i, 1
+           %c = icmp ult i32 %i.next, 10
+           br i1 %c, label %loop, label %exit
+         exit:
+           ret void
+         }&quot;&quot;&quot;);
+
+julia&gt; @dispose pb=PassBuilder() begin
+         register!(pb, LoopPass(&quot;count-blocks&quot;, count_blocks!))
+         add!(pb, &quot;count-blocks&quot;)
+         run!(pb, counted)
+       end
+loop: 1 block(s), SCEVConstant(9) backedges taken</code></pre><p>The analyses that a loop pass is given are shared by the whole loop pipeline, which relies on every pass to keep them valid: a pass that changes a loop needs to update the dominator tree, loop info and scalar evolution (e.g., using <code>forget!</code> for values and loops whose scalar evolution changed), and in a <code>loop-mssa</code> pipeline, MemorySSA. It then returns <code>PreservedAnalyses(LoopAnalyses)</code>, together with <code>CFGAnalyses</code> if it did not change the control-flow graph and <code>MemorySSA</code> if it kept MemorySSA valid, which LLVM requires in a <code>loop-mssa</code> pipeline. The loop pass manager runs the <code>loop-simplify</code> and <code>lcssa</code> passes before the loop passes, so loops normally have a preheader, but that can fail, so a pass that needs one should check that <code>loop.preheader !== nothing</code>. See <a href="../../lib/transforms/#LLVM.LoopPass"><code>LoopPass</code></a> for the details.</p><p>To keep MemorySSA valid, a pass that moves, creates or removes instructions that access memory updates it with a <code>MemorySSAUpdater</code>, after changing the IR. For example, to hoist an instruction to the preheader of a loop, and to create a new one there:</p><pre><code class="language-julia hljs">mssa = get(ar, MemorySSA, nothing)    # `nothing` in a `loop(...)` pipeline
+if mssa !== nothing
+    MemorySSAUpdater(mssa) do updater
+        # move an instruction, and then its access
+        move!(inst, LLVM.before(loop.preheader.terminator))
+        access = memory_access(mssa, inst)
+        access === nothing ||
+            move_to_place!(updater, access, loop.preheader, :before_terminator)
+
+        # create an access for a new instruction, and insert it
+        access = create_access_in_block!(updater, new_inst, loop.preheader,
+                                         :before_terminator)
+        access isa MemoryDef &amp;&amp; insert_def!(updater, access; rename=true)
+        access isa MemoryUse &amp;&amp; insert_use!(updater, access; rename=true)
+    end
+end</code></pre><p>If a custom pass throws an exception, the optional passes that remain in the pipeline and all custom passes are skipped, as the IR and the analyses that the pipeline relies on may be inconsistent, and <code>run!</code> throws a <code>PassException</code>. This is best-effort containment: LLVM&#39;s required passes, like the pass managers, still run, so a pass should avoid leaving the IR inconsistent.</p><p>Passes that are implemented in C++ can be used as well, by registering a native callback that is called with LLVM&#39;s <code>PassBuilder</code>, like the ones pass plugins provide:</p><pre><code class="language-julia hljs">@dispose pb=PassBuilder() begin
+    register_callbacks!(pb, cglobal((:registerCallbacks, libfoo)))
+    add!(pb, &quot;foo-pass&quot;)
+    run!(pb, mod)
+end</code></pre><h2 id="Custom-target-info"><a class="docs-heading-anchor" href="#Custom-target-info">Custom target info</a><a id="Custom-target-info-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-target-info" title="Permalink"></a></h2><p>Some analyses and passes consult LLVM&#39;s <code>TargetTransformInfo</code> (TTI) to decide whether they can do anything useful — <code>InferAddressSpacesPass</code> wants to know the flat address space, <code>UniformityAnalysis</code> wants to know which values are divergent, and so on.</p><p>Most users don&#39;t need to think about this. In-tree back-ends (host CPU, NVPTX, AMDGPU) carry their own TTI through a <code>TargetMachine</code>, and passing that machine to <code>run!(pb, mod, tm)</code> is enough — the machine provides everything these passes need.</p><p>The <code>AbstractTargetTransformInfo</code> interface is for the cases where that isn&#39;t enough:</p><ul><li><strong>Out-of-tree back-ends</strong> whose TTI isn&#39;t linked into the <code>libLLVM</code> that Julia loads (e.g. Metal). Pipelines targeting them have no <code>TargetMachine</code> to derive TTI from, so the baseline TTI takes over and TTI-sensitive passes silently no-op.</li><li><strong>Tooling / analysis flows</strong> that run passes without any target at all.</li><li><strong>Per-query overrides on top of a real <code>TargetMachine</code></strong>: a custom TTI attached via <code>target_transform_info!</code> takes precedence over the machine-derived one, useful for forcing a particular knob while leaving everything else alone.</li></ul><p>Subtype <code>AbstractTargetTransformInfo</code> and override only the queries you care about; every other query falls back to a default matching LLVM&#39;s <code>TargetTransformInfoImplBase</code>. Attach the instance to a <code>PassBuilder</code> with <code>target_transform_info!</code>:</p><pre><code class="language-julia hljs">using LLVM, LLVM.Passes
+
+struct MyTTI &lt;: LLVM.AbstractTargetTransformInfo end
+LLVM.flat_address_space(::MyTTI) = UInt(0)
+LLVM.is_noop_addr_space_cast(::MyTTI, from::Unsigned, to::Unsigned) =
+    from == 0 || to == 0
+
+@dispose pb=PassBuilder() begin
+    target_transform_info!(pb, MyTTI())
+    add!(pb, FunctionPassManager()) do fpm
+        add!(fpm, InferAddressSpacesPass())
+    end
+    run!(pb, mod)
+end</code></pre><p>Pass <code>nothing</code> to <code>target_transform_info!</code> to revert to LLVM&#39;s native TTI (the <code>TargetMachine</code>-derived one if you supply a machine to <code>run!</code>, otherwise the conservative baseline).</p><p>See the API reference for the full list of overridable queries.</p><h2 id="IR-transforms"><a class="docs-heading-anchor" href="#IR-transforms">IR transforms</a><a id="IR-transforms-1"></a><a class="docs-heading-anchor-permalink" href="#IR-transforms" title="Permalink"></a></h2><p>Besides running passes, LLVM.jl wraps several of LLVM&#39;s transformation utilities, which change specific parts of the IR. They are useful to write custom passes, or to make targeted changes to IR without running a full pass. Unlike passes, they don&#39;t keep analyses up to date, unless they take an analysis to update as an argument.</p><p><code>promote_mem_to_reg!</code> does what the <code>mem2reg</code> pass does for a selection of allocas: replacing them by SSA values, inserting phi nodes where needed. It needs the function&#39;s dominator tree, which it does not change. <code>inline!</code> inlines the function that a call instruction calls, returning <code>nothing</code> when it succeeded or a message explaining why the call could not be inlined. Finally, <code>simplify_instruction</code> returns a simpler value that an instruction is equivalent to, which can then replace the instruction:</p><pre><code class="language-julia-repl hljs">julia&gt; mod = parse(LLVM.Module, &quot;&quot;&quot;
+         define i32 @square(i32 %x) {
+         entry:
+           %y = mul i32 %x, %x
+           ret i32 %y
+         }
+         define i32 @caller(i32 %a) {
+         entry:
+           %p = alloca i32
+           store i32 %a, ptr %p
+           %v = load i32, ptr %p
+           %s = call i32 @square(i32 %v)
+           %r = add i32 %s, 0
+           ret i32 %r
+         }&quot;&quot;&quot;);
+
+julia&gt; f = mod.functions[&quot;caller&quot;];
+
+julia&gt; allocas = AllocaInst[inst for inst in f.entry.instructions if inst isa AllocaInst];
+
+julia&gt; all(is_promotable, allocas)
+true
+
+julia&gt; @dispose domtree=DomTree(f) begin
+         promote_mem_to_reg!(allocas, domtree)
+       end;
+
+julia&gt; call = first(inst for inst in f.entry.instructions if inst isa CallInst);
+
+julia&gt; inline!(call) === nothing
+true
+
+julia&gt; add = first(inst for inst in f.entry.instructions if inst isa LLVM.AddInst);
+
+julia&gt; val = simplify_instruction(add)
+%y.i = mul i32 %a, %a
+
+julia&gt; replace_uses!(add, val);
+
+julia&gt; erase!(add);
+
+julia&gt; f
+define i32 @caller(i32 %a) {
+entry:
+  %y.i = mul i32 %a, %a
+  ret i32 %y.i
+}</code></pre><p>To change the control flow of a function, <code>split_block!</code> splits a basic block in two, with the first part branching to the second. <code>split_block_and_insert_if_then!</code> also inserts a block that only executes when a condition holds, and returns its terminator before which code can be inserted. Its <code>weights</code> keyword argument attaches branch weights to the new conditional branch, while passing a dominator tree as <code>domtree</code> updates that tree for the new control flow. <code>split_block_and_insert_if_then_else!</code> does the same with a block for either outcome:</p><pre><code class="language-julia-repl hljs">julia&gt; mod = parse(LLVM.Module, &quot;&quot;&quot;
+         define void @store_if(i1 %c, ptr %p) {
+         entry:
+           ret void
+         }&quot;&quot;&quot;);
+
+julia&gt; f = only(mod.functions);
+
+julia&gt; c, p = f.parameters;
+
+julia&gt; term = split_block_and_insert_if_then!(c, f.entry.terminator; weights=(1, 9));
+
+julia&gt; @dispose builder=IRBuilder() begin
+         position!(builder, LLVM.before(term))
+         store!(builder, ConstantInt(Int32(42)), p)
+       end;
+
+julia&gt; f
+define void @store_if(i1 %c, ptr %p) {
+entry:
+  br i1 %c, label %0, label %1, !prof !0
+
+0:                                                ; preds = %entry
+  store i32 42, ptr %p, align 4
+  br label %1
+
+1:                                                ; preds = %entry, %0
+  ret void
+}</code></pre><h2 id="IR-cloning"><a class="docs-heading-anchor" href="#IR-cloning">IR cloning</a><a id="IR-cloning-1"></a><a class="docs-heading-anchor-permalink" href="#IR-cloning" title="Permalink"></a></h2><p>Somewhat distinct from IR passes, it is also possible to clone bits of the IR. This can be useful when you want to keep the original version of the IR around, or when you have to fundamentally change the IR in a way that requires recreating the IR (e.g., when changing a function type).</p><p>The workhorse for this is the <code>clone_into!</code> function, which takes a source and a destination function, cloning the source into the destination:</p><pre><code class="language-julia-repl hljs">julia&gt; src
+define i64 @add(i64 %0, i64 %1) {
+top:
+  %2 = add i64 %1, %0
+  ret i64 %2
+}
+
+julia&gt; dst = LLVM.Function(mod, &quot;new_add&quot;, src.function_type);
+
+julia&gt; value_map = Dict(
+            src.parameters[1] =&gt; dst.parameters[1],
+            src.parameters[2] =&gt; dst.parameters[2]
+       );
+
+julia&gt; clone_into!(dst, src; value_map);
+
+julia&gt; dst
+define i64 @new_add(i64 %0, i64 %1) {
+top:
+  %2 = add i64 %1, %0
+  ret i64 %2
+}</code></pre><p>Note how we had to provide a value map to map the arguments of the source function to the arguments of the new destination function. This is a powerful tool, which makes it possible to splice IR into functions that have different signatures:</p><pre><code class="language-julia-repl hljs">julia&gt; dst = LLVM.Function(mod, &quot;new_add&quot;, src.function_type);
+
+julia&gt; # let&#39;s swap the arguments around
+       value_map = Dict(
+            src.parameters[1] =&gt; dst.parameters[2],
+            src.parameters[2] =&gt; dst.parameters[1]
+       );
+
+julia&gt; clone_into!(dst, src; value_map);
+
+julia&gt; dst
+define i64 @new_add(i64 %0, i64 %1) {
+top:
+  %2 = add i64 %0, %1
+  ret i64 %2
+}</code></pre><p>It is also possible to map types using the <code>type_mapper</code> callback, or to materialize values by passing a <code>materializer</code> callback. Refer to the upstream LLVM documentation for more details.</p><p>For the simpler use case of just cloning a function and mapping values, the <code>clone</code> function can be used:</p><pre><code class="language-julia-repl hljs">julia&gt; # let&#39;s replace an argument by a constant
+       value_map = Dict(
+            src.parameters[1] =&gt; ConstantInt(42)
+       );
+
+julia&gt; clone(src; value_map)
+define i64 @add.1(i64 %0) {
+top:
+  %1 = add i64 %0, 42
+  ret i64 %1
+}</code></pre><p>When rebuilding more than a single function, e.g., to change the types of all functions and global variables in a module, use a <code>ValueMap</code> instead of a dictionary. A value map is extended with the mappings that are made, and can be shared between several calls to <code>clone_into!</code>, so that the clones refer to each other, and with <code>map_value</code> and <code>map_metadata</code>, which map constants (like the initializers of global variables) and metadata using the same map. Like <code>clone_into!</code>, they take a <code>type_mapper</code> and a <code>materializer</code> callback:</p><pre><code class="language-julia-repl hljs">julia&gt; gv = GlobalVariable(mod, LLVM.Int64Type(), &quot;gv&quot;);
+
+julia&gt; new_gv = GlobalVariable(mod, LLVM.Int64Type(), &quot;new_gv&quot;);
+
+julia&gt; vmap = ValueMap();
+
+julia&gt; vmap[gv] = new_gv;
+
+julia&gt; map_value(const_ptrtoint(gv, LLVM.Int32Type()), vmap)
+i32 ptrtoint (ptr @new_gv to i32)
+
+julia&gt; dispose(vmap)</code></pre><p>Finally, it is also possible to clone just a basic block, inserting it at the end of a function. This differs from a simple call to <code>copy</code> in that it also accepts a value map:</p><pre><code class="language-julia-repl hljs">julia&gt; bb = src.entry;
+
+julia&gt; # let&#39;s again an argument by a constant
+       value_map = Dict(
+            src.parameters[1] =&gt; ConstantInt(42)
+       );
+
+julia&gt; clone(bb; value_map);
+
+julia&gt; src
+define i64 @add(i64 %0, i64 %1) {
+top:
+  %2 = add i64 %1, %0
+  ret i64 %2
+
+top1:                                             ; No predecessors!
+  %3 = add i64 %1, 42
+  ret i64 %3
+}</code></pre><p>This of course isn&#39;t very useful by itself, but can be a useful starting point for more complex transformations.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../analyses/">« Analyses</a><a class="docs-footer-nextpage" href="../codegen/">Code generation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Wednesday 21 October 2026 20:15">Wednesday 21 October 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

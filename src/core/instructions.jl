@@ -1296,8 +1296,12 @@ argument_library(bundle::OperandBundle) = bundle.library
 Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
-bundle_refs(bundles::AbstractVector) =
-    collect_refs(API.LLVMOperandBundleRef, bundles)
+@inline function bundle_refs(@nospecialize(bundles::AbstractVector))
+    bundles isa Vector{OperandBundle} &&
+        return collect_vector_refs(API.LLVMOperandBundleRef, bundles)
+    return Base.inferencebarrier(_bundle_refs)(bundles)::Vector{API.LLVMOperandBundleRef}
+end
+_bundle_refs(bundles::AbstractVector) = collect_refs(API.LLVMOperandBundleRef, bundles)
 
 """
     OperandBundle(tag::AbstractString, args::Vector{Value}=Value[])

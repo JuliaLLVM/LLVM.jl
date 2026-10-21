@@ -214,17 +214,26 @@ end
 # method), and when it isn't, it converts each of its arguments with a dynamic dispatch,
 # which is slow for wrappers with many arguments. each hierarchy of wrappers has its own
 # conversion function (e.g. `value_refs` and `type_refs`), as a dynamic call with a single
-# argument is cheaper than one with a type argument. these functions specialize on the
-# type of the vector, which is fine for functions this small. they don't dispatch on its
-# element type, because an empty `Vector{Union{}}` (e.g., from `collect(())`) is accepted
-# by every signature taking a vector of wrappers. the caller has to keep mutable wrappers
-# (like operand bundles) alive while their references are used.
+# argument is cheaper than one with a type argument (and dispatching on the element type
+# can't tell the hierarchy of an empty `Vector{Union{}}`, e.g., from `collect(())`). they
+# index vectors of the hierarchy's abstract type (like `Vector{Value}`) directly, and
+# convert other vectors behind an inference barrier: callers that don't specialize pass
+# abstractly-typed vectors, and inferring how to iterate those makes them depend on generic
+# methods (like `IteratorSize`) that packages invalidate. the caller has to keep mutable
+# wrappers (like operand bundles) alive while their references are used.
 
-# the implementation of these conversion functions, for references of type `R`. the result
-# is asserted, as some versions of Julia infer a comprehension over an abstractly-typed
-# vector as `Any`.
+# the implementations of these conversion functions, for references of type `R`. the result
+# of the generic one is asserted, as some versions of Julia infer a comprehension over an
+# abstractly-typed vector as `Any`.
 @inline collect_refs(::Type{R}, objs::AbstractVector) where {R<:Ptr} =
     R[Base.unsafe_convert(R, obj) for obj in objs]::Vector{R}
+@inline function collect_vector_refs(::Type{R}, objs::Vector) where {R<:Ptr}
+    refs = Vector{R}(undef, length(objs))
+    for i in 1:length(objs)
+        @inbounds refs[i] = Base.unsafe_convert(R, objs[i])
+    end
+    return refs
+end
 
 # the most basic check is asserting that we don't use a null pointer
 @inline function refcheck(::Type, ref::Ptr)

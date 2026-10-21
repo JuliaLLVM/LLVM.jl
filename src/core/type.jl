@@ -34,7 +34,11 @@ function Base.cconvert(::Type{Ptr{API.LLVMTypeRef}},
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
 
-type_refs(objs::AbstractVector) = collect_refs(API.LLVMTypeRef, objs)
+@inline function type_refs(@nospecialize(objs::AbstractVector))
+    objs isa Vector{LLVMType} && return collect_vector_refs(API.LLVMTypeRef, objs)
+    return Base.inferencebarrier(_type_refs)(objs)::Vector{API.LLVMTypeRef}
+end
+_type_refs(objs::AbstractVector) = collect_refs(API.LLVMTypeRef, objs)
 
 
 Base.sizeof(typ::LLVMType) = error("LLVM types are not sized")

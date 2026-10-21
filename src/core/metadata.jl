@@ -31,7 +31,11 @@ function Base.cconvert(::Type{Ptr{API.LLVMMetadataRef}},
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
 
-metadata_refs(objs::AbstractVector) = collect_refs(API.LLVMMetadataRef, objs)
+@inline function metadata_refs(@nospecialize(objs::AbstractVector))
+    objs isa Vector{Metadata} && return collect_vector_refs(API.LLVMMetadataRef, objs)
+    return Base.inferencebarrier(_metadata_refs)(objs)::Vector{API.LLVMMetadataRef}
+end
+_metadata_refs(objs::AbstractVector) = collect_refs(API.LLVMMetadataRef, objs)
 
 # XXX: LLVMMetadataKind is simply unsigned, so we don't know the max enum
 const metadata_kinds = Vector{Type}(fill(Nothing, 64))

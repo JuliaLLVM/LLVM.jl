@@ -29,6 +29,9 @@ elseif Sys.iswindows() && Sys.ARCH === :i686
 elseif Sys.islinux() && Sys.ARCH === :powerpc64le
     const __off_t = Clong
     const off_t = __off_t
+elseif Sys.islinux() && Sys.ARCH === :riscv64
+    const __off_t = Clong
+    const off_t = __off_t
 elseif Sys.isapple()
     const __darwin_off_t = Int64
     const off_t = __darwin_off_t

@@ -855,7 +855,7 @@ function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
     flag = context!(context(iter.mod)) do
         # the behaviors are numbered from 1 in the IR, and from 0 in the C API
         id = Metadata(ConstantInt(Int32(Integer(behavior) + 1)))
-        MDNode([id, MDString(String(name)), val])
+        MDNode(Metadata[id, MDString(String(name)), val])
     end
     push!(operands(get!(metadata(iter.mod), "llvm.module.flags")), flag)
     return iter

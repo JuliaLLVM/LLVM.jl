@@ -23,6 +23,7 @@ The only argument to the constructor is the module's name. Along with some other
 attributes, this can be read and modified using properties:
 
 - `mod.name`: module name
+- `mod.source_filename`: name of the source file, which defaults to the module's name
 - `mod.triple`: target triple string
 - `mod.datalayout`: data layout, which can be assigned a string or `DataLayout` object
 - `mod.sdk_version`: Apple SDK version

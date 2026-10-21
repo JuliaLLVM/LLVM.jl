@@ -127,6 +127,8 @@ builders, dispatch less dynamically and allocate less, making them considerably 
 - Use `String(md)` to get the value of an `MDString`. `convert(String, md)` is deprecated,
   and will be removed in the next breaking release, as it invalidates compiled code in
   Base, which costs load time to packages that depend on LLVM.jl.
+- `mod.source_filename` gets and sets the name of the source file of a module, which the
+  `source_filename` line of textual IR records.
 
 
 ## LLVM.jl v10.2

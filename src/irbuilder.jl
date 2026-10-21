@@ -895,7 +895,8 @@ function call!(builder::IRBuilder, Ty::LLVMType, Fn::Value, Args::AbstractVector
                Bundles::AbstractVector{OperandBundle}, Name::AbstractString="")
     args = value_refs(Args)
     # the bundles of a view are created when indexing it, so collect them to keep them alive
-    bundles = Bundles isa Vector ? Bundles : collect(Bundles)::Vector{OperandBundle}
+    bundles = Bundles isa Vector ? Bundles :
+        Base.inferencebarrier(collect)(Bundles)::Vector{OperandBundle}
     GC.@preserve bundles begin
         brefs = bundle_refs(bundles)
         Instruction(API.LLVMBuildCallWithOperandBundles(builder, Ty, Fn, args, length(args),

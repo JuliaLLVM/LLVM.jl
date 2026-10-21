@@ -1754,7 +1754,7 @@ function kwargs_to_params(kwargs)
     params = String[]
     for (k, v) in kwargs
         # Julia uses `_` in kwargs, while LLVM always uses `-`
-        k = replace(string(k), "_" => "-")
+        k = replace(string(k)::String, "_" => "-")
 
         if v isa Bool
             push!(params, v ? k : "no-$k")

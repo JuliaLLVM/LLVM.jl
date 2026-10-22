@@ -1534,7 +1534,7 @@ Create a global variable in the given module with the given type, name, and opti
 address space.
 """
 GlobalVariable(mod::Module, typ::LLVMType, name::AbstractString, addrspace::Integer=0) =
-    GlobalVariable(API.LLVMAddGlobalInAddressSpace(mod, typ, name, Cuint(addrspace)))
+    GlobalVariable(API.LLVMAddGlobalInAddressSpace(mod, typ, name, api_cuint(addrspace)))
 
 """
     erase!(gv::GlobalVariable)
@@ -1592,21 +1592,26 @@ externally_initialized!(gv::GlobalVariable, flag::Bool) =
 @property GlobalVariable externally_initialized externally_initialized!
 
 # alignments are powers of 2 passed to LLVM as a 32-bit integer. global objects can also have
-# no explicit alignment, which is represented by 0.
+# no explicit alignment, which is represented by 0. returns the alignment as a `Cuint`, or
+# `nothing`. alignments are often abstractly typed, so check uncommon integer types behind
+# an inference barrier, keeping generic integer methods out of the callers' inferred code.
 function check_alignment(align; allow_zero::Bool=false)
-    align === nothing || (allow_zero && align == 0) ||
-        (0 < align <= typemax(Cuint) && ispow2(align)) ||
-        # `align` is often abstractly typed, so don't infer how to print it
-        throw(ArgumentError(LazyString("Alignment must be a positive power of 2 up to 2^31",
-                                       allow_zero ? ", or 0 to remove it" : "", ", got ",
-                                       align)))
+    align === nothing && return nothing
+    align isa Int && return checked_alignment(align, allow_zero)
+    align isa Cuint && return checked_alignment(align, allow_zero)
+    return Base.inferencebarrier(checked_alignment)(align, allow_zero)::Cuint
+end
+function checked_alignment(align, allow_zero::Bool)
+    (allow_zero && align == 0) || (0 < align <= typemax(Cuint) && ispow2(align)) ||
+        throw(ArgumentError("Alignment must be a positive power of 2 up to 2^31" *
+                            (allow_zero ? ", or 0 to remove it" : "") * ", got $align"))
+    return Cuint(align)
 end
 
 alignment(gv::GlobalVariable) = API.LLVMGetAlignment(gv)
 
 function alignment!(gv::GlobalVariable, bytes::Integer)
-    check_alignment(bytes; allow_zero=true)
-    API.LLVMSetAlignment(gv, bytes)
+    API.LLVMSetAlignment(gv, check_alignment(bytes; allow_zero=true)::Cuint)
 end
 
 @property GlobalVariable alignment alignment!

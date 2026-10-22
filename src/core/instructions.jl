@@ -740,7 +740,8 @@ doesn't spell out: an instruction in it has no `syncscope`.
 """
 function SyncScope(name::AbstractString; context::Context=LLVM.context())
     # the default, system syncscope gets encoded as an empty string
-    str = name == "system" ? "" : String(name)
+    str = api_string(name)
+    str == "system" && (str = "")
     SyncScope(API.LLVMGetSyncScopeID(context, str, ncodeunits(str)), context)
 end
 
@@ -792,7 +793,7 @@ function syncscope!(inst::AtomicInst, scope::SyncScope)
     API.LLVMSetAtomicSyncScopeID(inst, scope.id)
 end
 syncscope!(inst::AtomicInst, name::Union{AbstractString,Symbol}) =
-    syncscope!(inst, SyncScope(String(name); context=context(inst)))
+    syncscope!(inst, SyncScope(name isa Symbol ? String(name) : name; context=context(inst)))
 
 @property AtomicInst syncscope syncscope!
 
@@ -1296,8 +1297,12 @@ argument_library(bundle::OperandBundle) = bundle.library
 Base.unsafe_convert(::Type{API.LLVMOperandBundleRef}, bundle::OperandBundle) =
     bundle.ref
 
-bundle_refs(bundles::AbstractVector) =
-    collect_refs(API.LLVMOperandBundleRef, bundles)
+@inline function bundle_refs(@nospecialize(bundles::AbstractVector))
+    bundles isa Vector{OperandBundle} &&
+        return collect_vector_refs(API.LLVMOperandBundleRef, bundles)
+    return Base.inferencebarrier(_bundle_refs)(bundles)::Vector{API.LLVMOperandBundleRef}
+end
+_bundle_refs(bundles::AbstractVector) = collect_refs(API.LLVMOperandBundleRef, bundles)
 
 """
     OperandBundle(tag::AbstractString, args::Vector{Value}=Value[])
@@ -2151,8 +2156,7 @@ const AlignedInst = Union{AllocaInst, MemAccessInst}
 alignment(inst::AlignedInst) = API.LLVMGetAlignment(inst)
 
 function alignment!(inst::AlignedInst, bytes::Integer)
-    check_alignment(bytes)
-    API.LLVMSetAlignment(inst, bytes)
+    API.LLVMSetAlignment(inst, check_alignment(bytes)::Cuint)
 end
 
 # LLVM only supports querying the alignment of memory instructions

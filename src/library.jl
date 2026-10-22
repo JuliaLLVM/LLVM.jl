@@ -145,7 +145,8 @@ macro llvmapi(ex)
     return esc(Expr(:block, explicit, :(Base.@__doc__ $ambient)))
 end
 
-# rewrite `ccall((:LLVMFoo, lib), ...)` into `ccall(fptr(lib, slot), ...)`
+# rewrite `ccall((:LLVMFoo, lib), ...)` into `ccall(fptr(lib, slot), ...)`, passing
+# `Cstring` arguments through `api_cstring_arg`
 function rewrite_ccalls(ex, fname)
     ex isa Expr || return ex
     if Meta.isexpr(ex, :call) && ex.args[1] === :ccall
@@ -155,8 +156,12 @@ function rewrite_ccalls(ex, fname)
             error("unsupported ccall target in $fname: $target")
         end
         slot = function_slot(target.args[1].value, target.args[2] === :libLLVMExtra)
+        rettyp, argtyps, args... = map(arg -> rewrite_ccalls(arg, fname), ex.args[3:end])
+        args = map(args, argtyps.args) do arg, typ
+            typ === :Cstring ? :($(GlobalRef(LLVM, :api_cstring_arg))($arg)) : arg
+        end
         return Expr(:call, :ccall, :($(GlobalRef(LLVM, :fptr))(lib, $slot)),
-                    map(arg -> rewrite_ccalls(arg, fname), ex.args[3:end])...)
+                    rettyp, argtyps, args...)
     end
     return Expr(ex.head, map(arg -> rewrite_ccalls(arg, fname), ex.args)...)
 end

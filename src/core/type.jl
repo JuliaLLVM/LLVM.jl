@@ -34,7 +34,11 @@ function Base.cconvert(::Type{Ptr{API.LLVMTypeRef}},
     R[Base.unsafe_convert(R, obj) for obj in objs]
 end
 
-type_refs(objs::AbstractVector) = collect_refs(API.LLVMTypeRef, objs)
+@inline function type_refs(@nospecialize(objs::AbstractVector))
+    objs isa Vector{LLVMType} && return collect_vector_refs(API.LLVMTypeRef, objs)
+    return Base.inferencebarrier(_type_refs)(objs)::Vector{API.LLVMTypeRef}
+end
+_type_refs(objs::AbstractVector) = collect_refs(API.LLVMTypeRef, objs)
 
 
 Base.sizeof(typ::LLVMType) = error("LLVM types are not sized")
@@ -344,7 +348,7 @@ See also: the [`addrspace`](@ref LLVM.PointerType) property,
 [`supports_typed_pointers`](@ref).
 """
 function PointerType(eltyp::LLVMType, addrspace=0)
-    return PointerType(API.LLVMPointerType(eltyp, addrspace))
+    return PointerType(API.LLVMPointerType(eltyp, api_cuint(addrspace)))
 end
 
 """
@@ -355,7 +359,7 @@ Create an opaque pointer type in the given `addrspace`.
 See also: the [`addrspace`](@ref LLVM.PointerType) property, [`isopaque`](@ref).
 """
 function PointerType(addrspace=0)
-    return PointerType(API.LLVMPointerTypeInContext(context(), addrspace))
+    return PointerType(API.LLVMPointerTypeInContext(context(), api_cuint(addrspace)))
 end
 
 isopaque(ptrtyp::PointerType) = API.LLVMPointerTypeIsOpaque(ptrtyp) |> Bool

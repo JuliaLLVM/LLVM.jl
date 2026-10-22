@@ -98,6 +98,11 @@ end
         fn.name = sub("f")
         @test fn.name == "f"
         @test haskey(mod.functions, "f")
+        # the C API wrappers also accept pointers for strings
+        let name = "f"
+            ref = GC.@preserve name LLVM.API.LLVMGetNamedFunction(mod, pointer(name))
+            @test LLVM.Function(ref) == fn
+        end
 
         # global variables
         gv = GlobalVariable(mod, LLVM.Int32Type(), sub("glöbal"))

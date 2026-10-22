@@ -25,6 +25,13 @@ metadata node, or create it if it doesn't exist yet, e.g., to add metadata to it
 
 The name (module identifier) of the module.
 
+    mod.source_filename
+    mod.source_filename = name::AbstractString
+
+The name of the source file the module was compiled from, as recorded by the
+`source_filename` line of textual IR. It is separate from the module's name, which it
+defaults to.
+
     mod.triple
     mod.triple = triple::AbstractString
 
@@ -34,6 +41,7 @@ The target triple of the module, or an empty string if it has none.
     mod.datalayout = layout::Union{AbstractString,DataLayout}
 
 The data layout of the module. Either a string or a `DataLayout` object can be assigned.
+`string(mod.datalayout)` returns the layout string as stored in the module.
 
     mod.inline_asm
 
@@ -203,6 +211,19 @@ function name!(mod::Module, str::AbstractString)
 end
 
 @property Module name name!
+
+function source_filename(mod::Module)
+    out_len = Ref{Csize_t}()
+    ptr = convert(Ptr{UInt8}, API.LLVMGetSourceFileName(mod, out_len))
+    return unsafe_string(ptr, out_len[])
+end
+
+function source_filename!(mod::Module, str::AbstractString)
+    str = String(str)
+    API.LLVMSetSourceFileName(mod, str, Csize_t(ncodeunits(str)))
+end
+
+@property Module source_filename source_filename!
 
 triple(mod::Module) = unsafe_string(API.LLVMGetTarget(mod))
 

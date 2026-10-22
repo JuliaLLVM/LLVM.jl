@@ -2373,6 +2373,17 @@ end
         @test mod.name == "SomeModule"
         mod.name = "SomeOtherName"
         @test mod.name == "SomeOtherName"
+
+        # the source file name defaults to the name, but is a separate field
+        @test mod.source_filename == "SomeModule"
+        mod.source_filename = "some_file.ll"
+        @test mod.source_filename == "some_file.ll"
+        @test mod.name == "SomeOtherName"
+        @test occursin("source_filename = \"some_file.ll\"", string(mod))
+    end
+
+    @dispose mod=parse(LLVM.Module, "source_filename = \"parsed.ll\"") begin
+        @test mod.source_filename == "parsed.ll"
     end
 
     LLVM.Module("SomeModule") do mod
@@ -2659,6 +2670,8 @@ end
     @test String(MDString("é")) == "é"
     mod.name = "módulo"
     @test mod.name == "módulo"
+    mod.source_filename = "fichier.ll"
+    @test mod.source_filename == "fichier.ll"
     push!(get!(mod.metadata, "métadonnées").operands, MDNode([MDString("x")]))
     @test haskey(mod.metadata, "métadonnées")
     mod.flags["drapeau", LLVM.ModuleFlagBehavior.Error] = Metadata(ConstantInt(Int32(1)))

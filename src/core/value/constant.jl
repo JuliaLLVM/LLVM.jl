@@ -569,6 +569,13 @@ to represent aggregate constants whose elements are simple data or zero. Nested 
 are elements themselves, i.e., the elements of a constant of type `[2 x [2 x i32]]` are two
 constants of type `[2 x i32]`.
 
+The property is also available for `undef` and `poison` values of an array, structure or
+vector type, and for vector splats that LLVM represents as a single `ConstantInt`,
+`ConstantFP` or `PointerNull` (e.g., the `zeroinitializer` of a floating-point vector, since
+LLVM 23). It throws an `ArgumentError` for constants of other types, including scalable
+vectors, whose number of elements is not known. To get an element of any constant, or
+`nothing` if LLVM doesn't know it, use [`aggregate_element`](@ref).
+
 The properties of [`User`](@ref LLVM.User) and [`Value`](@ref LLVM.Value) are available too.
 """
 abstract type ConstantAggregate <: Constant end
@@ -747,23 +754,54 @@ end
 
 ## aggregate elements
 
+@vocabulary IR aggregate_element
+
+"""
+    aggregate_element(c::Constant, index::Integer) -> Union{Constant,Nothing}
+
+The element at the 0-based `index` of the constant `c` of an array, structure or vector type,
+like C++'s `Constant::getAggregateElement`. Returns `nothing` if LLVM doesn't know the
+element, e.g., because `c` is a constant expression, `index` is out of bounds, or `c` is an
+`undef` or `poison` scalable vector. Throws an `ArgumentError` if `c` isn't of an array,
+structure or vector type.
+
+Unlike the `elements` property (see [`LLVM.ConstantAggregate`](@ref)), this works for any
+constant, including scalable vectors, whose `zeroinitializer` and splats have known elements
+up to their minimum length. Which kinds of constants have elements depends on the version of
+LLVM, so code that is ported from C++ should use this function rather than check the kind of
+constant. The index is 0-based, like the index of the `extractvalue` or `extractelement`
+instruction that this function can fold.
+"""
+function aggregate_element(c::Constant, index::Integer)
+    # LLVM asserts this, and assumes it for constants that can also be scalars
+    typ = value_type(c)
+    typ isa Union{ArrayType,StructType,VectorType,ScalableVectorType} ||
+        throw(ArgumentError("$typ is not an aggregate or vector type"))
+    0 <= index <= typemax(Cuint) || return nothing
+    ref = API.LLVMGetAggregateElement(c, index)
+    return ref == C_NULL ? nothing : Value(ref)::Constant
+end
+
 struct ConstantAggregateElementSet <: AbstractVector{Constant}
     c::Constant
 end
 
+# constants that are aggregates, and those that can be: undef and poison, and, since LLVM 20
+# (by default since LLVM 23, for floating-point values and null pointers), vector splats
 const AnyConstantAggregate =
-    Union{ConstantAggregate, ConstantDataSequential, ConstantAggregateZero}
+    Union{ConstantAggregate, ConstantDataSequential, ConstantAggregateZero,
+          UndefValue, PoisonValue, ConstantInt, ConstantFP, ConstantByte, PointerNull}
 
-elements(c::AnyConstantAggregate) = ConstantAggregateElementSet(c)
-function elements(c::Union{UndefValue,PoisonValue})
+function elements(c::AnyConstantAggregate)
     typ = value_type(c)
+    typ isa ScalableVectorType &&
+        throw(ArgumentError("The number of elements of a scalable vector is not known; use `aggregate_element` instead"))
     typ isa Union{ArrayType,StructType,VectorType} ||
-        throw(ArgumentError("$typ is not an aggregate type"))
+        throw(ArgumentError("$typ is not an aggregate or vector type"))
     return ConstantAggregateElementSet(c)
 end
 
 @property AnyConstantAggregate elements
-@property Union{UndefValue,PoisonValue} elements
 
 function Base.size(iter::ConstantAggregateElementSet)
     typ = value_type(iter.c)

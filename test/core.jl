@@ -1011,6 +1011,137 @@ end
     end
 end
 
+@dispose ctx=Context(; opaque_pointers=true) mod=LLVM.Module("aggregate_elements") begin
+    @testset "aggregate elements" begin
+
+    i32 = LLVM.Int32Type()
+    i64 = LLVM.Int64Type()
+    elt(c, i) = aggregate_element(c, i)
+
+    # aggregates, with 0-based indices
+    let ca = ConstantArray([1, 2])
+        @test elt(ca, 0) == ConstantInt(1)
+        @test elt(ca, 1) == ConstantInt(2)
+        @test elt(ca, 2) === nothing
+        @test elt(ca, -1) === nothing
+        @test elt(ca, typemax(Int)) === nothing
+    end
+    let cs = ConstantStruct([ConstantInt(Int8(1)), ConstantInt(Int64(2))])
+        @test elt(cs, 1) == ConstantInt(Int64(2))
+        @test elt(ConstantArray(cs.value_type, [cs]), 0) == cs
+    end
+    let cv = ConstantVector([ConstantInt(Int32(1)), ConstantInt(Int32(2))])
+        @test cv isa ConstantDataVector
+        @test elt(cv, 1) == ConstantInt(Int32(2))
+        @test elt(cv, 2) === nothing
+    end
+    let z = null(LLVM.StructType([i32, i64]))
+        @test z isa ConstantAggregateZero
+        @test elt(z, 1) == ConstantInt(Int64(0))
+        @test elt(z, 2) === nothing
+    end
+
+    # undef and poison of a fixed size have elements too
+    let u = UndefValue(LLVM.VectorType(i32, 2)), p = PoisonValue(LLVM.ArrayType(i32, 2))
+        @test elt(u, 1) == UndefValue(i32)
+        @test elt(p, 1) == PoisonValue(i32)
+        @test elt(p, 2) === nothing
+        @test collect(u.elements) == [UndefValue(i32), UndefValue(i32)]
+    end
+
+    # constant expressions don't, even if they have an aggregate type
+    let gv = GlobalVariable(mod, i64, "gv")
+        ce = const_bitcast(const_ptrtoint(gv, i64), LLVM.VectorType(i32, 2))
+        @test ce isa LLVM.ConstantExpr
+        @test elt(ce, 0) === nothing
+        @test !hasproperty(ce, :elements)
+    end
+
+    # scalars have neither
+    @test_throws "is not an aggregate or vector type" elt(ConstantInt(Int32(1)), 0)
+    @test_throws "is not an aggregate or vector type" ConstantInt(Int32(1)).elements
+    @test_throws "is not an aggregate or vector type" UndefValue(i32).elements
+
+    # vector splats of simple values are known up to the minimum length of a scalable
+    # vector, but a scalable vector doesn't have a known number of elements
+    let typ = LLVM.ScalableVectorType(i64, 2)
+        z = null(typ)
+        @test elt(z, 0) == ConstantInt(Int64(0))
+        @test elt(z, 1) == ConstantInt(Int64(0))
+        @test elt(z, 2) === nothing
+        @test_throws "number of elements of a scalable vector is not known" z.elements
+        for c in (UndefValue(typ), PoisonValue(typ))
+            @test elt(c, 0) === nothing
+            @test_throws "is not known" c.elements
+        end
+    end
+
+    # since LLVM 23, splats of floating-point values and null pointers are single constants,
+    # but they have the same elements
+    let typ = LLVM.VectorType(LLVM.FloatType(), 2)
+        z = null(typ)
+        @test z isa (LLVM.version() >= v"23" ? ConstantFP : ConstantAggregateZero)
+        @test collect(z.elements) == [ConstantFP(0f0), ConstantFP(0f0)]
+        @test elt(z, 1) == ConstantFP(0f0)
+        @test elt(z, 2) === nothing
+    end
+    let ptr = LLVM.PointerType(), typ = LLVM.VectorType(ptr, 2)
+        z = null(typ)
+        @test z isa (LLVM.version() >= v"23" ? PointerNull : ConstantAggregateZero)
+        @test collect(z.elements) == [null(ptr), null(ptr)]
+        @test elt(z, 1) == null(ptr)
+    end
+    let typ = LLVM.ScalableVectorType(LLVM.FloatType(), 2)
+        z = null(typ)
+        @test elt(z, 1) == ConstantFP(0f0)
+        @test elt(z, 2) === nothing
+        @test_throws "is not known" z.elements
+    end
+
+    end
+end
+
+# since LLVM 20, vector splats of integers and floating-point values can be single constants
+# (by default since LLVM 23 for floating-point values), which only global options enable.
+# they are set in the process instead of through JULIA_LLVM_ARGS, which Julia's own LLVM
+# also parses, and rejects when it is older than the library under test.
+if LLVM.version() >= v"20"
+@testset "aggregate elements of splats" begin
+    opts = ["-use-constant-int-for-fixed-length-splat",
+            "-use-constant-int-for-scalable-splat"]
+    LLVM.version() < v"23" && push!(opts, "-use-constant-fp-for-fixed-length-splat")
+    (; out, err, success) = execute_code("""
+        LLVM.clopts($(join(repr.(opts), ", ")))
+        @dispose ctx=Context() begin
+            for c in (const_splat(LLVM.VectorType(LLVM.Int64Type(), 2), 3),
+                      const_splat(LLVM.VectorType(LLVM.FloatType(), 2), 3.0))
+                println(nameof(typeof(c)), " ", join(string.(c.elements), ", "), " ",
+                        string(aggregate_element(c, 1)), " ", aggregate_element(c, 2))
+            end
+            mod = parse(LLVM.Module, \"\"\"
+                define <vscale x 2 x i64> @f() {
+                  ret <vscale x 2 x i64> splat (i64 3)
+                }\"\"\")
+            c = only(collect(only(mod.functions).blocks)[1].instructions).operands[1]
+            dispose(mod)
+            println(nameof(typeof(c)), " ", string(aggregate_element(c, 1)), " ",
+                    aggregate_element(c, 2))
+            try
+                c.elements
+            catch err
+                println(err)
+            end
+        end""")
+    @test success
+    lines = split(out, '\n')
+    @test lines[1] == "ConstantInt i64 3, i64 3 i64 3 nothing"
+    @test lines[2] == "ConstantFP float 3.000000e+00, float 3.000000e+00 float 3.000000e+00 nothing"
+    @test lines[3] == "ConstantInt i64 3 nothing"
+    @test occursin("is not known", lines[4])
+    success || println(err)
+end
+end
+
 # constant expressions
 @dispose ctx=Context() begin
     @testset "constant expressions" begin

@@ -19,6 +19,8 @@ The named metadata of the module, as a dictionary-like view that maps names to
 [`get!`](@ref get!(::LLVM.ModuleMetadataIterator, ::AbstractString)) to look up a named
 metadata node, or create it if it doesn't exist yet, e.g., to add metadata to it:
 `push!(get!(mod.metadata, name).operands, node)`.
+Use [`delete!`](@ref delete!(::LLVM.ModuleMetadataIterator, ::AbstractString)) to
+erase a named metadata node.
 
     mod.name
     mod.name = name::AbstractString

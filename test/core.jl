@@ -2665,6 +2665,19 @@ end
     @test dest.aliasee === nothing
 end
 
+# erasing named metadata
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+    push!(get!(mod.metadata, "foo").operands, MDNode([MDString("x")]))
+    get!(mod.metadata, "bar")
+    @test delete!(mod.metadata, "foo") isa LLVM.ModuleMetadataIterator
+    @test !haskey(mod.metadata, "foo")
+    @test !occursin("!foo", string(mod))
+    @test collect(keys(mod.metadata)) == ["bar"]
+    # like a dictionary, deleting a missing key does nothing
+    delete!(mod.metadata, "foo")
+    @test collect(keys(mod.metadata)) == ["bar"]
+end
+
 # strings are passed to LLVM by their number of bytes, not characters
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     @test String(MDString("é")) == "é"

@@ -197,6 +197,10 @@ end
     ccall((:LLVMSetNamedMetadataOperand2, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef, Cuint, LLVMMetadataRef), NMD, I, Val)
 end
 
+@llvmapi function LLVMExtraEraseNamedMetadata(lib::Library, NMD)
+    ccall((:LLVMExtraEraseNamedMetadata, libLLVMExtra), Cvoid, (LLVMNamedMDNodeRef,), NMD)
+end
+
 @llvmapi function LLVMReplaceMDNodeOperandWith2(lib::Library, MD, I, New)
     ccall((:LLVMReplaceMDNodeOperandWith2, libLLVMExtra), Cvoid, (LLVMMetadataRef, Cuint, LLVMMetadataRef), MD, I, New)
 end
@@ -900,6 +904,14 @@ end
 
 @llvmapi function LLVMExtraGetInsertionPointAfterDef(lib::Library, Inst, BB, Before, Head)
     ccall((:LLVMExtraGetInsertionPointAfterDef, libLLVMExtra), LLVMBool, (LLVMValueRef, Ptr{LLVMBasicBlockRef}, Ptr{LLVMValueRef}, Ptr{LLVMBool}), Inst, BB, Before, Head)
+end
+
+@llvmapi function LLVMExtraDICompileUnitGetEmissionKind(lib::Library, CU)
+    ccall((:LLVMExtraDICompileUnitGetEmissionKind, libLLVMExtra), LLVMDebugEmissionKind, (LLVMMetadataRef,), CU)
+end
+
+@llvmapi function LLVMExtraDISubprogramGetLinkageName(lib::Library, Subprogram, Len)
+    ccall((:LLVMExtraDISubprogramGetLinkageName, libLLVMExtra), Cstring, (LLVMMetadataRef, Ptr{Csize_t}), Subprogram, Len)
 end
 
 @llvmapi function LLVMExtraDIBuilderInsertDeclareRecordAt(lib::Library, Builder, Storage, VarInfo, Expr, DL, BB, Before, Head)

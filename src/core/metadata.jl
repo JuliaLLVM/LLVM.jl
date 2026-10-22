@@ -865,6 +865,19 @@ function Base.get(iter::ModuleMetadataIterator, name::AbstractString, default)
 end
 
 """
+    delete!(mod.metadata, name::AbstractString)
+
+Erase the named metadata node called `name` from the module, if it contains one, including
+the node itself, unlike `empty!(mod.metadata[name].operands)`. Returns `mod.metadata`.
+"""
+function Base.delete!(iter::ModuleMetadataIterator, name::AbstractString)
+    name = String(name)
+    ref = API.LLVMGetNamedMetadata(iter.mod, name, ncodeunits(name))
+    ref == C_NULL || API.LLVMExtraEraseNamedMetadata(ref)
+    return iter
+end
+
+"""
     get!(mod.metadata, name::AbstractString)
 
 Look up the named metadata node called `name`, or create an empty one if the module doesn't

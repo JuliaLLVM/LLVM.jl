@@ -1,6 +1,15 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.4
+
+- `cu.emission_kind` is the amount of debug info that a `DICompileUnit` emits, as a
+  `LLVM.DebugEmissionKind.T`, e.g., `NoDebug` for the compile units that Julia's code
+  generator creates without `-g`.
+- `sp.linkage_name` is the linkage name of a `DISubprogram`, or `nothing` if it has none.
+- `delete!(mod.metadata, name)` erases a named metadata node from a module.
+
+
 ## LLVM.jl v10.3
 
 LLVM.jl can now use LLVM libraries other than Julia's, also several in one process. Many

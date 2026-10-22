@@ -55,7 +55,7 @@ const enum_scopes = [
      "LLVMDWARFSourceLanguage", "", ()),
     (:DWARFEmissionKind, :LLVMDWARFEmissionKind, "the amount of debug info to emit for compile units",
      "LLVMDWARFEmission", "", ()),
-    (:DebugEmissionKind, :LLVMDebugEmissionKind, "the amount of debug info that Julia's code generator emits (`debug_info_kind` in its `CodegenParams`)",
+    (:DebugEmissionKind, :LLVMDebugEmissionKind, "the amount of debug info that Julia's code generator emits (`debug_info_kind` in its `CodegenParams`), and that a compile unit has (`cu.emission_kind`)",
      "LLVMDebugEmissionKind", "", ()),
     (:CodeGenOptLevel, :LLVMCodeGenOptLevel, "the optimization levels of code generation",
      "LLVMCodeGenLevel", "", ()),

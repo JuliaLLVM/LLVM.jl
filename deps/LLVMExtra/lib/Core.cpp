@@ -394,6 +394,10 @@ void LLVMSetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I, LLVMMetada
   unwrap<NamedMDNode>(NMD)->setOperand(I, unwrap<MDNode>(Val));
 }
 
+void LLVMExtraEraseNamedMetadata(LLVMNamedMDNodeRef NMD) {
+  unwrap<NamedMDNode>(NMD)->eraseFromParent();
+}
+
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New) {
   unwrap<MDNode>(MD)->replaceOperandWith(I, unwrap(New));
 }
@@ -1907,6 +1911,16 @@ LLVMDbgRecordRef LLVMExtraDIBuilderInsertLabelAt(LLVMDIBuilderRef Builder,
 }
 #endif
 #endif
+
+LLVMDebugEmissionKind LLVMExtraDICompileUnitGetEmissionKind(LLVMMetadataRef CU) {
+  return static_cast<LLVMDebugEmissionKind>(unwrap<DICompileUnit>(CU)->getEmissionKind());
+}
+
+const char *LLVMExtraDISubprogramGetLinkageName(LLVMMetadataRef Subprogram, size_t *Len) {
+  StringRef Name = unwrap<DISubprogram>(Subprogram)->getLinkageName();
+  *Len = Name.size();
+  return Name.data();
+}
 
 LLVMBool LLVMExtraInstructionComesBefore(LLVMValueRef Inst, LLVMValueRef Other) {
   return unwrap<Instruction>(Inst)->comesBefore(unwrap<Instruction>(Other));

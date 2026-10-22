@@ -110,6 +110,7 @@ LLVMMetadataRef LLVMGetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I)
 void LLVMAddNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, LLVMMetadataRef Val);
 void LLVMClearNamedMetadataOperands(LLVMNamedMDNodeRef NMD);
 void LLVMSetNamedMetadataOperand2(LLVMNamedMDNodeRef NMD, unsigned I, LLVMMetadataRef Val);
+void LLVMExtraEraseNamedMetadata(LLVMNamedMDNodeRef NMD);
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New);
 LLVMMetadataRef LLVMGetMetadata2(LLVMValueRef Inst, unsigned KindID);
 void LLVMSetMetadata2(LLVMValueRef Inst, unsigned KindID, LLVMMetadataRef Node);
@@ -891,6 +892,9 @@ LLVMBool LLVMExtraGetFirstInsertionPt(LLVMBasicBlockRef BB, LLVMValueRef *Before
 // invoke), storing its block; returns false if there is none (e.g., for a callbr)
 LLVMBool LLVMExtraGetInsertionPointAfterDef(LLVMValueRef Inst, LLVMBasicBlockRef *BB,
                                             LLVMValueRef *Before, LLVMBool *Head);
+// debug info nodes; the linkage name is empty if the subprogram has none
+LLVMDebugEmissionKind LLVMExtraDICompileUnitGetEmissionKind(LLVMMetadataRef CU);
+const char *LLVMExtraDISubprogramGetLinkageName(LLVMMetadataRef Subprogram, size_t *Len);
 #if LLVM_VERSION_MAJOR >= 19
 // insert a debug record at an insertion point, which must not be the end of a terminated
 // block; requires the new debug info format

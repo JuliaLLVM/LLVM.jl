@@ -14,6 +14,12 @@ A subprogram (a function) in the source code.
 
 The line number of the subprogram, or -1 if unknown.
 
+    sp.linkage_name
+
+The linkage name of the subprogram, i.e., the (mangled) name of the function it describes, or
+`nothing` if it has none. Unlike the name of the function, this keeps the name that the
+function had when the debug info was created, e.g., when the function is renamed later.
+
 The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
 [`MDNode`](@ref LLVM.MDNode) are available too.
 """
@@ -24,7 +30,15 @@ register(DISubprogram, API.LLVMDISubprogramMetadataKind)
 
 line(subprogram::DISubprogram) = line_number(API.LLVMDISubprogramGetLine(subprogram))
 
+function linkage_name(subprogram::DISubprogram)
+    len = Ref{Csize_t}()
+    data = API.LLVMExtraDISubprogramGetLinkageName(subprogram, len)
+    len[] == 0 && return nothing
+    return unsafe_string(convert(Ptr{UInt8}, data), len[])
+end
+
 @property DISubprogram line
+@property DISubprogram linkage_name
 
 """
     subprogram!(builder::DIBuilder, scope::Union{DIScope,Nothing}, name::AbstractString,
@@ -83,11 +97,29 @@ replace_type!(sp::DISubprogram, ty::DISubroutineType) =
     DICompileUnit
 
 A compilation unit in the source code.
+
+# Properties
+
+    cu.emission_kind
+
+The amount of debug info that is emitted for the compile unit, as a
+`LLVM.DebugEmissionKind.T` value: `NoDebug`, `FullDebug`, `LineTablesOnly` or
+`DebugDirectivesOnly`. Julia's code generator emits subprograms and locations even when it
+doesn't emit debug info, marking their compile unit `NoDebug`. This differs from the
+`LLVM.DWARFEmissionKind.T` that [`compile_unit!`](@ref) takes, which LLVM's C API defines
+without `DebugDirectivesOnly`.
+
+The properties of [`DIScope`](@ref LLVM.DIScope), [`DINode`](@ref LLVM.DINode) and
+[`MDNode`](@ref LLVM.MDNode) are available too.
 """
 @checked struct DICompileUnit <: DIScope
     ref::API.LLVMMetadataRef
 end
 register(DICompileUnit, API.LLVMDICompileUnitMetadataKind)
+
+emission_kind(cu::DICompileUnit) = API.LLVMExtraDICompileUnitGetEmissionKind(cu)
+
+@property DICompileUnit emission_kind
 
 """
     compile_unit!(builder::DIBuilder, lang, file::DIFile, producer::AbstractString;

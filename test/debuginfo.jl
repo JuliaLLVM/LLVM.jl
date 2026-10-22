@@ -37,6 +37,35 @@ DEBUG_METADATA_VERSION()
     end
 end
 
+@testset "compile unit emission kinds" begin
+    # each DIBuilder creates a single compile unit
+    for (kind, expected) in ((LLVM.DWARFEmissionKind.None, LLVM.DebugEmissionKind.NoDebug),
+                             (LLVM.DWARFEmissionKind.LineTablesOnly,
+                              LLVM.DebugEmissionKind.LineTablesOnly))
+        @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+            DIBuilder(mod) do dib
+                file = LLVM.file!(dib, "test.jl", "/tmp")
+                cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
+                                        file, "LLVM.jl Tests"; emission_kind=kind)
+                @test cu.emission_kind == expected
+            end
+        end
+    end
+
+    # the C API can't create compile units that only emit debug directives (without the
+    # debug info version, parsing would strip the debug info)
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+            !llvm.dbg.cu = !{!0}
+            !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: DebugDirectivesOnly)
+            !1 = !DIFile(filename: "test.c", directory: "/tmp")
+            !llvm.module.flags = !{!2}
+            !2 = !{i32 2, !"Debug Info Version", i32 3}""") begin
+        cu = only(mod.metadata["llvm.dbg.cu"].operands)
+        @test cu isa DICompileUnit
+        @test cu.emission_kind == LLVM.DebugEmissionKind.DebugDirectivesOnly
+    end
+end
+
 @testset "DIBuilder: file/compile-unit/module/namespace" begin
     @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
         DIBuilder(mod) do dib
@@ -53,6 +82,7 @@ end
             cu = LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia,
                                    file, "LLVM.jl Tests")
             @test cu isa DICompileUnit
+            @test cu.emission_kind == LLVM.DebugEmissionKind.FullDebug
 
             ns = LLVM.namespace!(dib, cu, "MyNamespace")
             @test ns isa DINamespace
@@ -315,6 +345,9 @@ end
             @test LLVM.subprogram!(dib, nothing, "top", file, 1, stype).file == file
             @test sp.line == 1
             @test LLVM.subprogram!(dib, file, "unknown", file, typemax(UInt32), stype).line == -1
+            @test sp.linkage_name === nothing
+            @test LLVM.subprogram!(dib, file, "add", file, 1, stype;
+                                   linkage_name="julia_add_1").linkage_name == "julia_add_1"
 
             # variables
             v = LLVM.auto_variable!(dib, sp, "x", file, 2, i64)

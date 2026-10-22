@@ -68,7 +68,7 @@ struct PassManager <: AbstractPassManager
     type::String
     passes::Vector{String}
 
-    PassManager(type::AbstractString) = new(type, [])
+    PassManager(type::AbstractString) = new(type, String[])
 end
 @vocabulary Passes PassManager
 
@@ -1229,7 +1229,8 @@ argument_library(pb::PassBuilder) = pb.library
 
 function PassBuilder(; kwargs...)
     opts = API.LLVMCreatePassBuilderOptions()
-    obj = mark_alloc(PassBuilder(opts, library(), [], [], [], nothing, [], nothing))
+    obj = mark_alloc(PassBuilder(opts, library(), String[], String[], CustomPass[], nothing,
+                                 Ptr{Cvoid}[], nothing))
 
     # dispose of the options if a keyword argument is invalid
     try
@@ -1753,7 +1754,7 @@ function kwargs_to_params(kwargs)
     params = String[]
     for (k, v) in kwargs
         # Julia uses `_` in kwargs, while LLVM always uses `-`
-        k = replace(string(k), "_" => "-")
+        k = replace(string(k)::String, "_" => "-")
 
         if v isa Bool
             push!(params, v ? k : "no-$k")

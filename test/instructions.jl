@@ -1547,6 +1547,10 @@ end
                 # test the ability to directly forward `operand_bundles`
                 inst2 = call!(builder, ft, f, Value[], bundles)
 
+                # and a view of them, whose bundles are only created when indexing it
+                inst3 = call!(builder, ft, f, Value[], view(bundles, 1:1))
+                @test [b.tag for b in inst3.operand_bundles] == ["unknown"]
+
                 bundle2 = bundles[1]
                 @test bundle2 isa OperandBundle
                 @test bundle2.tag == "unknown"

@@ -1596,8 +1596,10 @@ externally_initialized!(gv::GlobalVariable, flag::Bool) =
 function check_alignment(align; allow_zero::Bool=false)
     align === nothing || (allow_zero && align == 0) ||
         (0 < align <= typemax(Cuint) && ispow2(align)) ||
-        throw(ArgumentError("Alignment must be a positive power of 2 up to 2^31" *
-                            (allow_zero ? ", or 0 to remove it" : "") * ", got $align"))
+        # `align` is often abstractly typed, so don't infer how to print it
+        throw(ArgumentError(LazyString("Alignment must be a positive power of 2 up to 2^31",
+                                       allow_zero ? ", or 0 to remove it" : "", ", got ",
+                                       align)))
 end
 
 alignment(gv::GlobalVariable) = API.LLVMGetAlignment(gv)

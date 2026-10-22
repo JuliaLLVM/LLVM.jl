@@ -80,7 +80,8 @@ const enum_scopes = [
 function isavailable(x::CEnum.Cenum, major::Integer)
     tables = API.abi_tables(typeof(x), major)
     tables === nothing && return true
-    val = Integer(x)
+    # LLVM's enums are 32-bit; asserting so keeps the arithmetic below concrete
+    val = Integer(x)::Union{Int32,UInt32}
     0 <= val < length(tables.to) || return true
     return @inbounds(tables.to[val+1]) >= 0
 end
@@ -209,11 +210,9 @@ end
 @noinline function show_enum(@nospecialize(io::IO), scope::Symbol,
                              display_names::Dict{Int64,Symbol}, val::Int64)
     name = get(display_names, val, nothing)
-    if name === nothing
-        print(io, "LLVM.", scope, ".T(", val, ")")
-    else
-        print(io, "LLVM.", scope, ".", name)
-    end
+    # format to a `String` first: printing an integer to an abstract `IO` is invalidated easily
+    str = name === nothing ? "LLVM.$scope.T($val)" : "LLVM.$scope.$name"
+    print(io, str)
 end
 Base.show(io::IO, ::MIME"text/plain", x::ScopedEnum) = show(io, x)
 Base.print(io::IO, x::ScopedEnum) = show(io, x)

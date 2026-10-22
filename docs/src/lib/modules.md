@@ -29,6 +29,7 @@ write(io::IO, mod::LLVM.Module)
 sort!(::LLVM.ModuleGlobalSet)
 sort!(::LLVM.ModuleFunctionSet)
 get!(::LLVM.ModuleMetadataIterator, ::AbstractString)
+delete!(::LLVM.ModuleMetadataIterator, ::AbstractString)
 get!(::Base.Callable, ::LLVM.ModuleGlobalSet, ::AbstractString)
 get!(::Base.Callable, ::LLVM.ModuleFunctionSet, ::AbstractString)
 ```

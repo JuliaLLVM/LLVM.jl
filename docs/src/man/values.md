@@ -182,6 +182,18 @@ julia> ConstantArray([0, 0]).elements
  i64 0
 ```
 
+Code that has to handle any constant, like a port of LLVM's constant folding, can use
+`aggregate_element` instead, which returns the element at a 0-based index or `nothing` if
+LLVM doesn't know it, e.g., for constant expressions:
+
+```jldoctest
+julia> aggregate_element(ConstantArray([1, 2]), 1)
+i64 2
+
+julia> aggregate_element(ConstantArray([1, 2]), 2) === nothing
+true
+```
+
 ### Constant expressions
 
 Constant expressions are a way to represent computations that are known at compile time.

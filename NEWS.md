@@ -129,6 +129,14 @@ builders, dispatch less dynamically and allocate less, making them considerably 
   Base, which costs load time to packages that depend on LLVM.jl.
 - `mod.source_filename` gets and sets the name of the source file of a module, which the
   `source_filename` line of textual IR records.
+- `aggregate_element(c, index)` returns the element at a 0-based index of any constant of
+  an array, structure or vector type, or `nothing` if LLVM doesn't know it, like C++'s
+  `Constant::getAggregateElement`. Which constants have elements depends on the version of
+  LLVM, e.g., vector splats can be a single `ConstantInt` or `ConstantFP` since LLVM 20.
+- The `elements` property of constants also works for vector splats that are a single
+  `ConstantInt`, `ConstantFP` or `PointerNull`, like the `zeroinitializer` of a
+  floating-point or pointer vector since LLVM 23. For scalable vectors, it throws an
+  `ArgumentError` rather than a `MethodError`.
 
 
 ## LLVM.jl v10.2

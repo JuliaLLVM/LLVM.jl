@@ -49,6 +49,7 @@ ConstantVector
 ConstantVector(::AbstractVector{<:LLVM.Constant})
 ConstantAggregateZero
 LLVM.ConstantAggregate
+aggregate_element
 InlineAsm
 BlockAddress
 BlockAddress(::BasicBlock)

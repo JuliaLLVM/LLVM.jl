@@ -1,4 +1,5 @@
 using Documenter, LLVM
+using DocumenterCodeBlocks: CodeBlocks
 using LLVM.IR, LLVM.Build, LLVM.Passes, LLVM.Analysis, LLVM.ORC
 
 function main()
@@ -20,6 +21,9 @@ function main()
     makedocs(
         sitename = "LLVM.jl",
         authors = "Tim Besard",
+        plugins = [
+            CodeBlocks(; line_counter = :named),
+        ],
         format = Documenter.HTML(
             # Use clean URLs on CI
             prettyurls = ci,

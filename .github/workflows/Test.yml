@@ -183,6 +183,33 @@ jobs:
         timeout-minutes: 20
         run: julia --project -e 'using Pkg; Pkg.test()'
 
+  trim:
+    # check that applications that depend on LLVM.jl can be compiled into trimmed executables
+    # (see test/trim), which do not include Julia's LLVM
+    name: Trimming - Julia ${{ matrix.version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.12', '1.13', 'nightly']
+        os: ['ubuntu-latest', 'macOS-latest']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      - name: Install JuliaC
+        run: julia --project="$RUNNER_TEMP/juliac" -e 'using Pkg; Pkg.add("JuliaC")'
+      - name: Build the executable
+        run: |
+          julia --project="$RUNNER_TEMP/juliac" -e 'using JuliaC; JuliaC.main(ARGS)' -- \
+            --output-exe trimtest --bundle "$RUNNER_TEMP/build" --trim=safe --experimental \
+            test/trim
+      - name: Run the executable
+        run: "$RUNNER_TEMP/build/bin/trimtest"
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest

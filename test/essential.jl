@@ -14,10 +14,10 @@ end
 @test LLVM.version().major in LLVM.API.WRAPPED_VERSIONS ||
       LLVM.version().major > last(LLVM.API.WRAPPED_VERSIONS)
 if LLVM.version() >= v"21"
-    @test_throws "LLVMConstMul is not available on LLVM $(LLVM.version()) (only on LLVM 15 to 20)" LLVM.API.LLVMConstMul(C_NULL, C_NULL)
+    @test_throws "LLVMConstMul is not available on LLVM $(LLVM.version().major) (only on LLVM 15 to 20)" LLVM.API.LLVMConstMul(C_NULL, C_NULL)
 end
 if LLVM.version() < v"23"
-    @test_throws "LLVMByteTypeInContext is not available on LLVM $(LLVM.version()) (only on LLVM 23 and later)" LLVM.API.LLVMByteTypeInContext(C_NULL, 8)
+    @test_throws "LLVMByteTypeInContext is not available on LLVM $(LLVM.version().major) (only on LLVM 23 and later)" LLVM.API.LLVMByteTypeInContext(C_NULL, 8)
 end
 
 # enums contain the members of every version, but members that are not available on the

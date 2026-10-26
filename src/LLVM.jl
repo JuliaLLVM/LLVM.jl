@@ -34,11 +34,15 @@ const julia_llvm = libllvm_preference === nothing
 # location might be different at run time.
 const libllvm = julia_llvm ? basename(String(Base.libllvm_path())) : libllvm_preference
 
+# the LLVMExtra library for Julia's LLVM that the `libLLVMExtra` preference selects, e.g.,
+# one built by `deps/build_local.jl`. this is a compile-time preference, like `libLLVM`.
+const julia_extra_preference = @load_preference("libLLVMExtra", nothing)
+
 # the LLVMExtra library for Julia's LLVM, or `nothing` if there is none. like the path of
-# Julia's LLVM, this is only known at run time.
+# Julia's LLVM, that of LLVMExtra_jll is only known at run time.
 function julia_extra_path()
-    if has_preference(LLVM, "libLLVMExtra")
-        load_preference(LLVM, "libLLVMExtra")
+    if julia_extra_preference !== nothing
+        julia_extra_preference
     elseif isdefined(LLVMExtra_jll, :libLLVMExtra)
         LLVMExtra_jll.libLLVMExtra_path
     else

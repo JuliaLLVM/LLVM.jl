@@ -38,13 +38,26 @@ const libllvm = julia_llvm ? basename(String(Base.libllvm_path())) : libllvm_pre
 # one built by `deps/build_local.jl`. this is a compile-time preference, like `libLLVM`.
 const julia_extra_preference = @load_preference("libLLVMExtra", nothing)
 
+# the library of LLVMExtra_jll when precompiling. the JLL finds its library in `__init__`,
+# which hasn't run yet when the libraries are brought up while juliac compiles an image (see
+# `init_libraries`), and juliac empties the depot path then, so the JLL can't find it. this
+# is the same depot, unless it was moved since.
+const precompiled_extra_path = isdefined(LLVMExtra_jll, :libLLVMExtra) ?
+                               LLVMExtra_jll.libLLVMExtra_path : nothing
+
 # the LLVMExtra library for Julia's LLVM, or `nothing` if there is none. like the path of
 # Julia's LLVM, that of LLVMExtra_jll is only known at run time.
 function julia_extra_path()
     if julia_extra_preference !== nothing
         julia_extra_preference
     elseif isdefined(LLVMExtra_jll, :libLLVMExtra)
-        LLVMExtra_jll.libLLVMExtra_path
+        path = LLVMExtra_jll.libLLVMExtra_path
+        if path === nothing
+            path = precompiled_extra_path
+            path === nothing || isfile(path) ||
+                error("LLVMExtra_jll is not initialized, and its library has moved since LLVM.jl was precompiled; please re-compile LLVM.jl")
+        end
+        path
     else
         nothing
     end
@@ -212,9 +225,6 @@ function load_libraries!()
     if path !== nothing && (julia_llvm || julia_extra_path() !== nothing)
         load_julia!(julia_library, path)
         libraries[:julia] = julia_library
-    else
-        # calling the library throws (see `fptr`)
-        fill!(resize!(julia_library.table, length(library_functions)), C_NULL)
     end
     if !julia_llvm
         load!(default_library)
@@ -224,8 +234,11 @@ function load_libraries!()
     return
 end
 
-# the wrappers are used while defining the package, e.g., by the precompilation workload
-load_libraries!()
+# the libraries are loaded when they are brought up (see `init_libraries`), but calling them
+# before that needs a table with every slot (see `fptr`)
+for lib in unique((julia_library, default_library))
+    fill!(resize!(lib.table, length(library_functions)), C_NULL)
+end
 
 include("enums.jl")
 
@@ -256,20 +269,10 @@ include("targetinfo.jl")
 include("passes.jl")
 define_properties()
 
-# high-level functionality
-include("state.jl")
-include("vocabularies.jl")
-include("interop.jl")
-@public Interop
+## bringing up the libraries
 
-include("precompile.jl")
-
-
-## initialization
-
-function __init__()
-    init_library_caches!()
-
+# load the libraries that are available by default, and initialize them
+function init_libraries!()
     # the default library was created when precompiling, with the version it had then
     if !julia_llvm && library_version(default_library.path) != default_library.version
         error("""LLVM.jl was precompiled for LLVM $(default_library.version), whereas $(default_library.path) is now LLVM $(library_version(default_library.path)).
@@ -292,15 +295,46 @@ function __init__()
         @error """LLVM.jl was precompiled for LLVM $libllvm_version, whereas you are now using LLVM $(Base.libllvm_version).
                   Please re-compile LLVM.jl."""
     end
-    if haskey(libraries, :julia) && julia_library.version != runtime_version(julia_library)
+    if haskey(libraries, :julia) && julia_library.version != loaded_runtime_version(julia_library)
         # this is probably caused by a combination of USE_SYSTEM_LLVM
         # and an LLVM upgrade without recompiling Julia.
-        @error """Julia was compiled for LLVM $(julia_library.version), whereas you are now using LLVM $(runtime_version(julia_library)).
+        @error """Julia was compiled for LLVM $(julia_library.version), whereas you are now using LLVM $(loaded_runtime_version(julia_library)).
                   Please re-compile Julia and LLVM.jl (but note that USE_SYSTEM_LLVM is not a supported configuration)."""
     end
 
     haskey(libraries, :julia) && register_eh_frame_stubs(julia_library)
     foreach(init_attribute_kinds!, unique(values(libraries)))
+    return
+end
+
+# `__init__` brings up the libraries, but only runs when an image is loaded. when generating
+# an image that isn't a package image, e.g., with juliac, they are already used while
+# compiling it, by the generators of `@llvmgenerated` functions, so bring them up when they
+# are first used then (see `ensure_libraries`). generators cannot wait for another thread
+# doing so, which this assumes doesn't happen. it is defined before any generated function,
+# as generators can only call functions defined before them.
+@static if isdefined(Base, :OncePerProcess)
+    const init_libraries = Base.OncePerProcess{Nothing}(init_libraries!)
+    ensure_libraries() = init_libraries()
+else
+    init_libraries() = init_libraries!()
+    ensure_libraries() = nothing
+end
+
+# high-level functionality
+include("state.jl")
+include("vocabularies.jl")
+include("interop.jl")
+@public Interop
+
+include("precompile.jl")
+
+
+## initialization
+
+function __init__()
+    init_library_caches!()
+    init_libraries()
     _install_handlers()
     Base.Experimental.register_error_hint(position_hint, MethodError)
     atexit(report_leaks)

@@ -100,7 +100,7 @@ function load!(lib::Library)
 end
 
 @inline function fptr(lib::Library, slot::Int)
-    # libraries are loaded before they are used, so their table has every slot
+    # the table of a library has every slot, also before it is loaded
     ptr = @inbounds lib.table[slot]
     ptr == C_NULL && throw_missing(lib, slot)
     return ptr
@@ -111,6 +111,15 @@ end
     lib.handle == C_NULL && error("$name is not available: LLVM library :$(lib.name) is not loaded")
     path = extra ? lib.extra_path : lib.path
     error("$name is not available in LLVM library :$(lib.name) ($path)")
+end
+
+# the default libraries are loaded when they are brought up, which may not have happened yet
+# when working with them (see `ensure_libraries`). this is not done by the wrappers, as
+# bringing up the libraries calls them.
+function check_loaded(lib::Library)
+    ensure_libraries()
+    lib.handle == C_NULL && error("LLVM library :$(lib.name) is not loaded")
+    return
 end
 
 
@@ -222,10 +231,14 @@ determine it, like creating a context. This is the library Julia uses, unless th
 `libLLVM` preference selects another one, and can be changed for the duration of a block
 using [`LLVM.library!`](@ref) or [`context!`](@ref).
 """
-@inline library() =
+@inline function library()
+    # code that doesn't say which library to use starts here, so bring up the libraries if
+    # that hasn't happened yet (see `ensure_libraries`)
+    ensure_libraries()
     # most processes only use one library, so avoid looking at the scope then. this is part
     # of every call of a wrapper, so keep what is inlined small.
     (@atomic :monotonic libraries_state.multiple) ? current_scope_library() : default_library
+end
 
 @noinline function current_scope_library()
     ScopedValues.current_scope() isa ScopedValues.Scope || return default_library
@@ -295,6 +308,7 @@ const libraries_lock = ReentrantLock()
 Look up the library registered under `name`, e.g., `:julia` for the one Julia uses.
 """
 function Library(name::Symbol)
+    ensure_libraries()
     lib = @lock libraries_lock get(libraries, name, nothing)
     lib === nothing && error("No LLVM library is registered as :$name")
     return lib
@@ -328,6 +342,8 @@ function register_library!(name::Symbol, path::AbstractString;
     name === :julia && error("The name :julia is reserved for the library Julia uses")
     path = realpath(path)
     extra = realpath(extra)
+    # bringing up the default libraries resets the registry
+    ensure_libraries()
     @lock libraries_lock begin
         lib = get(libraries, name, nothing)
         if lib !== nothing
@@ -382,6 +398,10 @@ function check_julia_library(what, lib::Library=library())
     error("$what requires the LLVM library that Julia uses, but uses LLVM library :$(lib.name) (LLVM $(lib.version))")
 end
 
-resolve_library(::Nothing) = library()
-resolve_library(lib::Library) = lib
-resolve_library(name::Symbol) = Library(name)
+# the library that the `library` argument of a constructor selects, which is used right away
+function resolve_library(library::Union{Nothing,Library,Symbol})
+    lib = library isa Library ? library :
+          library isa Symbol ? Library(library) : LLVM.library()
+    check_loaded(lib)
+    return lib
+end

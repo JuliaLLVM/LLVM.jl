@@ -38,6 +38,10 @@ function isavailable end
 # the version of the headers it was built from (and that Julia was built for) when Julia uses
 # a system LLVM.
 function runtime_version(lib::Library=library())
+    check_loaded(lib)
+    return loaded_runtime_version(lib)
+end
+function loaded_runtime_version(lib::Library)
     # standalone libraries hide their C++ symbols, but the C API reports the version
     lib === julia_library || return library_version(lib.handle, lib.extra_handle)
 
@@ -61,5 +65,6 @@ end
 function is_asserts(lib::Library=library())
     lib === julia_library ||
         throw(ArgumentError("Cannot determine whether LLVM library :$(lib.name) was built with assertions"))
+    check_loaded(lib)
     Libdl.dlsym(lib.handle, "_ZN4llvm23EnableABIBreakingChecksE"; throw_error=false) !== nothing
 end

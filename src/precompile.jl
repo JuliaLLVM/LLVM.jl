@@ -1,10 +1,7 @@
 # the workload uses Julia's code generator, which only works with Julia's LLVM
 julia_llvm && @setup_workload begin
-    # __init__ has not yet run during precompilation, so ensure the EH frame
-    # registration stubs are published before exercising the LLJIT (see support.jl),
-    # and that attribute kinds can be looked up.
-    register_eh_frame_stubs(julia_library)
-    init_attribute_kinds!(julia_library)
+    # __init__ does not run during precompilation
+    init_libraries()
     @compile_workload begin
         @dispose ctx=Context() begin
             # Type conversions for common Julia primitive types

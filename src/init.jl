@@ -71,8 +71,10 @@ const libllvm_components = [:Target, :TargetInfo, :TargetMC, :AsmPrinter, :AsmPa
 # the back-ends that a library supports, and their components, are discovered by looking
 # for the functions that initialize them. this reimplements LLVM macros and `static inline`
 # functions that are hard to call.
-initializer(lib::Library, backend::Symbol, component::Symbol) =
+function initializer(lib::Library, backend::Symbol, component::Symbol)
+    check_loaded(lib)
     Libdl.dlsym(lib.handle, Symbol(:LLVMInitialize, backend, component); throw_error=false)
+end
 
 """
     backends()

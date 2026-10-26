@@ -147,8 +147,15 @@ function init_attribute_kinds!(lib::Library)
     end
 end
 
+# the attribute kinds of the current library, which are tabulated when it is brought up
+function attribute_kinds()
+    lib = library()
+    check_loaded(lib)
+    return lib.attribute_kinds
+end
+
 attribute_kind_id(attr::Attribute) = API.LLVMGetEnumAttributeKind(attr)
-attribute_kind_id(name::Symbol) = get(library().attribute_kinds.ids, name, Cuint(0))
+attribute_kind_id(name::Symbol) = get(attribute_kinds().ids, name, Cuint(0))
 function attribute_kind_id(name::AbstractString)
     name = String(name)
     API.LLVMGetEnumAttributeKindForName(name, ncodeunits(name))
@@ -156,7 +163,7 @@ end
 
 # the category of an attribute kind, which determines the kind of attribute it is used for
 function attribute_kind_category(id::Integer)
-    categories = library().attribute_kinds.categories
+    categories = attribute_kinds().categories
     1 <= id <= length(categories) || return :other
     return @inbounds categories[id]
 end
@@ -189,7 +196,7 @@ function checked_attribute_kind_id(name::Union{Symbol,AbstractString},
 end
 
 function attribute_kind_name(id::Integer)
-    names = library().attribute_kinds.names
+    names = attribute_kinds().names
     name = 1 <= id <= length(names) ? @inbounds(names[id]) : Symbol()
     name == Symbol() && error("Unknown attribute kind ID $id")
     return name

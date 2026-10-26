@@ -52,14 +52,18 @@ end
 
 const julia_library = Library(:julia, "", "", Base.libllvm_version)
 
-function load_julia!(lib::Library)
+# the path of Julia's LLVM library, or `nothing` if Julia's code generator is not loaded,
+# e.g., in executables that juliac trims
+julia_llvm_path() = Base.libllvm_path()::Union{Nothing,Symbol}
+
+function load_julia!(lib::Library, path::Symbol)
     extra = julia_extra_path()
     if extra === nothing
         error("""LLVM.jl requires the LLVM extensions library, which LLVMExtra_jll does not provide for your platform:
                    $(Base.BinaryPlatforms.triplet(LLVMExtra_jll.host_platform))
                  If you are using a custom version of LLVM, build the library using `deps/build_local.jl`.""")
     end
-    lib.path = realpath(String(Base.libllvm_path()))
+    lib.path = realpath(String(path))
     lib.extra_path = realpath(extra)
     load!(lib)
 end
@@ -155,7 +159,7 @@ wrapper_mapexpr(ex) = inline_wrapper(backfill_enum_members(ex))
 end
 @noinline function throw_unavailable(lib, name, since, until)
     supported = until === nothing ? "$since and later" : "$since to $(until-1)"
-    error("$name is not available on LLVM $(lib.version) (only on LLVM $supported)")
+    error("$name is not available on LLVM $(lib.version.major) (only on LLVM $supported)")
 end
 
 # translation tables of an enum for a version of LLVM, generated for enums with members that
@@ -200,13 +204,17 @@ end # module API
 
 check_supported(default_library.version)
 
-# load and register the libraries that are available by default: Julia's, if LLVMExtra is
-# available for it, and the one that the `libLLVM` preference selects
+# load and register the libraries that are available by default: Julia's, if it is loaded
+# and LLVMExtra is available for it, and the one that the `libLLVM` preference selects
 function load_libraries!()
     empty!(libraries)
-    if julia_llvm || julia_extra_path() !== nothing
-        load_julia!(julia_library)
+    path = julia_llvm_path()
+    if path !== nothing && (julia_llvm || julia_extra_path() !== nothing)
+        load_julia!(julia_library, path)
         libraries[:julia] = julia_library
+    else
+        # calling the library throws (see `fptr`)
+        fill!(resize!(julia_library.table, length(library_functions)), C_NULL)
     end
     if !julia_llvm
         load!(default_library)
@@ -284,7 +292,7 @@ function __init__()
         @error """LLVM.jl was precompiled for LLVM $libllvm_version, whereas you are now using LLVM $(Base.libllvm_version).
                   Please re-compile LLVM.jl."""
     end
-    if julia_llvm && julia_library.version != runtime_version(julia_library)
+    if haskey(libraries, :julia) && julia_library.version != runtime_version(julia_library)
         # this is probably caused by a combination of USE_SYSTEM_LLVM
         # and an LLVM upgrade without recompiling Julia.
         @error """Julia was compiled for LLVM $(julia_library.version), whereas you are now using LLVM $(runtime_version(julia_library)).

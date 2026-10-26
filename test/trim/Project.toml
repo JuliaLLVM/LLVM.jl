@@ -1,0 +1,9 @@
+name = "TrimTest"
+uuid = "5c0f6bd4-3a1e-4b8e-9d6f-2a7c41e0b9a3"
+version = "0.1.0"
+
+[deps]
+LLVM = "929cbde3-209d-540e-8aea-75f648917ca0"
+
+[sources]
+LLVM = {path = "../.."}

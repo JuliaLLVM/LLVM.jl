@@ -108,6 +108,7 @@ end
 
 @noinline function throw_missing(lib::Library, slot::Int)
     name, extra = library_functions[slot]
+    lib.handle == C_NULL && error("$name is not available: LLVM library :$(lib.name) is not loaded")
     path = extra ? lib.extra_path : lib.path
     error("$name is not available in LLVM library :$(lib.name) ($path)")
 end

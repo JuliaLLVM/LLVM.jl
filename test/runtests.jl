@@ -82,5 +82,12 @@ include("Kaleidoscope.jl")
 include("examples.jl")
 include("aqua.jl")
 
+# captured variables that get boxed (`Core.Box`) lose their type
+if isdefined(Test, :detect_closure_boxes)
+    @testset "closure boxes" begin
+        @test Test.detect_closure_boxes(LLVM) == []
+    end
+end
+
 end
 end

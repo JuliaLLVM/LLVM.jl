@@ -207,6 +207,8 @@ end
     @test isemptytype(arrtyp)
     @test isemptytype(LLVM.ArrayType(LLVM.StructType(LLVMType[]), 4))
     @test !isemptytype(eltyp)
+    @test isemptytype(LLVM.StructType([LLVM.StructType(LLVMType[]), arrtyp]))
+    @test !isemptytype(LLVM.StructType([arrtyp, eltyp]))
 end
 if LLVM.version() >= v"17" && Sys.WORD_SIZE == 64
     # arrays can have more than 2^32 elements

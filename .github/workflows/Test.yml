@@ -99,6 +99,13 @@ jobs:
       matrix:
         llvm: ['15', '16', '17', '18', '19', '20', '21', '22', '23']
         os: ['ubuntu-latest', 'macOS-latest']
+        # pull requests only build the oldest and newest version on macOS
+        exclude: >-
+          ${{ fromJSON(github.event_name == 'pull_request' &&
+                       '[{"os": "macOS-latest", "llvm": "16"}, {"os": "macOS-latest", "llvm": "17"},
+                         {"os": "macOS-latest", "llvm": "18"}, {"os": "macOS-latest", "llvm": "19"},
+                         {"os": "macOS-latest", "llvm": "20"}, {"os": "macOS-latest", "llvm": "21"},
+                         {"os": "macOS-latest", "llvm": "22"}]' || '[]') }}
     steps:
       - uses: actions/checkout@v7
         with:

@@ -627,7 +627,14 @@ function elements!(structtyp::StructType, elems::AbstractVector{<:LLVMType};
     API.LLVMStructSetBody(structtyp, refs, length(refs), packed)
 end
 
-isemptytype(@nospecialize(T::StructType)) = all(isemptytype, elements(T))
+function isemptytype(@nospecialize(T::StructType))
+    # not `all`: inference of the recursive call reaches Base's reductions over array
+    # dimensions, which GPU packages invalidate (e.g. by adding `setindex!` methods)
+    for typ in elements(T)
+        isemptytype(typ) || return false
+    end
+    return true
+end
 
 # element iteration
 

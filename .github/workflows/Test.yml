@@ -26,33 +26,22 @@ jobs:
       matrix:
         version: ['1.10', '1.11', '1.12', '1.13', 'nightly']
         os: ['ubuntu-latest', 'ubuntu-24.04-arm', 'macOS-latest', 'windows-latest']
-        llvm_args: ['']
-        include:
-          # on Julia 1.10 and 1.11, also test non-default opaque pointers
-          - version: '1.10'
-            os: 'ubuntu-latest'
+        llvm_args: ['', '--opaque-pointers']
+        exclude:
+          # opaque pointers are the default from Julia 1.12 on
+          - version: '1.12'
             llvm_args: '--opaque-pointers'
-          - version: '1.10'
+          - version: '1.13'
+            llvm_args: '--opaque-pointers'
+          - version: 'nightly'
+            llvm_args: '--opaque-pointers'
+          # pull requests only test the non-default opaque pointers on x86_64 Linux
+          - llvm_args: ${{ github.event_name == 'pull_request' && '--opaque-pointers' || 'none' }}
             os: 'ubuntu-24.04-arm'
-            llvm_args: '--opaque-pointers'
-          - version: '1.10'
+          - llvm_args: ${{ github.event_name == 'pull_request' && '--opaque-pointers' || 'none' }}
             os: 'macOS-latest'
-            llvm_args: '--opaque-pointers'
-          - version: '1.10'
+          - llvm_args: ${{ github.event_name == 'pull_request' && '--opaque-pointers' || 'none' }}
             os: 'windows-latest'
-            llvm_args: '--opaque-pointers'
-          - version: '1.11'
-            os: 'ubuntu-latest'
-            llvm_args: '--opaque-pointers'
-          - version: '1.11'
-            os: 'ubuntu-24.04-arm'
-            llvm_args: '--opaque-pointers'
-          - version: '1.11'
-            os: 'macOS-latest'
-            llvm_args: '--opaque-pointers'
-          - version: '1.11'
-            os: 'windows-latest'
-            llvm_args: '--opaque-pointers'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -110,6 +99,13 @@ jobs:
       matrix:
         llvm: ['15', '16', '17', '18', '19', '20', '21', '22', '23']
         os: ['ubuntu-latest', 'macOS-latest']
+        # pull requests only build the oldest and newest version on macOS
+        exclude: >-
+          ${{ fromJSON(github.event_name == 'pull_request' &&
+                       '[{"os": "macOS-latest", "llvm": "16"}, {"os": "macOS-latest", "llvm": "17"},
+                         {"os": "macOS-latest", "llvm": "18"}, {"os": "macOS-latest", "llvm": "19"},
+                         {"os": "macOS-latest", "llvm": "20"}, {"os": "macOS-latest", "llvm": "21"},
+                         {"os": "macOS-latest", "llvm": "22"}]' || '[]') }}
     steps:
       - uses: actions/checkout@v7
         with:

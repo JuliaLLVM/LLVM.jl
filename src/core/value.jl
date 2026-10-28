@@ -245,19 +245,21 @@ function replace_metadata_uses!(old::Value, new::Value)
     # peek into module-level metadata, like the list of kernels, to get rid of the bitcast
     # (see https://discourse.llvm.org/t/replacing-module-metadata-uses-of-function/62431/4)
     visited = Set()
-    function recurse(md)
-        md in visited && return
+    worklist = Metadata[]
+    for (_, nmd) in metadata(parent(new))
+        append!(worklist, operands(nmd))
+    end
+    while !isempty(worklist)
+        md = pop!(worklist)
+        md in visited && continue
         push!(visited, md)
         for (i, op) in enumerate(operands(md))
             if op isa ValueAsMetadata && Value(op) == compat_new
                 operands(md)[i] = Metadata(new)
             elseif op isa MDTuple
-                recurse(op)
+                push!(worklist, op)
             end
         end
-    end
-    for (_, nmd) in metadata(parent(new))
-        foreach(recurse, operands(nmd))
     end
     return
 end

@@ -1789,10 +1789,12 @@ isavailable(entry::PassEntry, lib::Library) =
     (entry.until === nothing || !atleast(entry.until, lib)) &&
     (!entry.julia || lib === julia_library)
 
-# the name of a pass, for the current library
-function pass_name(class_name::Symbol)
+# the name of a pass, for the current library. `defaults` are the entries the pass was
+# defined with, for when the registry doesn't have them: entries of passes defined by other
+# packages are added while those packages precompile, which doesn't persist them.
+function pass_name(class_name::Symbol, defaults::Vector{PassEntry}=PassEntry[])
     lib = library()
-    entries = pass_entries[class_name]
+    entries = get(pass_entries, class_name, defaults)
     for entry in entries
         isavailable(entry, lib) && return entry.name
     end
@@ -1846,7 +1848,8 @@ function define_pass(mod, pass_name, class_name, kind, define_class, since, unti
         # the documentation is attached once all passes are defined (see `document_passes`)
         push!(ex.args, :(
             function $(esc(class_name))(; kwargs...)
-                return $(GlobalRef(LLVM, :pass_name))($(QuoteNode(class_name))) *
+                return $(GlobalRef(LLVM, :pass_name))($(QuoteNode(class_name)),
+                                                      $(PassEntry[entry])) *
                        kwargs_to_params(kwargs)
             end
         ))

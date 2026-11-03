@@ -478,6 +478,31 @@ end
     end
 end
 
+@testset "passes defined by a precompiled package" begin
+    # the registry of pass names doesn't keep the entries that a package adds while it
+    # precompiles, so the functions that the pass macros define must not depend on them
+    mktempdir() do dir
+        mkpath(joinpath(dir, "PassPackage", "src"))
+        write(joinpath(dir, "PassPackage", "src", "PassPackage.jl"), """
+            module PassPackage
+            using LLVM
+            LLVM.@module_pass "always-inline" PackageInlinerPass
+            LLVM.@function_pass "instcombine" PackageCombinePass
+            end
+            """)
+        load_path = join([dir, ""], Sys.iswindows() ? ';' : ':')
+        (; out, err, success) = execute_code("""
+            using PassPackage
+            @assert Base.isprecompiled(Base.PkgId(PassPackage))
+            println(PassPackage.PackageInlinerPass())
+            println(PassPackage.PackageCombinePass(; max_iterations=2))
+            """; env=("JULIA_LOAD_PATH" => load_path,))
+        @test success
+        success || println(err)
+        @test out == "always-inline\ninstcombine<max-iterations=2>\n"
+    end
+end
+
 @testset "registration callbacks" begin
     # native callbacks are called with the PassBuilder, for every run
     calls = @eval begin

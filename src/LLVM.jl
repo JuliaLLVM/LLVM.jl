@@ -112,6 +112,11 @@ function inline_wrapper(ex)
     def = undocumented(ex)
     if Meta.isexpr(def, :function) && Meta.isexpr(def.args[2], :block)
         pushfirst!(def.args[2].args, Expr(:meta, :inline))
+    elseif Meta.isexpr(def, :macrocall) && def.args[1] === Symbol("@static")
+        # wrappers that depend on the version of Julia
+        foreach(inline_wrapper, def.args[3:end])
+    elseif Meta.isexpr(def, (:if, :elseif, :block))
+        foreach(inline_wrapper, def.args)
     end
     return ex
 end

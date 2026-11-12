@@ -233,8 +233,10 @@ triple!(mod::Module, triple) = API.LLVMSetTarget(mod, triple)
 
 @property Module triple triple!
 
-datalayout(mod::Module) =
-    library!(() -> DataLayout(API.LLVMGetModuleDataLayout(mod)), mod.library)
+# the library is passed explicitly instead of being selected with `library!`: Julia 1.10 can
+# compile a closure passed to `library!` with its captured variables typed as `Any`, and
+# packages adding `Base.cconvert` methods then invalidate every read of `mod.datalayout`.
+datalayout(mod::Module) = DataLayout(API.LLVMGetModuleDataLayout(mod), mod.library)
 
 datalayout!(mod::Module, layout::AbstractString) = API.LLVMSetDataLayout(mod, layout)
 datalayout!(mod::Module, layout::DataLayout) =

@@ -499,9 +499,9 @@ function memory_location_pos(loc::Symbol)
     pos = findfirst(==(loc), memory_locations())
     if pos === nothing
         if loc in all_memory_locations
-            throw(ArgumentError("Memory location $(repr(loc)) is not supported by LLVM $(version())"))
+            throw(ArgumentError("Memory location :$loc is not supported by LLVM $(version())"))
         else
-            throw(ArgumentError("Unknown memory location $(repr(loc)); expected one of $(join(map(repr, memory_locations()), ", "))"))
+            throw(ArgumentError("Unknown memory location :$loc; expected one of $(join_names(memory_locations(), ":"))"))
         end
     end
     return 2 * (pos - 1)
@@ -510,7 +510,7 @@ end
 function memory_access_value(kind::Symbol)
     val = findfirst(==(kind), memory_access_kinds)
     val === nothing &&
-        throw(ArgumentError("Unknown memory access kind $(repr(kind)); expected one of $(join(map(repr, memory_access_kinds), ", "))"))
+        throw(ArgumentError("Unknown memory access kind :$kind; expected one of $(join_names(memory_access_kinds, ":"))"))
     return UInt32(val - 1)
 end
 
@@ -549,13 +549,14 @@ function Base.show(io::IO, effects::MemoryEffects)
     default = effects[:other]
     print(io, "MemoryEffects(")
     show_default = default != :none || access(effects) == default
-    show_default && show(io, default)
+    # (the kinds are printed like `show` does, which is invalidated easily on Julia 1.12;
+    #  see `join_names`)
+    show_default && print(io, ':', default)
     first = true
     for loc in memory_locations()
         kind = effects[loc]
         (loc == :other || kind == default) && continue
-        print(io, first ? (show_default ? "; " : "") : ", ", loc, "=")
-        show(io, kind)
+        print(io, first ? (show_default ? "; " : "") : ", ", loc, "=:", kind)
         first = false
     end
     print(io, ")")

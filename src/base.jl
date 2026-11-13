@@ -407,7 +407,22 @@ end
                             string(typeof(only(v)))))
     end
     error(typeof(x), " has no property `", s, "`; available properties are: ",
-          join(names, ", "))
+          join_names(names))
+end
+
+# `join(names, ", ")` for the error messages of code that is reachable from about everywhere,
+# like the one above. `join` (and `repr` and `show` of a `Symbol`, which end up there) can
+# carry annotations along, and the code doing so is invalidated by packages that add
+# comparison methods on Julia 1.12 (e.g. VectorizationBase); writing to a buffer is not.
+function join_names(names, prefix::String="")
+    io = IOBuffer()
+    first = true
+    for name in names
+        first || print(io, ", ")
+        first = false
+        print(io, prefix, name::Symbol)
+    end
+    return String(take!(io))
 end
 
 Base.@nospecializeinfer function property_names(@nospecialize(x), private::Bool)

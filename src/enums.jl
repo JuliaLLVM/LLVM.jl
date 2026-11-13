@@ -82,8 +82,10 @@ function isavailable(x::CEnum.Cenum, major::Integer)
     tables === nothing && return true
     # LLVM's enums are 32-bit; asserting so keeps the arithmetic below concrete
     val = Integer(x)::Union{Int32,UInt32}
-    0 <= val < length(tables.to) || return true
-    return @inbounds(tables.to[val+1]) >= 0
+    # (the type of the enum, and with it the tables, is often not inferred)
+    to = tables.to::Vector{Int}
+    0 <= val < length(to) || return true
+    return @inbounds(to[val+1]) >= 0
 end
 isavailable(x::CEnum.Cenum) = isavailable(x, version().major)
 

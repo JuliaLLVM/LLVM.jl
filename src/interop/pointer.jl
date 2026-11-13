@@ -20,7 +20,8 @@ end
         ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
     end
     ld = load!(builder, eltyp, inbounds_gep!(builder, eltyp, ptr, [i]); align, volatile)
-    if A != 0
+    # (type parameters aren't inferred in a generator, so make the address space an `Int`)
+    if Int(A)::Int != 0
         ld.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
     ld
@@ -42,7 +43,7 @@ end
         ptr = bitcast!(builder, ptr, LLVM.PointerType(eltyp, A))
     end
     st = store!(builder, x, inbounds_gep!(builder, eltyp, ptr, [i]); align, volatile)
-    if A != 0
+    if Int(A)::Int != 0
         st.metadata[LLVM.MD_tbaa] = tbaa_addrspace(A)
     end
     nothing
@@ -145,7 +146,7 @@ on the target.
                                               src::LLVMPtr{TSrc,ASSrc}
                                              )::LLVMPtr{TDest,ASDest} where {TDest,ASDest,TSrc,ASSrc}
     T_dest = convert(LLVMType, LLVMPtr{TDest,ASDest})
-    dest_ptr = ASDest != ASSrc ? addrspacecast!(builder, src, T_dest) : src
+    dest_ptr = Int(ASDest)::Int != Int(ASSrc)::Int ? addrspacecast!(builder, src, T_dest) : src
     bitcast!(builder, dest_ptr, T_dest)
 end
 
@@ -157,9 +158,11 @@ end
 function emit_typed_llvmcall(builder, intr, rettyp, argtt, argvals, params...)
     @nospecialize
     intr = valueof(intr)
-    argtyps = argtt.parameters
+    # (nothing is specialized here, so assert what these are to keep `Base` code that
+    #  handles arbitrary iterators, and gets invalidated easily, out of it)
+    argtyps = (argtt::DataType).parameters
     const_args = Any[argval <: Val ? argval.parameters[1] : nothing
-                     for argval in argvals.parameters]
+                     for argval in (argvals::DataType).parameters]
 
     T_ret = convert(LLVMType, rettyp)
 

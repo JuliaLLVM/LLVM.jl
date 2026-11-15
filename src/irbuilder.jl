@@ -212,7 +212,8 @@ debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
                   extract_value!, insert_value!,
 
                   alloca!, array_alloca!, malloc!, array_malloc!, memset!, memcpy!,
-                  memmove!, free!, load!, store!, fence!, atomic_rmw!, atomic_cmpxchg!,
+                  memmove!, free!, lifetime_start!, lifetime_end!, load!, store!, fence!,
+                  atomic_rmw!, atomic_cmpxchg!,
                   gep!, inbounds_gep!, struct_gep!,
 
                   trunc!, zext!, sext!, fptoui!, fptosi!, uitofp!, sitofp!, fptrunc!,
@@ -561,6 +562,49 @@ end
 
 free!(builder::IRBuilder, PointerVal::Value) =
     Instruction(API.LLVMBuildFree(builder, PointerVal))
+
+# lifetime markers. LLVM 22 removed the size operand of `llvm.lifetime.start` and
+# `llvm.lifetime.end` (llvm/llvm-project#150248), so the form of the call is taken from the
+# signature of the intrinsic.
+
+lifetime_start!(builder::IRBuilder, Ptr::Value) =
+    lifetime_marker!(builder, "llvm.lifetime.start", Ptr)
+
+lifetime_end!(builder::IRBuilder, Ptr::Value) =
+    lifetime_marker!(builder, "llvm.lifetime.end", Ptr)
+
+function lifetime_marker!(builder::IRBuilder, name::String, Ptr::Value)
+    ptrtyp = value_type(Ptr)
+    ptrtyp isa PointerType ||
+        throw(ArgumentError("The operand of $name must be a pointer, got a value of type $ptrtyp"))
+    bb = insert_block(builder)
+    bb === nothing && throw(ArgumentError("The IRBuilder must be positioned to build $name"))
+    mod = parent(parent(bb))
+
+    fn = Function(mod, Intrinsic(name), LLVMType[ptrtyp])
+    ft = function_type(fn)
+    args = if length(parameters(ft)) == 2
+        # before LLVM 22, pass the size that LLVM 22 implies from the alloca
+        Value[ConstantInt(Int64(lifetime_size(mod, Ptr))), Ptr]
+    else
+        Value[Ptr]
+    end
+    return call!(builder, ft, fn, args)
+end
+
+# the size in bytes of the object that `ptr` points to, or -1 if it is not known
+function lifetime_size(mod::Module, ptr::Value)
+    ptr isa AllocaInst || return -1
+    typ = allocated_type(ptr)
+    count = operands(ptr)[1]
+    (count isa ConstantInt && width(value_type(count)) <= 64) || return -1
+    (issized(typ) && !isscalable(typ)) || return -1
+    # the number of elements is unsigned
+    size, overflow = Base.mul_with_overflow(UInt64(abi_size(datalayout(mod), typ)),
+                                            convert(UInt64, count))
+    (overflow || size > typemax(Int64)) && return -1
+    return Int64(size)
+end
 
 ## memory accesses and atomics
 
@@ -1227,6 +1271,23 @@ keyword alignment of 0) throw an `ArgumentError`.
 memcpy!
 
 @doc (@doc memcpy!) memmove!
+
+"""
+    lifetime_start!(builder::IRBuilder, ptr::Value) -> Instruction
+    lifetime_end!(builder::IRBuilder, ptr::Value) -> Instruction
+
+Build a call to `llvm.lifetime.start` or `llvm.lifetime.end`, which marks the start or end
+of the lifetime of the `alloca` at `ptr`. The intrinsic is declared in the module of the
+builder's insertion point if needed.
+
+Since LLVM 22, the call only takes the pointer, which the verifier requires to be an
+`alloca` or poison (or, since LLVM 23, the result of `llvm.structured.alloca`). Older
+versions of LLVM also take the size of the object in bytes, which is derived from the
+`alloca` and the data layout of the module, or -1 if it is not known.
+"""
+lifetime_start!
+
+@doc (@doc lifetime_start!) lifetime_end!
 
 """
     gep!(builder::IRBuilder, type::LLVMType, ptr::Value, indices::AbstractVector{<:Value},

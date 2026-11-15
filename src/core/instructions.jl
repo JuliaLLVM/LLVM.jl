@@ -1210,6 +1210,11 @@ function MemoryEffects(iter::CallSiteAttrSet)
     return MemoryEffects(EnumAttribute(ref))
 end
 
+function CaptureInfo(iter::CallSiteAttrSet)
+    check_capture_info_index(iter.idx)
+    return capture_info_of(iter)
+end
+
 memory_effects(call::CallBase) = FunctionMemoryEffects(function_attributes(call))
 
 memory_effects!(call::CallBase, effects::AnyMemoryEffects) =
@@ -1257,7 +1262,8 @@ attributes of the called function are taken into account.
 Before LLVM 21, this means that the argument has the `nocapture` attribute. Since LLVM 21,
 it means that the `captures` attribute of the argument does not allow any capture (e.g.,
 `captures(none)`): a pointer that is only captured partially, e.g., `captures(address)`,
-or only through the return value, is considered captured.
+or only through the return value, is considered captured. Use [`CaptureInfo`](@ref) to
+decode or create these attributes.
 """
 does_not_capture(call::CallBase, i::Integer) =
     API.LLVMExtraDoesNotCapture(call, check_argument_index(call, i)) |> Bool

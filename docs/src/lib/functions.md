@@ -36,6 +36,13 @@ EnumAttribute(::MemoryEffects)
 LLVM.memory_attributes
 ```
 
+## Capture information
+
+```@docs
+CaptureInfo
+EnumAttribute(::CaptureInfo)
+```
+
 ## Intrinsics
 
 ```@docs

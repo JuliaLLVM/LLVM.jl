@@ -939,6 +939,78 @@ end
 end
 end
 
+@testset "lifetime markers" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ptrtyp = LLVM.PointerType(LLVM.Int8Type())
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), ptrtyp])
+    f = LLVM.Function(mod, "f", ft)
+    n, p = f.parameters
+    # without a data layout, i64 is 4-byte aligned and `{ i8, i64 }` would be 12 bytes
+    mod.datalayout = "e-i64:64"
+
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    x = alloca!(builder, LLVM.Int64Type(), "x")
+    arr = alloca!(builder, LLVM.ArrayType(LLVM.Int32Type(), 4), "arr")
+    st = alloca!(builder, LLVM.StructType([LLVM.Int8Type(), LLVM.Int64Type()]), "st")
+    xs = array_alloca!(builder, LLVM.Int64Type(), ConstantInt(Int8(3)), "xs")
+    # the number of elements is unsigned
+    many = array_alloca!(builder, LLVM.Int64Type(), ConstantInt(typemax(UInt8)), "many")
+    dyn = array_alloca!(builder, LLVM.Int8Type(), n, "dyn")
+    poison = PoisonValue(x.value_type)
+
+    # before LLVM 22, the size of the object precedes the pointer
+    sized = LLVM.version() < v"22"
+    function check_marker(inst, intr, ptr, size)
+        @test inst isa LLVM.CallInst
+        @test startswith(inst.called_function.name, "llvm.lifetime.$intr")
+        args = collect(inst.arguments)
+        if sized
+            @test length(args) == 2
+            @test args[1] isa ConstantInt
+            @test convert(Int, args[1]) == size
+            @test args[2] == ptr
+        else
+            @test args == [ptr]
+        end
+    end
+
+    check_marker(lifetime_start!(builder, x), "start", x, 8)
+    check_marker(lifetime_start!(builder, arr), "start", arr, 16)
+    check_marker(lifetime_start!(builder, st), "start", st, 16)
+    check_marker(lifetime_start!(builder, xs), "start", xs, 24)
+    check_marker(lifetime_start!(builder, many), "start", many, 2040)
+    check_marker(lifetime_start!(builder, dyn), "start", dyn, -1)
+    check_marker(lifetime_end!(builder, dyn), "end", dyn, -1)
+    check_marker(lifetime_end!(builder, arr), "end", arr, 16)
+    check_marker(lifetime_end!(builder, x), "end", x, 8)
+    check_marker(lifetime_end!(builder, poison), "end", poison, -1)
+    if sized
+        # before LLVM 22, lifetime markers can be used on any pointer
+        check_marker(lifetime_end!(builder, p), "end", p, -1)
+    end
+
+    # the size of an aggregate of scalable vectors depends on vscale
+    sv = LLVM.ScalableVectorType(LLVM.Int32Type(), 4)
+    scalable = LLVMType[]
+    issized(LLVM.StructType([sv, sv])) && push!(scalable, LLVM.StructType([sv, sv]))
+    LLVM.version() >= v"18" && push!(scalable, LLVM.ArrayType(sv, 2))
+    for typ in scalable
+        obj = alloca!(builder, typ)
+        check_marker(lifetime_start!(builder, obj), "start", obj, -1)
+    end
+
+    insts = collect(builder.insert_block.instructions)
+    @test_throws ArgumentError lifetime_start!(builder, n)
+    @dispose unpositioned=IRBuilder() begin
+        @test_throws ArgumentError lifetime_start!(unpositioned, x)
+    end
+    @test collect(builder.insert_block.instructions) == insts
+
+    ret!(builder)
+    verify(mod)
+end
+end
+
 @testset "predicates" begin
     @test swapped_predicate(LLVM.IntPredicate.ULT) == LLVM.IntPredicate.UGT
     @test swapped_predicate(LLVM.IntPredicate.SGE) == LLVM.IntPredicate.SLE

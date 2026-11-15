@@ -1,6 +1,14 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.5
+
+- `lifetime_start!(builder, ptr)` and `lifetime_end!(builder, ptr)` build calls to the
+  `llvm.lifetime.start` and `llvm.lifetime.end` intrinsics, with the operands that the LLVM
+  in use expects: LLVM 22 removed the size operand, which is derived from the `alloca` for
+  older versions.
+
+
 ## LLVM.jl v10.4
 
 - `cu.emission_kind` is the amount of debug info that a `DICompileUnit` emits, as a

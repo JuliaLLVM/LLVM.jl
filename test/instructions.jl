@@ -939,6 +939,87 @@ end
 end
 end
 
+@testset "lifetime markers" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ptrtyp = LLVM.PointerType(LLVM.Int8Type())
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type(), ptrtyp])
+    f = LLVM.Function(mod, "f", ft)
+    n, p = f.parameters
+
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    x = alloca!(builder, LLVM.Int64Type(), "x")
+    arr = alloca!(builder, LLVM.ArrayType(LLVM.Int32Type(), 4), "arr")
+    dyn = array_alloca!(builder, LLVM.Int8Type(), n, "dyn")
+    poison = PoisonValue(x.value_type)
+
+    sized = LLVM.version() < v"22"
+    function check_marker(inst, intr, ptr, size)
+        @test inst isa LLVM.CallInst
+        @test startswith(inst.called_function.name, "llvm.lifetime.$intr")
+        args = collect(inst.arguments)
+        if sized
+            @test length(args) == 2
+            @test args[1] isa ConstantInt
+            @test convert(Int, args[1]) == size
+            @test args[2] == ptr
+        else
+            @test args == [ptr]
+        end
+    end
+
+    # the size of an alloca is derived from its type
+    check_marker(lifetime_start!(builder, x), "start", x, 8)
+    check_marker(lifetime_start!(builder, arr), "start", arr, 16)
+    # that of an alloca of a dynamic number of elements is unknown
+    check_marker(lifetime_start!(builder, dyn), "start", dyn, -1)
+    # an explicit size is used before LLVM 22, and ignored since then
+    check_marker(lifetime_end!(builder, arr, 4), "end", arr, 4)
+    check_marker(lifetime_end!(builder, dyn, -1), "end", dyn, -1)
+    check_marker(lifetime_end!(builder, x), "end", x, 8)
+    check_marker(lifetime_end!(builder, poison), "end", poison, -1)
+
+    # invalid operands are rejected before building anything
+    insts = collect(builder.insert_block.instructions)
+    @dispose unpositioned=IRBuilder() begin
+        # the builder must be positioned, to declare the intrinsic in its module
+        @test_throws ArgumentError lifetime_start!(unpositioned, x)
+    end
+    @test_throws ArgumentError lifetime_start!(builder, n)
+    @test_throws ArgumentError lifetime_start!(builder, x, -2)
+    if sized
+        # before LLVM 22, lifetime markers can be used on any pointer
+        check_marker(lifetime_end!(builder, p), "end", p, -1)
+        insts = collect(builder.insert_block.instructions)
+    else
+        @test_throws ArgumentError lifetime_start!(builder, p)
+        @test_throws ArgumentError lifetime_end!(builder, p, 8)
+    end
+    @test collect(builder.insert_block.instructions) == insts
+
+    ret!(builder)
+    verify(mod)
+end
+
+# since LLVM 23, lifetime markers can also be used on the result of `llvm.structured.alloca`
+if tryparse(LLVM.Intrinsic, "llvm.structured.alloca") !== nothing
+    @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, """
+        define void @f() {
+        entry:
+          %s = call elementtype([4 x i32]) ptr @llvm.structured.alloca()
+          ret void
+        }
+        declare ptr @llvm.structured.alloca()
+        """) begin
+        entry = first(mod.functions["f"].blocks)
+        s = first(entry.instructions)
+        position!(builder, LLVM.before(entry.terminator))
+        @test only(lifetime_start!(builder, s).arguments) == s
+        @test only(lifetime_end!(builder, s).arguments) == s
+        verify(mod)
+    end
+end
+end
+
 @testset "predicates" begin
     @test swapped_predicate(LLVM.IntPredicate.ULT) == LLVM.IntPredicate.UGT
     @test swapped_predicate(LLVM.IntPredicate.SGE) == LLVM.IntPredicate.SLE

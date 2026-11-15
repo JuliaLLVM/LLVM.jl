@@ -1,6 +1,15 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.5
+
+- `lifetime_start!(builder, ptr)` and `lifetime_end!(builder, ptr)` build calls to the
+  `llvm.lifetime.start` and `llvm.lifetime.end` intrinsics in the form that the LLVM in use
+  expects: since LLVM 22, they only take a pointer to an `alloca` (or poison), while older
+  versions also take the size of the object, which is derived from the `alloca` unless it
+  is passed as a third argument.
+
+
 ## LLVM.jl v10.4
 
 - `cu.emission_kind` is the amount of debug info that a `DICompileUnit` emits, as a

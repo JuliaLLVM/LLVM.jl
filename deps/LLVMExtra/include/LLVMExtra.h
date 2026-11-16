@@ -287,6 +287,9 @@ unsigned LLVMGetTargetExtTypeNumIntParams(LLVMTypeRef TargetExtTy);
 unsigned LLVMGetTargetExtTypeIntParam(LLVMTypeRef TargetExtTy, unsigned Idx);
 #endif
 
+// Whether the size of a type depends on vscale, like Type::isScalableTy
+LLVMBool LLVMExtraTypeIsScalable(LLVMTypeRef Ty);
+
 // (Post)DominatorTree
 typedef struct LLVMOpaqueDominatorTree *LLVMDominatorTreeRef;
 LLVMDominatorTreeRef LLVMCreateDominatorTree(LLVMValueRef Fn);

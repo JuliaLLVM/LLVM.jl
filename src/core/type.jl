@@ -1,4 +1,4 @@
-@vocabulary IR LLVMType, issized, context
+@vocabulary IR LLVMType, issized, isscalable, context
 
 """
     LLVMType
@@ -84,6 +84,17 @@ sizes can only queried given a target data layout.
 See also: [`LLVM.bit_size`](@ref).
 """
 issized(typ::LLVMType) = API.LLVMTypeIsSized(typ) |> Bool
+
+"""
+    isscalable(typ::LLVMType)
+
+Return true if the size of this type depends on `vscale`, the runtime multiple of the
+length of scalable vectors, like C++'s `Type::isScalableTy`. Besides scalable vectors, this
+includes structs and arrays that contain them, and some target extension types (e.g.,
+`target("aarch64.svcount")`). The size of such a type cannot be queried as a number of
+bytes.
+"""
+isscalable(typ::LLVMType) = API.LLVMExtraTypeIsScalable(typ) |> Bool
 
 context(typ::LLVMType) = Context(API.LLVMGetTypeContext(typ))
 

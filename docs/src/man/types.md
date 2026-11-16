@@ -16,7 +16,8 @@ abstractions that the C API provides (where types are opaque objects).
 
 Each type object, represented by a subtype of `LLVMType`, supports a few property functions:
 
-- `issized`: whether the type has a fixed size (e.g. `Int32`).
+- `issized`: whether the type has a size (e.g. `Int32`).
+- `isscalable`: whether that size depends on `vscale` (e.g. `<vscale x 4 x i32>`).
 - `context`: the context in which the type was created.
 - `eltype`: the element type of the type (if applicable, e.g., for arrays and vectors).
 

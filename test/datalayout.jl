@@ -59,6 +59,39 @@ end
     @test_throws ArgumentError LLVM.element_at(dl, opaque, 0)
     @test_throws ArgumentError LLVM.offsetof(dl, opaque, 1)
 
+    # types whose size depends on vscale only have an alignment
+    sv = LLVM.ScalableVectorType(LLVM.Int32Type(), 4)
+    scalable = LLVMType[sv]
+    if LLVM.version() >= v"17"
+        svcount = LLVM.TargetExtType("aarch64.svcount")
+        push!(scalable, LLVM.StructType([sv, sv]), svcount,
+              LLVM.ArrayType(LLVM.StructType([sv, sv]), 2), LLVM.ArrayType(svcount, 2))
+    end
+    if LLVM.version() >= v"18"
+        push!(scalable, LLVM.ArrayType(sv, 2))
+    end
+    for typ in scalable
+        @test isscalable(typ)
+        @test issized(typ)
+        for query in (LLVM.bit_size, LLVM.storage_size, LLVM.abi_size)
+            @test_throws ArgumentError query(dl, typ)
+        end
+        @test LLVM.abi_alignment(dl, typ) > 0
+        @test LLVM.preferred_alignment(dl, typ) > 0
+        @test LLVM.frame_alignment(dl, typ) > 0
+        if typ isa LLVM.StructType
+            @test_throws ArgumentError LLVM.offsetof(dl, typ, 1)
+            @test_throws ArgumentError LLVM.element_at(dl, typ, 0)
+        end
+    end
+    # other target extension types can have a fixed size
+    if LLVM.version() >= v"16"
+        let typ = LLVM.TargetExtType("spirv.Event")
+            @test !isscalable(typ)
+            @test LLVM.abi_size(dl, typ) == LLVM.pointersize(dl)
+        end
+    end
+
     @test dl.globals_addrspace == 0
     @dispose dl2=LLVM.DataLayout(dlstr*"-G1") begin
         @test dl2.globals_addrspace == 1

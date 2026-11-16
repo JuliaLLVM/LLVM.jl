@@ -89,5 +89,22 @@ if isdefined(Test, :detect_closure_boxes)
     end
 end
 
+# the C API wrappers don't specialize on their arguments, so they need to be inlined for
+# their argument conversions to happen with the caller's argument types
+@testset "inlined wrappers" begin
+    wrapper_files = ("libLLVM.jl", "libLLVM_extra.jl", "libLLVM_julia.jl")
+    not_inlined = Method[]
+    for name in names(LLVM.API; all=true)
+        isdefined(LLVM.API, name) || continue
+        f = getfield(LLVM.API, name)
+        f isa Base.Function || continue
+        for m in methods(f)
+            basename(string(m.file)) in wrapper_files || continue
+            Base.uncompressed_ast(m).inlining == 1 || push!(not_inlined, m)
+        end
+    end
+    @test not_inlined == []
+end
+
 end
 end

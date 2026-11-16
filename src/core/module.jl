@@ -233,8 +233,9 @@ triple!(mod::Module, triple) = API.LLVMSetTarget(mod, triple)
 
 @property Module triple triple!
 
-datalayout(mod::Module) =
-    library!(() -> DataLayout(API.LLVMGetModuleDataLayout(mod)), mod.library)
+# not `library!` with a closure: on Julia 1.10, that closure ends up compiled for an untyped
+# module, which methods added to `Base.cconvert` (e.g., by StaticArrays) invalidate
+datalayout(mod::Module) = DataLayout(API.LLVMGetModuleDataLayout(mod), mod.library)
 
 datalayout!(mod::Module, layout::AbstractString) = API.LLVMSetDataLayout(mod, layout)
 datalayout!(mod::Module, layout::DataLayout) =

@@ -3755,6 +3755,125 @@ else
     end
 end
 
+# capture information
+let
+    # construction and querying
+    @test CaptureInfo() == CaptureInfo(:none)
+    @test CaptureInfo(:none)[:other] == CaptureInfo(:none)[:ret] == ()
+    @test CaptureInfo(:all)[:other] == CaptureInfo(:all)[:ret] == (:address, :provenance)
+    @test CaptureInfo(:all) == CaptureInfo(:address, :provenance)
+    # components that imply others
+    @test CaptureInfo(:address)[:other] == (:address,)
+    @test CaptureInfo(:address_is_null, :address) == CaptureInfo(:address)
+    @test CaptureInfo(:read_provenance, :provenance) == CaptureInfo(:provenance)
+    @test CaptureInfo(:read_provenance, :address_is_null)[:ret] ==
+          (:address_is_null, :read_provenance)
+    let info = CaptureInfo(:none; ret=:all)
+        @test info[:other] == ()
+        @test info[:ret] == (:address, :provenance)
+    end
+    @test CaptureInfo(:address; ret=[:address, :provenance]) == CaptureInfo(:address; ret=:all)
+    @test CaptureInfo(:address; ret=()) == CaptureInfo(:address; ret=:none)
+    @test CaptureInfo(:address) | CaptureInfo(:none; ret=:provenance) ==
+          CaptureInfo(:address; ret=(:address, :provenance))
+    @test CaptureInfo(:all) & CaptureInfo(:read_provenance; ret=:none) ==
+          CaptureInfo(:read_provenance; ret=:none)
+    @test_throws ArgumentError CaptureInfo(:everything)
+    @test_throws ArgumentError CaptureInfo(:none; ret=:everything)
+    @test_throws ArgumentError CaptureInfo(:none)[:arg]
+
+    # printing, mirroring LLVM's syntax
+    @test repr(CaptureInfo(:none)) == "CaptureInfo(:none)"
+    @test repr(CaptureInfo(:all)) == "CaptureInfo(:address, :provenance)"
+    @test repr(CaptureInfo(:none; ret=:address)) == "CaptureInfo(:none; ret=:address)"
+    @test repr(CaptureInfo(:address; ret=:none)) == "CaptureInfo(:address; ret=:none)"
+    @test repr(CaptureInfo(:address_is_null; ret=:all)) ==
+          "CaptureInfo(:address_is_null; ret=(:address, :provenance))"
+    for info in (CaptureInfo(:none), CaptureInfo(:address, :read_provenance),
+                 CaptureInfo(:none; ret=:all), CaptureInfo(:address_is_null; ret=:all))
+        @test eval(Meta.parse(repr(info))) == info
+    end
+end
+@dispose ctx=Context() mod=LLVM.Module("SomeModule") builder=IRBuilder() begin
+    # marking a parameter as not captured works on any version of LLVM
+    ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType(LLVM.Int8Type())])
+    fn = LLVM.Function(mod, "SomeFunction", ft)
+    @test CaptureInfo(fn.parameter_attributes[1]) == CaptureInfo(:all)
+    @test !does_not_capture(fn.parameters[1])
+    attr = EnumAttribute(CaptureInfo(:none))
+    @test attr.kind == (LLVM.version() >= v"21" ? :captures : :nocapture)
+    @test CaptureInfo(attr) == CaptureInfo(:none)
+    push!(fn.parameter_attributes[1], attr)
+    @test does_not_capture(fn.parameters[1])
+    @test CaptureInfo(fn.parameter_attributes[1]) == CaptureInfo(:none)
+    @test occursin(LLVM.version() >= v"21" ? "captures(none)" : "nocapture", string(fn))
+    @test_throws ArgumentError CaptureInfo(EnumAttribute(:nounwind))
+    @test_throws ArgumentError CaptureInfo(fn.function_attributes)
+    @test_throws ArgumentError CaptureInfo(fn.return_attributes)
+
+    # call sites, where only the attributes of the call site are considered
+    caller = LLVM.Function(mod, "SomeCaller", ft)
+    position!(builder, LLVM.at_end(BasicBlock(caller, "entry")))
+    call = call!(builder, ft, fn, [caller.parameters[1]])
+    ret!(builder)
+    @test does_not_capture(call, 1)
+    @test CaptureInfo(call.argument_attributes[1]) == CaptureInfo(:all)
+    push!(call.argument_attributes[1], EnumAttribute(CaptureInfo(:none)))
+    @test CaptureInfo(call.argument_attributes[1]) == CaptureInfo(:none)
+    @test_throws ArgumentError CaptureInfo(call.function_attributes)
+    @test verify(mod) === nothing
+
+    if LLVM.version() >= v"21"
+        # adding other capture information replaces the attribute
+        push!(fn.parameter_attributes[1], EnumAttribute(CaptureInfo(:address)))
+        @test length(fn.parameter_attributes[1]) == 1
+        @test CaptureInfo(fn.parameter_attributes[1]) == CaptureInfo(:address)
+        @test !does_not_capture(fn.parameters[1])
+    else
+        # only `nocapture` can be represented
+        @test_throws ArgumentError EnumAttribute(CaptureInfo(:address))
+        @test_throws ArgumentError EnumAttribute(CaptureInfo(:all))
+        @test_throws ArgumentError EnumAttribute(CaptureInfo(:none; ret=:all))
+    end
+end
+if LLVM.version() >= v"20"
+    # compare against LLVM's textual representation, which catches encoding changes. LLVM
+    # 20 already parses the `captures` attribute, but doesn't use it yet.
+    cases = [
+        "captures(none)" => CaptureInfo(:none),
+        "captures(address)" => CaptureInfo(:address),
+        "captures(address_is_null)" => CaptureInfo(:address_is_null),
+        "captures(read_provenance)" => CaptureInfo(:read_provenance),
+        "captures(provenance)" => CaptureInfo(:provenance),
+        "captures(address_is_null, read_provenance)" =>
+            CaptureInfo(:address_is_null, :read_provenance),
+        "captures(address, provenance)" => CaptureInfo(:all),
+        "captures(ret: address, provenance)" => CaptureInfo(:none; ret=:all),
+        "captures(address_is_null, ret: address, provenance)" =>
+            CaptureInfo(:address_is_null; ret=:all),
+        "captures(address, ret: none)" => CaptureInfo(:address; ret=:none),
+    ]
+    @dispose ctx=Context() begin
+        ir = join(("declare void @f$i(ptr $str)" for (i, (str, _)) in enumerate(cases)),
+                  "\n")
+        mod = parse(LLVM.Module, ir)
+        for (i, (str, info)) in enumerate(cases)
+            f = mod.functions["f$i"]
+            @test CaptureInfo(f.parameter_attributes[1]) == info
+            @test CaptureInfo(only(collect(f.parameter_attributes[1]))) == info
+
+            # the attribute we create is printed like the one LLVM parsed
+            if LLVM.version() >= v"21"
+                g = LLVM.Function(mod, "g$i", f.function_type)
+                push!(g.parameter_attributes[1], EnumAttribute(info))
+                @test occursin("ptr $str", string(g))
+            end
+        end
+        @test verify(mod) === nothing
+        dispose(mod)
+    end
+end
+
 # parameter iteration
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     ft = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])

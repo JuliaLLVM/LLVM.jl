@@ -1,6 +1,13 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.5
+
+- `CaptureInfo` describes the `captures` attribute that replaces `nocapture` in LLVM 21.
+  `EnumAttribute(CaptureInfo(:none))` marks a pointer parameter as not captured on any LLVM
+  version, and `CaptureInfo(f.parameter_attributes[i])` decodes either attribute.
+
+
 ## LLVM.jl v10.4
 
 - `cu.emission_kind` is the amount of debug info that a `DICompileUnit` emits, as a

@@ -56,7 +56,9 @@ See also the `return_attributes` and `parameter_attributes` properties.
 
 The attributes of the parameters of the function, as a vector with a view of the attributes
 of each parameter. These views work like the `function_attributes` of the function, e.g.,
-`push!(f.parameter_attributes[1], EnumAttribute("nocapture"))`.
+`push!(f.parameter_attributes[1], EnumAttribute(:noalias))`. Use
+`EnumAttribute(CaptureInfo(:none))` to mark a pointer parameter as not captured on any
+version of LLVM (see [`CaptureInfo`](@ref)).
 
     f.return_attributes
 
@@ -324,6 +326,21 @@ function MemoryEffects(iter::FunctionAttrSet)
     return MemoryEffects(EnumAttribute(ref))
 end
 
+"""
+    CaptureInfo(attrs)
+
+Get the capture information described by the `captures` (or `nocapture`) attribute in the
+given parameter attributes, or `CaptureInfo(:all)` if there is no such attribute. `attrs`
+can be the attributes of a parameter of a function, `f.parameter_attributes[i]`, or of an
+argument of a call, `call.argument_attributes[i]`. In the latter case, only the attributes
+of the call site are considered, unlike [`does_not_capture`](@ref), which also looks at
+those of the called function.
+"""
+function CaptureInfo(iter::FunctionAttrSet)
+    check_capture_info_index(iter.idx)
+    return capture_info_of(iter)
+end
+
 @vocabulary IR FunctionMemoryEffects
 
 """
@@ -406,6 +423,13 @@ memory_effects!(f::Function, effects::AnyMemoryEffects) =
 check_memory_effects_index(idx::API.LLVMAttributeIndex) =
     idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex) ||
         throw(ArgumentError("Memory effects can only be associated with functions and calls, not with parameters or return values"))
+
+function check_capture_info_index(idx::API.LLVMAttributeIndex)
+    if idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeReturnIndex) ||
+       idx == reinterpret(API.LLVMAttributeIndex, API.LLVMAttributeFunctionIndex)
+        throw(ArgumentError("Capture information can only be associated with parameters, not with functions or return values"))
+    end
+end
 
 
 # parameter iteration

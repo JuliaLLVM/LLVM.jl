@@ -643,6 +643,174 @@ function memory_effects!(attrs::AttributeSet, effects::MemoryEffects)
 end
 
 
+## capture information
+
+@vocabulary IR CaptureInfo
+
+"""
+    CaptureInfo(components::Symbol...; ret=components)
+
+The components of a pointer that a function or call may capture, i.e., that may outlive the
+call in some form. This is what the `captures` attribute of a pointer parameter describes,
+which replaces the `nocapture` attribute in LLVM 21. `EnumAttribute(info)` creates the
+attribute that the LLVM version in use supports, and `CaptureInfo(attr)` or
+`CaptureInfo(attrs)` decodes either. To check whether an argument is captured at all, also
+taking the attributes of the called function into account, use [`does_not_capture`](@ref).
+
+The components are:
+
+- `:address_is_null`: whether the address is null;
+- `:address`: the address, which includes `:address_is_null`;
+- `:read_provenance`: the ability to read memory through the pointer;
+- `:provenance`: the ability to access memory through the pointer, which includes
+  `:read_provenance`.
+
+`:none` stands for no component, and `:all` for all of them. `components` are the ones that
+may be captured other than through the return value, and `ret` (a component, or a
+collection of them) the ones that may be captured through the return value, by default
+the same. `info[:other]` and `info[:ret]` return these as tuples, leaving out components
+that others imply, like LLVM prints them. Capture information can be combined with `|`
+(union) and `&` (intersection).
+
+# Examples
+
+```julia
+CaptureInfo(:none)                   # captures(none), formerly `nocapture`
+CaptureInfo(:all)                    # captures(address, provenance), as without attribute
+CaptureInfo(:address)                # captures(address)
+CaptureInfo(:none; ret=:all)         # captures(ret: address, provenance)
+CaptureInfo(:address_is_null; ret=(:address, :read_provenance))
+```
+
+!!! note
+    Before LLVM 21, `nocapture` is the only capture information an attribute can express,
+    so `EnumAttribute(info)` throws an `ArgumentError` for anything but
+    `CaptureInfo(:none)`. LLVM 20 parses the `captures` attribute, which `CaptureInfo(attr)`
+    decodes, but its analyses only use `nocapture`.
+"""
+struct CaptureInfo
+    # LLVM's encoding (`CaptureInfo::toIntValue`): the `CaptureComponents` of other
+    # captures in bits 4-7, and of captures through the return value in bits 0-3
+    data::UInt32
+    CaptureInfo(data::UInt32) = new(data)
+end
+
+# LLVM's `CaptureComponents` bits of each component, in the order LLVM prints them. A
+# component that implies others includes their bits.
+const capture_components = (
+    :address_is_null => 0x1,
+    :address => 0x3,
+    :read_provenance => 0x4,
+    :provenance => 0xc)
+
+function capture_components_value(c::Symbol)
+    c === :none && return UInt32(0)
+    c === :all && return UInt32(0xf)
+    for (name, bits) in capture_components
+        name === c && return UInt32(bits)
+    end
+    throw(ArgumentError("Unknown capture component $(repr(c)); expected one of :none, :all, $(join(map(repr ∘ first, capture_components), ", "))"))
+end
+capture_components_value(cs) =
+    reduce(|, (capture_components_value(c) for c in cs); init=UInt32(0))
+
+function CaptureInfo(components::Symbol...; ret=components)
+    other = capture_components_value(components)
+    ret = capture_components_value(ret isa Symbol ? (ret,) : ret)
+    return CaptureInfo(other << 4 | ret)
+end
+
+CaptureInfo(info::CaptureInfo) = info
+
+# the components that a set of `CaptureComponents` bits captures, without the components
+# that are implied by others (like LLVM prints them)
+function capture_components_names(bits::UInt32)
+    names = Symbol[]
+    for (name, mask) in capture_components
+        bits & mask == mask || continue
+        # skip a component if a larger one that includes it is captured too
+        any(((n, m),) -> m != mask && m & mask == mask && bits & m == m,
+            capture_components) && continue
+        push!(names, name)
+    end
+    return Tuple(names)
+end
+
+function Base.getindex(info::CaptureInfo, kind::Symbol)
+    if kind === :other
+        capture_components_names(info.data >> 4)
+    elseif kind === :ret
+        capture_components_names(info.data & 0xf)
+    else
+        throw(ArgumentError("Unknown kind of capture $(repr(kind)); expected :other or :ret"))
+    end
+end
+
+Base.:(|)(a::CaptureInfo, b::CaptureInfo) = CaptureInfo(a.data | b.data)
+Base.:(&)(a::CaptureInfo, b::CaptureInfo) = CaptureInfo(a.data & b.data)
+
+# print like LLVM does, with the components captured through the return value only shown if
+# they differ from the others
+function Base.show(io::IO, info::CaptureInfo)
+    other, ret = info[:other], info[:ret]
+    print(io, "CaptureInfo(")
+    isempty(other) ? show(io, :none) : join(io, map(repr, other), ", ")
+    if ret != other
+        print(io, "; ret=")
+        isempty(ret) ? show(io, :none) :
+        length(ret) == 1 ? show(io, only(ret)) : show(io, ret)
+    end
+    print(io, ")")
+end
+
+# the kind of attribute that describes capture information when creating one
+capture_kind() = attribute_kind_id(version() >= v"21" ? :captures : :nocapture)
+
+"""
+    EnumAttribute(info::CaptureInfo)
+
+Create the attribute that describes the given capture information: `captures` on LLVM 21
+and later, and `nocapture` before that, which can only describe `CaptureInfo(:none)`.
+Pushing it to the attributes of a parameter replaces any existing attribute of that kind,
+e.g., `push!(f.parameter_attributes[1], EnumAttribute(CaptureInfo(:none)))` marks the first
+parameter of `f` as not captured.
+"""
+function EnumAttribute(info::CaptureInfo)
+    if version() < v"21"
+        info == CaptureInfo(:none) ||
+            throw(ArgumentError("$info cannot be represented before LLVM 21, which only supports `nocapture` (CaptureInfo(:none))"))
+    end
+    return EnumAttribute(API.LLVMCreateEnumAttribute(context(), capture_kind(),
+                                                     version() < v"21" ? 0 : info.data))
+end
+
+"""
+    CaptureInfo(attr::EnumAttribute)
+
+Get the capture information described by a `captures` attribute, or by a `nocapture`
+attribute (before LLVM 21), which is `CaptureInfo(:none)`.
+"""
+function CaptureInfo(attr::EnumAttribute)
+    kind = attribute_kind_id(attr)
+    if kind == attribute_kind_id(:captures)
+        return CaptureInfo(UInt32(value(attr)))
+    elseif kind == attribute_kind_id(:nocapture)
+        return CaptureInfo(:none)
+    else
+        throw(ArgumentError("Expected a captures or nocapture attribute, got $attr"))
+    end
+end
+
+# the capture information of the attributes of a parameter or call argument. kinds that the
+# library doesn't know about are never present.
+function capture_info_of(attrs::AttributeSet)
+    haskey(attrs, :nocapture) && return CaptureInfo(:none)
+    attr = get(attrs, :captures, nothing)
+    attr === nothing && return CaptureInfo(:all)
+    return CaptureInfo(attr::EnumAttribute)
+end
+
+
 ## properties
 
 @property Attribute kind

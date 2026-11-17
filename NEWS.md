@@ -11,6 +11,10 @@
   `Type::isScalableTy`. The size and offset queries of a `DataLayout` (`abi_size`,
   `storage_size`, `bit_size`, `offsetof`, `element_at`) throw an `ArgumentError` for such
   types, instead of aborting.
+- `lifetime_start!(builder, ptr)` and `lifetime_end!(builder, ptr)` build calls to the
+  `llvm.lifetime.start` and `llvm.lifetime.end` intrinsics, with the operands that the LLVM
+  in use expects: LLVM 22 removed the size operand, which is derived from the `alloca` for
+  older versions.
 
 
 ## LLVM.jl v10.4

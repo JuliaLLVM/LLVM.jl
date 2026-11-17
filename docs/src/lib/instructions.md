@@ -114,6 +114,8 @@ free!
 memset!
 memcpy!
 memmove!
+lifetime_start!
+lifetime_end!
 globalstring!
 globalstring_ptr!
 ```

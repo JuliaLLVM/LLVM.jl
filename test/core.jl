@@ -99,6 +99,7 @@ end
 
     @test issized(LLVM.Int1Type())
     @test !issized(LLVM.VoidType())
+    @test !isscalable(LLVM.Int1Type())
     @test_throws ErrorException sizeof(typ)
 end
 
@@ -237,6 +238,8 @@ end
     @test context(vectyp) == ctx
     @test string(vectyp) == "<vscale x 4 x i32>"
     @test vectyp != LLVM.VectorType(eltyp, 4)
+    @test isscalable(vectyp)
+    @test !isscalable(LLVM.VectorType(eltyp, 4))
 
     # scalable vector types are recognized when encountered
     @dispose mod=parse(LLVM.Module, "declare <vscale x 2 x i64> @f(<vscale x 2 x i64>)") begin

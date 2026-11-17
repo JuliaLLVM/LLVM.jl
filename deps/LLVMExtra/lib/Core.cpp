@@ -1076,6 +1076,39 @@ unsigned LLVMGetTargetExtTypeIntParam(LLVMTypeRef TargetExtTy, unsigned Idx) {
 }
 #endif
 
+#if LLVM_VERSION_MAJOR < 20
+// Type::isScalableTy from LLVM 20, which older versions lack (LLVM 16) or which doesn't
+// look into arrays (LLVM 17), e.g., `[2 x { <vscale x 4 x i32>, <vscale x 4 x i32> }]`
+static bool isScalableTy(Type *Ty, SmallPtrSetImpl<Type *> &Visited) {
+  if (isa<ScalableVectorType>(Ty))
+    return true;
+  if (auto *ATy = dyn_cast<ArrayType>(Ty))
+    return isScalableTy(ATy->getElementType(), Visited);
+  if (auto *STy = dyn_cast<StructType>(Ty)) {
+    if (!Visited.insert(STy).second)
+      return false;
+    for (Type *ElTy : STy->elements())
+      if (isScalableTy(ElTy, Visited))
+        return true;
+    return false;
+  }
+#if LLVM_VERSION_MAJOR >= 16
+  if (auto *TTy = dyn_cast<TargetExtType>(Ty))
+    return isa<ScalableVectorType>(TTy->getLayoutType());
+#endif
+  return false;
+}
+#endif
+
+LLVMBool LLVMExtraTypeIsScalable(LLVMTypeRef Ty) {
+#if LLVM_VERSION_MAJOR >= 20
+  return unwrap(Ty)->isScalableTy();
+#else
+  SmallPtrSet<Type *, 4> Visited;
+  return isScalableTy(unwrap(Ty), Visited);
+#endif
+}
+
 
 //
 // DominatorTree and PostDominatorTree

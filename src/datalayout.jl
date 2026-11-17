@@ -98,6 +98,13 @@ function check_layout_type(typ::LLVMType)
     return typ
 end
 
+# LLVM aborts when converting the size of a scalable type to a number
+function check_fixed_size(typ::LLVMType)
+    check_layout_type(typ)
+    isscalable(typ) && throw(ArgumentError("type $typ has a size that depends on vscale"))
+    return typ
+end
+
 """
     bit_size(dl::DataLayout, typ::LLVMType)
 
@@ -107,7 +114,7 @@ Get the size of the given type in bits for the target data layout, like C++'s
 See also: [`storage_size`](@ref), [`abi_size`](@ref).
 """
 bit_size(dl::DataLayout, typ::LLVMType) =
-    Int(API.LLVMSizeOfTypeInBits(dl, check_layout_type(typ)))
+    Int(API.LLVMSizeOfTypeInBits(dl, check_fixed_size(typ)))
 
 """
     storage_size(dl::DataLayout, typ::LLVMType)
@@ -117,7 +124,7 @@ target data layout, like C++'s `DataLayout::getTypeStoreSize`, e.g., 1 for `i1` 
 `i9`.
 """
 storage_size(dl::DataLayout, typ::LLVMType) =
-    Int(API.LLVMStoreSizeOfType(dl, check_layout_type(typ)))
+    Int(API.LLVMStoreSizeOfType(dl, check_fixed_size(typ)))
 
 """
     abi_size(dl::DataLayout, typ::LLVMType)
@@ -126,7 +133,7 @@ Get the offset in bytes between successive values of the given type in memory, i
 alignment padding, for the target data layout, like C++'s `DataLayout::getTypeAllocSize`.
 """
 abi_size(dl::DataLayout, typ::LLVMType) =
-    Int(API.LLVMABISizeOfType(dl, check_layout_type(typ)))
+    Int(API.LLVMABISizeOfType(dl, check_fixed_size(typ)))
 
 """
     abi_alignment(dl::DataLayout, typ::LLVMType)
@@ -182,7 +189,7 @@ Like the `elements` of the struct type, elements are numbered from 1.
 See also: [`element_at`](@ref).
 """
 function offsetof(dl::DataLayout, typ::StructType, i::Integer)
-    check_layout_type(typ)
+    check_fixed_size(typ)
     1 <= i <= length(elements(typ)) || throw(BoundsError(elements(typ), i))
     Int(API.LLVMOffsetOfElement(dl, typ, i - 1))
 end

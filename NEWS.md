@@ -7,6 +7,11 @@
   `EnumAttribute(CaptureInfo(:none))` marks a pointer parameter as not captured on any LLVM
   version, and `CaptureInfo(f.parameter_attributes[i])` decodes either attribute.
 
+- `isscalable(typ)` returns whether the size of a type depends on `vscale`, like C++'s
+  `Type::isScalableTy`. The size and offset queries of a `DataLayout` (`abi_size`,
+  `storage_size`, `bit_size`, `offsetof`, `element_at`) throw an `ArgumentError` for such
+  types, instead of aborting.
+
 
 ## LLVM.jl v10.4
 

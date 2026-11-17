@@ -361,6 +361,10 @@ end
     ccall((:LLVMReplaceAllMetadataUsesWith, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Old, New)
 end
 
+@llvmapi function LLVMExtraTypeIsScalable(lib::Library, Ty)
+    ccall((:LLVMExtraTypeIsScalable, libLLVMExtra), LLVMBool, (LLVMTypeRef,), Ty)
+end
+
 mutable struct LLVMOpaqueDominatorTree end
 
 const LLVMDominatorTreeRef = Ptr{LLVMOpaqueDominatorTree}

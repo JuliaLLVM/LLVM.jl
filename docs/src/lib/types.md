@@ -3,6 +3,7 @@
 ```@docs
 LLVMType
 issized
+isscalable
 ```
 
 ## Integer types

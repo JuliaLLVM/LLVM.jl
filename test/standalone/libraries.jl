@@ -32,6 +32,18 @@ julia = Library(:julia)
 end
 other = Library(:other)
 
+# whether the library can generate code for the host, which libraries built only for GPUs
+# cannot
+native = library!(other) do
+    try
+        LLVM.Target(; triple=LLVM.default_triple())
+        true
+    catch err
+        err isa ArgumentError || rethrow()
+        false
+    end
+end
+
 @testset "selection" begin
     @test library!(library, other) === other
     @test library!(library, :other) === other
@@ -260,18 +272,27 @@ end
 end
 
 @testset "code generation" begin
+    # for the host, or for a GPU with libraries that only support GPUs
+    function target_machine()
+        native && return LLVM.JITTargetMachine()
+        LLVM.InitializeNVPTXTargetInfo()
+        LLVM.InitializeNVPTXTarget()
+        LLVM.InitializeNVPTXTargetMC()
+        LLVM.InitializeNVPTXAsmPrinter()
+        triple = "nvptx64-nvidia-cuda"
+        return LLVM.TargetMachine(LLVM.Target(; triple), triple)
+    end
     LLVM.Context(; library=other) do ctx
-        LLVM.JITTargetMachine() do tm
+        @dispose tm=target_machine() mod=parse(LLVM.Module, IR) begin
             @test tm.library === other
             @test tm.target.library === other
-            @dispose mod=parse(LLVM.Module, IR) begin
-                asm = String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile))
-                @test occursin("f", asm)
-            end
+            asm = String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile))
+            @test occursin("f", asm)
         end
     end
 end
 
+if native
 @testset "ORC" begin
     # a JIT and its objects remember their library, also when used outside of its scope
     jit, obj = library!(other) do
@@ -341,6 +362,7 @@ end
     @test jit.library === other
     @test !tm.owned
     dispose(jit)
+end
 end
 
 @testset "Julia integration" begin

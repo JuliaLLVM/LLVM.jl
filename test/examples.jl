@@ -17,6 +17,8 @@ filter!(file -> readline(file) != "# EXCLUDE FROM TESTING", examples)
 filter!(file -> !occursin("Kaleidoscope", file), examples)
 # examples that integrate with Julia's compiler need Julia's LLVM
 julia_llvm_in_use() || filter!(file -> !occursin("LLVM.Interop", read(file, String)), examples)
+# examples that JIT-compile code need a native target
+has_native_target() || filter!(file -> !occursin("JIT", read(file, String)), examples)
 
 cd(examples_dir) do
     @testset for example in examples

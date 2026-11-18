@@ -1,5 +1,11 @@
 @testset "targetmachine" begin
 
+# the host CPU
+@test LLVM.host_cpu_name() isa String
+@test !isempty(LLVM.host_cpu_name())
+@test LLVM.host_cpu_features() isa String
+
+if has_native_target()
 host_triple = LLVM.default_triple()
 host_t = LLVM.Target(triple=host_triple)
 
@@ -11,10 +17,6 @@ end
 LLVM.TargetMachine(host_t, host_triple) do tm
 end
 
-# the host CPU
-@test LLVM.host_cpu_name() isa String
-@test !isempty(LLVM.host_cpu_name())
-@test LLVM.host_cpu_features() isa String
 @dispose tm=LLVM.TargetMachine(host_t, host_triple; cpu=LLVM.host_cpu_name(),
                                features=LLVM.host_cpu_features(),
                                opt_level=LLVM.CodeGenOptLevel.Aggressive) begin
@@ -70,6 +72,7 @@ end
     end
 
     dispose(LLVM.DataLayout(tm))
+end
 end
 
 end

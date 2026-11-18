@@ -141,6 +141,8 @@ end
     dispose.(args)
 end
 
+# MCJIT generates code for the host
+if has_native_target()
 @dispose ctx=Context() begin
     let mod = emit_inc(1)
         engine = LLVM.JIT(mod)
@@ -172,6 +174,7 @@ end
         @test_throws LLVMException LLVM.JIT(mod)
     end
 end
+end
 
 @dispose ctx=Context() begin
     args1 = [LLVM.GenericValue(LLVM.Int32Type(), 1),
@@ -192,27 +195,29 @@ end
         dispose.(args)
     end
 
-    let mod1 = emit_inc(1), mod2 = emit_inc(2)
-        @dispose engine=LLVM.JIT(mod1) begin
-            @test_throws MethodError collect(engine.functions)
-            @test haskey(engine.functions, "add_1")
-            @test engine.functions["add_1"] isa LLVM.Function
+    if has_native_target()
+        let mod1 = emit_inc(1), mod2 = emit_inc(2)
+            @dispose engine=LLVM.JIT(mod1) begin
+                @test_throws MethodError collect(engine.functions)
+                @test haskey(engine.functions, "add_1")
+                @test engine.functions["add_1"] isa LLVM.Function
 
-            @test delete!(engine, mod1) === engine
-            @test_throws KeyError engine.functions["add_1"]
-            @test !haskey(engine.functions, "add_1")
-            # modules that aren't part of the engine are ignored
-            @test delete!(engine, mod1) === engine
-            dispose(mod1)
+                @test delete!(engine, mod1) === engine
+                @test_throws KeyError engine.functions["add_1"]
+                @test !haskey(engine.functions, "add_1")
+                # modules that aren't part of the engine are ignored
+                @test delete!(engine, mod1) === engine
+                dispose(mod1)
 
-            push!(engine, mod2)
-            @test_throws ArgumentError push!(engine, mod2)
-            @test haskey(engine.functions, "add_2")
-            @test engine.functions["add_2"] isa LLVM.Function
+                push!(engine, mod2)
+                @test_throws ArgumentError push!(engine, mod2)
+                @test haskey(engine.functions, "add_2")
+                @test engine.functions["add_2"] isa LLVM.Function
 
-            addr = lookup(engine, "add_2")
-            res = ccall(addr, Int32, (Int32,), 40)
-            @test res == 42
+                addr = lookup(engine, "add_2")
+                res = ccall(addr, Int32, (Int32,), 40)
+                @test res == 42
+            end
         end
     end
 end
@@ -246,7 +251,7 @@ end
             }""")
     end
 
-    for Engine in (LLVM.Interpreter, LLVM.JIT)
+    for Engine in (has_native_target() ? (LLVM.Interpreter, LLVM.JIT) : (LLVM.Interpreter,))
         # on macOS, code generation lowers destructors to __cxa_atexit registrations by a
         # private constructor, which MCJIT can't look up (see the docstring)
         dtors = !(Engine === LLVM.JIT && Sys.isapple() && LLVM.version() >= v"17")
@@ -287,15 +292,17 @@ end
     LLVM.add_symbol(other, Ptr{Cvoid}(1))
     LLVM.add_symbol(other, Ptr{Cvoid}(2))
     @test LLVM.find_symbol(other) == Ptr{Cvoid}(2)
-    @dispose ctx=Context() begin
-        mod = parse(LLVM.Module, """
-            declare i32 @$name(i32)
-            define i32 @call(i32 %x) {
-              %y = call i32 @$name(i32 %x)
-              ret i32 %y
-            }""")
-        @dispose engine=LLVM.JIT(mod) begin
-            @test ccall(lookup(engine, "call"), Int32, (Int32,), -42) == 42
+    if has_native_target()
+        @dispose ctx=Context() begin
+            mod = parse(LLVM.Module, """
+                declare i32 @$name(i32)
+                define i32 @call(i32 %x) {
+                  %y = call i32 @$name(i32 %x)
+                  ret i32 %y
+                }""")
+            @dispose engine=LLVM.JIT(mod) begin
+                @test ccall(lookup(engine, "call"), Int32, (Int32,), -42) == 42
+            end
         end
     end
 

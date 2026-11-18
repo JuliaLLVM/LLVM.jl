@@ -5,6 +5,18 @@ using Test
 # with Julia's code generator requires
 julia_llvm_in_use() = LLVM.library() === LLVM.julia_library
 
+# whether the library in use can generate code for the host, which libraries built only for
+# GPUs cannot. tests that compile or run host code need it.
+function has_native_target()
+    try
+        LLVM.Target(; triple=LLVM.default_triple())
+        return true
+    catch err
+        err isa ArgumentError || rethrow()
+        return false
+    end
+end
+
 # a script that runs code in a fresh Julia process with LLVM loaded, using the same library
 # as the tests (see `LLVM_TEST_LIBRARY` in runtests.jl)
 function julia_script(code)

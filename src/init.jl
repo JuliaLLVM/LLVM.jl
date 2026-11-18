@@ -61,7 +61,7 @@ Enables use of disassembly functionality for specific targets.
 """ InitializeAllDisassemblers
 
 const libllvm_backends = [:AArch64, :AMDGPU, :ARC, :ARM, :AVR, :BPF, :Hexagon, :Lanai,
-                          :MSP430, :Mips, :NVPTX, :PowerPC, :RISCV, :Sparc, :SystemZ,
+                          :MSP430, :Mips, :NVPTX, :PowerPC, :RISCV, :SPIRV, :Sparc, :SystemZ,
                           :VE, :WebAssembly, :X86, :XCore,
                           # Unofficial backends
                           :Colossus,

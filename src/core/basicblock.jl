@@ -46,6 +46,12 @@ A saved view refers to that terminator; query `bb.successors` again after replac
 The next or previous basic block in the function, or `nothing` if there is none (or if the
 block is not part of a function).
 
+    bb.address_taken
+
+Whether the address of the basic block is taken, i.e., a [`BlockAddress`](@ref) constant
+refers to it, like C++'s `BasicBlock::hasAddressTaken`. A function with such a block
+cannot be cloned without updating those constants.
+
 The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct BasicBlock <: Value
@@ -259,3 +265,7 @@ end
 
 @property BlockAddress var"function" => blockaddress_function
 @property BlockAddress block => blockaddress_block
+
+address_taken(bb::BasicBlock) = API.LLVMExtraBasicBlockHasAddressTaken(bb) |> Bool
+
+@property BasicBlock address_taken

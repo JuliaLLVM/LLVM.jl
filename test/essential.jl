@@ -1,9 +1,14 @@
 @testset "essentials" begin
 
-@test LLVM.InitializeNativeTarget() === nothing
+if has_native_target()
+    @test LLVM.InitializeNativeTarget() === nothing
+    @test LLVM.InitializeNativeAsmPrinter() === nothing
+else
+    @test_throws "No native target available" LLVM.InitializeNativeTarget()
+    @test_throws "No native target available" LLVM.InitializeNativeAsmPrinter()
+end
 @test LLVM.InitializeAllTargetInfos() === nothing
 @test LLVM.InitializeAllTargetMCs() === nothing
-@test LLVM.InitializeNativeAsmPrinter() === nothing
 
 end
 

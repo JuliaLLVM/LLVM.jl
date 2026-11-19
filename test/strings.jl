@@ -281,28 +281,30 @@ end
 end
 
 @testset "targets" begin
-    LLVM.InitializeNativeTarget()
-    LLVM.InitializeNativeAsmPrinter()
     triple = LLVM.default_triple()
     @test LLVM.normalize(sub(triple)) == LLVM.normalize(triple)
-    target = LLVM.Target(; triple)
-    @dispose tm=LLVM.TargetMachine(target, sub(triple); cpu=sub(LLVM.host_cpu_name()),
-                                   features=sub("")) begin
-        @test tm.triple == triple
-        @test tm.cpu == LLVM.host_cpu_name()
-        @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
-            mktemp() do path, io
-                LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile,
-                          SubString(path * "x", 1, ncodeunits(path)))
-                @test isfile(path)
-                @test !isfile(path * "x")
+    if has_native_target()
+        LLVM.InitializeNativeTarget()
+        LLVM.InitializeNativeAsmPrinter()
+        target = LLVM.Target(; triple)
+        @dispose tm=LLVM.TargetMachine(target, sub(triple); cpu=sub(LLVM.host_cpu_name()),
+                                       features=sub("")) begin
+            @test tm.triple == triple
+            @test tm.cpu == LLVM.host_cpu_name()
+            @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
+                mktemp() do path, io
+                    LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile,
+                              SubString(path * "x", 1, ncodeunits(path)))
+                    @test isfile(path)
+                    @test !isfile(path * "x")
+                end
             end
         end
-    end
-    @dispose tm=LLVM.JITTargetMachine(; triple=sub(triple), cpu=sub(""),
-                                      features=sub("")) begin
-        # JITTargetMachine forces ELF on Windows
-        @test tm.triple == LLVM.normalize(triple) * (Sys.iswindows() ? "-elf" : "")
+        @dispose tm=LLVM.JITTargetMachine(; triple=sub(triple), cpu=sub(""),
+                                          features=sub("")) begin
+            # JITTargetMachine forces ELF on Windows
+            @test tm.triple == LLVM.normalize(triple) * (Sys.iswindows() ? "-elf" : "")
+        end
     end
 
     if :X86 in LLVM.backends()
@@ -318,18 +320,20 @@ end
 end
 
 @testset "execution" begin
-    LLVM.InitializeNativeTarget()
-    LLVM.InitializeNativeAsmPrinter()
-    @dispose ctx=Context() begin
-        mod = parse(LLVM.Module, """
-            define i32 @answer() {
-              ret i32 42
-            }""")
-        @dispose engine=LLVM.JIT(mod) begin
-            @test engine.functions[sub("answer")] isa LLVM.Function
-            @test haskey(engine.functions, sub("answer"))
-            @test get(engine.functions, sub("other"), nothing) === nothing
-            @test ccall(LLVM.lookup(engine, sub("answer")), Int32, ()) == 42
+    if has_native_target()
+        LLVM.InitializeNativeTarget()
+        LLVM.InitializeNativeAsmPrinter()
+        @dispose ctx=Context() begin
+            mod = parse(LLVM.Module, """
+                define i32 @answer() {
+                  ret i32 42
+                }""")
+            @dispose engine=LLVM.JIT(mod) begin
+                @test engine.functions[sub("answer")] isa LLVM.Function
+                @test haskey(engine.functions, sub("answer"))
+                @test get(engine.functions, sub("other"), nothing) === nothing
+                @test ccall(LLVM.lookup(engine, sub("answer")), Int32, ()) == 42
+            end
         end
     end
 
@@ -339,12 +343,14 @@ end
         end
     end
 
-    @dispose lljit=LLJIT() begin
-        es = lljit.execution_session
-        @dispose oll=ObjectLinkingLayer(es, sub(LLVM.default_triple())) begin end
-        sym = LLVM.intern(es, sub("symböl"))
-        @test String(sym) == "symböl"
-        LLVM.release(sym)
+    if has_native_target()
+        @dispose lljit=LLJIT() begin
+            es = lljit.execution_session
+            @dispose oll=ObjectLinkingLayer(es, sub(LLVM.default_triple())) begin end
+            sym = LLVM.intern(es, sub("symböl"))
+            @test String(sym) == "symböl"
+            LLVM.release(sym)
+        end
     end
 end
 

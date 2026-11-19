@@ -100,11 +100,13 @@ end
         end
 
         # target machines
-        host_triple = LLVM.default_triple()
-        host_t = LLVM.Target(triple=host_triple)
-        @dispose tm=LLVM.TargetMachine(host_t, host_triple) mod=test_module() begin
-            @test run!(NoOpModulePass(), mod, tm) === nothing
-            @test run!("no-op-module", mod, tm) === nothing
+        if has_native_target()
+            host_triple = LLVM.default_triple()
+            host_t = LLVM.Target(triple=host_triple)
+            @dispose tm=LLVM.TargetMachine(host_t, host_triple) mod=test_module() begin
+                @test run!(NoOpModulePass(), mod, tm) === nothing
+                @test run!("no-op-module", mod, tm) === nothing
+            end
         end
     end
 end
@@ -230,11 +232,13 @@ end
     end
 
     # with the passes of a target machine
-    host_triple = LLVM.default_triple()
-    host_t = LLVM.Target(triple=host_triple)
-    @dispose tm=LLVM.TargetMachine(host_t, host_triple) pb=PassBuilder() begin
-        add!(pb, "instsimplify")
-        @test sprint(print_pipeline, pb, tm) == "function(instsimplify)"
+    if has_native_target()
+        host_triple = LLVM.default_triple()
+        host_t = LLVM.Target(triple=host_triple)
+        @dispose tm=LLVM.TargetMachine(host_t, host_triple) pb=PassBuilder() begin
+            add!(pb, "instsimplify")
+            @test sprint(print_pipeline, pb, tm) == "function(instsimplify)"
+        end
     end
 
     # errors

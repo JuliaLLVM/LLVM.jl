@@ -1776,14 +1776,7 @@ end
     verify(mod)
 
     # optimize
-    function optimize(mod)
-        host_triple = LLVM.default_triple()
-        host_t = LLVM.Target(triple=host_triple)
-        @dispose tm=LLVM.TargetMachine(host_t, host_triple) begin
-            run!("default<O3>", mod, tm)
-        end
-    end
-    optimize(mod)
+    run!("default<O3>", mod)
     verify(mod)
 
     # ensure we still have our two operations
@@ -1808,7 +1801,7 @@ end
     @test !supports_fast_math(instns[3])
 
     # optimize again
-    optimize(mod)
+    run!("default<O3>", mod)
     verify(mod)
 
     # observe there's only a single return now

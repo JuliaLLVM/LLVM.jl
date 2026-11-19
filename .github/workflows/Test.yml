@@ -179,6 +179,54 @@ jobs:
         timeout-minutes: 20
         run: julia --project -e 'using Pkg; Pkg.test()'
 
+  gpu:
+    # run the tests with libLLVMGPU (LLVMGPU_jll), a standalone LLVM with only the GPU
+    # back-ends, next to Julia's own LLVM. it lacks a native target, so the tests that compile
+    # code for the host are skipped. its LLVMExtra is built from a release of LLVM.jl, so
+    # changes to LLVMExtra need a new build of the JLL.
+    name: Julia ${{ matrix.julia }} next to libLLVMGPU - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - julia: '1.10'
+            os: 'ubuntu-latest'
+          - julia: '1.12'
+            os: 'ubuntu-latest'
+          - julia: '1.12'
+            os: 'macOS-latest'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # build_ci.jl needs to be able to inspect the git log
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Build libLLVMExtra
+        run: julia --project=deps deps/build_ci.jl
+      - name: Install libLLVMGPU
+        run: |
+          julia --project="$RUNNER_TEMP/llvmgpu" -e '
+            using Pkg
+            Pkg.add(name="LLVMGPU_jll", version="1")
+            using LLVMGPU_jll
+            open(ENV["GITHUB_ENV"], "a") do io
+                println(io, "LLVM_TEST_LIBRARY=", LLVMGPU_jll.libLLVMGPU)
+            end'
+      - name: Test the library
+        # the test environment is a workspace, which needs Julia 1.12
+        if: matrix.julia != '1.10'
+        run: |
+          julia --project=test -e 'using Pkg; Pkg.instantiate()'
+          julia --project=test test/standalone/runtests.jl "$LLVM_TEST_LIBRARY"
+      - name: Run tests
+        timeout-minutes: 20
+        run: julia --project -e 'using Pkg; Pkg.test()'
+
   trim:
     # check that applications that depend on LLVM.jl can be compiled into trimmed executables
     # (see test/trim), which do not include Julia's LLVM

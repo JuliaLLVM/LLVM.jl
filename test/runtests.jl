@@ -28,6 +28,8 @@ end
 
 test_library === LLVM.julia_library ||
     @info "Using LLVM $(test_library.version) from $(test_library.path) instead of Julia's"
+LLVM.library!(has_native_target, test_library) ||
+    @info "The LLVM library has no native target, so tests that compile code for the host are skipped"
 @info "Debug settings: typecheck = $(LLVM.typecheck_enabled), memcheck = $(LLVM.memcheck_enabled)"
 
 
@@ -78,7 +80,10 @@ include("disasm.jl")
 if julia_llvm_in_use()
     include("jljit.jl")
 end
-include("Kaleidoscope.jl")
+# compiling and running code for the host needs a native target
+if has_native_target()
+    include("Kaleidoscope.jl")
+end
 include("examples.jl")
 include("aqua.jl")
 

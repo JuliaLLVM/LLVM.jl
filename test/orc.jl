@@ -3,13 +3,6 @@ Base.showerror(::IO, ::UnprintableCallbackError) = error("showerror failed")
 
 @testset "orc" begin
 
-let lljit=LLJIT()
-    dispose(lljit)
-end
-
-LLJIT() do lljit
-end
-
 let ctx = ThreadSafeContext()
     dispose(ctx)
 end
@@ -85,6 +78,15 @@ end
         end
         dispose(ts_mod)
     end
+end
+
+# the JIT generates code for the host
+if has_native_target()
+let lljit=LLJIT()
+    dispose(lljit)
+end
+
+LLJIT() do lljit
 end
 
 @testset "JITDylib" begin
@@ -1152,6 +1154,7 @@ end
             dispose(ism)
         end
     end
+end
 end
 
 end

@@ -55,8 +55,11 @@ function count_functions(mod::P, ::P)::Cint
     return 0
 end
 
-# the version of LLVM, from the name of the library
-const major = parse(Int, match(r"-(\d+)\.", basename(lib))[1])
+# the version of LLVM, which LLVMExtra provides when the C API doesn't (LLVM 15)
+const major = let version = Ref{Cuint}()
+    ccall(sym(:LLVMGetVersion), Cvoid, (Ptr{Cuint}, P, P), version, C_NULL, C_NULL)
+    Int(version[])
+end
 
 # the functions that the wrappers define for a version of LLVM
 function wrapped_functions(major)
@@ -87,10 +90,9 @@ check_julia_llvm()
 # LLVM's C++ API is not exported (runtests.jl checks the full list of exports)
 @test dlsym(handle, :_ZN4llvm11LLVMContextC1Ev; throw_error=false) === nothing
 
-if major >= 16
-    version = Ref{Cuint}()
-    ccall(sym(:LLVMGetVersion), Cvoid, (Ptr{Cuint}, P, P), version, C_NULL, C_NULL)
-    @test version[] == major
+# libraries built by deps/build_standalone.jl are named after their version
+let m = match(r"-(\d+)\.", basename(lib))
+    m === nothing || @test parse(Int, m[1]) == major
 end
 
 # every function that the wrappers define for this version of LLVM is exported, except those
@@ -105,8 +107,24 @@ unexported = filter(wrapped_functions(major)) do name
 end
 @test isempty(unexported)
 
-@test ccall(sym(:LLVMExtraInitializeNativeTarget), Cint, ()) == 0
-@test ccall(sym(:LLVMExtraInitializeNativeAsmPrinter), Cint, ()) == 0
+# generate code for the host, or for a GPU with libraries that only support GPUs. those that
+# have the host's back-end can generate code for it.
+host_backends = Dict(:x86_64 => :X86, :i686 => :X86, :aarch64 => :AArch64, :armv7l => :ARM,
+                     :powerpc64le => :PowerPC, :riscv64 => :RISCV)
+native = ccall(sym(:LLVMExtraInitializeNativeTarget), Cint, ()) == 0
+if haskey(host_backends, Sys.ARCH)
+    initializer = Symbol(:LLVMInitialize, host_backends[Sys.ARCH], :Target)
+    @test native == (dlsym(handle, initializer; throw_error=false) !== nothing)
+end
+if native
+    @test ccall(sym(:LLVMExtraInitializeNativeAsmPrinter), Cint, ()) == 0
+    triple = ccall(sym(:LLVMGetDefaultTargetTriple), Cstring, ())
+else
+    for component in (:TargetInfo, :Target, :TargetMC, :AsmPrinter)
+        ccall(sym(Symbol(:LLVMInitializeNVPTX, component)), Cvoid, ())
+    end
+    triple = "nvptx64-nvidia-cuda"
+end
 
 ctx = ccall(sym(:LLVMContextCreate), P, ())
 ir = """
@@ -123,7 +141,6 @@ msg = Ref{Cstring}()
 @test ccall(sym(:LLVMParseIRInContext), Cint, (P, P, Ptr{P}, Ptr{Cstring}),
             ctx, buf, mod, msg) == 0
 
-triple = ccall(sym(:LLVMGetDefaultTargetTriple), Cstring, ())
 target = Ref{P}()
 @test ccall(sym(:LLVMGetTargetFromTriple), Cint, (Cstring, Ptr{P}, Ptr{Cstring}),
             triple, target, msg) == 0
@@ -142,7 +159,7 @@ str = ccall(sym(:LLVMPrintModuleToString), Cstring, (P,), mod[])
 @test !occursin("add i32", unsafe_string(str))
 ccall(sym(:LLVMDisposeMessage), Cvoid, (Cstring,), str)
 
-# generate native code
+# generate code
 out = Ref{P}()
 @test ccall(sym(:LLVMTargetMachineEmitToMemoryBuffer), Cint, (P, P, Cint, Ptr{Cstring}, Ptr{P}),
             tm, mod[], 0, msg, out) == 0

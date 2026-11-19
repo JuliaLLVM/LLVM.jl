@@ -454,6 +454,53 @@ char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD) {
   return strdup(str.c_str());
 }
 
+static orc::JITDylibLookupFlags unwrapLookupFlags(LLVMOrcJITDylibLookupFlags Flags) {
+  switch (Flags) {
+  case LLVMOrcJITDylibLookupFlagsMatchExportedSymbolsOnly:
+    return orc::JITDylibLookupFlags::MatchExportedSymbolsOnly;
+  case LLVMOrcJITDylibLookupFlagsMatchAllSymbols:
+    return orc::JITDylibLookupFlags::MatchAllSymbols;
+  }
+  llvm_unreachable("unknown JITDylib lookup flags");
+}
+
+// ORC doesn't check this, and searching a JITDylib of another session doesn't hold that
+// session's lock
+static Error checkSameSession(orc::JITDylib &JD, orc::JITDylib &Other) {
+  if (&JD.getExecutionSession() == &Other.getExecutionSession())
+    return Error::success();
+  return make_error<StringError>("cannot add JITDylib '" + Other.getName() +
+                                     "' to the link order of '" + JD.getName() +
+                                     "', which belongs to another execution session",
+                                 inconvertibleErrorCode());
+}
+
+LLVMErrorRef LLVMExtraJITDylibSetLinkOrder(LLVMOrcJITDylibRef JD,
+                                           LLVMOrcCJITDylibSearchOrder Order, size_t OrderSize,
+                                           LLVMBool LinkAgainstThisJITDylibFirst) {
+  orc::JITDylibSearchOrder NewOrder;
+  NewOrder.reserve(OrderSize);
+  for (size_t I = 0; I != OrderSize; ++I) {
+    if (Error Err = checkSameSession(*unwrap(JD), *unwrap(Order[I].JD)))
+      return wrap(std::move(Err));
+    NewOrder.push_back({unwrap(Order[I].JD), unwrapLookupFlags(Order[I].JDLookupFlags)});
+  }
+  unwrap(JD)->setLinkOrder(std::move(NewOrder), LinkAgainstThisJITDylibFirst);
+  return LLVMErrorSuccess;
+}
+
+LLVMErrorRef LLVMExtraJITDylibAddToLinkOrder(LLVMOrcJITDylibRef JD, LLVMOrcJITDylibRef Other,
+                                             LLVMOrcJITDylibLookupFlags JDLookupFlags) {
+  if (Error Err = checkSameSession(*unwrap(JD), *unwrap(Other)))
+    return wrap(std::move(Err));
+  unwrap(JD)->addToLinkOrder(*unwrap(Other), unwrapLookupFlags(JDLookupFlags));
+  return LLVMErrorSuccess;
+}
+
+void LLVMExtraJITDylibRemoveFromLinkOrder(LLVMOrcJITDylibRef JD, LLVMOrcJITDylibRef Other) {
+  unwrap(JD)->removeFromLinkOrder(*unwrap(Other));
+}
+
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::ObjectLayer, LLVMOrcObjectLayerRef)
 
 static orc::RTDyldObjectLinkingLayer *unwrapRTDyld(LLVMOrcObjectLayerRef Layer) {

@@ -1532,6 +1532,8 @@ end
         @test ba.function == f
         @test ba.block == b
         @test BlockAddress(b) == ba
+        @test b.address_taken
+        @test !a.address_taken && !entry.address_taken
         @check_ir BlockAddress(a) "blockaddress(@f, %a)"
         @test all(op -> op isa Value, ba.operands)
         let detached = BasicBlock("detached")

@@ -183,7 +183,7 @@ jobs:
     # run the tests with libLLVMGPU (LLVMGPU_jll), a standalone LLVM with only the GPU
     # back-ends, next to Julia's own LLVM. it lacks a native target, so the tests that compile
     # code for the host are skipped. its LLVMExtra is built from a release of LLVM.jl, so
-    # changes to LLVMExtra need a new build of the JLL.
+    # the tests are skipped when LLVMExtra has changed since: they need a new build of the JLL.
     name: Julia ${{ matrix.julia }} next to libLLVMGPU - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -214,16 +214,29 @@ jobs:
             using Pkg
             Pkg.add(name="LLVMGPU_jll", version="1")
             using LLVMGPU_jll
+            # the README lists the sources of the build, including the LLVM.jl revision
+            readme = read(joinpath(pkgdir(LLVMGPU_jll), "README.md"), String)
+            m = match(r"LLVM\.jl\.git \(revision: `([0-9a-f]+)`\)", readme)
+            m === nothing && error("Could not find the LLVM.jl revision of LLVMGPU_jll")
             open(ENV["GITHUB_ENV"], "a") do io
                 println(io, "LLVM_TEST_LIBRARY=", LLVMGPU_jll.libLLVMGPU)
+                println(io, "LLVMGPU_REVISION=", m[1])
             end'
+      - name: Check that LLVMExtra is unchanged
+        run: |
+          if git diff --quiet "$LLVMGPU_REVISION" HEAD -- deps/LLVMExtra; then
+            echo "LLVMGPU_CURRENT=true" >> "$GITHUB_ENV"
+          else
+            echo "::notice::LLVMExtra has changed since LLVMGPU_jll was built (from LLVM.jl $LLVMGPU_REVISION), so the tests with libLLVMGPU are skipped until the JLL is rebuilt."
+          fi
       - name: Test the library
         # the test environment is a workspace, which needs Julia 1.12
-        if: matrix.julia != '1.10'
+        if: env.LLVMGPU_CURRENT == 'true' && matrix.julia != '1.10'
         run: |
           julia --project=test -e 'using Pkg; Pkg.instantiate()'
           julia --project=test test/standalone/runtests.jl "$LLVM_TEST_LIBRARY"
       - name: Run tests
+        if: env.LLVMGPU_CURRENT == 'true'
         timeout-minutes: 20
         run: julia --project -e 'using Pkg; Pkg.test()'
 

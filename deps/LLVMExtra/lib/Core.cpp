@@ -1810,6 +1810,10 @@ void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB) {
     delete B;
 }
 
+LLVMBool LLVMExtraBasicBlockHasAddressTaken(LLVMBasicBlockRef BB) {
+  return unwrap(BB)->hasAddressTaken();
+}
+
 void LLVMExtraPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef BB,
                               LLVMValueRef Before, LLVMBool Head) {
   unwrap(Builder)->SetInsertPoint(unwrap(BB), insertionPoint(BB, Before, Head));

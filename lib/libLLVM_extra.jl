@@ -894,6 +894,10 @@ end
     ccall((:LLVMExtraDeleteBasicBlock, libLLVMExtra), Cvoid, (LLVMBasicBlockRef,), BB)
 end
 
+@llvmapi function LLVMExtraBasicBlockHasAddressTaken(lib::Library, BB)
+    ccall((:LLVMExtraBasicBlockHasAddressTaken, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef,), BB)
+end
+
 @llvmapi function LLVMExtraPositionBuilder(lib::Library, Builder, BB, Before, Head)
     ccall((:LLVMExtraPositionBuilder, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, BB, Before, Head)
 end

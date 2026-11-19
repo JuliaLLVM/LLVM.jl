@@ -1,6 +1,13 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.6
+
+- `bb.address_taken` is whether a `blockaddress` constant refers to a basic block, like
+  C++'s `BasicBlock::hasAddressTaken`. From LLVM 23 on, a `blockaddress` is not a use of its
+  block, so this can no longer be derived from the uses of the block.
+
+
 ## LLVM.jl v10.5
 
 - `CaptureInfo` describes the `captures` attribute that replaces `nocapture` in LLVM 21.

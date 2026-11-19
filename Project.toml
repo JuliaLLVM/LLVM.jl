@@ -17,6 +17,7 @@ Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
 [weakdeps]
 BFloat16s = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
+LLVMGPU_jll = "a5c41ef1-0fc2-5e62-838b-0d6f5f7d5115"
 
 [extensions]
 BFloat16sExt = "BFloat16s"
@@ -25,6 +26,7 @@ BFloat16sExt = "BFloat16s"
 BFloat16s = "0.4, 0.5, 0.6"
 CEnum = "0.5, 1"
 LLVMExtra_jll = "=0.0.58"
+LLVMGPU_jll = "~1.2"
 Libdl = "1.8"
 PrecompileTools = "1"
 Preferences = "1.4"

@@ -210,9 +210,11 @@ jobs:
         run: julia --project=deps deps/build_ci.jl
       - name: Install libLLVMGPU
         run: |
+          # next to this checkout of LLVM.jl, so that its compat bound selects the version
           julia --project="$RUNNER_TEMP/llvmgpu" -e '
             using Pkg
-            Pkg.add(name="LLVMGPU_jll", version="1")
+            Pkg.develop(path=pwd())
+            Pkg.add(name="LLVMGPU_jll")
             using LLVMGPU_jll
             # the README lists the sources of the build, including the LLVM.jl revision
             readme = read(joinpath(pkgdir(LLVMGPU_jll), "README.md"), String)

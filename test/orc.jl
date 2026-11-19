@@ -1,6 +1,25 @@
 struct UnprintableCallbackError <: Exception end
 Base.showerror(::IO, ::UnprintableCallbackError) = error("showerror failed")
 
+link_order_callee() = Int32(42)
+
+# a module with a function `name` that calls the external function `callee`
+function link_order_caller(jit, name, callee)
+    ts_mod = ThreadSafeModule("jit")
+    ts_mod() do mod
+        ft = LLVM.FunctionType(LLVM.Int32Type())
+        target = LLVM.Function(mod, callee, ft)
+        fn = LLVM.Function(mod, name, ft)
+        @dispose builder=IRBuilder() begin
+            position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
+            ret!(builder, call!(builder, ft, target))
+        end
+        mod.triple = jit.triple
+        verify(mod)
+    end
+    return ts_mod
+end
+
 @testset "orc" begin
 
 let ctx = ThreadSafeContext()
@@ -770,6 +789,81 @@ end
 
         @test_throws LLVMException lookup(lljit, jd, "undefined")
         @test isempty(LLVM.SESSION_LOOKUP_ROOTS)
+    end
+end
+
+@testset "Link order" begin
+    callee = @cfunction(link_order_callee, Int32, ())
+    @dispose ts_ctx=ThreadSafeContext() lljit=LLJIT() begin
+        es = lljit.execution_session
+        lib = JITDylib(es, "lib"; bare=true)
+        user = JITDylib(es, "user"; bare=true)
+        define!(lib, absolute_symbols(
+            mangle(lljit, "exported") => (callee, SymbolFlags(callable=true)),
+            mangle(lljit, "hidden") =>
+                (callee, SymbolFlags(exported=false, callable=true))))
+
+        # by default, the code in a JITDylib can't use the symbols of another JITDylib
+        add!(lljit, user, link_order_caller(lljit, "unlinked", "exported"))
+        @test_throws LLVMException redirect_stderr(devnull) do
+            lookup(lljit, user, "unlinked")
+        end
+
+        @test add_to_link_order!(user, lib) === user
+        add!(lljit, user, link_order_caller(lljit, "linked", "exported"))
+        @test ccall(pointer(lookup(lljit, user, "linked")), Int32, ()) == 42
+
+        # symbols that are not exported are only visible with exported_only=false
+        add!(lljit, user, link_order_caller(lljit, "exported_only", "hidden"))
+        @test_throws LLVMException redirect_stderr(devnull) do
+            lookup(lljit, user, "exported_only")
+        end
+
+        @test remove_from_link_order!(user, lib) === user
+        add!(lljit, user, link_order_caller(lljit, "removed", "exported"))
+        @test_throws LLVMException redirect_stderr(devnull) do
+            lookup(lljit, user, "removed")
+        end
+        # removing a JITDylib that is not in the link order does nothing
+        remove_from_link_order!(user, lib)
+
+        add_to_link_order!(user, lib; exported_only=false)
+        add!(lljit, user, link_order_caller(lljit, "all_symbols", "hidden"))
+        @test ccall(pointer(lookup(lljit, user, "all_symbols")), Int32, ()) == 42
+
+        # replacing the link order
+        @test link_order!(user, JITDylib[]) === user
+        add!(lljit, user, link_order_caller(lljit, "emptied", "exported"))
+        @test_throws LLVMException redirect_stderr(devnull) do
+            lookup(lljit, user, "emptied")
+        end
+        link_order!(user, [lib])
+        add!(lljit, user, link_order_caller(lljit, "replaced", "exported"))
+        @test ccall(pointer(lookup(lljit, user, "replaced")), Int32, ()) == 42
+        # the code in the JITDylib continues to see the symbols of that JITDylib
+        add!(lljit, user, link_order_caller(lljit, "self", "replaced"))
+        @test ccall(pointer(lookup(lljit, user, "self")), Int32, ()) == 42
+
+        # without self_first, it only sees the symbols of the given JITDylibs
+        link_order!(user, (lib,); exported_only=false, self_first=false)
+        add!(lljit, user, link_order_caller(lljit, "not_self", "replaced"))
+        @test_throws LLVMException redirect_stderr(devnull) do
+            lookup(lljit, user, "not_self")
+        end
+        add!(lljit, user, link_order_caller(lljit, "others", "hidden"))
+        @test ccall(pointer(lookup(lljit, user, "others")), Int32, ()) == 42
+
+        @test_throws ArgumentError link_order!(user, [lib, "lib"])
+
+        # JITDylibs of another execution session can't be linked
+        @dispose other_lljit=LLJIT() begin
+            foreign = JITDylib(other_lljit.execution_session, "foreign"; bare=true)
+            @test_throws "another execution session" add_to_link_order!(user, foreign)
+            @test_throws "another execution session" link_order!(user, [lib, foreign])
+            # the link order is not changed, so hidden symbols are still visible
+            add!(lljit, user, link_order_caller(lljit, "rejected", "hidden"))
+            @test ccall(pointer(lookup(lljit, user, "rejected")), Int32, ()) == 42
+        end
     end
 end
 

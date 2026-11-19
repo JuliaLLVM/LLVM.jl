@@ -98,6 +98,9 @@ lookup_dylib
 add!(::LLJIT, ::JITDylib, ::MemoryBuffer)
 add!(::JuliaOJIT, ::JITDylib, ::MemoryBuffer)
 empty!(::JITDylib)
+add_to_link_order!
+remove_from_link_order!
+link_order!
 lookup(::LLJIT, ::Any)
 lookup(::JuliaOJIT, ::JITDylib, ::Any)
 OrcTargetAddress

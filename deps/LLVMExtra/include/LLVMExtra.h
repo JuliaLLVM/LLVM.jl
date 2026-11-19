@@ -128,6 +128,15 @@ LLVMModuleRef LLVMExtraThreadSafeModuleGetModuleUnlocked(LLVMOrcThreadSafeModule
 LLVMModuleRef LLVMExtraThreadSafeModuleTakeModule(LLVMOrcThreadSafeModuleRef TSM);
 #endif
 
+// The link order of a JITDylib: the JITDylibs in which ORC resolves the symbols that the
+// code in the JITDylib refers to. Both JITDylibs must belong to the same execution session.
+LLVMErrorRef LLVMExtraJITDylibSetLinkOrder(LLVMOrcJITDylibRef JD,
+                                           LLVMOrcCJITDylibSearchOrder Order, size_t OrderSize,
+                                           LLVMBool LinkAgainstThisJITDylibFirst);
+LLVMErrorRef LLVMExtraJITDylibAddToLinkOrder(LLVMOrcJITDylibRef JD, LLVMOrcJITDylibRef Other,
+                                             LLVMOrcJITDylibLookupFlags JDLookupFlags);
+void LLVMExtraJITDylibRemoveFromLinkOrder(LLVMOrcJITDylibRef JD, LLVMOrcJITDylibRef Other);
+
 // Configuration of layers created by LLVMOrcCreateRTDyldObjectLinkingLayer*.
 // The object layer must be an RTDyldObjectLinkingLayer.
 void LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(

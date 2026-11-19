@@ -234,6 +234,18 @@ end
     ccall((:LLVMExtraThreadSafeModuleTakeModule, libLLVMExtra), LLVMModuleRef, (LLVMOrcThreadSafeModuleRef,), TSM)
 end
 
+@llvmapi function LLVMExtraJITDylibSetLinkOrder(lib::Library, JD, Order, OrderSize, LinkAgainstThisJITDylibFirst)
+    ccall((:LLVMExtraJITDylibSetLinkOrder, libLLVMExtra), LLVMErrorRef, (LLVMOrcJITDylibRef, LLVMOrcCJITDylibSearchOrder, Csize_t, LLVMBool), JD, Order, OrderSize, LinkAgainstThisJITDylibFirst)
+end
+
+@llvmapi function LLVMExtraJITDylibAddToLinkOrder(lib::Library, JD, Other, JDLookupFlags)
+    ccall((:LLVMExtraJITDylibAddToLinkOrder, libLLVMExtra), LLVMErrorRef, (LLVMOrcJITDylibRef, LLVMOrcJITDylibRef, LLVMOrcJITDylibLookupFlags), JD, Other, JDLookupFlags)
+end
+
+@llvmapi function LLVMExtraJITDylibRemoveFromLinkOrder(lib::Library, JD, Other)
+    ccall((:LLVMExtraJITDylibRemoveFromLinkOrder, libLLVMExtra), Cvoid, (LLVMOrcJITDylibRef, LLVMOrcJITDylibRef), JD, Other)
+end
+
 @llvmapi function LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags(lib::Library, RTDyldObjLinkingLayer, OverrideObjectFlags)
     ccall((:LLVMOrcRTDyldObjectLinkingLayerSetOverrideObjectFlagsWithResponsibilityFlags, libLLVMExtra), Cvoid, (LLVMOrcObjectLayerRef, LLVMBool), RTDyldObjLinkingLayer, OverrideObjectFlags)
 end

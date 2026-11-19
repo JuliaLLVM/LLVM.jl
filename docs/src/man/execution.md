@@ -280,6 +280,42 @@ julia> pointer(lookup(lljit, "answer")) == pointer_from_objref(answer)
 true
 ```
 
+### Linking JITDylibs
+
+The code in a JITDylib can only use the symbols of the JITDylibs in its link order. The
+link order of a new JITDylib does not contain the other JITDylibs that you created.
+`add_to_link_order!` appends a JITDylib to the link order:
+
+```jldoctest orc
+julia> add_to_link_order!(other, jd);
+
+julia> ts_mod = ThreadSafeModule("jit");
+
+julia> ts_mod() do mod
+           mod.triple = lljit.triple
+           ft = LLVM.FunctionType(LLVM.Int64Type(), [LLVM.Int64Type(), LLVM.Int64Type()])
+           add = LLVM.Function(mod, "add", ft)
+           fn = LLVM.Function(mod, "call_add", ft)
+           @dispose builder=IRBuilder() begin
+               position!(builder, LLVM.at_end(BasicBlock(fn, "entry")))
+               ret!(builder, call!(builder, ft, add, fn.parameters))
+           end
+           return
+       end
+
+julia> add!(lljit, other, ts_mod)
+
+julia> addr = lookup(lljit, other, "call_add");
+
+julia> ccall(pointer(addr), Int64, (Int64, Int64), 1, 2)
+3
+```
+
+Only the exported symbols of the other JITDylib are visible, unless `exported_only=false`
+is passed. `remove_from_link_order!` removes a JITDylib from the link order, and
+`link_order!` replaces the link order. Both JITDylibs must belong to the same execution
+session.
+
 ### Removing code
 
 Code can be removed from a JITDylib by clearing it with `empty!`, or selectively, by
@@ -389,10 +425,12 @@ JITDylib: `lookup(jljit, jd, name)`.
 
 How JITDylibs work depends on the Julia version: on Julia 1.14 and later,
 `JITDylib(jljit, name)` creates a new JITDylib, which can see Julia's symbols but is not
-visible to other code. Older versions only support a single JITDylib, `jljit.external_dylib`,
-which is shared by all users of Julia's JIT, and whose symbols are visible to Julia code.
-Each is only available on the Julia versions that support it, so choose a JITDylib once,
-and keep using it:
+visible to other code. Use `add_to_link_order!` to make the symbols of one such JITDylib
+visible to the code in another one; replacing the link order with `link_order!` would hide
+Julia's symbols from the code that ORC links afterwards. Older versions only support a single JITDylib,
+`jljit.external_dylib`, which is shared by all users of Julia's JIT, and whose symbols are
+visible to Julia code. Each is only available on the Julia versions that support it, so
+choose a JITDylib once, and keep using it:
 
 ```julia
 jd = if LLVM.supports_jit_dylib_creation(jljit)

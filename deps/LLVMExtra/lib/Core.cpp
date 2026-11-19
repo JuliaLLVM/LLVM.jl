@@ -454,6 +454,35 @@ char *LLVMDumpJitDylibToString(LLVMOrcJITDylibRef JD) {
   return strdup(str.c_str());
 }
 
+static orc::JITDylibLookupFlags unwrapLookupFlags(LLVMOrcJITDylibLookupFlags Flags) {
+  switch (Flags) {
+  case LLVMOrcJITDylibLookupFlagsMatchExportedSymbolsOnly:
+    return orc::JITDylibLookupFlags::MatchExportedSymbolsOnly;
+  case LLVMOrcJITDylibLookupFlagsMatchAllSymbols:
+    return orc::JITDylibLookupFlags::MatchAllSymbols;
+  }
+  llvm_unreachable("unknown JITDylib lookup flags");
+}
+
+void LLVMExtraJITDylibSetLinkOrder(LLVMOrcJITDylibRef JD, LLVMOrcCJITDylibSearchOrder Order,
+                                   size_t OrderSize,
+                                   LLVMBool LinkAgainstThisJITDylibFirst) {
+  orc::JITDylibSearchOrder NewOrder;
+  NewOrder.reserve(OrderSize);
+  for (size_t I = 0; I != OrderSize; ++I)
+    NewOrder.push_back({unwrap(Order[I].JD), unwrapLookupFlags(Order[I].JDLookupFlags)});
+  unwrap(JD)->setLinkOrder(std::move(NewOrder), LinkAgainstThisJITDylibFirst);
+}
+
+void LLVMExtraJITDylibAddToLinkOrder(LLVMOrcJITDylibRef JD, LLVMOrcJITDylibRef Other,
+                                     LLVMOrcJITDylibLookupFlags JDLookupFlags) {
+  unwrap(JD)->addToLinkOrder(*unwrap(Other), unwrapLookupFlags(JDLookupFlags));
+}
+
+void LLVMExtraJITDylibRemoveFromLinkOrder(LLVMOrcJITDylibRef JD, LLVMOrcJITDylibRef Other) {
+  unwrap(JD)->removeFromLinkOrder(*unwrap(Other));
+}
+
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(orc::ObjectLayer, LLVMOrcObjectLayerRef)
 
 static orc::RTDyldObjectLinkingLayer *unwrapRTDyld(LLVMOrcObjectLayerRef Layer) {

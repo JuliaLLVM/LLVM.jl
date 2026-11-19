@@ -6,6 +6,7 @@
 @vocabulary ORC DefinitionGenerator, DynamicLibrarySearchGenerator
 @vocabulary ORC CustomDefinitionGenerator, check_callback_error!
 @vocabulary ORC lookup_dylib, ResourceTracker, transfer!
+@vocabulary ORC link_order!, add_to_link_order!, remove_from_link_order!
 @vocabulary ORC IRTransformLayer, IRCompileLayer, transform!
 @vocabulary ORC MaterializationResponsibility, MaterializationUnit, CustomMaterializationUnit, emit!
 @vocabulary ORC LocalIndirectStubsManager, LocalLazyCallThroughManager, lazy_reexports
@@ -696,6 +697,73 @@ trackers.
 """
 function Base.empty!(jd::JITDylib)
     @check jd.library API.LLVMOrcJITDylibClear(jd)
+    return jd
+end
+
+
+## link order
+
+lookup_flags(exported_only::Bool) =
+    exported_only ? API.LLVMOrcJITDylibLookupFlagsMatchExportedSymbolsOnly :
+                    API.LLVMOrcJITDylibLookupFlagsMatchAllSymbols
+
+"""
+    add_to_link_order!(jd::JITDylib, other::JITDylib; exported_only=true)
+
+Append `other` to the link order of `jd`. The link order is the list of JITDylibs in which
+ORC resolves the symbols that the code in `jd` refers to. ORC searches the list from the
+first entry to the last entry.
+
+With `exported_only=true`, the code in `jd` can only use the exported symbols of `other`.
+With `exported_only=false`, it can use all symbols of `other`.
+
+Both JITDylibs must belong to the same execution session. This also works for the
+JITDylibs of Julia's JIT.
+
+See also: [`remove_from_link_order!`](@ref), [`link_order!`](@ref).
+"""
+function add_to_link_order!(jd::JITDylib, other::JITDylib; exported_only::Bool=true)
+    check_library(jd.library, other)
+    API.LLVMExtraJITDylibAddToLinkOrder(jd, other, lookup_flags(exported_only))
+    return jd
+end
+
+"""
+    remove_from_link_order!(jd::JITDylib, other::JITDylib)
+
+Remove `other` from the link order of `jd`. This does nothing if the link order does not
+contain `other`.
+
+See also: [`add_to_link_order!`](@ref), [`link_order!`](@ref).
+"""
+function remove_from_link_order!(jd::JITDylib, other::JITDylib)
+    check_library(jd.library, other)
+    API.LLVMExtraJITDylibRemoveFromLinkOrder(jd, other)
+    return jd
+end
+
+"""
+    link_order!(jd::JITDylib, others; exported_only=true, self_first=true)
+
+Replace the link order of `jd` with the JITDylibs in `others`, in that sequence.
+`exported_only` applies to each entry: see [`add_to_link_order!`](@ref).
+
+With `self_first=true`, ORC puts `jd` at the start of the link order, and matches all
+symbols of `jd`. Thus the code in `jd` continues to see the other symbols in `jd`. If
+`others` contains `jd`, ORC does not add `jd` again.
+"""
+function link_order!(jd::JITDylib, others; exported_only::Bool=true,
+                     self_first::Bool=true)
+    flags = lookup_flags(exported_only)
+    order = API.LLVMOrcCJITDylibSearchOrderElement[]
+    for other in others
+        other isa JITDylib ||
+            throw(ArgumentError(
+                "link order entries must be JITDylibs, got a $(typeof(other))"))
+        check_library(jd.library, other)
+        push!(order, API.LLVMOrcCJITDylibSearchOrderElement(other.ref, flags))
+    end
+    API.LLVMExtraJITDylibSetLinkOrder(jd, order, length(order), self_first)
     return jd
 end
 

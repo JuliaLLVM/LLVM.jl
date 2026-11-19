@@ -1,6 +1,14 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.6
+
+- `add_to_link_order!(jd, other; exported_only=true)` appends the JITDylib `other` to the
+  link order of `jd`, so that the code in `jd` can use the symbols of `other`.
+  `remove_from_link_order!(jd, other)` removes it again, and `link_order!(jd, others)`
+  replaces the link order. These also work for the JITDylibs of Julia's JIT.
+
+
 ## LLVM.jl v10.5
 
 - `CaptureInfo` describes the `captures` attribute that replaces `nocapture` in LLVM 21.

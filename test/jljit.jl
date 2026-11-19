@@ -117,6 +117,27 @@ end
     end
 end
 
+if JLJIT_CREATES_DYLIBS
+@testset "Link order" begin
+    callee = @cfunction(link_order_callee, Int32, ())
+    @dispose ts_ctx=ThreadSafeContext() jljit=JuliaOJIT() begin
+        lib = JITDylib(jljit, "lib")
+        user = JITDylib(jljit, "user")
+        shared = string(gensym("shared"))
+        define!(lib, absolute_symbols(
+            mangle(jljit, shared) => (callee, SymbolFlags(callable=true))))
+
+        @test add_to_link_order!(user, lib) === user
+        add!(jljit, user, link_order_caller(jljit, "linked", shared))
+        @test ccall(pointer(lookup(jljit, user, "linked")), Int32, ()) == 42
+
+        # the symbols of Julia are still available
+        add!(jljit, user, link_order_caller(jljit, "julia", "jl_gc_safepoint"))
+        @test pointer(lookup(jljit, user, "julia")) != C_NULL
+    end
+end
+end
+
 @testset "CustomDefinitionGenerator" begin
     @dispose jljit=JuliaOJIT() begin
         # on older Julia versions, this is a JITDylib that is shared by all users of the

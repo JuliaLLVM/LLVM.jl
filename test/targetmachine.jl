@@ -360,6 +360,25 @@ if :NVPTX in LLVM.backends()
     end
 end
 
+if :SPIRV in LLVM.backends()
+    LLVM.InitializeSPIRVTargetInfo()
+    LLVM.InitializeSPIRVTarget()
+    LLVM.InitializeSPIRVTargetMC()
+    LLVM.InitializeSPIRVAsmPrinter()
+    triple = "spirv64-unknown-unknown"
+    @dispose ctx=Context() tm=LLVM.TargetMachine(LLVM.Target(; triple), triple) mod=parse(LLVM.Module, """
+            target triple = "$triple"
+            define spir_kernel void @kernel() {
+              ret void
+            }""") begin
+        asm = String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile))
+        @test occursin("OpEntryPoint Kernel", asm)
+    end
+else
+    # the back-end is optional
+    @test_throws "The SPIRV back-end is not part of LLVM library" LLVM.InitializeSPIRVTarget()
+end
+
 # targets that aren't registered
 @test_throws ArgumentError LLVM.Target(triple="bogus-unknown-unknown")
 

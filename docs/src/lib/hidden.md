@@ -91,6 +91,12 @@ LLVM.InitializeRISCVDisassembler
 LLVM.InitializeRISCVTarget
 LLVM.InitializeRISCVTargetInfo
 LLVM.InitializeRISCVTargetMC
+LLVM.InitializeSPIRVAsmParser
+LLVM.InitializeSPIRVAsmPrinter
+LLVM.InitializeSPIRVDisassembler
+LLVM.InitializeSPIRVTarget
+LLVM.InitializeSPIRVTargetInfo
+LLVM.InitializeSPIRVTargetMC
 LLVM.InitializeSparcAsmParser
 LLVM.InitializeSparcAsmPrinter
 LLVM.InitializeSparcDisassembler

@@ -1679,6 +1679,38 @@ end
     ccall((:LLVMExtraDominatorTreeRecalculate, libLLVMExtra), Cvoid, (LLVMDominatorTreeRef, LLVMValueRef), Tree, F)
 end
 
+mutable struct LLVMOpaqueDomTreeNode end
+
+const LLVMDomTreeNodeRef = Ptr{LLVMOpaqueDomTreeNode}
+
+@llvmapi function LLVMExtraDominatorTreeGetNode(lib::Library, Tree, BB, Node)
+    ccall((:LLVMExtraDominatorTreeGetNode, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef, Ptr{LLVMDomTreeNodeRef}), Tree, BB, Node)
+end
+
+@llvmapi function LLVMExtraPostDominatorTreeGetNode(lib::Library, Tree, BB, Node)
+    ccall((:LLVMExtraPostDominatorTreeGetNode, libLLVMExtra), LLVMBool, (LLVMPostDominatorTreeRef, LLVMBasicBlockRef, Ptr{LLVMDomTreeNodeRef}), Tree, BB, Node)
+end
+
+@llvmapi function LLVMExtraDominatorTreeNodeDominates(lib::Library, Tree, A, B)
+    ccall((:LLVMExtraDominatorTreeNodeDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMDomTreeNodeRef, LLVMDomTreeNodeRef), Tree, A, B)
+end
+
+@llvmapi function LLVMExtraPostDominatorTreeNodeDominates(lib::Library, Tree, A, B)
+    ccall((:LLVMExtraPostDominatorTreeNodeDominates, libLLVMExtra), LLVMBool, (LLVMPostDominatorTreeRef, LLVMDomTreeNodeRef, LLVMDomTreeNodeRef), Tree, A, B)
+end
+
+@llvmapi function LLVMExtraDomTreeNodeGetBlock(lib::Library, N)
+    ccall((:LLVMExtraDomTreeNodeGetBlock, libLLVMExtra), LLVMBasicBlockRef, (LLVMDomTreeNodeRef,), N)
+end
+
+@llvmapi function LLVMExtraDomTreeNodeGetIDom(lib::Library, N)
+    ccall((:LLVMExtraDomTreeNodeGetIDom, libLLVMExtra), LLVMDomTreeNodeRef, (LLVMDomTreeNodeRef,), N)
+end
+
+@llvmapi function LLVMExtraDomTreeNodeGetChildren(lib::Library, N, Children)
+    ccall((:LLVMExtraDomTreeNodeGetChildren, libLLVMExtra), Cuint, (LLVMDomTreeNodeRef, Ptr{LLVMDomTreeNodeRef}), N, Children)
+end
+
 @llvmapi function LLVMExtraSplitBlockAndInsertIfThen(lib::Library, Cond, SplitBefore, Unreachable, BranchWeights, NumBranchWeights, Tree)
     ccall((:LLVMExtraSplitBlockAndInsertIfThen, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMBool, Ptr{Cuint}, Cuint, LLVMDominatorTreeRef), Cond, SplitBefore, Unreachable, BranchWeights, NumBranchWeights, Tree)
 end

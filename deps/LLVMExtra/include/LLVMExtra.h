@@ -1497,6 +1497,25 @@ LLVMBool LLVMExtraDominatorTreeIsReachableFromEntry(LLVMDominatorTreeRef Tree,
                                                     LLVMBasicBlockRef BB);
 // recompute a dominator tree for the current CFG of a function
 void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F);
+// the nodes of a (post-)dominator tree (`DomTreeNode`), owned by the tree
+typedef struct LLVMOpaqueDomTreeNode *LLVMDomTreeNodeRef;
+// write the node of a block to Node, or NULL if the tree has none (e.g., for an unreachable
+// block). Returns false if the block is not part of the function of the tree.
+LLVMBool LLVMExtraDominatorTreeGetNode(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef BB,
+                                       LLVMDomTreeNodeRef *Node);
+LLVMBool LLVMExtraPostDominatorTreeGetNode(LLVMPostDominatorTreeRef Tree,
+                                           LLVMBasicBlockRef BB, LLVMDomTreeNodeRef *Node);
+LLVMBool LLVMExtraDominatorTreeNodeDominates(LLVMDominatorTreeRef Tree, LLVMDomTreeNodeRef A,
+                                             LLVMDomTreeNodeRef B);
+LLVMBool LLVMExtraPostDominatorTreeNodeDominates(LLVMPostDominatorTreeRef Tree,
+                                                 LLVMDomTreeNodeRef A, LLVMDomTreeNodeRef B);
+// the block of a node, or NULL for the virtual root of a post-dominator tree
+LLVMBasicBlockRef LLVMExtraDomTreeNodeGetBlock(LLVMDomTreeNodeRef N);
+// the immediate dominator of a node, or NULL for a root
+LLVMDomTreeNodeRef LLVMExtraDomTreeNodeGetIDom(LLVMDomTreeNodeRef N);
+// the nodes that a node immediately dominates, written to the array if it is not NULL;
+// returns their number. LLVM 23 keeps them in a linked list, so they can't be indexed.
+unsigned LLVMExtraDomTreeNodeGetChildren(LLVMDomTreeNodeRef N, LLVMDomTreeNodeRef *Children);
 // split the block containing `SplitBefore` before it, and insert a conditional branch on
 // `Cond` to a new block that ends with a branch to the tail of the split block (or with an
 // unreachable). Returns the terminator of the new block. The conditional branch gets

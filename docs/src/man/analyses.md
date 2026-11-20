@@ -102,6 +102,24 @@ julia> dominates(tree, first(foo.instructions), first(entry.instructions))
 false
 ```
 
+The trees themselves can be walked through their nodes, which are obtained by indexing a
+tree with a block:
+
+```jldoctest
+julia> tree = DomTree(fun);
+
+julia> node = tree[entry]
+DomTreeNode("entry")
+
+julia> collect(node.children)
+2-element Vector{DomTreeNode}:
+ DomTreeNode("foo")
+ DomTreeNode("bar")
+
+julia> tree[bar].idom.block == entry
+true
+```
+
 
 ## Constant ranges and known bits
 

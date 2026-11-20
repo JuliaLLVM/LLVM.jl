@@ -632,6 +632,67 @@ end
     end
 end
 
+@testset "dominator tree nodes" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i1 %c) {
+        entry:
+          br i1 %c, label %then, label %else
+        then:
+          br label %join
+        else:
+          br label %join
+        join:
+          ret void
+        dead:
+          br label %join
+        }
+
+        define void @g() {
+        entry:
+          ret void
+        }""") begin
+        fn = mod.functions["f"]
+        entry, then, els, join, dead = fn.blocks
+        other = only(mod.functions["g"].blocks)
+        @dispose dt=DomTree(fn) begin
+            root = dt[entry]
+            @test root isa DomTreeNode
+            @test root.block == entry
+            @test root.idom === nothing
+            @test sort([node.block.name for node in root.children]) ==
+                  ["else", "join", "then"]
+            @test dt[join].idom == root
+            @test dt[then] in root.children
+            @test isempty(dt[then].children)
+            @test length(root.children) == 3
+            @test eltype(root.children) == DomTreeNode
+            @test dt[dead] === nothing
+
+            @test dominates(dt, root, dt[join])
+            @test dominates(dt, dt[then], dt[then])
+            @test !dominates(dt, dt[then], dt[join])
+            @test !dominates(dt, dt[join], root)
+
+            @test sprint(show, root) == "DomTreeNode(\"entry\")"
+
+            # blocks of other functions are not part of the tree
+            @test_throws ArgumentError dt[other]
+        end
+        @dispose pdt=PostDomTree(fn) begin
+            exit = pdt[join]
+            # the root of a post-dominator tree is virtual
+            root = exit.idom
+            @test root.block === nothing
+            @test root.idom === nothing
+            @test sprint(show, root) == "DomTreeNode(virtual root)"
+            @test pdt[entry].idom == exit
+            @test dominates(pdt, exit, pdt[then])
+            @test !dominates(pdt, pdt[then], pdt[entry])
+            @test_throws ArgumentError pdt[other]
+        end
+    end
+end
+
 @testset "control flow changes" begin
     @dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, """
         define i32 @f(i32 %a, i32 %b) {

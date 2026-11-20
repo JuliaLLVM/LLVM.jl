@@ -12,6 +12,7 @@
 #include <llvm/Analysis/LoopIterator.h>
 #include <llvm/Analysis/MemorySSA.h>
 #include <llvm/Analysis/MemorySSAUpdater.h>
+#include <llvm/Analysis/PostDominators.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/Analysis/ValueTracking.h>
@@ -54,6 +55,8 @@ static LLVMSCEVRef wrap(const SCEV *S) {
 }
 // defined in Core.cpp
 DEFINE_STDCXX_CONVERSION_FUNCTIONS(DominatorTree, LLVMDominatorTreeRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(PostDominatorTree, LLVMPostDominatorTreeRef)
+DEFINE_STDCXX_CONVERSION_FUNCTIONS(DomTreeNode, LLVMDomTreeNodeRef)
 
 // APInt values are passed as an array of 64-bit words (least significant first), of which
 // there are as many as needed for the bit width
@@ -837,6 +840,49 @@ LLVMBool LLVMExtraDominatorTreeIsReachableFromEntry(LLVMDominatorTreeRef Tree,
 void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F) {
   // the root of the tree can't be used to find the function, as it may have been deleted
   unwrap(Tree)->recalculate(*unwrap<Function>(F));
+}
+
+// look up the node of a block, if the block is part of the function of the tree: LLVM only
+// asserts that, and since LLVM 20 finds nodes by the number of a block in its function
+template <typename TreeT>
+static LLVMBool getNodeOf(TreeT &T, LLVMBasicBlockRef BB, LLVMDomTreeNodeRef *Node) {
+  BasicBlock *B = unwrap(BB);
+  if (T.root_size() == 0 || (*T.root_begin())->getParent() != B->getParent())
+    return false;
+  *Node = wrap(T.getNode(B));
+  return true;
+}
+
+LLVMBool LLVMExtraDominatorTreeGetNode(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef BB,
+                                       LLVMDomTreeNodeRef *Node) {
+  return getNodeOf(*unwrap(Tree), BB, Node);
+}
+
+LLVMBool LLVMExtraPostDominatorTreeGetNode(LLVMPostDominatorTreeRef Tree,
+                                           LLVMBasicBlockRef BB, LLVMDomTreeNodeRef *Node) {
+  return getNodeOf(*unwrap(Tree), BB, Node);
+}
+
+LLVMBool LLVMExtraDominatorTreeNodeDominates(LLVMDominatorTreeRef Tree, LLVMDomTreeNodeRef A,
+                                             LLVMDomTreeNodeRef B) {
+  return unwrap(Tree)->dominates(unwrap(A), unwrap(B));
+}
+
+LLVMBool LLVMExtraPostDominatorTreeNodeDominates(LLVMPostDominatorTreeRef Tree,
+                                                 LLVMDomTreeNodeRef A, LLVMDomTreeNodeRef B) {
+  return unwrap(Tree)->dominates(unwrap(A), unwrap(B));
+}
+
+LLVMBasicBlockRef LLVMExtraDomTreeNodeGetBlock(LLVMDomTreeNodeRef N) {
+  return wrap(unwrap(N)->getBlock());
+}
+
+LLVMDomTreeNodeRef LLVMExtraDomTreeNodeGetIDom(LLVMDomTreeNodeRef N) {
+  return wrap(unwrap(N)->getIDom());
+}
+
+unsigned LLVMExtraDomTreeNodeGetChildren(LLVMDomTreeNodeRef N, LLVMDomTreeNodeRef *Children) {
+  return writeRefs(unwrap(N)->children(), Children);
 }
 
 // the `!prof` node for the given branch weights, or NULL without weights

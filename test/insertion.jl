@@ -161,6 +161,7 @@ end
     b = copy(a)
     move!(b, LLVM.after_phis(body))
     @test b.next == a
+    @test LLVM.anchor(LLVM.after_phis(body)) == b
     verify(mod)
 end
 
@@ -188,6 +189,8 @@ if LLVM.version() >= v"17"
     f = mod.functions["f"]
     blocks = Dict(bb.name => bb for bb in f.blocks)
     @test LLVM.after_phis(blocks["dispatch"]) === nothing
+    @test LLVM.anchor(LLVM.after_phis(blocks["lpad"])) ==
+          collect(blocks["lpad"].instructions)[2]
     @test LLVM.after_phis(blocks["handler"]) == LLVM.after(first(blocks["handler"].instructions))
     @test LLVM.after_phis(blocks["lpad"]) == LLVM.after(first(blocks["lpad"].instructions))
     dispose(mod)
@@ -558,6 +561,33 @@ end
     @test LLVM.at_begin(mod.globals) == LLVM.before(gv)
     @test LLVM.after(gv) == LLVM.at_end(mod.globals)
     @test_throws ArgumentError move!(hv, LLVM.after(gv))
+end
+end
+
+
+@testset "anchor" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    ft = LLVM.FunctionType(LLVM.VoidType())
+    f = LLVM.Function(mod, "f", ft)
+    g = LLVM.Function(mod, "g", ft)
+    gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")
+    entry = BasicBlock(f, "entry")
+    exit = BasicBlock(f, "exit")
+    position!(builder, LLVM.at_end(entry))
+    br = br!(builder, exit)
+
+    @test LLVM.anchor(LLVM.before(br)) == br
+    @test LLVM.anchor(LLVM.after(br)) === nothing
+    @test LLVM.anchor(LLVM.after(entry)) == exit
+    @test LLVM.anchor(LLVM.at_end(f)) === nothing
+    @test LLVM.anchor(LLVM.before(g)) == g
+    @test LLVM.anchor(LLVM.after(g)) === nothing
+    @test LLVM.anchor(LLVM.before(gv)) == gv
+
+    # the anchor must still be part of the list
+    pos = LLVM.before(br)
+    move!(br, LLVM.at_end(exit))
+    @test_throws ArgumentError LLVM.anchor(pos)
 end
 end
 

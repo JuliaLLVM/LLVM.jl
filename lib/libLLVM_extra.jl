@@ -389,6 +389,10 @@ end
     ccall((:LLVMExtraCallBaseWithOperandBundles, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{LLVMOperandBundleRef}, Cuint), Call, Bundles, NumBundles)
 end
 
+@llvmapi function LLVMExtraCopyAttributeList(lib::Library, Dst, Src)
+    ccall((:LLVMExtraCopyAttributeList, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Dst, Src)
+end
+
 @llvmapi function LLVMMetadataAsValue2(lib::Library, C, Metadata)
     ccall((:LLVMMetadataAsValue2, libLLVMExtra), LLVMValueRef, (LLVMContextRef, LLVMMetadataRef), C, Metadata)
 end

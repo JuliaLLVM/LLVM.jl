@@ -206,6 +206,8 @@ Like the attributes of functions, these views can be indexed by the kind of an a
 (e.g., `haskey(instr.function_attributes, :nounwind)`), and attributes can be removed using
 `delete!`. They only contain the attributes of the call site, not those of the called
 function.
+`copy_attribute_list!(instr, fun)` replaces all attributes of the call site by those of
+a function (or of another call site), like C++'s `setAttributes(fun->getAttributes())`.
 
 ### Debug location
 

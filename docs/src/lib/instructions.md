@@ -220,6 +220,7 @@ insert_masked_value!
 
 ```@docs
 LLVM.CallBase
+copy_attribute_list!
 only_reads_memory
 does_not_capture
 effective_memory_effects

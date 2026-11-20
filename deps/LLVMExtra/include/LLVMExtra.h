@@ -302,6 +302,9 @@ LLVMBuildCallWithOperandBundles(LLVMBuilderRef, LLVMTypeRef, LLVMValueRef Fn,
 LLVMValueRef LLVMExtraCallBaseWithOperandBundles(LLVMValueRef Call,
                                                  LLVMOperandBundleRef *Bundles,
                                                  unsigned NumBundles);
+// replace the attribute list of a call, invoke or callbr instruction by the one of a
+// function or another call (`CallBase::setAttributes(Src->getAttributes())`)
+void LLVMExtraCopyAttributeList(LLVMValueRef Dst, LLVMValueRef Src);
 
 // Metadata API extensions
 LLVMValueRef LLVMMetadataAsValue2(LLVMContextRef C, LLVMMetadataRef Metadata);

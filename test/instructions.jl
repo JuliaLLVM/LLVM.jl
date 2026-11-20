@@ -931,6 +931,49 @@ end
 end
 end
 
+@testset "call site attribute lists" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T = LLVM.Int32Type()
+    ft = LLVM.FunctionType(T, [T, T])
+    f = LLVM.Function(mod, "f", ft)
+    push!(f.function_attributes, EnumAttribute("nounwind"))
+    push!(f.return_attributes, EnumAttribute("noundef"))
+    push!(f.parameter_attributes[2], EnumAttribute("signext"))
+    # a source with another calling convention, which isn't copied
+    src = LLVM.Function(mod, "src", ft)
+    copy_attributes!(src, f)
+    src.callconv = LLVM.API.LLVMFastCallConv
+    caller = LLVM.Function(mod, "caller", LLVM.FunctionType(T, [T]))
+    position!(builder, LLVM.at_end(BasicBlock(caller, "entry")))
+    x = caller.parameters[1]
+
+    # the attributes are replaced, but not the calling convention
+    call = call!(builder, ft, f, [x, x])
+    push!(call.function_attributes, EnumAttribute("noinline"))
+    push!(call.argument_attributes[1], EnumAttribute("zeroext"))
+    @test copy_attribute_list!(call, src) === call
+    @test collect(call.function_attributes) == collect(f.function_attributes)
+    @test collect(call.return_attributes) == collect(f.return_attributes)
+    @test isempty(call.argument_attributes[1])
+    @test collect(call.argument_attributes[2]) == collect(f.parameter_attributes[2])
+    @test call.callconv == LLVM.API.LLVMCCallConv
+
+    # from another call
+    other = call!(builder, ft, f, [x, x])
+    copy_attribute_list!(other, call)
+    @test haskey(other.function_attributes, :nounwind)
+    @test haskey(other.argument_attributes[2], :signext)
+
+    @dispose ctx2=Context() mod2=LLVM.Module("OtherModule") begin
+        g = LLVM.Function(mod2, "g", LLVM.FunctionType(LLVM.VoidType()))
+        @test_throws ArgumentError copy_attribute_list!(call, g)
+    end
+
+    ret!(builder, call)
+    verify(mod)
+end
+end
+
 @testset "creating instructions without a builder" begin
 @dispose ctx=Context(; opaque_pointers=true) builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     T = LLVM.Int32Type()

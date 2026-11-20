@@ -36,6 +36,9 @@
   fold constant operands, and don't set a debug location. Without an insertion point, the
   instruction isn't inserted yet.
 
+- `copy_attribute_list!(call, f)` replaces the attributes of a call site by those of a
+  function or another call site, like C++'s `CallBase::setAttributes(f->getAttributes())`.
+
 
 ## LLVM.jl v10.6
 

@@ -1197,6 +1197,13 @@ LLVMValueRef LLVMExtraCallBaseWithOperandBundles(LLVMValueRef Call,
   return wrap(CallBase::Create(unwrap<CallBase>(Call), OBs));
 }
 
+void LLVMExtraCopyAttributeList(LLVMValueRef Dst, LLVMValueRef Src) {
+  Value *S = unwrap(Src);
+  AttributeList Attrs = isa<Function>(S) ? cast<Function>(S)->getAttributes()
+                                         : cast<CallBase>(S)->getAttributes();
+  unwrap<CallBase>(Dst)->setAttributes(Attrs);
+}
+
 
 //
 // Metadata API extensions

@@ -1184,6 +1184,25 @@ return_attributes(instr::LLVM.CallBase) = CallSiteAttrSet(instr, LLVM.API.LLVMAt
 @property CallBase argument_attributes
 @property CallBase return_attributes
 
+@vocabulary IR copy_attribute_list!
+
+"""
+    copy_attribute_list!(dest::CallBase, src::Union{LLVM.Function,CallBase})
+
+Replace the attributes of the call site `dest` (its function, return and argument
+attributes) by those of the function or call site `src`, like C++'s
+`dest->setAttributes(src->getAttributes())`, e.g., to give a new call the attributes of the
+function it calls. Attributes that only `dest` had are removed, and argument attributes are
+copied by position. Other properties, like the calling convention, are not copied. Returns
+`dest`.
+"""
+function copy_attribute_list!(dest::CallBase, src::Union{Function,CallBase})
+    API.LLVMGetValueContext(dest) == API.LLVMGetValueContext(src) ||
+        throw(ArgumentError("Cannot copy attributes from another context"))
+    API.LLVMExtraCopyAttributeList(dest, src)
+    return dest
+end
+
 function Base.collect(iter::CallSiteAttrSet)
     elems = Vector{LLVM.API.LLVMAttributeRef}(undef, length(iter))
     if length(iter) > 0

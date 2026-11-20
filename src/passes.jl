@@ -2153,6 +2153,7 @@ end
 @function_pass "helloworld" HelloWorldPass
 @function_pass "trigger-crash-function" TriggerCrashFunctionPass since=19
 @function_pass "infer-address-spaces" InferAddressSpacesPass
+@function_pass "infer-alignment" InferAlignmentPass since=18
 @function_pass "instcombine" InstCombinePass false
 """
     InstCombinePass(; options...) -> String

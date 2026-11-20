@@ -14,6 +14,8 @@
   all of them, which moved the uses of the unchanged operands to the front of their use
   lists.
 
+- `InferAlignmentPass()` (LLVM 18 and later).
+
 
 ## LLVM.jl v10.6
 

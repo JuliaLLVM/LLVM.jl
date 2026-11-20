@@ -528,6 +528,65 @@ end
     end
 end
 
+@testset "loop IDs" begin
+    @dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i64 %n) !dbg !3 {
+        entry:
+          br label %loop, !dbg !6
+        loop:
+          %i = phi i64 [ 0, %entry ], [ %i.next, %loop ]
+          %i.next = add i64 %i, 1
+          %c = icmp ult i64 %i.next, %n
+          br i1 %c, label %loop, label %exit, !llvm.loop !7
+        exit:
+          ret void
+        }
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!2}
+        !0 = distinct !DICompileUnit(language: DW_LANG_C, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "f.c", directory: "/")
+        !2 = !{i32 2, !"Debug Info Version", i32 3}
+        !3 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !4, unit: !0, spFlags: DISPFlagDefinition)
+        !4 = !DISubroutineType(types: !5)
+        !5 = !{null}
+        !6 = !DILocation(line: 2, scope: !3)
+        !7 = distinct !{!7, !8, !9}
+        !8 = !DILocation(line: 3, scope: !3)
+        !9 = !{!"llvm.loop.mustprogress"}""") begin
+        with_analyses(mod, "f") do fn, am
+            loop = only(collect(am[LoopInfo]))
+            latch = loop.latch.terminator
+            id = loop_id(loop)
+            @test id == latch.metadata[LLVM.MD_loop]
+            @test start_location(loop).line == 3
+
+            # a new loop ID, which refers to itself
+            props = Metadata[MDString("llvm.loop.unroll.disable")]
+            new_id = MDNode([nothing; props]; distinct=true)
+            @test new_id != MDNode([nothing; props]; distinct=true)
+            @test new_id.operands[1] === nothing
+            new_id.operands[1] = new_id
+            @test loop_id!(loop, new_id) === loop
+            @test loop_id(loop) == new_id
+            @test latch.metadata[LLVM.MD_loop] == new_id
+            @test_throws ArgumentError loop_id!(loop, MDNode(props))
+
+            # LLVM can't find a location among null operands
+            null_id = MDNode([nothing, nothing]; distinct=true)
+            null_id.operands[1] = null_id
+            loop_id!(loop, null_id)
+            @test_throws ArgumentError start_location(loop)
+
+            # without a loop ID, the start is the location of the preheader's terminator
+            loop_id!(loop, nothing)
+            @test loop_id(loop) === nothing
+            @test !haskey(latch.metadata, LLVM.MD_loop)
+            @test start_location(loop).line == 2
+        end
+    end
+end
+
 @testset "dominance of uses and blocks" begin
     @dispose ctx=Context() mod=parse(LLVM.Module, """
         define i64 @f(i1 %c, i64 %x) {
@@ -541,9 +600,12 @@ end
           %p = phi i64 [ %b, %then ], [ %a, %entry ]
           %q = add i64 %p, %a
           ret i64 %q
+        dead:
+          ret i64 0
         }""") begin
+        verify(mod)
         fn = mod.functions["f"]
-        entry, then, join = fn.blocks
+        entry, then, join, dead = fn.blocks
         a = first(entry.instructions)
         b = first(then.instructions)
         p, q = collect(join.instructions)[1:2]
@@ -557,6 +619,15 @@ end
             end
             @test all(use -> dominates(dt, a, use), a.uses)
             @test !dominates(dt, b, first(a.uses))
+
+            # an instruction dominates the blocks that its block strictly dominates
+            @test dominates(dt, a, join)
+            @test !dominates(dt, a, entry)
+            @test !dominates(dt, b, join)
+            # and unreachable ones
+            @test dominates(dt, b, dead)
+            @test isreachable(dt, then)
+            @test !isreachable(dt, dead)
         end
     end
 end

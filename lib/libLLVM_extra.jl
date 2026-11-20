@@ -217,6 +217,10 @@ end
     ccall((:LLVMSetMetadata2, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint, LLVMMetadataRef), Inst, KindID, Node)
 end
 
+@llvmapi function LLVMExtraMDTupleGetDistinct(lib::Library, C, MDs, Count)
+    ccall((:LLVMExtraMDTupleGetDistinct, libLLVMExtra), LLVMMetadataRef, (LLVMContextRef, Ptr{LLVMMetadataRef}, Csize_t), C, MDs, Count)
+end
+
 mutable struct LLVMOrcOpaqueIRCompileLayer end
 
 const LLVMOrcIRCompileLayerRef = Ptr{LLVMOrcOpaqueIRCompileLayer}
@@ -1443,6 +1447,18 @@ end
     ccall((:LLVMExtraLoopIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMValueRef), L, V)
 end
 
+@llvmapi function LLVMExtraLoopGetLoopID(lib::Library, L)
+    ccall((:LLVMExtraLoopGetLoopID, libLLVMExtra), LLVMMetadataRef, (LLVMLoopRef,), L)
+end
+
+@llvmapi function LLVMExtraLoopSetLoopID(lib::Library, L, LoopID)
+    ccall((:LLVMExtraLoopSetLoopID, libLLVMExtra), Cvoid, (LLVMLoopRef, LLVMMetadataRef), L, LoopID)
+end
+
+@llvmapi function LLVMExtraLoopGetStartLoc(lib::Library, L)
+    ccall((:LLVMExtraLoopGetStartLoc, libLLVMExtra), LLVMMetadataRef, (LLVMLoopRef,), L)
+end
+
 @llvmapi function LLVMExtraScalarEvolutionForgetValue(lib::Library, SE, V)
     ccall((:LLVMExtraScalarEvolutionForgetValue, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef, LLVMValueRef), SE, V)
 end
@@ -1633,6 +1649,14 @@ end
 
 @llvmapi function LLVMExtraDominatorTreeBlockDominates(lib::Library, Tree, A, B)
     ccall((:LLVMExtraDominatorTreeBlockDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef, LLVMBasicBlockRef), Tree, A, B)
+end
+
+@llvmapi function LLVMExtraDominatorTreeInstructionDominatesBlock(lib::Library, Tree, Inst, BB)
+    ccall((:LLVMExtraDominatorTreeInstructionDominatesBlock, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMBasicBlockRef), Tree, Inst, BB)
+end
+
+@llvmapi function LLVMExtraDominatorTreeIsReachableFromEntry(lib::Library, Tree, BB)
+    ccall((:LLVMExtraDominatorTreeIsReachableFromEntry, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef), Tree, BB)
 end
 
 @llvmapi function LLVMExtraDominatorTreeRecalculate(lib::Library, Tree, F)

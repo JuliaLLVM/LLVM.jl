@@ -117,6 +117,9 @@ void LLVMExtraEraseNamedMetadata(LLVMNamedMDNodeRef NMD);
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New);
 LLVMMetadataRef LLVMGetMetadata2(LLVMValueRef Inst, unsigned KindID);
 void LLVMSetMetadata2(LLVMValueRef Inst, unsigned KindID, LLVMMetadataRef Node);
+// a new distinct tuple node, whose operands may be NULL (`MDTuple::getDistinct`)
+LLVMMetadataRef LLVMExtraMDTupleGetDistinct(LLVMContextRef C, LLVMMetadataRef *MDs,
+                                            size_t Count);
 
 // ORC API extensions
 typedef struct LLVMOrcOpaqueIRCompileLayer *LLVMOrcIRCompileLayerRef;
@@ -1297,6 +1300,12 @@ LLVMBasicBlockRef LLVMExtraLoopGetLatch(LLVMLoopRef L);
 LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L);
 // whether a value is defined outside of a loop
 LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V);
+// the loop ID (the `!llvm.loop` node of the latches' terminators) of a loop, or NULL if
+// the latches don't agree on a valid one, and set it on every latch (NULL to remove it)
+LLVMMetadataRef LLVMExtraLoopGetLoopID(LLVMLoopRef L);
+void LLVMExtraLoopSetLoopID(LLVMLoopRef L, LLVMMetadataRef LoopID);
+// the debug location of the start of a loop (`Loop::getStartLoc`), or NULL
+LLVMMetadataRef LLVMExtraLoopGetStartLoc(LLVMLoopRef L);
 
 // forget what scalar evolution knows about a value (and the values that use it), about a
 // loop (and its nested loops), or about which expressions are invariant in which loops,
@@ -1452,6 +1461,11 @@ LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree
                                                        LLVMValueRef Inst, LLVMUseRef U);
 LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
                                               LLVMBasicBlockRef B);
+LLVMBool LLVMExtraDominatorTreeInstructionDominatesBlock(LLVMDominatorTreeRef Tree,
+                                                         LLVMValueRef Inst,
+                                                         LLVMBasicBlockRef BB);
+LLVMBool LLVMExtraDominatorTreeIsReachableFromEntry(LLVMDominatorTreeRef Tree,
+                                                    LLVMBasicBlockRef BB);
 // recompute a dominator tree for the current CFG of a function
 void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F);
 // split the block containing `SplitBefore` before it, and insert a conditional branch on

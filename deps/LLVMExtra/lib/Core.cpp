@@ -419,6 +419,11 @@ void LLVMSetMetadata2(LLVMValueRef Inst, unsigned KindID, LLVMMetadataRef Node) 
   unwrap<Instruction>(Inst)->setMetadata(KindID, Node ? unwrap<MDNode>(Node) : nullptr);
 }
 
+LLVMMetadataRef LLVMExtraMDTupleGetDistinct(LLVMContextRef C, LLVMMetadataRef *MDs,
+                                            size_t Count) {
+  return wrap(MDTuple::getDistinct(*unwrap(C), ArrayRef<Metadata *>(unwrap(MDs), Count)));
+}
+
 
 //
 // ORC API extensions

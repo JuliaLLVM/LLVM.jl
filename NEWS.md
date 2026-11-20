@@ -1,6 +1,12 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.7
+
+- `LLVM.pointer_alignment` returns an `Int64`, so that alignments of 2^31 and more don't
+  overflow on 32-bit hosts.
+
+
 ## LLVM.jl v10.6
 
 - New wrappers of C++ APIs that passes written in Julia need, mostly to port LLVM passes

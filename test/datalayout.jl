@@ -111,7 +111,7 @@ end
         @g = global i64 0, align 32
         @h = external global i64
 
-        define void @f(ptr align 8 %p, ptr %q) {
+        define void @f(ptr align 8 %p, ptr %q, ptr align 4294967296 %r) {
           %a = alloca i64, align 16
           %c = call align 4 ptr @get()
           ret void
@@ -119,12 +119,13 @@ end
 
         declare ptr @get()""") begin
     f = mod.functions["f"]
-    p, q = f.parameters
+    p, q, r = f.parameters
     a, c = f.entry.instructions
     @test LLVM.pointer_alignment(mod.globals["g"], dl) == 32
     @test LLVM.pointer_alignment(mod.globals["h"], dl) == 8    # the ABI alignment of i64
     @test LLVM.pointer_alignment(p, dl) == 8
     @test LLVM.pointer_alignment(q, dl) == 1
+    @test LLVM.pointer_alignment(r, dl) === Int64(2)^32
     @test LLVM.pointer_alignment(a, dl) == 16
     @test LLVM.pointer_alignment(c, dl) == 4
     @test LLVM.pointer_alignment(const_inttoptr(ConstantInt(Int64(48)),

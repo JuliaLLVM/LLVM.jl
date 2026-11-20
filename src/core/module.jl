@@ -108,8 +108,8 @@ The ifuncs of the module, as a view that can be iterated, and indexed by name
 The module flags of the module, as a dictionary-like view mapping the name of each flag to
 its value. Flags can be looked up by name, and added using
 `mod.flags[name, behavior] = md`, where `behavior` is an `LLVM.ModuleFlagBehavior.T`
-that determines how the flag is merged when linking modules. Module flags cannot be
-removed.
+that determines how the flag is merged when linking modules, and which
+[`flag_behavior`](@ref) returns. Module flags cannot be removed.
 
     mod.sdk_version
     mod.sdk_version = version::VersionNumber
@@ -345,15 +345,19 @@ Base.empty!(set::ModuleUsedSet) = setdiff!(set, collect(set))
 ## textual IR handling
 
 """
-    parse(::Type{Module}, ir::AbstractString)
+    parse(::Type{Module}, ir::AbstractString; name::AbstractString="")
 
 Parse the given LLVM IR string into a module.
+
+`name` identifies the input, like the name of the file that `opt` reads: it is the name of
+the module, its `source_filename` unless the IR specifies one, and the file name in parser
+errors.
 """
-function Base.parse(::Type{Module}, ir::AbstractString)
+function Base.parse(::Type{Module}, ir::AbstractString; name::AbstractString="")
     ir = String(ir)
     data = unsafe_wrap(Vector{UInt8}, ir)
     ctx = context()
-    membuf = MemoryBuffer(data, "", false)
+    membuf = MemoryBuffer(data, name, false)
 
     out_ref = Ref{API.LLVMModuleRef}()
     out_error = Ref{Cstring}()
@@ -414,19 +418,23 @@ function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
 end
 
 """
-    parse(::Type{Module}, data::Vector; lazy::Bool=false)
+    parse(::Type{Module}, data::Vector; lazy::Bool=false, name::AbstractString="")
 
 Parse bitcode from the given byte vector into a module.
 
 If `lazy` is `true`, `data` must remain live (unmutated) for the module's lifetime, as the
 bitcode reader keeps reading from it on demand.
+
+`name` identifies the input, like the name of the file that `opt` reads: it is the name of
+the module. The `source_filename` is part of the bitcode.
 """
-function Base.parse(::Type{Module}, data::Vector; lazy::Bool=false)
+function Base.parse(::Type{Module}, data::Vector; lazy::Bool=false,
+                    name::AbstractString="")
     if lazy
         # the module takes ownership of the buffer
-        parse(Module, MemoryBuffer(data, "", false); lazy=true)
+        parse(Module, MemoryBuffer(data, name, false); lazy=true)
     else
-        @dispose membuf = MemoryBuffer(data, "", false) begin
+        @dispose membuf = MemoryBuffer(data, name, false) begin
             parse(Module, membuf)
         end
     end
@@ -883,11 +891,17 @@ function Base.haskey(iter::ModuleFlagDict, name::AbstractString)
     API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
-function Base.getindex(iter::ModuleFlagDict, name::AbstractString)
+function Base.get(iter::ModuleFlagDict, name::AbstractString, default)
     name = api_string(name)
     objref = API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name))
-    objref == C_NULL && throw(KeyError(name))
+    objref == C_NULL && return default
     return library!(() -> Metadata(objref), iter.mod.library)
+end
+
+function Base.getindex(iter::ModuleFlagDict, name::AbstractString)
+    md = get(iter, name, nothing)
+    md === nothing && throw(KeyError(name))
+    return md
 end
 
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
@@ -899,6 +913,31 @@ function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
     end
     push!(operands(get!(metadata(iter.mod), "llvm.module.flags")), flag)
     return iter
+end
+
+@vocabulary IR flag_behavior
+
+"""
+    flag_behavior(mod.flags, name) -> Union{LLVM.ModuleFlagBehavior.T, Nothing}
+
+Get the behavior of the module flag `name`, which determines how the flag is merged when
+linking modules, or `nothing` if the module has no such flag. If there are several flags
+with that name, this is the behavior of the first one, whose value `mod.flags[name]` returns.
+"""
+flag_behavior(iter::ModuleFlagDict, name::AbstractString) =
+    context!(() -> _flag_behavior(iter, name), context(iter.mod))
+function _flag_behavior(iter::ModuleFlagDict, name::AbstractString)
+    node = get(metadata(iter.mod), "llvm.module.flags", nothing)
+    node === nothing && return nothing
+    for flag in operands(node)
+        id, key, _ = operands(flag)
+        if String(key) == name
+            # the behaviors are numbered from 1 in the IR, and from 0 in the C API. the
+            # verifier checks the unsigned value, which can be of any integer type.
+            return API.LLVMModuleFlagBehavior(convert(UInt64, Value(id)) - 1)
+        end
+    end
+    return nothing
 end
 
 

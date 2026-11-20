@@ -72,7 +72,7 @@ The memory effects of the function, as described by its `memory` attribute, or
 `MemoryEffects(:readwrite)` if it doesn't have one. The effects are returned as a
 [`FunctionMemoryEffects`](@ref) view, which can be used to change the access kind of a
 single location, e.g., `f.memory_effects[:argmem] = :read`. Assigning adds a `memory`
-attribute, replacing any existing one. On LLVM 15, this uses the attributes that the
+attribute, replacing any existing one. On LLVM 15, this replaces the attributes that the
 `memory` attribute replaced, which can't represent all effects (see
 [`MemoryEffects`](@ref)).
 

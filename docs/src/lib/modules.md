@@ -27,6 +27,7 @@ write(io::IO, mod::LLVM.Module)
 
 ```@docs
 named_value
+flag_behavior
 sort!(::LLVM.ModuleGlobalSet)
 sort!(::LLVM.ModuleFunctionSet)
 get!(::LLVM.ModuleMetadataIterator, ::AbstractString)

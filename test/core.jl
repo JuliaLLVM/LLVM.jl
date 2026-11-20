@@ -2623,6 +2623,28 @@ end
         @test mod.source_filename == "parsed.ll"
     end
 
+    # the name of the input names the module, like the file that `opt` reads
+    @dispose mod=parse(LLVM.Module, "source_filename = \"parsed.ll\""; name="input.ll") begin
+        @test mod.name == "input.ll"
+        @test mod.source_filename == "parsed.ll"
+    end
+    @dispose mod=parse(LLVM.Module, ""; name="input.ll") begin
+        @test mod.name == "input.ll"
+        @test mod.source_filename == "input.ll"
+        bitcode = convert(Vector{UInt8}, mod)
+        for lazy in (false, true)
+            # a lazily-loaded module reads from the vector until it is disposed
+            GC.@preserve bitcode begin
+                @dispose mod2=parse(LLVM.Module, bitcode; lazy, name="input.bc") begin
+                    @test mod2.name == "input.bc"
+                    @test mod2.source_filename == "input.ll"
+                end
+            end
+        end
+    end
+    err = try parse(LLVM.Module, "define"; name="input.ll") catch err; err end
+    @test err isa LLVMException && startswith(err.info, "input.ll:1:")
+
     LLVM.Module("SomeModule") do mod
     end
 end
@@ -4517,6 +4539,30 @@ end
     @test !hasproperty(ft, :next)
 end
 
+# replacing operands only sets the ones that change, keeping the order of the other uses
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        define i64 @f(i64 %x, i64 %y, i64 %z) {
+          %a = add i64 %x, %y
+          %b = add i64 %x, %z
+          ret i64 %b
+        }""")
+    x, y, z = mod.functions["f"].parameters
+    a, b, _ = mod.functions["f"].entry.instructions
+    order = collect(x.users)
+    @test order == [b, a]
+    @test replace!(a.operands, y => z) == a.operands
+    @test a.operands == [x, z]
+    @test collect(x.users) == order
+    @test replace!(op -> op == z ? y : op, a.operands) == a.operands
+    @test a.operands == [x, y]
+    @test collect(x.users) == order
+    # `count` limits the number of operands that are replaced
+    @test replace!(a.operands, x => z, y => z; count=1) == a.operands
+    @test a.operands == [z, y]
+    dispose(mod)
+end
+
 # module flags with the behaviors that the C API lacks
 @dispose ctx=Context() begin
     mod = parse(LLVM.Module, """
@@ -4534,6 +4580,27 @@ end
     @test occursin("!{i32 8, !\"min2\", i32 2}", string(mod))
     @test length(flags) == 4
     @test verification_error(mod) === nothing
+    @test flag_behavior(flags, "max") === LLVM.ModuleFlagBehavior.Max
+    @test flag_behavior(flags, "min2") === LLVM.ModuleFlagBehavior.Min
+    @test flag_behavior(flags, "none") === nothing
+    @test get(flags, "max", nothing) == one
+    @test get(flags, "none", nothing) === nothing
+    dispose(mod)
+end
+
+# the behavior of a flag is that of the first one with its name, which can be repeated for
+# `Require` flags, and the behavior can be encoded using any integer type
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        !llvm.module.flags = !{!0, !1, !2}
+        !0 = !{i32 3, !"flag", !{!"other", i1 true}}
+        !1 = !{i32 1, !"flag", i32 2}
+        !2 = !{i1 true, !"other", i1 true}
+        """)
+    @test verification_error(mod) === nothing
+    @test flag_behavior(mod.flags, "flag") === LLVM.ModuleFlagBehavior.Require
+    @test mod.flags["flag"] isa MDTuple
+    @test flag_behavior(mod.flags, "other") === LLVM.ModuleFlagBehavior.Error
     dispose(mod)
 end
 

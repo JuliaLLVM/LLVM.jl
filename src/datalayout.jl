@@ -117,13 +117,14 @@ is_legal_integer(dl::DataLayout, width::Integer) =
 
 Get the alignment in bytes that the pointer `ptr` is known to have from the IR. This is
 like C++'s `Value::getPointerAlignment`, e.g., the alignment of a global variable or an
-`alloca`, or from `align` attributes, and 1 if nothing is known.
+`alloca`, or from `align` attributes, and 1 if nothing is known. The result is an `Int64`,
+as LLVM supports alignments up to 2^32.
 """
 function pointer_alignment(ptr::Value, dl::DataLayout)
     typ = value_type(ptr)
     typ isa PointerType ||
         throw(ArgumentError("Expected a pointer, got a value of type $typ"))
-    Int(API.LLVMExtraGetPointerAlignment(ptr, dl))
+    Int64(API.LLVMExtraGetPointerAlignment(ptr, dl))
 end
 
 function check_layout_type(typ::LLVMType)

@@ -452,7 +452,10 @@ MemoryEffects(:read; argmem=:readwrite) # memory(read, argmem: readwrite)
     properties of functions and calls use the attributes that it replaced instead, which
     can only represent effects that are the same for all locations they apply to: all
     locations, `argmem`, `inaccessiblemem`, or both of those. Assigning other effects
-    throws an `ArgumentError`, while `EnumAttribute(effects)` always does.
+    throws an `ArgumentError`, while `EnumAttribute(effects)` always does. Assignment
+    replaces all of these attributes, like it replaces the `memory` attribute on later
+    versions: e.g., assigning `MemoryEffects(:none)` to a call with the `argmemonly` and
+    `readonly` attributes leaves it with just `readnone`.
 
 # Properties
 

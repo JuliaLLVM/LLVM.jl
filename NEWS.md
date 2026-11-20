@@ -1,6 +1,26 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.7
+
+- `LLVM.pointer_alignment` returns an `Int64`, so that alignments of 2^31 and more don't
+  overflow on 32-bit hosts.
+
+- `flag_behavior(mod.flags, name)` returns the behavior of a module flag, including the
+  `Max` and `Min` behaviors that the C API cannot represent, and `get(mod.flags, name,
+  default)` looks up a flag that may be missing.
+
+- `replace!(user.operands, old => new)` only sets the operands that change. It used to set
+  all of them, which moved the uses of the unchanged operands to the front of their use
+  lists.
+
+- `InferAlignmentPass()` (LLVM 18 and later).
+
+- `parse(LLVM.Module, ir; name)` and `parse(LLVM.Module, bitcode; name)` take the name of
+  the input, like the file name that `opt` reads, which names the module. For textual IR,
+  it is also the default `source_filename` and the file name in parser errors.
+
+
 ## LLVM.jl v10.6
 
 - New wrappers of C++ APIs that passes written in Julia need, mostly to port LLVM passes

@@ -56,6 +56,13 @@ Base.@nospecializeinfer function register(@nospecialize(T::Type{<:Metadata}), ki
     metadata_kinds[kind+1] = T
 end
 
+# the kind of the metadata that is wrapped by `T`
+function metadata_kind(@nospecialize(T::Type{<:Metadata}))
+    i = findfirst(==(T), metadata_kinds)
+    i === nothing && throw(ArgumentError("$T is not a kind of metadata"))
+    return Cuint(i - 1)
+end
+
 function refcheck(::Type{T}, ref::API.LLVMMetadataRef) where T<:Metadata
     ref==C_NULL && throw(UndefRefError())
     if typecheck_enabled

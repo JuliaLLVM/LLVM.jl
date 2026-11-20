@@ -639,6 +639,120 @@ end
     end
 end
 
+@testset "function body moving" begin
+    ir = """
+        @g = addrspace(1) global i32 0
+
+        declare i32 @personality(...)
+
+        define internal fastcc i32 @f(ptr addrspace(1) noalias %p, i32 %x) #0 personality ptr @personality !dbg !4 {
+        entry:
+          %a = load i32, ptr addrspace(1) %p, align 4, !dbg !7
+          %b = load i32, ptr addrspace(1) @g, align 4, !dbg !7
+          %c = add i32 %a, %b, !dbg !7
+          %d = add i32 %c, %c, !dbg !7
+          %f = mul i32 %a, %x
+          br label %exit
+        exit:
+          %e = phi i32 [ %d, %entry ]
+          ret i32 %e
+        }
+
+        attributes #0 = { nounwind }
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+        !0 = distinct !DICompileUnit(language: DW_LANG_C, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "f.c", directory: "/")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !4 = distinct !DISubprogram(name: "f", scope: !1, file: !1, type: !5, unit: !0, spFlags: DISPFlagDefinition)
+        !5 = !DISubroutineType(types: !6)
+        !6 = !{}
+        !7 = !DILocation(line: 1, scope: !4)
+        """
+    type_mapper(typ) = typ isa LLVM.PointerType ? LLVM.PointerType() : typ
+
+    @dispose ctx=Context(; opaque_pointers=true) mod=parse(LLVM.Module, ir) vmap=ValueMap() begin
+        f = mod.functions["f"]
+        g = mod.globals["g"]
+        new_g = GlobalVariable(mod, LLVM.Int32Type(), "new_g")
+        vmap[g] = new_g
+        new_f = LLVM.Function(mod, "new_f",
+                              LLVM.FunctionType(LLVM.Int32Type(),
+                                                [LLVM.PointerType(), LLVM.Int32Type()]))
+        for (arg, new_arg) in zip(f.parameters, new_f.parameters)
+            vmap[arg] = new_arg
+        end
+
+        @test_throws ArgumentError clone_attributes_into!(new_f, f)
+        clone_attributes_into!(new_f, f; value_map=vmap, type_mapper)
+        @test new_f.callconv == f.callconv
+        @test new_f.personality == mod.functions["personality"]
+        @test EnumAttribute("nounwind") in collect(new_f.function_attributes)
+        @test EnumAttribute("noalias") in collect(new_f.parameter_attributes[1])
+        @test isempty(new_f.blocks)
+
+        for (kind, md) in f.metadata
+            add_metadata!(new_f, kind, map_metadata(md, vmap; reuse_and_mutate_distinct_mds=true,
+                                                    ignore_missing_locals=true))
+        end
+        insts = [inst for bb in f.blocks for inst in bb.instructions]
+        # make the first use of %a that of the first user, unlike what cloning gives
+        insts[3].operands[1] = insts[1]
+        use_order(val) = [(LLVM.user(use), use.operand_index) for use in LLVM.uses(val)]
+        @test first.(use_order(insts[1])) == [insts[3], insts[5]]
+        orders = map(use_order, [insts; collect(f.blocks)])
+        for bb in collect(f.blocks)
+            move!(bb, LLVM.at_end(new_f))
+        end
+        remap_instructions!(new_f, vmap; type_mapper, identity_md=DILocation,
+                            reuse_and_mutate_distinct_mds=true, ignore_missing_locals=true)
+        erase!(f)
+        @test verify(mod) === nothing
+
+        # the instructions are the same, with their operands and types mapped
+        @test [inst for bb in new_f.blocks for inst in bb.instructions] == insts
+        @test map(use_order, [insts; collect(new_f.blocks)]) == orders
+        @test insts[1].operands[1] == new_f.parameters[1]
+        @test insts[2].operands[1] == new_g
+        @test insts[7].operands[1] == insts[4]
+        # the distinct subprogram is reused, and the location mapped to itself
+        loc = insts[1].metadata[LLVM.MD_dbg]
+        @test vmap.metadata[loc] == loc
+        @test LLVM.subprogram(new_f) == loc.scope
+    end
+
+    # a type mapper that throws does so before anything is remapped
+    @dispose ctx=Context(; opaque_pointers=true) mod=parse(LLVM.Module, ir) vmap=ValueMap() begin
+        f = mod.functions["f"]
+        g = mod.globals["g"]
+        vmap[g] = GlobalVariable(mod, LLVM.Int32Type(), "new_g")
+        err = try
+            remap_instructions!(f, vmap; ignore_missing_locals=true,
+                                type_mapper=_ -> throw(ArgumentError("type mapper error")))
+            nothing
+        catch err
+            err
+        end
+        @test err isa LLVM.CallbackException
+        @test err.ex isa ArgumentError
+        @test collect(first(f.blocks).instructions)[2].operands[1] == g
+
+        @test_throws ArgumentError remap_instructions!(f, vmap; identity_md=LLVM.DIScope)
+
+        # a materializer that throws for a parameter, which isn't in the map
+        err = try
+            remap_instructions!(f, vmap;
+                                materializer=_ -> throw(ArgumentError("materializer error")))
+            nothing
+        catch err
+            err
+        end
+        @test err isa LLVM.CallbackException
+        @test err.ex isa ArgumentError
+    end
+end
+
 @testset "function cloning with a value map" begin
     # rebuild two functions that call each other with another signature, like when
     # changing address spaces, using a single map

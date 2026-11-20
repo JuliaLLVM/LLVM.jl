@@ -1,6 +1,9 @@
 #include "LLVMExtra.h"
 
+#include <llvm-c/DebugInfo.h>
+
 #include <algorithm>
+#include <climits>
 #include <iterator>
 
 #if LLVM_VERSION_MAJOR >= 17
@@ -19,11 +22,12 @@
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/DiagnosticInfo.h>
-#if LLVM_VERSION_MAJOR >= 19
+#if LLVM_VERSION_MAJOR >= 18
 #include <llvm/IR/DebugProgramInstruction.h>
 #endif
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/InstIterator.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/InlineAsm.h>
@@ -53,6 +57,7 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
+#include <llvm/Transforms/Utils/ValueMapper.h>
 
 using namespace llvm;
 
@@ -756,9 +761,13 @@ namespace {
 class MapperPrepass {
 public:
   MapperPrepass(ValueToValueMapTy &VM, LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
-                void *TypeMapperData, bool KeepCompileUnits = false)
+                void *TypeMapperData, bool KeepCompileUnits = false,
+                unsigned IdentityMDKind = UINT_MAX)
       : VM(VM), TypeMapper(TypeMapper), TypeMapperData(TypeMapperData),
-        KeepCompileUnits(KeepCompileUnits) {}
+        KeepCompileUnits(KeepCompileUnits), IdentityMDKind(IdentityMDKind) {}
+
+  // the metadata that the IdentityMDKind predicate maps to itself, and that isn't mapped yet
+  SmallVector<Metadata *, 16> IdentityMDs;
 
   // every type once, also if the type mapper failed on it (only the first failure is reported)
   void type(Type *Ty) {
@@ -829,7 +838,14 @@ public:
         metadata(Arg);
       return;
     }
-    if (isa<MDString>(MD) || isa<DistinctMDOperandPlaceholder>(MD) ||
+    if (isa<MDString>(MD))
+      return;
+    if (IdentityMDKind != UINT_MAX &&
+        LLVMGetMetadataKind(wrap(const_cast<Metadata *>(MD))) == IdentityMDKind) {
+      IdentityMDs.push_back(const_cast<Metadata *>(MD));
+      return;
+    }
+    if (isa<DistinctMDOperandPlaceholder>(MD) ||
         (KeepCompileUnits && isa<DICompileUnit>(MD)))
       return;
     for (const MDOperand &Op : cast<MDNode>(MD)->operands())
@@ -852,7 +868,7 @@ public:
         instruction(I);
   }
 
-private:
+  // Mapper::remapInstruction and Mapper::remapDbgRecord
   void instruction(Instruction &I) {
     type(I.getType());
     if (auto *AI = dyn_cast<AllocaInst>(&I)) {
@@ -912,6 +928,16 @@ private:
       if (DVR.isDbgAssign())
         metadata(DVR.getAssignID());
     }
+#elif LLVM_VERSION_MAJOR >= 18
+    // Mapper::remapDPValue
+    for (DPValue &DPV : I.getDbgValueRange()) {
+      metadata(DPV.getVariable());
+      metadata(DPV.getDebugLoc().getAsMDNode());
+      if (DPV.isDbgAssign())
+        value(DPV.getAddress());
+      for (Value *V : DPV.location_ops())
+        value(V);
+    }
 #endif
   }
 
@@ -920,6 +946,7 @@ private:
   void *TypeMapperData;
   // compile units that LLVM doesn't map (when cloning within a module)
   bool KeepCompileUnits;
+  unsigned IdentityMDKind;
   SmallPtrSet<const Value *, 32> VisitedValues;
   SmallPtrSet<const Metadata *, 32> VisitedMetadata;
   SmallPtrSet<Type *, 16> VisitedTypes;
@@ -939,6 +966,95 @@ void LLVMExtraPrepareMapMetadata(LLVMMetadataRef MD, LLVMValueMapRef VM,
   MapperPrepass(*unwrap(VM), TypeMapper, TypeMapperData).metadata(unwrap(MD));
 }
 
+void LLVMExtraCloneFunctionAttributesInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
+                                          LLVMValueMapRef VM, LLVMBool ModuleLevelChanges,
+                                          LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                          void *TypeMapperData,
+                                          LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                          void *MaterializerData) {
+  ExternalTypeRemapper TheTypeRemapper(TypeMapper, TypeMapperData);
+  ExternalValueMaterializer TheMaterializer(Materializer, MaterializerData);
+  ValueMapTypeRemapper *TM = TypeMapper ? &TheTypeRemapper : nullptr;
+  ValueMaterializer *Mat = Materializer ? &TheMaterializer : nullptr;
+  Function *NewF = unwrap<Function>(NewFunc);
+  Function *OldF = unwrap<Function>(OldFunc);
+  ValueToValueMapTy &VMap = *unwrap(VM);
+#if LLVM_VERSION_MAJOR >= 20
+  CloneFunctionAttributesInto(NewF, OldF, VMap, ModuleLevelChanges, TM, Mat);
+#else
+  // a copy of LLVM 20's CloneFunctionAttributesInto
+  AttributeList NewAttrs = NewF->getAttributes();
+  NewF->copyAttributesFrom(OldF);
+  NewF->setAttributes(NewAttrs);
+
+  const RemapFlags FuncGlobalRefFlags =
+      ModuleLevelChanges ? RF_None : RF_NoModuleLevelChanges;
+  if (OldF->hasPersonalityFn())
+    NewF->setPersonalityFn(
+        MapValue(OldF->getPersonalityFn(), VMap, FuncGlobalRefFlags, TM, Mat));
+  if (OldF->hasPrefixData())
+    NewF->setPrefixData(MapValue(OldF->getPrefixData(), VMap, FuncGlobalRefFlags, TM, Mat));
+  if (OldF->hasPrologueData())
+    NewF->setPrologueData(
+        MapValue(OldF->getPrologueData(), VMap, FuncGlobalRefFlags, TM, Mat));
+
+  SmallVector<AttributeSet, 4> NewArgAttrs(NewF->arg_size());
+  AttributeList OldAttrs = OldF->getAttributes();
+  for (const Argument &OldArg : OldF->args())
+    if (Argument *NewArg = dyn_cast<Argument>(VMap[&OldArg]))
+      NewArgAttrs[NewArg->getArgNo()] = OldAttrs.getParamAttrs(OldArg.getArgNo());
+  NewF->setAttributes(AttributeList::get(NewF->getContext(), OldAttrs.getFnAttrs(),
+                                         OldAttrs.getRetAttrs(), NewArgAttrs));
+#endif
+}
+
+void LLVMExtraRemapInstructions(LLVMValueRef F, LLVMValueMapRef VM, unsigned Flags,
+                                unsigned IdentityMDKind,
+                                LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                void *TypeMapperData,
+                                LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                void *MaterializerData) {
+  ExternalTypeRemapper TheTypeRemapper(TypeMapper, TypeMapperData);
+  ExternalValueMaterializer TheMaterializer(Materializer, MaterializerData);
+  Function &Fn = *unwrap<Function>(F);
+  ValueToValueMapTy &VMap = *unwrap(VM);
+  RemapFlags RF = toRemapFlags(Flags);
+  bool Identity = IdentityMDKind != UINT_MAX && !(RF & RF_NoModuleLevelChanges);
+#if LLVM_VERSION_MAJOR >= 21
+  MetadataPredicate IdentityMD = [IdentityMDKind](const Metadata *MD) {
+    return LLVMGetMetadataKind(wrap(const_cast<Metadata *>(MD))) == IdentityMDKind;
+  };
+  ValueMapper Mapper(VMap, RF, TypeMapper ? &TheTypeRemapper : nullptr,
+                     Materializer ? &TheMaterializer : nullptr,
+                     Identity ? &IdentityMD : nullptr);
+#else
+  // without a predicate (LLVM 20 takes a set, older versions nothing), map the matching
+  // metadata that the instructions refer to to itself up front, which is what LLVM does when
+  // the predicate first matches
+  if (Identity) {
+    MapperPrepass Prepass(VMap, nullptr, nullptr, false, IdentityMDKind);
+    for (Instruction &I : instructions(Fn))
+      Prepass.instruction(I);
+    for (Metadata *MD : Prepass.IdentityMDs)
+      if (!VMap.getMappedMD(MD))
+        VMap.MD()[MD].reset(MD);
+  }
+  ValueMapper Mapper(VMap, RF, TypeMapper ? &TheTypeRemapper : nullptr,
+                     Materializer ? &TheMaterializer : nullptr);
+#endif
+#if LLVM_VERSION_MAJOR >= 18
+  Module *M = Fn.getParent();
+#endif
+  for (Instruction &I : instructions(Fn)) {
+    Mapper.remapInstruction(I);
+#if LLVM_VERSION_MAJOR >= 19
+    Mapper.remapDbgRecordRange(M, I.getDbgRecordRange());
+#elif LLVM_VERSION_MAJOR >= 18
+    Mapper.remapDPValueRange(M, I.getDbgValueRange());
+#endif
+  }
+}
+
 void LLVMExtraPrepareCloneFunctionInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
                                        LLVMCloneFunctionChangeType Changes,
                                        LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
@@ -948,6 +1064,25 @@ void LLVMExtraPrepareCloneFunctionInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
                           Changes == LLVMCloneFunctionChangeTypeGlobalChanges;
   MapperPrepass(*unwrap(VM), TypeMapper, TypeMapperData, KeepCompileUnits)
       .function(*unwrap<Function>(OldFunc));
+}
+
+void LLVMExtraPrepareCloneFunctionAttributesInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
+                                                 LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                                 void *TypeMapperData) {
+  MapperPrepass Prepass(*unwrap(VM), TypeMapper, TypeMapperData);
+  for (const Use &Op : unwrap<Function>(OldFunc)->operands())
+    Prepass.value(Op);
+}
+
+void LLVMExtraPrepareRemapInstructions(LLVMValueRef F, LLVMValueMapRef VM, unsigned Flags,
+                                       unsigned IdentityMDKind,
+                                       LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                       void *TypeMapperData) {
+  if (Flags & LLVMRemapFlagsNoModuleLevelChanges)
+    IdentityMDKind = UINT_MAX;
+  MapperPrepass Prepass(*unwrap(VM), TypeMapper, TypeMapperData, false, IdentityMDKind);
+  for (Instruction &I : instructions(*unwrap<Function>(F)))
+    Prepass.instruction(I);
 }
 
 LLVMBasicBlockRef LLVMCloneBasicBlock(LLVMBasicBlockRef BB, const char *NameSuffix,

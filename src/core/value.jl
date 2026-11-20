@@ -212,10 +212,12 @@ include("value/constant.jl")
 """
     replace_uses!(old::LLVM.Value, new::LLVM.Value)
 
-Replace all uses of an `old` value in the IR with `new`.
+Replace all uses of an `old` value with `new`, like C++'s `Value::replaceAllUsesWith`.
 
-This does not replace uses in metadata, which must be done separately with
-[`replace_metadata_uses!`](@ref).
+This includes the uses in metadata, e.g., the locations of debug intrinsics, except that
+metadata uses that would become invalid are dropped: those of a constant replaced by a
+non-constant value, and those of a local value replaced by one in a function with another
+`DISubprogram`. To only replace the uses in metadata, use [`replace_metadata_uses!`](@ref).
 """
 replace_uses!(old::Value, new::Value) = API.LLVMReplaceAllUsesWith(old, new)
 

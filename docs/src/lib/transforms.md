@@ -81,6 +81,8 @@ dispose(::ValueMap)
 map_value
 map_metadata
 clone_into!
+clone_attributes_into!
+remap_instructions!
 clone
 ```
 

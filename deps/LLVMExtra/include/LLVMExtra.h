@@ -224,11 +224,33 @@ void LLVMExtraCloneFunctionInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
                                 LLVMValueRef (*Materializer)(LLVMValueRef, void *),
                                 void *MaterializerData);
 
-// Prepare mapping a value or metadata, or cloning a function, with a value map and type
-// mapper: call the type mapper on every type that the operation will map (so that a type
-// mapper that fails can do so before anything is mapped), and remove the entries for
-// deleted values that the operation would look up (the value mapper expects every entry to
-// have a value). The type mapper may be NULL.
+// Copy the attributes of OldFunc to NewFunc, like CloneFunctionAttributesInto: the function
+// and return attributes, the parameter attributes of the arguments that VM maps to arguments
+// of NewFunc, and the other properties of the function (like its calling convention and
+// GC), with the personality function and prefix and prologue data mapped.
+void LLVMExtraCloneFunctionAttributesInto(LLVMValueRef NewFunc, LLVMValueRef OldFunc,
+                                          LLVMValueMapRef VM, LLVMBool ModuleLevelChanges,
+                                          LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                          void *TypeMapperData,
+                                          LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                          void *MaterializerData);
+
+// Remap the instructions of F in place, and the debug records attached to them, like a
+// ValueMapper's remapInstruction and remapDbgRecordRange. Metadata whose kind (an
+// LLVMMetadataKind) is IdentityMDKind is mapped to itself, like with an IdentityMD predicate;
+// pass UINT_MAX for none.
+void LLVMExtraRemapInstructions(LLVMValueRef F, LLVMValueMapRef VM, unsigned Flags,
+                                unsigned IdentityMDKind,
+                                LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                void *TypeMapperData,
+                                LLVMValueRef (*Materializer)(LLVMValueRef, void *),
+                                void *MaterializerData);
+
+// Prepare mapping a value or metadata, cloning a function or its attributes, or remapping
+// instructions, with a value map and type mapper: call the type mapper on every type that
+// the operation will map (so that a type mapper that fails can do so before anything is
+// mapped), and remove the entries for deleted values that the operation would look up (the
+// value mapper expects every entry to have a value). The type mapper may be NULL.
 void LLVMExtraPrepareMapValue(LLVMValueRef V, LLVMValueMapRef VM,
                               LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
                               void *TypeMapperData);
@@ -237,6 +259,13 @@ void LLVMExtraPrepareMapMetadata(LLVMMetadataRef MD, LLVMValueMapRef VM,
                                  void *TypeMapperData);
 void LLVMExtraPrepareCloneFunctionInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
                                        LLVMCloneFunctionChangeType Changes,
+                                       LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                       void *TypeMapperData);
+void LLVMExtraPrepareCloneFunctionAttributesInto(LLVMValueRef OldFunc, LLVMValueMapRef VM,
+                                                 LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
+                                                 void *TypeMapperData);
+void LLVMExtraPrepareRemapInstructions(LLVMValueRef F, LLVMValueMapRef VM, unsigned Flags,
+                                       unsigned IdentityMDKind,
                                        LLVMTypeRef (*TypeMapper)(LLVMTypeRef, void *),
                                        void *TypeMapperData);
 

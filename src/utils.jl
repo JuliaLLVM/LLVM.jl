@@ -190,9 +190,13 @@ end
 # goes on with values of the types that the constants being rebuilt expect: constants whose
 # type maps to another one are mapped to poison of that type, instead of being rebuilt from
 # operands that may or may not have been mapped. That includes global values that aren't in
-# the map, which LLVM would map to themselves. Other values are mapped by LLVM as usual.
+# the map, which LLVM would map to themselves. Local values (arguments, instructions and
+# blocks) are mapped to themselves, as LLVM aborts when remapping an instruction finds no
+# mapping for one. Other values are mapped by LLVM as usual.
 function failed_mapping(state::MapperCallbackState, val::API.LLVMValueRef)
     null = Base.unsafe_convert(API.LLVMValueRef, C_NULL)
+    (API.LLVMIsAArgument(val) != C_NULL || API.LLVMIsAInstruction(val) != C_NULL ||
+     API.LLVMIsABasicBlock(val) != C_NULL) && return val
     API.LLVMIsAConstant(val) == C_NULL && return null
     typ = API.LLVMTypeOf(val)
     new_typ, ok = mapped_type(state, typ)
@@ -413,7 +417,7 @@ end
 
 ## cloning
 
-@vocabulary IR clone_into!, clone
+@vocabulary IR clone_into!, clone, clone_attributes_into!, remap_instructions!
 
 """
     clone_into!(new::LLVM.Function, old::LLVM.Function; [suffix::AbstractString],
@@ -473,6 +477,114 @@ function clone_into!(new::Function, old::Function, vmap::ValueMap, changes, suff
                           materializer) do tm, tmd, mat, matd
         API.LLVMExtraCloneFunctionInto(new, old, vmap, changes, suffix, tm, tmd, mat, matd)
     end
+end
+
+"""
+    clone_attributes_into!(new::LLVM.Function, old::LLVM.Function;
+                           [value_map::Union{ValueMap,AbstractDict{<:Value,<:Value}}],
+                           [no_module_level_changes::Bool], [type_mapper::Function],
+                           [materializer::Function])
+
+Copy the attributes of the function `old` to the function `new`, like LLVM's
+`CloneFunctionAttributesInto`: its function and return attributes, the attributes of the
+parameters that `value_map` maps to parameters of `new` (at the position of the latter),
+and its other properties, like the calling convention and the garbage collector. The
+`value_map` must map every parameter of `old`, to a parameter of `new` or another value. The
+personality function and prefix and prologue data are mapped with [`map_value`](@ref), with
+the value map, callbacks and `no_module_level_changes` flag given. The attributes are
+copied as they are, so the types of attributes like `byval` are not mapped.
+
+This is the part of [`clone_into!`](@ref) that doesn't concern the body. Together with
+[`remap_instructions!`](@ref), it makes it possible to move the body of a function to
+another one instead of cloning it.
+"""
+function clone_attributes_into!(new::Function, old::Function;
+                                value_map::Union{ValueMap,AbstractDict{<:Value,<:Value}}=Dict{Value,Value}(),
+                                no_module_level_changes::Bool=false, type_mapper=nothing,
+                                materializer=nothing)
+    if value_map isa ValueMap
+        clone_attributes_into!(new, old, value_map, no_module_level_changes, type_mapper,
+                               materializer)
+    else
+        ValueMap() do vmap
+            for (src, dest) in value_map
+                vmap[src] = dest
+            end
+            clone_attributes_into!(new, old, vmap, no_module_level_changes, type_mapper,
+                                   materializer)
+        end
+    end
+    return nothing
+end
+
+function clone_attributes_into!(new::Function, old::Function, vmap::ValueMap,
+                                no_module_level_changes, type_mapper, materializer)
+    # LLVM looks up every parameter, and writes the attributes at the index of its mapping
+    for arg in parameters(old)
+        new_arg = get(vmap, arg, nothing)
+        new_arg === nothing &&
+            throw(ArgumentError("the value map does not map parameter $arg of $(name(old))"))
+        new_arg isa Argument && parent(new_arg) != new &&
+            throw(ArgumentError("the value map maps parameter $arg of $(name(old)) to a parameter of another function than $(name(new))"))
+    end
+    prepare(tm, tmd) = API.LLVMExtraPrepareCloneFunctionAttributesInto(old, vmap, tm, tmd)
+    flags = remap_flags(no_module_level_changes, false, false, false)
+    with_mapper_callbacks(prepare, "function attribute cloning", vmap, flags, type_mapper,
+                          materializer) do tm, tmd, mat, matd
+        API.LLVMExtraCloneFunctionAttributesInto(new, old, vmap, !no_module_level_changes,
+                                                 tm, tmd, mat, matd)
+    end
+end
+
+"""
+    remap_instructions!(f::LLVM.Function, vmap::ValueMap; [type_mapper::Function],
+                        [materializer::Function], [identity_md::Type{<:Metadata}],
+                        [no_module_level_changes::Bool], [ignore_missing_locals::Bool],
+                        [reuse_and_mutate_distinct_mds::Bool])
+
+Remap the instructions of `f` in place using the value map `vmap`, like calling LLVM's
+`ValueMapper::remapInstruction` and `remapDbgRecordRange` on every instruction: their
+operands, metadata and attached debug records are mapped like [`map_value`](@ref) and
+[`map_metadata`](@ref) do, and with a type mapper, their types (including those of
+`alloca`s, getelementptrs and calls) are mapped too. The keyword arguments are those of
+`map_value`, except for `null_map_missing_globals`, which LLVM doesn't support here.
+
+This makes it possible to move the body of a function into another one (e.g., one with
+other parameter types) without cloning it: map its parameters to those of the new function
+in `vmap`, copy its attributes with [`clone_attributes_into!`](@ref) and its metadata with
+[`map_metadata`](@ref) (with the same map and flags), move its blocks with
+[`move!`](@ref), and remap the instructions with `ignore_missing_locals` set. The
+instructions and blocks, which aren't in the map, then stay as they are, and so does the
+order of their uses (LLVM sets the operands that are in the map, also those mapped to
+themselves, which moves those uses to the front). A body with a block whose address is
+taken (see [`BasicBlock`](@ref)'s `address_taken`) has to be cloned with
+[`clone_into!`](@ref) instead, as the `blockaddress` constants that refer to it name the
+old function.
+
+`identity_md` is a type of metadata node, like `DILocation`, whose instances are mapped to
+themselves instead of being mapped as usual (LLVM's `IdentityMD` predicate). On LLVM 20 and
+older, which lack the predicate, the nodes of that type that the instructions refer to are
+mapped to themselves in `vmap` before remapping, which can also add such entries for nodes
+that LLVM ends up not visiting (e.g., below a value that the materializer replaces).
+
+Exceptions thrown by the callbacks are handled like with [`clone_into!`](@ref): a type
+mapper that throws does so before anything is remapped, while a materializer that throws
+leaves `f` partially remapped.
+"""
+function remap_instructions!(f::Function, vmap::ValueMap; type_mapper=nothing,
+                             materializer=nothing, identity_md=nothing,
+                             no_module_level_changes::Bool=false,
+                             ignore_missing_locals::Bool=false,
+                             reuse_and_mutate_distinct_mds::Bool=false)
+    flags = remap_flags(no_module_level_changes, ignore_missing_locals,
+                        reuse_and_mutate_distinct_mds, false)
+    kind = identity_md === nothing ? typemax(Cuint) : metadata_kind(identity_md)
+    prepare(tm, tmd) = API.LLVMExtraPrepareRemapInstructions(f, vmap, flags, kind, tm, tmd)
+    with_mapper_callbacks(prepare, "instruction remapping", vmap, flags, type_mapper,
+                          materializer) do tm, tmd, mat, matd
+        API.LLVMExtraRemapInstructions(f, vmap, flags, kind, tm, tmd, mat, matd)
+    end
+    return nothing
 end
 
 """

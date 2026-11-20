@@ -353,6 +353,14 @@ end
     ccall((:LLVMExtraCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef, LLVMValueMapRef, LLVMCloneFunctionChangeType, Cstring, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), NewFunc, OldFunc, VM, Changes, NameSuffix, TypeMapper, TypeMapperData, Materializer, MaterializerData)
 end
 
+@llvmapi function LLVMExtraCloneFunctionAttributesInto(lib::Library, NewFunc, OldFunc, VM, ModuleLevelChanges, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+    ccall((:LLVMExtraCloneFunctionAttributesInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef, LLVMValueMapRef, LLVMBool, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), NewFunc, OldFunc, VM, ModuleLevelChanges, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+end
+
+@llvmapi function LLVMExtraRemapInstructions(lib::Library, F, VM, Flags, IdentityMDKind, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+    ccall((:LLVMExtraRemapInstructions, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, Cuint, Cuint, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), F, VM, Flags, IdentityMDKind, TypeMapper, TypeMapperData, Materializer, MaterializerData)
+end
+
 @llvmapi function LLVMExtraPrepareMapValue(lib::Library, V, VM, TypeMapper, TypeMapperData)
     ccall((:LLVMExtraPrepareMapValue, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, Ptr{Cvoid}, Ptr{Cvoid}), V, VM, TypeMapper, TypeMapperData)
 end
@@ -363,6 +371,14 @@ end
 
 @llvmapi function LLVMExtraPrepareCloneFunctionInto(lib::Library, OldFunc, VM, Changes, TypeMapper, TypeMapperData)
     ccall((:LLVMExtraPrepareCloneFunctionInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, LLVMCloneFunctionChangeType, Ptr{Cvoid}, Ptr{Cvoid}), OldFunc, VM, Changes, TypeMapper, TypeMapperData)
+end
+
+@llvmapi function LLVMExtraPrepareCloneFunctionAttributesInto(lib::Library, OldFunc, VM, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareCloneFunctionAttributesInto, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, Ptr{Cvoid}, Ptr{Cvoid}), OldFunc, VM, TypeMapper, TypeMapperData)
+end
+
+@llvmapi function LLVMExtraPrepareRemapInstructions(lib::Library, F, VM, Flags, IdentityMDKind, TypeMapper, TypeMapperData)
+    ccall((:LLVMExtraPrepareRemapInstructions, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueMapRef, Cuint, Cuint, Ptr{Cvoid}, Ptr{Cvoid}), F, VM, Flags, IdentityMDKind, TypeMapper, TypeMapperData)
 end
 
 @llvmapi function LLVMCloneBasicBlock(lib::Library, BB, NameSuffix, ValueMap, ValueMapElements, F)

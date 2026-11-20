@@ -22,6 +22,14 @@
     (`Module::getNamedValue`), `bb.terminating_musttail_call`, and `LLVM.unsafe_destroy!`
     is now public.
 
+- `clone_attributes_into!(new, old; value_map)` copies the attributes of a function, like
+  C++'s `CloneFunctionAttributesInto`, and `remap_instructions!(f, vmap)` remaps the
+  instructions of a function in place, like calling `ValueMapper::remapInstruction` and
+  `remapDbgRecordRange` on each of them, with `identity_md=DILocation` for LLVM's
+  `IdentityMD` predicate. With `move!` for the blocks, they move the body of a function to
+  another one instead of cloning it, which keeps the instructions and the order of their
+  uses.
+
 - `bb.address_taken` is whether a `blockaddress` constant refers to a basic block, like
   C++'s `BasicBlock::hasAddressTaken`. From LLVM 23 on, a `blockaddress` is not a use of its
   block, so this can no longer be derived from the uses of the block.

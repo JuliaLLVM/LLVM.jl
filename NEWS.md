@@ -6,6 +6,10 @@
 - `LLVM.pointer_alignment` returns an `Int64`, so that alignments of 2^31 and more don't
   overflow on 32-bit hosts.
 
+- `flag_behavior(mod.flags, name)` returns the behavior of a module flag, including the
+  `Max` and `Min` behaviors that the C API cannot represent, and `get(mod.flags, name,
+  default)` looks up a flag that may be missing.
+
 
 ## LLVM.jl v10.6
 

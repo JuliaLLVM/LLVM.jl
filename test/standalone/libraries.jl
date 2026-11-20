@@ -152,6 +152,8 @@ end
     @test only(collect(mod.used)) isa LLVM.GlobalVariable
     @test only(collect(mod.flags)).first == "flag"
     @test mod.flags["flag"] isa LLVM.Metadata
+    @test LLVM.flag_behavior(mod.flags, "flag") === LLVM.ModuleFlagBehavior.Warning
+    @test get(mod.flags, "flag", nothing) isa LLVM.Metadata
     @test sprint(show, MIME"text/plain"(), mod) == strip(string(mod))
     @test mod.name == ""
     @test mod.context.library === other

@@ -4534,6 +4534,27 @@ end
     @test occursin("!{i32 8, !\"min2\", i32 2}", string(mod))
     @test length(flags) == 4
     @test verification_error(mod) === nothing
+    @test flag_behavior(flags, "max") === LLVM.ModuleFlagBehavior.Max
+    @test flag_behavior(flags, "min2") === LLVM.ModuleFlagBehavior.Min
+    @test flag_behavior(flags, "none") === nothing
+    @test get(flags, "max", nothing) == one
+    @test get(flags, "none", nothing) === nothing
+    dispose(mod)
+end
+
+# the behavior of a flag is that of the first one with its name, which can be repeated for
+# `Require` flags, and the behavior can be encoded using any integer type
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        !llvm.module.flags = !{!0, !1, !2}
+        !0 = !{i32 3, !"flag", !{!"other", i1 true}}
+        !1 = !{i32 1, !"flag", i32 2}
+        !2 = !{i1 true, !"other", i1 true}
+        """)
+    @test verification_error(mod) === nothing
+    @test flag_behavior(mod.flags, "flag") === LLVM.ModuleFlagBehavior.Require
+    @test mod.flags["flag"] isa MDTuple
+    @test flag_behavior(mod.flags, "other") === LLVM.ModuleFlagBehavior.Error
     dispose(mod)
 end
 

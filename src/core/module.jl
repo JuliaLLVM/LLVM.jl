@@ -108,8 +108,8 @@ The ifuncs of the module, as a view that can be iterated, and indexed by name
 The module flags of the module, as a dictionary-like view mapping the name of each flag to
 its value. Flags can be looked up by name, and added using
 `mod.flags[name, behavior] = md`, where `behavior` is an `LLVM.ModuleFlagBehavior.T`
-that determines how the flag is merged when linking modules. Module flags cannot be
-removed.
+that determines how the flag is merged when linking modules, and which
+[`flag_behavior`](@ref) returns. Module flags cannot be removed.
 
     mod.sdk_version
     mod.sdk_version = version::VersionNumber
@@ -883,11 +883,17 @@ function Base.haskey(iter::ModuleFlagDict, name::AbstractString)
     API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name)) != C_NULL
 end
 
-function Base.getindex(iter::ModuleFlagDict, name::AbstractString)
+function Base.get(iter::ModuleFlagDict, name::AbstractString, default)
     name = api_string(name)
     objref = API.LLVMGetModuleFlag(iter.mod, name, ncodeunits(name))
-    objref == C_NULL && throw(KeyError(name))
+    objref == C_NULL && return default
     return library!(() -> Metadata(objref), iter.mod.library)
+end
+
+function Base.getindex(iter::ModuleFlagDict, name::AbstractString)
+    md = get(iter, name, nothing)
+    md === nothing && throw(KeyError(name))
+    return md
 end
 
 function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
@@ -899,6 +905,31 @@ function Base.setindex!(iter::ModuleFlagDict, val::Metadata,
     end
     push!(operands(get!(metadata(iter.mod), "llvm.module.flags")), flag)
     return iter
+end
+
+@vocabulary IR flag_behavior
+
+"""
+    flag_behavior(mod.flags, name) -> Union{LLVM.ModuleFlagBehavior.T, Nothing}
+
+Get the behavior of the module flag `name`, which determines how the flag is merged when
+linking modules, or `nothing` if the module has no such flag. If there are several flags
+with that name, this is the behavior of the first one, whose value `mod.flags[name]` returns.
+"""
+flag_behavior(iter::ModuleFlagDict, name::AbstractString) =
+    context!(() -> _flag_behavior(iter, name), context(iter.mod))
+function _flag_behavior(iter::ModuleFlagDict, name::AbstractString)
+    node = get(metadata(iter.mod), "llvm.module.flags", nothing)
+    node === nothing && return nothing
+    for flag in operands(node)
+        id, key, _ = operands(flag)
+        if String(key) == name
+            # the behaviors are numbered from 1 in the IR, and from 0 in the C API. the
+            # verifier checks the unsigned value, which can be of any integer type.
+            return API.LLVMModuleFlagBehavior(convert(UInt64, Value(id)) - 1)
+        end
+    end
+    return nothing
 end
 
 

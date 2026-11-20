@@ -78,7 +78,7 @@ The same insertion points are used to move instructions (`move!(inst, pos)`), ba
 (`dbg_value!(dib, val, var, expr, loc, pos)`). An insertion point is resolved when it is
 created: `LLVM.after(inst)` is the position before the next instruction, or the end of the
 block if `inst` is the last one. Like an iterator, an insertion point becomes invalid when
-the instruction it inserts before is erased.
+the instruction it inserts before, its anchor (`LLVM.anchor(pos)`), is erased.
 
 An instruction that isn't part of a basic block, e.g., a `copy` of another instruction or
 one that was `remove!`d from its block, can be inserted at the builder's position with

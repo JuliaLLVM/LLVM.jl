@@ -156,6 +156,7 @@ LLVM.at_begin
 LLVM.at_end
 LLVM.after_phis
 LLVM.after_def
+LLVM.anchor
 move!
 ```
 

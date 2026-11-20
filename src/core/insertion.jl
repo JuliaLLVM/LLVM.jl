@@ -6,7 +6,7 @@
 @nospecialize
 
 @vocabulary IR InsertionPoint, move!
-@public before, after, at_begin, at_end, after_phis, after_def
+@public before, after, at_begin, at_end, after_phis, after_def, anchor
 
 """
     InsertionPoint{T}
@@ -104,6 +104,28 @@ function Base.show(io::IO, pos::InsertionPoint{T}) where {T}
         pos.head && print(io, " and its debug records")
     end
     print(io, ")")
+end
+
+"""
+    LLVM.anchor(pos::InsertionPoint)
+
+The object that an [`InsertionPoint`](@ref) inserts before: an instruction, basic block,
+function or global variable, or `nothing` at the end of the list. For example,
+`LLVM.anchor(LLVM.after_phis(bb))` is the first instruction of `bb` that is not a PHI node
+or an exception-handling pad, like C++'s `&*bb->getFirstInsertionPt()`, for a block that
+has such a position (see [`LLVM.after_phis`](@ref)).
+"""
+function anchor(pos::InsertionPoint{Instruction})
+    check_valid(pos)
+    return pos.anchor == C_NULL ? nothing : Instruction(pos.anchor)
+end
+function anchor(pos::InsertionPoint{BasicBlock})
+    check_valid(pos)
+    return pos.anchor == C_NULL ? nothing : BasicBlock(API.LLVMValueAsBasicBlock(pos.anchor))
+end
+function anchor(pos::InsertionPoint{T}) where {T<:Union{Function,GlobalVariable}}
+    check_valid(pos)
+    return pos.anchor == C_NULL ? nothing : Value(pos.anchor)::T
 end
 
 

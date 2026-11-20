@@ -26,6 +26,10 @@
   `node.idom` and `node.children` walk the tree, and `dominates(tree, A, B)` compares two
   nodes.
 
+- `LLVM.anchor(pos)` returns the object that an insertion point inserts before, or
+  `nothing` at the end of the list, e.g., `LLVM.anchor(LLVM.after_phis(bb))` for C++'s
+  `&*bb->getFirstInsertionPt()`.
+
 
 ## LLVM.jl v10.6
 

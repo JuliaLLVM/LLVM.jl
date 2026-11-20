@@ -260,25 +260,33 @@ end
 register(MDTuple, API.LLVMMDTupleMetadataKind)
 
 """
-    MDTuple(elements::AbstractVector) -> MDTuple
+    MDTuple(elements::AbstractVector; distinct=false) -> MDTuple
 
 Create a new tuple metadata node with the given elements as its operands, or get the
-existing one, in the task-local [`context`](@ref).
+existing one, in the task-local [`context`](@ref). With `distinct=true`, the node is a new
+distinct node, which is never unified with other identical nodes (like C++'s
+`MDTuple::getDistinct`), e.g., so that changing its operands doesn't affect other uses of
+an identical node.
 
 Passing `nothing` as an element will result in a null operand.
 """
-function MDTuple(elements::AbstractVector)
+function MDTuple(elements::AbstractVector; distinct::Bool=false)
     refs = metadata_refs(metadata_vector(elements))
-    MDTuple(API.LLVMMDNodeInContext2(context(), refs, length(refs)))
+    ref = if distinct
+        API.LLVMExtraMDTupleGetDistinct(context(), refs, length(refs))
+    else
+        API.LLVMMDNodeInContext2(context(), refs, length(refs))
+    end
+    MDTuple(ref)
 end
 
 """
-    MDNode(elements::AbstractVector) -> MDTuple
+    MDNode(elements::AbstractVector; distinct=false) -> MDTuple
 
-Create a new tuple metadata node. Equivalent to [`MDTuple(elements)`](@ref
+Create a new tuple metadata node. Equivalent to [`MDTuple(elements; distinct)`](@ref
 MDTuple(::AbstractVector)).
 """
-MDNode(elements::AbstractVector) = MDTuple(elements)
+MDNode(elements::AbstractVector; distinct::Bool=false) = MDTuple(elements; distinct)
 
 """
     MDNode(r::ConstantRange) -> MDTuple

@@ -116,6 +116,7 @@ memcpy!
 memmove!
 lifetime_start!
 lifetime_end!
+alignment_assumption!
 globalstring!
 globalstring_ptr!
 ```
@@ -218,6 +219,7 @@ insert_masked_value!
 LLVM.CallBase
 only_reads_memory
 does_not_capture
+effective_memory_effects
 ```
 
 ### Operand Bundles

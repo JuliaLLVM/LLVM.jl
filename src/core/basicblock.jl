@@ -52,6 +52,11 @@ Whether the address of the basic block is taken, i.e., a [`BlockAddress`](@ref) 
 refers to it, like C++'s `BasicBlock::hasAddressTaken`. A function with such a block
 cannot be cloned without updating those constants.
 
+    bb.terminating_musttail_call
+
+The `musttail` call that precedes the `ret` terminator of the block, or `nothing` if there
+is none, like C++'s `BasicBlock::getTerminatingMustTailCall`.
+
 The properties of [`Value`](@ref LLVM.Value) are available too.
 """
 @checked struct BasicBlock <: Value
@@ -269,3 +274,10 @@ end
 address_taken(bb::BasicBlock) = API.LLVMExtraBasicBlockHasAddressTaken(bb) |> Bool
 
 @property BasicBlock address_taken
+
+function terminating_musttail_call(bb::BasicBlock)
+    ref = API.LLVMExtraGetTerminatingMustTailCall(bb)
+    ref == C_NULL ? nothing : Instruction(ref)::CallInst
+end
+
+@property BasicBlock terminating_musttail_call

@@ -606,6 +606,8 @@
 
     intcastinst = intcast!(builder, int1, LLVM.Int64Type())
     @check_ir intcastinst "sext i32 %0 to i64"
+    intcastinst = intcast!(builder, int1, LLVM.Int64Type(); signed=false)
+    @check_ir intcastinst "zext i32 %0 to i64"
 
     fpcastinst = fpcast!(builder, float1, LLVM.DoubleType())
     @check_ir fpcastinst "fpext float %2 to double"
@@ -914,8 +916,58 @@ end
     @test call.called_type == ft
     @test_throws ArgumentError call.called_operand = ConstantInt(Int32(0))
 
+    # assigning a function also changes the function type of the call
+    ft2 = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
+    k = LLVM.Function(mod, "k", ft2)
+    call.called_function = k
+    @test call.called_function == k
+    @test call.called_type == ft2
+    @test_throws ArgumentError call.called_function = h
+    @test call.called_function == k
+    call.called_function = f
+
     ret!(builder)
     verify(mod)
+end
+end
+
+@testset "memory effects of calls" begin
+@dispose ctx=Context(; opaque_pointers=true) begin
+    @dispose mod=parse(LLVM.Module, """
+        declare void @reader(ptr) readonly argmemonly
+        declare void @writer(ptr) argmemonly
+        declare void @unknown(ptr)
+
+        define void @f(ptr %p) {
+          call void @reader(ptr %p)
+          call void @unknown(ptr %p) readnone
+          call void @reader(ptr %p) [ "deopt"(i32 0) ]
+          call void @unknown(ptr %p)
+          call void @writer(ptr %p) [ "deopt"(i32 0) ]
+          call void @llvm.assume(i1 true) [ "align"(ptr %p, i64 16) ]
+          ret void
+        }
+
+        declare void @llvm.assume(i1)""") begin
+        f = mod.functions["f"]
+        read_call, annotated_call, bundle_call, unknown_call, write_call, assume =
+            f.entry.instructions
+        # the effects of the callee
+        effects = effective_memory_effects(read_call)
+        @test effects == MemoryEffects(argmem=:read)
+        @test read_call.memory_effects == MemoryEffects(:readwrite)
+        # or of the call site
+        @test effective_memory_effects(annotated_call) == MemoryEffects(:none)
+        # a deopt bundle reads any memory
+        @test effective_memory_effects(bundle_call) == MemoryEffects(:read)
+        @test effective_memory_effects(unknown_call) == MemoryEffects(:readwrite)
+        # only extending the callee's effects to reading other memory
+        @test effective_memory_effects(write_call) == MemoryEffects(:read; argmem=:readwrite)
+        # except for those of assumptions
+        @test effective_memory_effects(assume) ==
+              MemoryEffects(mod.functions["llvm.assume"].memory_effects)
+        @test effective_memory_effects(assume)[:other] == :none
+    end
 end
 end
 
@@ -934,6 +986,48 @@ end
     @test assume.called_function.name == "llvm.assume"
     @test assume.arguments[1] == cond
     @test_throws ArgumentError assume!(builder, x)
+    ret!(builder)
+    verify(mod)
+end
+end
+
+@testset "alignment assumptions" begin
+@dispose ctx=Context(; opaque_pointers=true) builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    mod.datalayout = "e-p:32:32"
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.VoidType(), [LLVM.PointerType()]))
+    p = f.parameters[1]
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    assume = alignment_assumption!(builder, p, 16)
+    @test assume isa LLVM.CallInst
+    # LLVM 23 passes the alignment as an i64, older versions as an integer of pointer size
+    T = LLVM.version() >= v"23" ? "i64" : "i32"
+    @test occursin("call void @llvm.assume(i1 true) [ \"align\"(ptr %0, $T 16) ]",
+                   string(assume))
+    @test_throws ArgumentError alignment_assumption!(builder, p, 12)
+    @test_throws ArgumentError alignment_assumption!(builder, ConstantInt(Int32(0)), 16)
+    # alignments that LLVM would truncate
+    if LLVM.version() >= v"23"
+        alignment_assumption!(builder, p, 2^32)
+    else
+        @test_throws ArgumentError alignment_assumption!(builder, p, 2^32)
+    end
+    @dispose unpositioned=IRBuilder() begin
+        @test_throws ArgumentError alignment_assumption!(unpositioned, p, 16)
+        # a block that is not part of a function
+        detached = BasicBlock("detached")
+        position!(unpositioned, LLVM.at_end(detached))
+        @test_throws ArgumentError alignment_assumption!(unpositioned, p, 16)
+        position!(unpositioned)
+        erase!(detached)
+    end
+    # the alignment must fit in the pointer, of the size of its address space
+    if LLVM.version() < v"23"
+        mod.datalayout = "e-p:32:32-p1:20:32"
+        q = alloca!(builder, LLVM.Int8Type())
+        q1 = addrspacecast!(builder, q, LLVM.PointerType(1))
+        alignment_assumption!(builder, q, 2^20)
+        @test_throws ArgumentError alignment_assumption!(builder, q1, 2^20)
+    end
     ret!(builder)
     verify(mod)
 end

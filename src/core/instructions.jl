@@ -992,12 +992,19 @@ callable using that function type. Like LLVM's `CallBase::setCalledOperand`, thi
 any pointer, e.g., one in another address space than the old callee.
 
     call.called_function
+    call.called_function = f::LLVM.Function
 
 The function that a `call`, `invoke` or `callbr` instruction calls directly, or `nothing`
 for other calls, e.g., of a function pointer. Like C++'s `CallBase::getCalledFunction`,
 this does not look through casts or aliases (use `strip_pointer_casts` on the
 `called_operand` for that), and is `nothing` if the function's type differs from the
 function type of the call.
+
+Assigning a function makes the call call it, with its function type, like C++'s
+`CallBase::setCalledFunction`, e.g., to switch to another overload of an intrinsic. The
+return type cannot change; the arguments and attributes of the call are kept, and should be
+updated to match the new function type. To keep the function type of the call instead, like
+C++'s `setCalledFunction(call->getFunctionType(), F)`, assign to `call.called_operand`.
 
     call.called_type
 
@@ -1106,12 +1113,19 @@ end
     return Function(ref)
 end
 
+function called_function!(inst::CallBase, f::Function)
+    ret = return_type(function_type(f))
+    ret == value_type(inst) ||
+        throw(ArgumentError("Cannot change the return type of a call from $(value_type(inst)) to $ret"))
+    API.LLVMExtraSetCalledFunction(inst, f)
+end
+
 @inline function called_type(@nospecialize(inst::CallBase))
     LLVMType(API.LLVMGetCalledFunctionType(inst))
 end
 
 @property CallBase called_operand called_operand!
-@property CallBase called_function
+@property CallBase called_function called_function!
 @property CallBase called_type
 
 struct CallArgumentSet <: AbstractVector{Value}
@@ -1222,7 +1236,7 @@ memory_effects!(call::CallBase, effects::AnyMemoryEffects) =
 
 @property CallBase memory_effects memory_effects!
 
-@vocabulary IR only_reads_memory, does_not_capture
+@vocabulary IR only_reads_memory, does_not_capture, effective_memory_effects
 
 function check_argument_index(call::CallBase, i::Integer)
     1 <= i <= API.LLVMGetNumArgOperands(call) ||
@@ -1268,6 +1282,20 @@ decode or create these attributes.
 does_not_capture(call::CallBase, i::Integer) =
     API.LLVMExtraDoesNotCapture(call, check_argument_index(call, i)) |> Bool
 does_not_capture(arg::Argument) = API.LLVMExtraDoesNotCapture(arg, -1) |> Bool
+
+"""
+    effective_memory_effects(call::CallBase) -> MemoryEffects
+
+Get the memory effects of a call, like C++'s `CallBase::getMemoryEffects`: those of the
+call site (its `memory_effects`), intersected with those of the function that it calls
+directly, if any. The operand bundles of the call can extend the latter, e.g., a `deopt`
+bundle reads any memory.
+
+On LLVM 15, the effects are derived from the attributes that the `memory` attribute
+replaced, which LLVM combines in the same way.
+"""
+effective_memory_effects(call::CallBase) =
+    MemoryEffects(API.LLVMExtraGetCallMemoryEffects(call))
 
 # operand bundles
 

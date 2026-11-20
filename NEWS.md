@@ -3,6 +3,25 @@
 
 ## LLVM.jl v10.6
 
+- New wrappers of C++ APIs that passes written in Julia need, mostly to port LLVM passes
+  (e.g., Julia's) faithfully:
+  - data layouts: `dl.alloca_addrspace`, `LLVM.is_legal_integer(dl, width)`, and
+    `LLVM.pointer_alignment(ptr, dl)` (`Value::getPointerAlignment`);
+  - values and uses: `strip_inbounds_offsets(val)`, `is_used_by_metadata(val)`,
+    `replace_uses!(user, from, to)` (`User::replaceUsesOfWith`), and `use.bundle_index`,
+    the operand bundle of a call that a use is an input of;
+  - calls: `call.called_function = f` (`CallBase::setCalledFunction`), which also changes
+    the function type of the call, and `effective_memory_effects(call)`
+    (`CallBase::getMemoryEffects`), which combines the effects of the call site (its
+    `memory_effects`) with those of the called function and of its operand bundles;
+  - building: `alignment_assumption!(builder, ptr, align)`, and a `signed` keyword for
+    `intcast!`, to widen using a `zext` instead of a `sext`;
+  - loops and dominance: `loop_id(loop)`, `loop_id!(loop, id)`, `start_location(loop)`,
+    `isreachable(domtree, bb)`, and `dominates(domtree, inst, bb)`;
+  - other: `MDTuple(ops; distinct=true)`, `named_value(mod, name)`
+    (`Module::getNamedValue`), `bb.terminating_musttail_call`, and `LLVM.unsafe_destroy!`
+    is now public.
+
 - `bb.address_taken` is whether a `blockaddress` constant refers to a basic block, like
   C++'s `BasicBlock::hasAddressTaken`. From LLVM 23 on, a `blockaddress` is not a use of its
   block, so this can no longer be derived from the uses of the block.

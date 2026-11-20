@@ -44,6 +44,9 @@
 #include <llvm/Remarks/RemarkFormat.h>
 #include <llvm/Remarks/RemarkStreamer.h>
 #include <llvm/Support/CommandLine.h>
+#if LLVM_VERSION_MAJOR >= 16
+#include <llvm/Support/ModRef.h>
+#endif
 #include <llvm/Support/Regex.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
@@ -246,6 +249,10 @@ void LLVMExtraMoveGlobal(LLVMValueRef GlobalVar, LLVMModuleRef Mod, LLVMValueRef
 #endif
 }
 
+LLVMValueRef LLVMExtraGetNamedValue(LLVMModuleRef M, const char *Name, size_t NameLen) {
+  return wrap(unwrap(M)->getNamedValue(StringRef(Name, NameLen)));
+}
+
 // mirrors LLVMIntrinsicGetOverloadTypes, proposed in llvm/llvm-project#230425
 LLVMBool LLVMExtraIntrinsicGetOverloadTypes(unsigned ID, LLVMTypeRef FunctionTy,
                                             LLVMTypeRef *OverloadTypes,
@@ -410,6 +417,11 @@ LLVMMetadataRef LLVMGetMetadata2(LLVMValueRef Inst, unsigned KindID) {
 
 void LLVMSetMetadata2(LLVMValueRef Inst, unsigned KindID, LLVMMetadataRef Node) {
   unwrap<Instruction>(Inst)->setMetadata(KindID, Node ? unwrap<MDNode>(Node) : nullptr);
+}
+
+LLVMMetadataRef LLVMExtraMDTupleGetDistinct(LLVMContextRef C, LLVMMetadataRef *MDs,
+                                            size_t Count) {
+  return wrap(MDTuple::getDistinct(*unwrap(C), ArrayRef<Metadata *>(unwrap(MDs), Count)));
 }
 
 
@@ -1472,6 +1484,13 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
 
 #endif
 
+LLVMValueRef LLVMExtraBuildAlignmentAssumption(LLVMBuilderRef B, LLVMValueRef Ptr,
+                                               uint64_t Align) {
+  IRBuilder<> *Builder = unwrap(B);
+  const DataLayout &DL = Builder->GetInsertBlock()->getModule()->getDataLayout();
+  return wrap(Builder->CreateAlignmentAssumption(DL, unwrap(Ptr), Align));
+}
+
 
 //
 // More DataLayout queries
@@ -1479,6 +1498,18 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
 
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD) {
   return unwrap(TD)->getDefaultGlobalsAddressSpace();
+}
+
+unsigned LLVMExtraAllocaAddressSpace(LLVMTargetDataRef TD) {
+  return unwrap(TD)->getAllocaAddrSpace();
+}
+
+LLVMBool LLVMExtraIsLegalInteger(LLVMTargetDataRef TD, uint64_t Width) {
+  return unwrap(TD)->isLegalInteger(Width);
+}
+
+uint64_t LLVMExtraGetPointerAlignment(LLVMValueRef Ptr, LLVMTargetDataRef TD) {
+  return unwrap(Ptr)->getPointerAlignment(*unwrap(TD)).value();
 }
 
 //
@@ -1861,6 +1892,10 @@ LLVMBool LLVMExtraBasicBlockHasAddressTaken(LLVMBasicBlockRef BB) {
   return unwrap(BB)->hasAddressTaken();
 }
 
+LLVMValueRef LLVMExtraGetTerminatingMustTailCall(LLVMBasicBlockRef BB) {
+  return wrap(unwrap(BB)->getTerminatingMustTailCall());
+}
+
 void LLVMExtraPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef BB,
                               LLVMValueRef Before, LLVMBool Head) {
   unwrap(Builder)->SetInsertPoint(unwrap(BB), insertionPoint(BB, Before, Head));
@@ -2081,7 +2116,86 @@ LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val) {
   return wrap(unwrap(Val)->stripPointerCastsAndAliases());
 }
 
+LLVMValueRef LLVMExtraStripInBoundsOffsets(LLVMValueRef Val) {
+  return wrap(unwrap(Val)->stripInBoundsOffsets());
+}
+
+LLVMBool LLVMExtraIsUsedByMetadata(LLVMValueRef Val) {
+  return unwrap(Val)->isUsedByMetadata();
+}
+
+LLVMBool LLVMExtraReplaceUsesOfWith(LLVMValueRef U, LLVMValueRef From, LLVMValueRef To) {
+  return unwrap<User>(U)->replaceUsesOfWith(unwrap(From), unwrap(To));
+}
+
 unsigned LLVMExtraGetOperandNo(LLVMUseRef U) { return unwrap(U)->getOperandNo(); }
+
+int LLVMExtraGetUseBundleIndex(LLVMUseRef U) {
+  Use *Op = unwrap(U);
+  auto *CB = dyn_cast<CallBase>(Op->getUser());
+  if (!CB)
+    return -1;
+  // not `getBundleOpInfoForOperand`, which divides by zero for calls with many bundles
+  // without inputs
+  unsigned OpNo = Op->getOperandNo();
+  int Index = 0;
+  for (const auto &BOI : CB->bundle_op_infos()) {
+    if (BOI.Begin <= OpNo && OpNo < BOI.End)
+      return Index;
+    Index++;
+  }
+  return -1;
+}
+
+void LLVMExtraSetCalledFunction(LLVMValueRef Call, LLVMValueRef Fn) {
+  unwrap<CallBase>(Call)->setCalledFunction(unwrap<Function>(Fn));
+}
+
+#if LLVM_VERSION_MAJOR < 16
+// the memory effects described by the attributes that LLVM 16 replaced by the `memory`
+// attribute, in the encoding of LLVM 16: the ModRefInfo of argmem, inaccessiblemem and other
+// memory, in two bits each
+static uint32_t legacyMemoryEffects(AttributeSet Attrs) {
+  uint32_t Access = 3;
+  if (Attrs.hasAttribute(Attribute::ReadNone))
+    Access = 0;
+  if (Attrs.hasAttribute(Attribute::ReadOnly))
+    Access &= 1;
+  if (Attrs.hasAttribute(Attribute::WriteOnly))
+    Access &= 2;
+  bool ArgMem = true, InaccessibleMem = true, Other = true;
+  if (Attrs.hasAttribute(Attribute::ArgMemOnly))
+    InaccessibleMem = Other = false;
+  if (Attrs.hasAttribute(Attribute::InaccessibleMemOnly))
+    ArgMem = Other = false;
+  if (Attrs.hasAttribute(Attribute::InaccessibleMemOrArgMemOnly))
+    Other = false;
+  return (ArgMem ? Access : 0) | (InaccessibleMem ? Access : 0) << 2 |
+         (Other ? Access : 0) << 4;
+}
+#endif
+
+uint32_t LLVMExtraGetCallMemoryEffects(LLVMValueRef Call) {
+  auto *CB = unwrap<CallBase>(Call);
+#if LLVM_VERSION_MAJOR >= 16
+  return CB->getMemoryEffects().toIntValue();
+#else
+  // like `CallBase::getMemoryEffects` of LLVM 16
+  uint32_t ME = legacyMemoryEffects(CB->getAttributes().getFnAttrs());
+  if (auto *Fn = dyn_cast<Function>(CB->getCalledOperand())) {
+    uint32_t FnME = legacyMemoryEffects(Fn->getAttributes().getFnAttrs());
+    // unlike LLVM 15, LLVM 16 ignores the operand bundles of assumptions
+    if (CB->getIntrinsicID() != Intrinsic::assume) {
+      if (CB->hasReadingOperandBundles())
+        FnME |= 0b010101;
+      if (CB->hasClobberingOperandBundles())
+        FnME |= 0b101010;
+    }
+    ME &= FnME;
+  }
+  return ME;
+#endif
+}
 
 LLVMBool LLVMExtraOnlyReadsMemory(LLVMValueRef V, int ArgNo) {
   Value *Val = unwrap(V);

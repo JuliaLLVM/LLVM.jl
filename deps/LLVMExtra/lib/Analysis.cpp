@@ -800,6 +800,16 @@ LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V) {
   return unwrap(L)->isLoopInvariant(unwrap(V));
 }
 
+LLVMMetadataRef LLVMExtraLoopGetLoopID(LLVMLoopRef L) { return wrap(unwrap(L)->getLoopID()); }
+
+void LLVMExtraLoopSetLoopID(LLVMLoopRef L, LLVMMetadataRef LoopID) {
+  unwrap(L)->setLoopID(LoopID ? unwrap<MDNode>(LoopID) : nullptr);
+}
+
+LLVMMetadataRef LLVMExtraLoopGetStartLoc(LLVMLoopRef L) {
+  return wrap(unwrap(L)->getStartLoc().get());
+}
+
 
 // Dominance
 
@@ -811,6 +821,17 @@ LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree
 LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
                                               LLVMBasicBlockRef B) {
   return unwrap(Tree)->dominates(unwrap(A), unwrap(B));
+}
+
+LLVMBool LLVMExtraDominatorTreeInstructionDominatesBlock(LLVMDominatorTreeRef Tree,
+                                                         LLVMValueRef Inst,
+                                                         LLVMBasicBlockRef BB) {
+  return unwrap(Tree)->dominates(unwrap<Instruction>(Inst), unwrap(BB));
+}
+
+LLVMBool LLVMExtraDominatorTreeIsReachableFromEntry(LLVMDominatorTreeRef Tree,
+                                                    LLVMBasicBlockRef BB) {
+  return unwrap(Tree)->isReachableFromEntry(unwrap(BB));
 }
 
 void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F) {

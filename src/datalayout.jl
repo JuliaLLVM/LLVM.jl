@@ -1,7 +1,8 @@
 ## data layout
 
 @public DataLayout, dispose, pointersize, intptr, bit_size, storage_size, abi_size,
-        abi_alignment, frame_alignment, preferred_alignment, element_at, offsetof
+        abi_alignment, frame_alignment, preferred_alignment, element_at, offsetof,
+        is_legal_integer, pointer_alignment
 
 """
     DataLayout
@@ -20,6 +21,11 @@ The byte order of the data layout, `LLVM.ByteOrdering.Big` or `LLVM.ByteOrdering
     dl.globals_addrspace
 
 The address space used for global variables by the data layout.
+
+    dl.alloca_addrspace
+
+The address space of `alloca` instructions for the data layout (the `A` specification),
+like C++'s `DataLayout::getAllocaAddrSpace`.
 """
 DataLayout
 # forward definition of DataLayout in src/module.jl
@@ -92,6 +98,33 @@ intptr(dl::DataLayout, addrspace::Integer=0) =
 globals_addrspace(dl::DataLayout) = API.LLVMGlobalsAddressSpace(dl) |> Int
 
 @property DataLayout globals_addrspace
+
+alloca_addrspace(dl::DataLayout) = API.LLVMExtraAllocaAddressSpace(dl) |> Int
+
+@property DataLayout alloca_addrspace
+
+"""
+    is_legal_integer(dl::DataLayout, width::Integer)
+
+Check whether integers of the given width in bits are native to the target, i.e., listed in
+the `n` specification of the data layout, like C++'s `DataLayout::isLegalInteger`.
+"""
+is_legal_integer(dl::DataLayout, width::Integer) =
+    API.LLVMExtraIsLegalInteger(dl, width) |> Bool
+
+"""
+    pointer_alignment(ptr::Value, dl::DataLayout)
+
+Get the alignment in bytes that the pointer `ptr` is known to have from the IR. This is
+like C++'s `Value::getPointerAlignment`, e.g., the alignment of a global variable or an
+`alloca`, or from `align` attributes, and 1 if nothing is known.
+"""
+function pointer_alignment(ptr::Value, dl::DataLayout)
+    typ = value_type(ptr)
+    typ isa PointerType ||
+        throw(ArgumentError("Expected a pointer, got a value of type $typ"))
+    Int(API.LLVMExtraGetPointerAlignment(ptr, dl))
+end
 
 function check_layout_type(typ::LLVMType)
     issized(typ) || throw(ArgumentError("type $typ has no fixed layout"))

@@ -96,6 +96,40 @@ end
     @dispose dl2=LLVM.DataLayout(dlstr*"-G1") begin
         @test dl2.globals_addrspace == 1
     end
+
+    @test dl.alloca_addrspace == 0
+    @dispose dl2=LLVM.DataLayout(dlstr*"-A5-n8:16:32") begin
+        @test dl2.alloca_addrspace == 5
+        @test LLVM.is_legal_integer(dl2, 16)
+        @test !LLVM.is_legal_integer(dl2, 64)
+    end
+    @test !LLVM.is_legal_integer(dl, 32)
+end
+
+# the alignment of pointers that is known from the IR
+@dispose ctx=Context(; opaque_pointers=true) dl=LLVM.DataLayout("e-i64:64") mod=parse(LLVM.Module, """
+        @g = global i64 0, align 32
+        @h = external global i64
+
+        define void @f(ptr align 8 %p, ptr %q) {
+          %a = alloca i64, align 16
+          %c = call align 4 ptr @get()
+          ret void
+        }
+
+        declare ptr @get()""") begin
+    f = mod.functions["f"]
+    p, q = f.parameters
+    a, c = f.entry.instructions
+    @test LLVM.pointer_alignment(mod.globals["g"], dl) == 32
+    @test LLVM.pointer_alignment(mod.globals["h"], dl) == 8    # the ABI alignment of i64
+    @test LLVM.pointer_alignment(p, dl) == 8
+    @test LLVM.pointer_alignment(q, dl) == 1
+    @test LLVM.pointer_alignment(a, dl) == 16
+    @test LLVM.pointer_alignment(c, dl) == 4
+    @test LLVM.pointer_alignment(const_inttoptr(ConstantInt(Int64(48)),
+                                                LLVM.PointerType()), dl) == 16
+    @test_throws ArgumentError LLVM.pointer_alignment(ConstantInt(Int64(48)), dl)
 end
 
 end

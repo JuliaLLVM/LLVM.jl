@@ -57,6 +57,12 @@ Check if instruction `A` dominates instruction `B` in the dominator tree `tree`.
 Check if instruction `A` dominates a use of a value, i.e., whether the value of `A` is
 available where it is used (for a use by a PHI node, at the end of the incoming block).
 
+    dominates(tree::DomTree, A::Instruction, B::BasicBlock)
+
+Check if instruction `A` dominates every instruction in basic block `B`, like C++'s
+`DominatorTree::dominates(const Instruction *, const BasicBlock *)`. This is true if `B` is
+not reachable from the entry of the function, and otherwise false if `A` is in `B`.
+
     dominates(tree::DomTree, A::BasicBlock, B::BasicBlock)
 
 Check if basic block `A` dominates basic block `B`.
@@ -111,8 +117,22 @@ end
 dominates(domtree::DomTree, A::Instruction, use::Use) =
     API.LLVMExtraDominatorTreeInstructionDominatesUse(domtree, A, use) |> Bool
 
+dominates(domtree::DomTree, A::Instruction, B::BasicBlock) =
+    API.LLVMExtraDominatorTreeInstructionDominatesBlock(domtree, A, B) |> Bool
+
 dominates(domtree::DomTree, A::BasicBlock, B::BasicBlock) =
     API.LLVMExtraDominatorTreeBlockDominates(domtree, A, B) |> Bool
+
+@vocabulary IR isreachable
+
+"""
+    isreachable(tree::DomTree, bb::BasicBlock)
+
+Check if the basic block `bb` is reachable from the entry of the function of the dominator
+tree `tree`, like C++'s `DominatorTree::isReachableFromEntry`.
+"""
+isreachable(tree::DomTree, bb::BasicBlock) =
+    API.LLVMExtraDominatorTreeIsReachableFromEntry(tree, bb) |> Bool
 
 @vocabulary Analysis recalculate!
 
@@ -888,6 +908,61 @@ end
 
 Base.show(io::IO, loop::Loop) =
     print(io, "Loop(header=", repr(header(loop).name), ", depth=", depth(loop), ")")
+
+@vocabulary Analysis loop_id, loop_id!, start_location
+
+"""
+    loop_id(loop::Loop)
+
+Get the loop ID of a loop. Like C++'s `Loop::getLoopID`, this is the `!llvm.loop` metadata
+node of the terminators of its latches, whose first operand is the node itself, followed by
+properties of the loop (e.g., `!{!"llvm.loop.vectorize.enable", i1 true}`). Returns
+`nothing` if the loop has no such node, or if its latches have different ones.
+"""
+function loop_id(loop::Loop)
+    ref = API.LLVMExtraLoopGetLoopID(loop)
+    return ref == C_NULL ? nothing : Metadata(ref)::MDNode
+end
+
+"""
+    loop_id!(loop::Loop, id::Union{MDNode,Nothing})
+
+Set the loop ID of a loop on the terminators of all of its latches, like C++'s
+`Loop::setLoopID`, or remove it with `nothing`. The first operand of the node must be the
+node itself:
+
+```julia
+id = MDNode([nothing; properties]; distinct=true)
+id.operands[1] = id
+loop_id!(loop, id)
+```
+"""
+function loop_id!(loop::Loop, id::Union{MDNode,Nothing})
+    if id !== nothing
+        ops = operands(id)
+        (!isempty(ops) && ops[1] == id) ||
+            throw(ArgumentError("The first operand of a loop ID must refer to the node itself"))
+    end
+    API.LLVMExtraLoopSetLoopID(loop, something(id, C_NULL))
+    return loop
+end
+
+"""
+    start_location(loop::Loop)
+
+Get the debug location of the start of a loop, like C++'s `Loop::getStartLoc`: the first
+location in its loop ID, else that of the terminator of its preheader, else that of the
+terminator of its header. Returns a [`DILocation`](@ref), or `nothing` if there is none.
+Throws an `ArgumentError` if the loop ID has null operands, which LLVM can't look through.
+"""
+function start_location(loop::Loop)
+    # LLVM can't look for the location in a loop ID with null operands
+    id = loop_id(loop)
+    id === nothing || all(!isnothing, operands(id)) ||
+        throw(ArgumentError("Cannot find the start of a loop with null operands in its loop ID"))
+    ref = API.LLVMExtraLoopGetStartLoc(loop)
+    return ref == C_NULL ? nothing : Metadata(ref)::DILocation
+end
 
 @vocabulary Analysis reverse_postorder
 

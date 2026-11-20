@@ -26,6 +26,7 @@ write(io::IO, mod::LLVM.Module)
 ## Contents
 
 ```@docs
+named_value
 sort!(::LLVM.ModuleGlobalSet)
 sort!(::LLVM.ModuleFunctionSet)
 get!(::LLVM.ModuleMetadataIterator, ::AbstractString)

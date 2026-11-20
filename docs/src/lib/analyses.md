@@ -15,6 +15,7 @@ dispose(::DomTree)
 PostDomTree
 dispose(::PostDomTree)
 dominates
+isreachable
 recalculate!
 ```
 
@@ -78,6 +79,9 @@ is_loop_invariant
 backedge_taken_count
 step_recurrence
 reverse_postorder
+loop_id
+loop_id!
+start_location
 ```
 
 Passes that change loops or values keep scalar evolution up to date by making it forget

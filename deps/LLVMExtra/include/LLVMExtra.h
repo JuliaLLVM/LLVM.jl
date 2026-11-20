@@ -52,6 +52,9 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 // before itself is a no-op.
 void LLVMExtraMoveFunction(LLVMValueRef Fn, LLVMModuleRef Mod, LLVMValueRef Before);
 void LLVMExtraMoveGlobal(LLVMValueRef GlobalVar, LLVMModuleRef Mod, LLVMValueRef Before);
+// the global value of a module with the given name, of any kind, or NULL
+// (`Module::getNamedValue`)
+LLVMValueRef LLVMExtraGetNamedValue(LLVMModuleRef M, const char *Name, size_t NameLen);
 
 // Determine whether the given function type is a valid signature of the intrinsic with the
 // given ID, and if so, get the overload types of the intrinsic for that signature (none for
@@ -114,6 +117,9 @@ void LLVMExtraEraseNamedMetadata(LLVMNamedMDNodeRef NMD);
 void LLVMReplaceMDNodeOperandWith2(LLVMMetadataRef MD, unsigned I, LLVMMetadataRef New);
 LLVMMetadataRef LLVMGetMetadata2(LLVMValueRef Inst, unsigned KindID);
 void LLVMSetMetadata2(LLVMValueRef Inst, unsigned KindID, LLVMMetadataRef Node);
+// a new distinct tuple node, whose operands may be NULL (`MDTuple::getDistinct`)
+LLVMMetadataRef LLVMExtraMDTupleGetDistinct(LLVMContextRef C, LLVMMetadataRef *MDs,
+                                            size_t Count);
 
 // ORC API extensions
 typedef struct LLVMOrcOpaqueIRCompileLayer *LLVMOrcIRCompileLayerRef;
@@ -386,6 +392,12 @@ void LLVMExtraSetOrdering(LLVMValueRef MemAccessInst, LLVMAtomicOrdering Orderin
 LLVMContextRef LLVMGetValueContext(LLVMValueRef Val);
 LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder);
 #endif
+
+// build an `llvm.assume` call with an `align` operand bundle, which assumes that a pointer
+// is aligned (`IRBuilder::CreateAlignmentAssumption`, with the data layout of the module of
+// the insertion block)
+LLVMValueRef LLVMExtraBuildAlignmentAssumption(LLVMBuilderRef B, LLVMValueRef Ptr,
+                                               uint64_t Align);
 
 // expansion of atomics, using LLVM's own utilities or copies of AtomicExpandPass code. The
 // operations take the LLVMAtomicRMWBinOp values of the most recent C API, as integers.
@@ -760,6 +772,11 @@ void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
 
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);
+unsigned LLVMExtraAllocaAddressSpace(LLVMTargetDataRef TD);
+// whether integers of the given width (in bits) are native to the target
+LLVMBool LLVMExtraIsLegalInteger(LLVMTargetDataRef TD, uint64_t Width);
+// the alignment of a pointer value that is known from the IR (`Value::getPointerAlignment`)
+uint64_t LLVMExtraGetPointerAlignment(LLVMValueRef Ptr, LLVMTargetDataRef TD);
 
 // Linker flags (mirrors `llvm::Linker::Flags`).
 typedef enum {
@@ -891,6 +908,8 @@ void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlo
 void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB);
 // whether a `blockaddress` constant refers to a basic block
 LLVMBool LLVMExtraBasicBlockHasAddressTaken(LLVMBasicBlockRef BB);
+// the `musttail` call that precedes the return of a block, or NULL
+LLVMValueRef LLVMExtraGetTerminatingMustTailCall(LLVMBasicBlockRef BB);
 // set and get the insertion point of an instruction builder; the getter returns NULL if the
 // builder isn't positioned
 void LLVMExtraPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef BB,
@@ -953,9 +972,27 @@ LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE);
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);
 LLVMValueRef LLVMExtraStripPointerCasts(LLVMValueRef Val);
 LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val);
+LLVMValueRef LLVMExtraStripInBoundsOffsets(LLVMValueRef Val);
+// whether a value is wrapped in metadata, e.g., referred to by debug info
+LLVMBool LLVMExtraIsUsedByMetadata(LLVMValueRef Val);
+// replace the operands of a user that are `From` by `To`, and the location operands of a debug
+// intrinsic, returning whether there were any (`User::replaceUsesOfWith`)
+LLVMBool LLVMExtraReplaceUsesOfWith(LLVMValueRef User, LLVMValueRef From, LLVMValueRef To);
 
 // the (0-based) number of the operand of its user that a use is
 unsigned LLVMExtraGetOperandNo(LLVMUseRef U);
+// the (0-based) index of the operand bundle of a call site that a use is an input of, or -1
+// if it isn't the input of a bundle
+int LLVMExtraGetUseBundleIndex(LLVMUseRef U);
+
+// change the function that a call site calls, and its function type
+// (`CallBase::setCalledFunction`)
+void LLVMExtraSetCalledFunction(LLVMValueRef Call, LLVMValueRef Fn);
+// the memory effects of a call site, combining its attributes with those of the called
+// function and its operand bundles (`CallBase::getMemoryEffects`), as encoded by
+// `MemoryEffects::toIntValue`. On LLVM 15, they are derived from the attributes that the
+// `memory` attribute replaced, in the encoding of LLVM 16.
+uint32_t LLVMExtraGetCallMemoryEffects(LLVMValueRef Call);
 
 // whether a call site, function or argument only reads memory, or does not capture a
 // pointer. For a call site, ArgNo is the (0-based) number of an argument, or -1 for the
@@ -1263,6 +1300,12 @@ LLVMBasicBlockRef LLVMExtraLoopGetLatch(LLVMLoopRef L);
 LLVMBasicBlockRef LLVMExtraLoopGetPreheader(LLVMLoopRef L);
 // whether a value is defined outside of a loop
 LLVMBool LLVMExtraLoopIsLoopInvariant(LLVMLoopRef L, LLVMValueRef V);
+// the loop ID (the `!llvm.loop` node of the latches' terminators) of a loop, or NULL if
+// the latches don't agree on a valid one, and set it on every latch (NULL to remove it)
+LLVMMetadataRef LLVMExtraLoopGetLoopID(LLVMLoopRef L);
+void LLVMExtraLoopSetLoopID(LLVMLoopRef L, LLVMMetadataRef LoopID);
+// the debug location of the start of a loop (`Loop::getStartLoc`), or NULL
+LLVMMetadataRef LLVMExtraLoopGetStartLoc(LLVMLoopRef L);
 
 // forget what scalar evolution knows about a value (and the values that use it), about a
 // loop (and its nested loops), or about which expressions are invariant in which loops,
@@ -1418,6 +1461,11 @@ LLVMBool LLVMExtraDominatorTreeInstructionDominatesUse(LLVMDominatorTreeRef Tree
                                                        LLVMValueRef Inst, LLVMUseRef U);
 LLVMBool LLVMExtraDominatorTreeBlockDominates(LLVMDominatorTreeRef Tree, LLVMBasicBlockRef A,
                                               LLVMBasicBlockRef B);
+LLVMBool LLVMExtraDominatorTreeInstructionDominatesBlock(LLVMDominatorTreeRef Tree,
+                                                         LLVMValueRef Inst,
+                                                         LLVMBasicBlockRef BB);
+LLVMBool LLVMExtraDominatorTreeIsReachableFromEntry(LLVMDominatorTreeRef Tree,
+                                                    LLVMBasicBlockRef BB);
 // recompute a dominator tree for the current CFG of a function
 void LLVMExtraDominatorTreeRecalculate(LLVMDominatorTreeRef Tree, LLVMValueRef F);
 // split the block containing `SplitBefore` before it, and insert a conditional branch on

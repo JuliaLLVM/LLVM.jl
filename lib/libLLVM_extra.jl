@@ -128,6 +128,10 @@ end
     ccall((:LLVMExtraMoveGlobal, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMModuleRef, LLVMValueRef), GlobalVar, Mod, Before)
 end
 
+@llvmapi function LLVMExtraGetNamedValue(lib::Library, M, Name, NameLen)
+    ccall((:LLVMExtraGetNamedValue, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, Cstring, Csize_t), M, Name, NameLen)
+end
+
 @llvmapi function LLVMExtraIntrinsicGetOverloadTypes(lib::Library, ID, FunctionTy, OverloadTypes, OverloadCount)
     ccall((:LLVMExtraIntrinsicGetOverloadTypes, libLLVMExtra), LLVMBool, (Cuint, LLVMTypeRef, Ptr{LLVMTypeRef}, Ptr{Csize_t}), ID, FunctionTy, OverloadTypes, OverloadCount)
 end
@@ -211,6 +215,10 @@ end
 
 @llvmapi function LLVMSetMetadata2(lib::Library, Inst, KindID, Node)
     ccall((:LLVMSetMetadata2, libLLVMExtra), Cvoid, (LLVMValueRef, Cuint, LLVMMetadataRef), Inst, KindID, Node)
+end
+
+@llvmapi function LLVMExtraMDTupleGetDistinct(lib::Library, C, MDs, Count)
+    ccall((:LLVMExtraMDTupleGetDistinct, libLLVMExtra), LLVMMetadataRef, (LLVMContextRef, Ptr{LLVMMetadataRef}, Csize_t), C, MDs, Count)
 end
 
 mutable struct LLVMOrcOpaqueIRCompileLayer end
@@ -411,6 +419,10 @@ end
 
 @llvmapi function LLVMExtraSetFastMathFlags(lib::Library, FPMathInst, FMF)
     ccall((:LLVMExtraSetFastMathFlags, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMFastMathFlags), FPMathInst, FMF)
+end
+
+@llvmapi function LLVMExtraBuildAlignmentAssumption(lib::Library, B, Ptr, Align)
+    ccall((:LLVMExtraBuildAlignmentAssumption, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, UInt64), B, Ptr, Align)
 end
 
 @llvmapi function LLVMExtraBuildAtomicRMWValue(lib::Library, B, Op, Loaded, Val)
@@ -801,6 +813,18 @@ end
     ccall((:LLVMGlobalsAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
 end
 
+@llvmapi function LLVMExtraAllocaAddressSpace(lib::Library, TD)
+    ccall((:LLVMExtraAllocaAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
+end
+
+@llvmapi function LLVMExtraIsLegalInteger(lib::Library, TD, Width)
+    ccall((:LLVMExtraIsLegalInteger, libLLVMExtra), LLVMBool, (LLVMTargetDataRef, UInt64), TD, Width)
+end
+
+@llvmapi function LLVMExtraGetPointerAlignment(lib::Library, Ptr, TD)
+    ccall((:LLVMExtraGetPointerAlignment, libLLVMExtra), UInt64, (LLVMValueRef, LLVMTargetDataRef), Ptr, TD)
+end
+
 @cenum LLVMLinkerFlags::UInt32 begin
     LLVMLinkerNone = 0
     LLVMLinkerOverrideFromSrc = 1
@@ -910,6 +934,10 @@ end
     ccall((:LLVMExtraBasicBlockHasAddressTaken, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef,), BB)
 end
 
+@llvmapi function LLVMExtraGetTerminatingMustTailCall(lib::Library, BB)
+    ccall((:LLVMExtraGetTerminatingMustTailCall, libLLVMExtra), LLVMValueRef, (LLVMBasicBlockRef,), BB)
+end
+
 @llvmapi function LLVMExtraPositionBuilder(lib::Library, Builder, BB, Before, Head)
     ccall((:LLVMExtraPositionBuilder, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, BB, Before, Head)
 end
@@ -998,8 +1026,32 @@ end
     ccall((:LLVMExtraStripPointerCastsAndAliases, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
 end
 
+@llvmapi function LLVMExtraStripInBoundsOffsets(lib::Library, Val)
+    ccall((:LLVMExtraStripInBoundsOffsets, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
+end
+
+@llvmapi function LLVMExtraIsUsedByMetadata(lib::Library, Val)
+    ccall((:LLVMExtraIsUsedByMetadata, libLLVMExtra), LLVMBool, (LLVMValueRef,), Val)
+end
+
+@llvmapi function LLVMExtraReplaceUsesOfWith(lib::Library, User, From, To)
+    ccall((:LLVMExtraReplaceUsesOfWith, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMValueRef), User, From, To)
+end
+
 @llvmapi function LLVMExtraGetOperandNo(lib::Library, U)
     ccall((:LLVMExtraGetOperandNo, libLLVMExtra), Cuint, (LLVMUseRef,), U)
+end
+
+@llvmapi function LLVMExtraGetUseBundleIndex(lib::Library, U)
+    ccall((:LLVMExtraGetUseBundleIndex, libLLVMExtra), Cint, (LLVMUseRef,), U)
+end
+
+@llvmapi function LLVMExtraSetCalledFunction(lib::Library, Call, Fn)
+    ccall((:LLVMExtraSetCalledFunction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Call, Fn)
+end
+
+@llvmapi function LLVMExtraGetCallMemoryEffects(lib::Library, Call)
+    ccall((:LLVMExtraGetCallMemoryEffects, libLLVMExtra), UInt32, (LLVMValueRef,), Call)
 end
 
 @llvmapi function LLVMExtraOnlyReadsMemory(lib::Library, V, ArgNo)
@@ -1395,6 +1447,18 @@ end
     ccall((:LLVMExtraLoopIsLoopInvariant, libLLVMExtra), LLVMBool, (LLVMLoopRef, LLVMValueRef), L, V)
 end
 
+@llvmapi function LLVMExtraLoopGetLoopID(lib::Library, L)
+    ccall((:LLVMExtraLoopGetLoopID, libLLVMExtra), LLVMMetadataRef, (LLVMLoopRef,), L)
+end
+
+@llvmapi function LLVMExtraLoopSetLoopID(lib::Library, L, LoopID)
+    ccall((:LLVMExtraLoopSetLoopID, libLLVMExtra), Cvoid, (LLVMLoopRef, LLVMMetadataRef), L, LoopID)
+end
+
+@llvmapi function LLVMExtraLoopGetStartLoc(lib::Library, L)
+    ccall((:LLVMExtraLoopGetStartLoc, libLLVMExtra), LLVMMetadataRef, (LLVMLoopRef,), L)
+end
+
 @llvmapi function LLVMExtraScalarEvolutionForgetValue(lib::Library, SE, V)
     ccall((:LLVMExtraScalarEvolutionForgetValue, libLLVMExtra), Cvoid, (LLVMScalarEvolutionRef, LLVMValueRef), SE, V)
 end
@@ -1585,6 +1649,14 @@ end
 
 @llvmapi function LLVMExtraDominatorTreeBlockDominates(lib::Library, Tree, A, B)
     ccall((:LLVMExtraDominatorTreeBlockDominates, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef, LLVMBasicBlockRef), Tree, A, B)
+end
+
+@llvmapi function LLVMExtraDominatorTreeInstructionDominatesBlock(lib::Library, Tree, Inst, BB)
+    ccall((:LLVMExtraDominatorTreeInstructionDominatesBlock, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMValueRef, LLVMBasicBlockRef), Tree, Inst, BB)
+end
+
+@llvmapi function LLVMExtraDominatorTreeIsReachableFromEntry(lib::Library, Tree, BB)
+    ccall((:LLVMExtraDominatorTreeIsReachableFromEntry, libLLVMExtra), LLVMBool, (LLVMDominatorTreeRef, LLVMBasicBlockRef), Tree, BB)
 end
 
 @llvmapi function LLVMExtraDominatorTreeRecalculate(lib::Library, Tree, F)

@@ -145,6 +145,8 @@ va_arg!
 ```
 
 The types of the instructions are listed on the [Instruction types](@ref) page.
+Some of these types can also be used to [create instructions without a
+builder](@ref "Creating instructions without a builder").
 
 ## Insertion points
 

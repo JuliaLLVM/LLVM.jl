@@ -2219,6 +2219,54 @@ LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE) {
   return wrap(unwrap<ConstantExpr>(CE)->getAsInstruction());
 }
 
+LLVMValueRef LLVMExtraCreateSelect(LLVMValueRef If, LLVMValueRef Then, LLVMValueRef Else,
+                                   const char *Name) {
+  Value *C = unwrap(If), *T = unwrap(Then), *F = unwrap(Else);
+  LLVMContext &Ctx = C->getContext();
+  // areInvalidOperands accepts void and metadata values, which the verifier rejects
+  if (&T->getContext() != &Ctx || &F->getContext() != &Ctx ||
+      !T->getType()->isFirstClassType() || T->getType()->isMetadataTy() ||
+      SelectInst::areInvalidOperands(C, T, F))
+    return nullptr;
+  return wrap(SelectInst::Create(C, T, F, Name));
+}
+
+LLVMValueRef LLVMExtraCreateExtractElement(LLVMValueRef VecVal, LLVMValueRef Index,
+                                           const char *Name) {
+  Value *V = unwrap(VecVal), *Idx = unwrap(Index);
+  if (&V->getContext() != &Idx->getContext() || !ExtractElementInst::isValidOperands(V, Idx))
+    return nullptr;
+  return wrap(ExtractElementInst::Create(V, Idx, Name));
+}
+
+LLVMValueRef LLVMExtraCreateExtractValue(LLVMValueRef AggVal, const unsigned *Idxs,
+                                         unsigned NumIdxs, const char *Name) {
+  Value *Agg = unwrap(AggVal);
+  ArrayRef<unsigned> Indices(Idxs, NumIdxs);
+  if (Indices.empty() || !ExtractValueInst::getIndexedType(Agg->getType(), Indices))
+    return nullptr;
+  return wrap(ExtractValueInst::Create(Agg, Indices, Name));
+}
+
+LLVMValueRef LLVMExtraCreateCast(LLVMOpcode Op, LLVMValueRef Val, LLVMTypeRef DestTy,
+                                 const char *Name) {
+  Instruction::CastOps CastOp;
+  switch (Op) {
+#define HANDLE_CAST_INST(num, opc, clas)                                                   \
+  case LLVM##opc:                                                                          \
+    CastOp = Instruction::opc;                                                             \
+    break;
+#include <llvm/IR/Instruction.def>
+  default:
+    return nullptr;
+  }
+  Value *V = unwrap(Val);
+  Type *Ty = unwrap(DestTy);
+  if (&V->getContext() != &Ty->getContext() || !CastInst::castIsValid(CastOp, V, Ty))
+    return nullptr;
+  return wrap(CastInst::Create(CastOp, V, Ty, Name));
+}
+
 
 //
 // values

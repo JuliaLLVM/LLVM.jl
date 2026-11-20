@@ -996,6 +996,18 @@ LLVMBool LLVMExtraCanInstructionHaveMMRAs(LLVMValueRef Inst);
 // a new instruction that computes the same value as a constant expression, with the same
 // operands, like ConstantExpr::getAsInstruction. It is not part of a basic block.
 LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE);
+// new instructions that are not part of a basic block, like `SelectInst::Create`,
+// `ExtractElementInst::Create`, `ExtractValueInst::Create` and `CastInst::Create` without
+// an insertion point. These don't fold constant operands; they return NULL if the operands
+// are invalid for the instruction, or belong to different contexts.
+LLVMValueRef LLVMExtraCreateSelect(LLVMValueRef If, LLVMValueRef Then, LLVMValueRef Else,
+                                   const char *Name);
+LLVMValueRef LLVMExtraCreateExtractElement(LLVMValueRef VecVal, LLVMValueRef Index,
+                                           const char *Name);
+LLVMValueRef LLVMExtraCreateExtractValue(LLVMValueRef AggVal, const unsigned *Idxs,
+                                         unsigned NumIdxs, const char *Name);
+LLVMValueRef LLVMExtraCreateCast(LLVMOpcode Op, LLVMValueRef Val, LLVMTypeRef DestTy,
+                                 const char *Name);
 
 // values
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);

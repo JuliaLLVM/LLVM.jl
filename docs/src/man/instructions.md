@@ -80,6 +80,14 @@ created: `LLVM.after(inst)` is the position before the next instruction, or the 
 block if `inst` is the last one. Like an iterator, an insertion point becomes invalid when
 the instruction it inserts before, its anchor (`LLVM.anchor(pos)`), is erased.
 
+The builder folds instructions with constant operands to constants, e.g.,
+`select!(builder, cond, a, b)` returns `a` when `cond` is `true`. To create an instruction
+anyway, like C++'s `SelectInst::Create`, call the constructor of its type with an insertion
+point: `LLVM.SelectInst(LLVM.before(inst), cond, a, b)`. This works for `select`,
+`extractelement`, `extractvalue` and cast instructions, and creates instructions without a
+debug location. Without an insertion point, these constructors create an instruction that
+isn't part of a basic block.
+
 An instruction that isn't part of a basic block, e.g., a `copy` of another instruction or
 one that was `remove!`d from its block, can be inserted at the builder's position with
 `move!(inst, builder.position)`. Unlike the instructions that the builder creates, it keeps

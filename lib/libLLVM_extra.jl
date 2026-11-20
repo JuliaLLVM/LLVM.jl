@@ -1030,6 +1030,22 @@ end
     ccall((:LLVMExtraConstantExprGetAsInstruction, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), CE)
 end
 
+@llvmapi function LLVMExtraCreateSelect(lib::Library, If, Then, Else, Name)
+    ccall((:LLVMExtraCreateSelect, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, LLVMValueRef, Cstring), If, Then, Else, Name)
+end
+
+@llvmapi function LLVMExtraCreateExtractElement(lib::Library, VecVal, Index, Name)
+    ccall((:LLVMExtraCreateExtractElement, libLLVMExtra), LLVMValueRef, (LLVMValueRef, LLVMValueRef, Cstring), VecVal, Index, Name)
+end
+
+@llvmapi function LLVMExtraCreateExtractValue(lib::Library, AggVal, Idxs, NumIdxs, Name)
+    ccall((:LLVMExtraCreateExtractValue, libLLVMExtra), LLVMValueRef, (LLVMValueRef, Ptr{Cuint}, Cuint, Cstring), AggVal, Idxs, NumIdxs, Name)
+end
+
+@llvmapi function LLVMExtraCreateCast(lib::Library, Op, Val, DestTy, Name)
+    ccall((:LLVMExtraCreateCast, libLLVMExtra), LLVMValueRef, (LLVMOpcode, LLVMValueRef, LLVMTypeRef, Cstring), to_abi(lib, LLVMOpcode, Op), Val, DestTy, Name)
+end
+
 @llvmapi function LLVMExtraTakeName(lib::Library, Val, From)
     ccall((:LLVMExtraTakeName, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Val, From)
 end

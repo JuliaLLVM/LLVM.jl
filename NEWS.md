@@ -30,6 +30,12 @@
   `nothing` at the end of the list, e.g., `LLVM.anchor(LLVM.after_phis(bb))` for C++'s
   `&*bb->getFirstInsertionPt()`.
 
+- The constructors of the `select`, `extractelement`, `extractvalue` and cast instruction
+  types create an instruction without an `IRBuilder`, like C++'s `SelectInst::Create`
+  etc.: `LLVM.SelectInst(LLVM.before(inst), cond, a, b)`. Unlike the builder, they don't
+  fold constant operands, and don't set a debug location. Without an insertion point, the
+  instruction isn't inserted yet.
+
 
 ## LLVM.jl v10.6
 

@@ -20,6 +20,12 @@
   the input, like the file name that `opt` reads, which names the module. For textual IR,
   it is also the default `source_filename` and the file name in parser errors.
 
+- The nodes of dominator and post-dominator trees can be accessed by indexing a tree with a
+  basic block, `tree[bb]`, which returns a `DomTreeNode` (or `nothing` for a block that is
+  not in the tree, like C++'s `DominatorTree::getNode`). Its properties `node.block`,
+  `node.idom` and `node.children` walk the tree, and `dominates(tree, A, B)` compares two
+  nodes.
+
 
 ## LLVM.jl v10.6
 

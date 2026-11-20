@@ -14,6 +14,7 @@ DomTree
 dispose(::DomTree)
 PostDomTree
 dispose(::PostDomTree)
+DomTreeNode
 dominates
 isreachable
 recalculate!

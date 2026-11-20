@@ -66,6 +66,12 @@ not reachable from the entry of the function, and otherwise false if `A` is in `
     dominates(tree::DomTree, A::BasicBlock, B::BasicBlock)
 
 Check if basic block `A` dominates basic block `B`.
+
+    dominates(tree::DomTree, A::DomTreeNode, B::DomTreeNode)
+    dominates(tree::PostDomTree, A::DomTreeNode, B::DomTreeNode)
+
+Check if node `A` of the tree `tree` dominates its node `B`, i.e., whether `A` is an
+ancestor of `B` in the tree, or `B` itself.
 """
 dominates(tree, A::Instruction, B::Instruction)
 
@@ -413,6 +419,91 @@ dispose(postdomtree::PostDomTree) =
 
 function dominates(postdomtree::PostDomTree, A::Instruction, B::Instruction)
     API.LLVMPostDominatorTreeInstructionDominates(postdomtree, A, B) |> Bool
+end
+
+
+## dominator tree nodes
+
+@vocabulary Analysis DomTreeNode
+
+"""
+    DomTreeNode
+
+A node of a dominator tree ([`DomTree`](@ref)) or a post-dominator tree
+([`PostDomTree`](@ref)). Indexing a tree with a basic block, `tree[bb]`, returns the node of
+the block, or `nothing` if the tree has none, e.g., for a block that is not reachable from
+the entry of the function (and throws an `ArgumentError` for a block of another function).
+Use [`dominates`](@ref) to check whether a node dominates another one of the same tree.
+
+Nodes are owned by their tree: they must not be used after the tree is disposed of,
+recalculated or updated (e.g., by [`recalculate!`](@ref)), or after a pass that obtained it
+from an analysis manager returns.
+
+# Properties
+
+- `node.block`: the basic block of the node, or `nothing` for the root of a post-dominator
+  tree, which is a virtual node that post-dominates every block.
+- `node.idom`: the node of the immediate dominator, or `nothing` for the root of the tree.
+- `node.children`: the nodes that this node immediately dominates (an iterable that finds
+  them when it is iterated).
+"""
+@checked struct DomTreeNode
+    ref::API.LLVMDomTreeNodeRef
+    # nodes are used without their tree, so remember its library
+    library::Library
+end
+@properties DomTreeNode
+
+argument_library(x::DomTreeNode) = x.library
+
+Base.unsafe_convert(::Type{API.LLVMDomTreeNodeRef}, node::DomTreeNode) = node.ref
+
+node_or_nothing(ref::API.LLVMDomTreeNodeRef, lib::Library) =
+    ref == C_NULL ? nothing : DomTreeNode(ref, lib)
+
+for (T, getnode) in ((:DomTree, :LLVMExtraDominatorTreeGetNode),
+                     (:PostDomTree, :LLVMExtraPostDominatorTreeGetNode))
+    @eval function Base.getindex(tree::$T, bb::BasicBlock)
+        node = Ref{API.LLVMDomTreeNodeRef}()
+        API.$getnode(tree, bb, node) |> Bool ||
+            throw(ArgumentError("The basic block is not part of the function of the tree"))
+        return node_or_nothing(node[], tree.library)
+    end
+end
+
+dominates(tree::DomTree, A::DomTreeNode, B::DomTreeNode) =
+    API.LLVMExtraDominatorTreeNodeDominates(tree, A, B) |> Bool
+dominates(tree::PostDomTree, A::DomTreeNode, B::DomTreeNode) =
+    API.LLVMExtraPostDominatorTreeNodeDominates(tree, A, B) |> Bool
+
+block(node::DomTreeNode) = block_or_nothing(API.LLVMExtraDomTreeNodeGetBlock(node))
+idom(node::DomTreeNode) = node_or_nothing(API.LLVMExtraDomTreeNodeGetIDom(node), node.library)
+
+# the children are found when iterating, as LLVM 23 keeps them in a linked list
+struct DomTreeNodeChildSet
+    node::DomTreeNode
+end
+
+Base.eltype(::Type{DomTreeNodeChildSet}) = DomTreeNode
+Base.length(iter::DomTreeNodeChildSet) =
+    Int(API.LLVMExtraDomTreeNodeGetChildren(iter.node, C_NULL))
+function Base.iterate(iter::DomTreeNodeChildSet,
+                      state=(read_refs(API.LLVMExtraDomTreeNodeGetChildren,
+                                       API.LLVMDomTreeNodeRef, iter.node), 1))
+    refs, i = state
+    return i > length(refs) ? nothing :
+           (DomTreeNode(refs[i], iter.node.library), (refs, i + 1))
+end
+
+children(node::DomTreeNode) = DomTreeNodeChildSet(node)
+
+@property DomTreeNode block
+@property DomTreeNode idom
+@property DomTreeNode children
+
+function Base.show(io::IO, node::DomTreeNode)
+    bb = block(node)
+    print(io, "DomTreeNode(", bb === nothing ? "virtual root" : repr(bb.name), ")")
 end
 
 

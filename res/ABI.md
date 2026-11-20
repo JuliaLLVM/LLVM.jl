@@ -22,13 +22,13 @@ include the most recent version.
 | Definitions | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 |
 |:------------|--:|--:|--:|--:|--:|--:|--:|--:|--:|
 | LLVM functions | 1261 | 1248 | 1177 | 1200 | 1229 | 1248 | 1257 | 1272 | 1283 |
-| LLVMExtra functions | 404 | 413 | 406 | 390 | 396 | 387 | 385 | 376 | 376 |
+| LLVMExtra functions | 411 | 420 | 413 | 397 | 403 | 394 | 392 | 383 | 383 |
 | LLVM enums | 41 | 41 | 41 | 44 | 45 | 45 | 44 | 46 | 47 |
 | LLVMExtra enums | 17 | 17 | 17 | 15 | 16 | 16 | 16 | 15 | 15 |
 | LLVM structs | 81 | 81 | 79 | 81 | 83 | 83 | 83 | 83 | 83 |
-| LLVMExtra structs | 26 | 26 | 26 | 25 | 25 | 25 | 25 | 25 | 25 |
+| LLVMExtra structs | 27 | 27 | 27 | 26 | 26 | 26 | 26 | 26 | 26 |
 | LLVM constants | 142 | 144 | 142 | 145 | 147 | 148 | 148 | 148 | 148 |
-| LLVMExtra constants | 39 | 39 | 39 | 37 | 37 | 37 | 37 | 37 | 37 |
+| LLVMExtra constants | 40 | 40 | 40 | 38 | 38 | 38 | 38 | 38 | 38 |
 
 ## Functions
 

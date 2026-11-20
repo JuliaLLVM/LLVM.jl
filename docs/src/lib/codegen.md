@@ -69,6 +69,8 @@ LLVM.frame_alignment
 LLVM.preferred_alignment
 LLVM.element_at
 LLVM.offsetof
+LLVM.is_legal_integer
+LLVM.pointer_alignment
 LLVM.constant_offset
 LLVM.strip_and_accumulate_constant_offsets
 ```

@@ -801,6 +801,18 @@ end
     ccall((:LLVMGlobalsAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
 end
 
+@llvmapi function LLVMExtraAllocaAddressSpace(lib::Library, TD)
+    ccall((:LLVMExtraAllocaAddressSpace, libLLVMExtra), Cuint, (LLVMTargetDataRef,), TD)
+end
+
+@llvmapi function LLVMExtraIsLegalInteger(lib::Library, TD, Width)
+    ccall((:LLVMExtraIsLegalInteger, libLLVMExtra), LLVMBool, (LLVMTargetDataRef, UInt64), TD, Width)
+end
+
+@llvmapi function LLVMExtraGetPointerAlignment(lib::Library, Ptr, TD)
+    ccall((:LLVMExtraGetPointerAlignment, libLLVMExtra), UInt64, (LLVMValueRef, LLVMTargetDataRef), Ptr, TD)
+end
+
 @cenum LLVMLinkerFlags::UInt32 begin
     LLVMLinkerNone = 0
     LLVMLinkerOverrideFromSrc = 1

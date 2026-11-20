@@ -1481,6 +1481,18 @@ unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD) {
   return unwrap(TD)->getDefaultGlobalsAddressSpace();
 }
 
+unsigned LLVMExtraAllocaAddressSpace(LLVMTargetDataRef TD) {
+  return unwrap(TD)->getAllocaAddrSpace();
+}
+
+LLVMBool LLVMExtraIsLegalInteger(LLVMTargetDataRef TD, uint64_t Width) {
+  return unwrap(TD)->isLegalInteger(Width);
+}
+
+uint64_t LLVMExtraGetPointerAlignment(LLVMValueRef Ptr, LLVMTargetDataRef TD) {
+  return unwrap(Ptr)->getPointerAlignment(*unwrap(TD)).value();
+}
+
 //
 // Linker extensions
 //

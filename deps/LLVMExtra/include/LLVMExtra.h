@@ -760,6 +760,11 @@ void LLVMPassBuilderExtensionsSetTTI(LLVMPassBuilderExtensionsRef Extensions,
 
 // More DataLayout queries
 unsigned LLVMGlobalsAddressSpace(LLVMTargetDataRef TD);
+unsigned LLVMExtraAllocaAddressSpace(LLVMTargetDataRef TD);
+// whether integers of the given width (in bits) are native to the target
+LLVMBool LLVMExtraIsLegalInteger(LLVMTargetDataRef TD, uint64_t Width);
+// the alignment of a pointer value that is known from the IR (`Value::getPointerAlignment`)
+uint64_t LLVMExtraGetPointerAlignment(LLVMValueRef Ptr, LLVMTargetDataRef TD);
 
 // Linker flags (mirrors `llvm::Linker::Flags`).
 typedef enum {

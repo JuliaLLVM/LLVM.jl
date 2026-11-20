@@ -128,6 +128,10 @@ end
     ccall((:LLVMExtraMoveGlobal, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMModuleRef, LLVMValueRef), GlobalVar, Mod, Before)
 end
 
+@llvmapi function LLVMExtraGetNamedValue(lib::Library, M, Name, NameLen)
+    ccall((:LLVMExtraGetNamedValue, libLLVMExtra), LLVMValueRef, (LLVMModuleRef, Cstring, Csize_t), M, Name, NameLen)
+end
+
 @llvmapi function LLVMExtraIntrinsicGetOverloadTypes(lib::Library, ID, FunctionTy, OverloadTypes, OverloadCount)
     ccall((:LLVMExtraIntrinsicGetOverloadTypes, libLLVMExtra), LLVMBool, (Cuint, LLVMTypeRef, Ptr{LLVMTypeRef}, Ptr{Csize_t}), ID, FunctionTy, OverloadTypes, OverloadCount)
 end
@@ -922,6 +926,10 @@ end
     ccall((:LLVMExtraBasicBlockHasAddressTaken, libLLVMExtra), LLVMBool, (LLVMBasicBlockRef,), BB)
 end
 
+@llvmapi function LLVMExtraGetTerminatingMustTailCall(lib::Library, BB)
+    ccall((:LLVMExtraGetTerminatingMustTailCall, libLLVMExtra), LLVMValueRef, (LLVMBasicBlockRef,), BB)
+end
+
 @llvmapi function LLVMExtraPositionBuilder(lib::Library, Builder, BB, Before, Head)
     ccall((:LLVMExtraPositionBuilder, libLLVMExtra), Cvoid, (LLVMBuilderRef, LLVMBasicBlockRef, LLVMValueRef, LLVMBool), Builder, BB, Before, Head)
 end
@@ -1010,8 +1018,32 @@ end
     ccall((:LLVMExtraStripPointerCastsAndAliases, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
 end
 
+@llvmapi function LLVMExtraStripInBoundsOffsets(lib::Library, Val)
+    ccall((:LLVMExtraStripInBoundsOffsets, libLLVMExtra), LLVMValueRef, (LLVMValueRef,), Val)
+end
+
+@llvmapi function LLVMExtraIsUsedByMetadata(lib::Library, Val)
+    ccall((:LLVMExtraIsUsedByMetadata, libLLVMExtra), LLVMBool, (LLVMValueRef,), Val)
+end
+
+@llvmapi function LLVMExtraReplaceUsesOfWith(lib::Library, User, From, To)
+    ccall((:LLVMExtraReplaceUsesOfWith, libLLVMExtra), LLVMBool, (LLVMValueRef, LLVMValueRef, LLVMValueRef), User, From, To)
+end
+
 @llvmapi function LLVMExtraGetOperandNo(lib::Library, U)
     ccall((:LLVMExtraGetOperandNo, libLLVMExtra), Cuint, (LLVMUseRef,), U)
+end
+
+@llvmapi function LLVMExtraGetUseBundleIndex(lib::Library, U)
+    ccall((:LLVMExtraGetUseBundleIndex, libLLVMExtra), Cint, (LLVMUseRef,), U)
+end
+
+@llvmapi function LLVMExtraSetCalledFunction(lib::Library, Call, Fn)
+    ccall((:LLVMExtraSetCalledFunction, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Call, Fn)
+end
+
+@llvmapi function LLVMExtraGetCallMemoryEffects(lib::Library, Call)
+    ccall((:LLVMExtraGetCallMemoryEffects, libLLVMExtra), UInt32, (LLVMValueRef,), Call)
 end
 
 @llvmapi function LLVMExtraOnlyReadsMemory(lib::Library, V, ArgNo)

@@ -561,6 +561,22 @@ function Base.get!(f::Base.Callable, iter::ModuleGlobalSet, name::AbstractString
     return gv
 end
 
+@vocabulary IR named_value
+
+"""
+    named_value(mod::Module, name::AbstractString)
+
+Look up the global value called `name` in the module, of any kind (a function, global
+variable, alias or ifunc), like C++'s `Module::getNamedValue`. Returns `nothing` if the
+module doesn't contain one.
+"""
+function named_value(mod::Module, name::AbstractString)
+    name = api_string(name)
+    ref = API.LLVMExtraGetNamedValue(mod, name, ncodeunits(name))
+    ref == C_NULL && return nothing
+    return library!(() -> Value(ref), mod.library)::GlobalValue
+end
+
 # the global values of a module share a namespace
 function check_unused_name(mod::Module, name::String)
     for (kind, ref) in (("function", API.LLVMGetNamedFunction(mod, name)),

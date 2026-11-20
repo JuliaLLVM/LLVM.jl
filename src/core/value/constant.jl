@@ -8,6 +8,17 @@ Abstract supertype for all constant values.
 abstract type Constant <: User end
 @vocabulary IR Constant
 
+@public unsafe_destroy!
+
+"""
+    LLVM.unsafe_destroy!(constant::Constant)
+
+Destroy a constant that is no longer used, like C++'s `Constant::destroyConstant`, e.g., the
+initializer of a global variable that was replaced. Other constants that use it are
+destroyed too, so neither it nor those constants may be used by instructions or global
+values, and none of them can be used afterwards. LLVM doesn't support destroying every kind
+of constant, e.g., global values, and integer and floating-point constants.
+"""
 unsafe_destroy!(constant::Constant) = API.LLVMDestroyConstant(constant)
 
 @vocabulary IR remove_dead_constant_users!

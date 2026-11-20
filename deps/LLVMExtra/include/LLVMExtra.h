@@ -52,6 +52,9 @@ LLVMTypeRef LLVMGetGlobalValueType(LLVMValueRef Fn);
 // before itself is a no-op.
 void LLVMExtraMoveFunction(LLVMValueRef Fn, LLVMModuleRef Mod, LLVMValueRef Before);
 void LLVMExtraMoveGlobal(LLVMValueRef GlobalVar, LLVMModuleRef Mod, LLVMValueRef Before);
+// the global value of a module with the given name, of any kind, or NULL
+// (`Module::getNamedValue`)
+LLVMValueRef LLVMExtraGetNamedValue(LLVMModuleRef M, const char *Name, size_t NameLen);
 
 // Determine whether the given function type is a valid signature of the intrinsic with the
 // given ID, and if so, get the overload types of the intrinsic for that signature (none for
@@ -896,6 +899,8 @@ void LLVMExtraMoveBasicBlock(LLVMBasicBlockRef BB, LLVMValueRef Fn, LLVMBasicBlo
 void LLVMExtraDeleteBasicBlock(LLVMBasicBlockRef BB);
 // whether a `blockaddress` constant refers to a basic block
 LLVMBool LLVMExtraBasicBlockHasAddressTaken(LLVMBasicBlockRef BB);
+// the `musttail` call that precedes the return of a block, or NULL
+LLVMValueRef LLVMExtraGetTerminatingMustTailCall(LLVMBasicBlockRef BB);
 // set and get the insertion point of an instruction builder; the getter returns NULL if the
 // builder isn't positioned
 void LLVMExtraPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef BB,
@@ -958,9 +963,27 @@ LLVMValueRef LLVMExtraConstantExprGetAsInstruction(LLVMValueRef CE);
 void LLVMExtraTakeName(LLVMValueRef Val, LLVMValueRef From);
 LLVMValueRef LLVMExtraStripPointerCasts(LLVMValueRef Val);
 LLVMValueRef LLVMExtraStripPointerCastsAndAliases(LLVMValueRef Val);
+LLVMValueRef LLVMExtraStripInBoundsOffsets(LLVMValueRef Val);
+// whether a value is wrapped in metadata, e.g., referred to by debug info
+LLVMBool LLVMExtraIsUsedByMetadata(LLVMValueRef Val);
+// replace the operands of a user that are `From` by `To`, and the location operands of a debug
+// intrinsic, returning whether there were any (`User::replaceUsesOfWith`)
+LLVMBool LLVMExtraReplaceUsesOfWith(LLVMValueRef User, LLVMValueRef From, LLVMValueRef To);
 
 // the (0-based) number of the operand of its user that a use is
 unsigned LLVMExtraGetOperandNo(LLVMUseRef U);
+// the (0-based) index of the operand bundle of a call site that a use is an input of, or -1
+// if it isn't the input of a bundle
+int LLVMExtraGetUseBundleIndex(LLVMUseRef U);
+
+// change the function that a call site calls, and its function type
+// (`CallBase::setCalledFunction`)
+void LLVMExtraSetCalledFunction(LLVMValueRef Call, LLVMValueRef Fn);
+// the memory effects of a call site, combining its attributes with those of the called
+// function and its operand bundles (`CallBase::getMemoryEffects`), as encoded by
+// `MemoryEffects::toIntValue`. On LLVM 15, they are derived from the attributes that the
+// `memory` attribute replaced, in the encoding of LLVM 16.
+uint32_t LLVMExtraGetCallMemoryEffects(LLVMValueRef Call);
 
 // whether a call site, function or argument only reads memory, or does not capture a
 // pointer. For a call site, ArgNo is the (0-based) number of an argument, or -1 for the

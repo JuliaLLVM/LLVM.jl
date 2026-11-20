@@ -218,6 +218,7 @@ insert_masked_value!
 LLVM.CallBase
 only_reads_memory
 does_not_capture
+effective_memory_effects
 ```
 
 ### Operand Bundles

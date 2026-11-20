@@ -124,7 +124,8 @@ name!(val::Value, name::AbstractString) = API.LLVMSetValueName(val, name)
 @property Value value_type
 @property Value name name!
 
-@vocabulary IR take_name!, strip_pointer_casts, strip_pointer_casts_and_aliases
+@vocabulary IR take_name!, strip_pointer_casts, strip_pointer_casts_and_aliases,
+               strip_inbounds_offsets, is_used_by_metadata
 
 """
     take_name!(val::Value, from::Value)
@@ -152,6 +153,26 @@ global aliases to the value they alias.
 """
 strip_pointer_casts_and_aliases(val::Value) =
     Value(API.LLVMExtraStripPointerCastsAndAliases(val))
+
+"""
+    strip_inbounds_offsets(val::Value)
+
+Strip pointer casts and `inbounds` offsets from a value. Like C++'s
+`Value::stripInBoundsOffsets`, this works like [`strip_pointer_casts`](@ref), but also
+looks through `getelementptr inbounds` with any indices, and through calls that return one
+of their arguments (with the `returned` attribute).
+"""
+strip_inbounds_offsets(val::Value) = Value(API.LLVMExtraStripInBoundsOffsets(val))
+
+"""
+    is_used_by_metadata(val::Value)
+
+Check whether metadata refers to a value, e.g., debug information (a debug record, or the
+arguments of a debug intrinsic), like C++'s `Value::isUsedByMetadata`. This does not
+consider metadata attached to the value itself, and may be true when the metadata that
+referred to the value no longer exists.
+"""
+is_used_by_metadata(val::Value) = API.LLVMExtraIsUsedByMetadata(val) |> Bool
 
 Base.string(val::Value) = unsafe_message(API.LLVMPrintValueToString(val))
 
@@ -218,8 +239,24 @@ This includes the uses in metadata, e.g., the locations of debug intrinsics, exc
 metadata uses that would become invalid are dropped: those of a constant replaced by a
 non-constant value, and those of a local value replaced by one in a function with another
 `DISubprogram`. To only replace the uses in metadata, use [`replace_metadata_uses!`](@ref).
+
+    replace_uses!(user::LLVM.User, from::LLVM.Value, to::LLVM.Value) -> Bool
+
+Replace the uses of `from` in the operands of `user` with `to`, like C++'s
+`User::replaceUsesOfWith`, returning whether there were any. For a debug intrinsic, this
+also replaces `from` in its location operands, which are wrapped in metadata. As with
+assigning to `user.operands`, the operands of constants other than global values cannot be
+changed, and `to` must be valid in the place of `from`, e.g., have the same type.
 """
 replace_uses!(old::Value, new::Value) = API.LLVMReplaceAllUsesWith(old, new)
+
+function replace_uses!(user::User, from::Value, to::Value)
+    user isa Constant && !(user isa GlobalValue) &&
+        throw(ArgumentError("Cannot change the operands of a $(typeof(user))"))
+    user isa GlobalValue && !(to isa Constant) &&
+        throw(ArgumentError("The operands of a global value must be constants"))
+    API.LLVMExtraReplaceUsesOfWith(user, from, to) |> Bool
+end
 
 """
     replace_metadata_uses!(old::LLVM.Value, new::LLVM.Value)
@@ -291,6 +328,12 @@ is `use.value`.
 If the user is a call, the (1-based) index of the call argument that is the use, or
 `nothing` if the use is not an argument (e.g., because it is the called function, or an
 operand of an operand bundle). See also [`iscallee`](@ref).
+
+    use.bundle_index
+
+If the user is a call, the (1-based) index in the `operand_bundles` of the call of the
+operand bundle that the use is an input of, or `nothing` if the use is not the input of a
+bundle, like C++'s `CallBase::isBundleOperand` and `getOperandBundleForOperand`.
 """
 @checked struct Use
     ref::API.LLVMUseRef
@@ -316,6 +359,13 @@ end
 @property Use value
 @property Use operand_index
 @property Use argument_index
+
+function bundle_index(use::Use)
+    i = API.LLVMExtraGetUseBundleIndex(use)
+    return i < 0 ? nothing : Int(i) + 1
+end
+
+@property Use bundle_index
 
 @vocabulary IR iscallee
 

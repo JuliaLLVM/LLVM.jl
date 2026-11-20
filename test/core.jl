@@ -564,6 +564,105 @@ end
     end
 end
 
+# looking through in-bounds offsets, and the uses of values in calls and metadata
+@dispose ctx=Context(; opaque_pointers=true) begin
+    @dispose mod=parse(LLVM.Module, """
+        @g = global i32 0
+        @a = alias i32, ptr @g
+
+        declare ptr @id(ptr returned)
+        declare void @callee(i32, i32)
+
+        define ptr @f(ptr %p, i32 %x, i32 %y, i64 %i) {
+          %a = getelementptr inbounds i8, ptr %p, i64 %i
+          %b = call ptr @id(ptr %a)
+          %c = getelementptr i8, ptr %p, i64 1
+          call void @callee(i32 %x, i32 %y) [ "deopt"(i32 %x), "foo"(), "jl_roots"(i32 %y, i32 %x) ]
+          %r = call ptr @tail(ptr %p)
+          ret ptr %r
+        }
+
+        define ptr @tail(ptr %p) {
+          %r = musttail call ptr @tail(ptr %p)
+          ret ptr %r
+        }""") begin
+        verify(mod)
+        f = mod.functions["f"]
+        p, x, y, i = f.parameters
+        a, b, c, call = collect(f.entry.instructions)[1:4]
+
+        @test strip_inbounds_offsets(b) == p
+        @test strip_pointer_casts(b) == a
+        @test strip_inbounds_offsets(c) == c
+
+        uses_in(v, inst) = filter(use -> use.user == inst, collect(v.uses))
+        @test sort([use.bundle_index for use in uses_in(x, call)];
+                   by=i -> something(i, 0)) == [nothing, 1, 3]
+        @test sort([use.bundle_index for use in uses_in(y, call)];
+                   by=i -> something(i, 0)) == [nothing, 3]
+        @test call.operand_bundles[3].tag == "jl_roots"
+        @test only(uses_in(p, c)).bundle_index === nothing
+
+        # replacing the uses of a value in one user
+        @test replace_uses!(call, x, y)
+        @test isempty(uses_in(x, call))
+        @test !replace_uses!(call, x, y)
+        @test_throws ArgumentError replace_uses!(mod.globals["g"], ConstantInt(Int32(0)), x)
+        ce = const_ptrtoint(mod.globals["g"], LLVM.Int64Type())
+        @test_throws ArgumentError replace_uses!(ce, mod.globals["g"], null(LLVM.PointerType()))
+
+        @test !is_used_by_metadata(y)
+        Metadata(y)
+        @test is_used_by_metadata(y)
+
+        # the musttail call before a return
+        tail = mod.functions["tail"]
+        @test tail.entry.terminating_musttail_call == first(tail.entry.instructions)
+        @test f.entry.terminating_musttail_call === nothing
+
+        # global values of any kind by name
+        @test named_value(mod, "f") == f
+        @test named_value(mod, "g") == mod.globals["g"]
+        @test named_value(mod, "a") isa GlobalAlias
+        @test named_value(mod, "nonexistent") === nothing
+    end
+end
+
+# replacing the uses of a value in the location of a debug intrinsic, which LLVM 19 and later
+# parse as a debug record
+if LLVM.version() < v"19"
+@dispose ctx=Context() mod=parse(LLVM.Module, """
+        define void @f(i32 %x, i32 %y) !dbg !5 {
+          call void @llvm.dbg.value(metadata i32 %x, metadata !9, metadata !DIExpression()), !dbg !10
+          ret void, !dbg !10
+        }
+
+        declare void @llvm.dbg.value(metadata, metadata, metadata)
+
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+
+        !0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "test.c", directory: "/tmp")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !5 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !6, unit: !0, spFlags: DISPFlagDefinition)
+        !6 = !DISubroutineType(types: !7)
+        !7 = !{null}
+        !8 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+        !9 = !DILocalVariable(name: "v", scope: !5, file: !1, line: 2, type: !8)
+        !10 = !DILocation(line: 2, column: 1, scope: !5)
+        """) begin
+    f = mod.functions["f"]
+    x, y = f.parameters
+    dbg = first(f.entry.instructions)
+    # the location is wrapped in metadata, so it is not an operand of the call
+    @test !(x in dbg.operands)
+    @test is_used_by_metadata(x)
+    @test replace_uses!(dbg, x, y)
+    @test occursin("metadata i32 %y", string(dbg))
+end
+end
+
 # removing dead constant users
 @dispose ctx=Context() mod=LLVM.Module("SomeModule") begin
     gv = GlobalVariable(mod, LLVM.Int32Type(), "gv")

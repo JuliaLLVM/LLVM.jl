@@ -914,8 +914,58 @@ end
     @test call.called_type == ft
     @test_throws ArgumentError call.called_operand = ConstantInt(Int32(0))
 
+    # assigning a function also changes the function type of the call
+    ft2 = LLVM.FunctionType(LLVM.VoidType(), [LLVM.Int32Type()])
+    k = LLVM.Function(mod, "k", ft2)
+    call.called_function = k
+    @test call.called_function == k
+    @test call.called_type == ft2
+    @test_throws ArgumentError call.called_function = h
+    @test call.called_function == k
+    call.called_function = f
+
     ret!(builder)
     verify(mod)
+end
+end
+
+@testset "memory effects of calls" begin
+@dispose ctx=Context(; opaque_pointers=true) begin
+    @dispose mod=parse(LLVM.Module, """
+        declare void @reader(ptr) readonly argmemonly
+        declare void @writer(ptr) argmemonly
+        declare void @unknown(ptr)
+
+        define void @f(ptr %p) {
+          call void @reader(ptr %p)
+          call void @unknown(ptr %p) readnone
+          call void @reader(ptr %p) [ "deopt"(i32 0) ]
+          call void @unknown(ptr %p)
+          call void @writer(ptr %p) [ "deopt"(i32 0) ]
+          call void @llvm.assume(i1 true) [ "align"(ptr %p, i64 16) ]
+          ret void
+        }
+
+        declare void @llvm.assume(i1)""") begin
+        f = mod.functions["f"]
+        read_call, annotated_call, bundle_call, unknown_call, write_call, assume =
+            f.entry.instructions
+        # the effects of the callee
+        effects = effective_memory_effects(read_call)
+        @test effects == MemoryEffects(argmem=:read)
+        @test read_call.memory_effects == MemoryEffects(:readwrite)
+        # or of the call site
+        @test effective_memory_effects(annotated_call) == MemoryEffects(:none)
+        # a deopt bundle reads any memory
+        @test effective_memory_effects(bundle_call) == MemoryEffects(:read)
+        @test effective_memory_effects(unknown_call) == MemoryEffects(:readwrite)
+        # only extending the callee's effects to reading other memory
+        @test effective_memory_effects(write_call) == MemoryEffects(:read; argmem=:readwrite)
+        # except for those of assumptions
+        @test effective_memory_effects(assume) ==
+              MemoryEffects(mod.functions["llvm.assume"].memory_effects)
+        @test effective_memory_effects(assume)[:other] == :none
+    end
 end
 end
 

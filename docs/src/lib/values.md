@@ -11,6 +11,9 @@ isnull
 take_name!
 strip_pointer_casts
 strip_pointer_casts_and_aliases
+strip_inbounds_offsets
+is_used_by_metadata
+LLVM.unsafe_destroy!
 ```
 
 ## User values

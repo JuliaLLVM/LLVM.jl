@@ -345,15 +345,19 @@ Base.empty!(set::ModuleUsedSet) = setdiff!(set, collect(set))
 ## textual IR handling
 
 """
-    parse(::Type{Module}, ir::AbstractString)
+    parse(::Type{Module}, ir::AbstractString; name::AbstractString="")
 
 Parse the given LLVM IR string into a module.
+
+`name` identifies the input, like the name of the file that `opt` reads: it is the name of
+the module, its `source_filename` unless the IR specifies one, and the file name in parser
+errors.
 """
-function Base.parse(::Type{Module}, ir::AbstractString)
+function Base.parse(::Type{Module}, ir::AbstractString; name::AbstractString="")
     ir = String(ir)
     data = unsafe_wrap(Vector{UInt8}, ir)
     ctx = context()
-    membuf = MemoryBuffer(data, "", false)
+    membuf = MemoryBuffer(data, name, false)
 
     out_ref = Ref{API.LLVMModuleRef}()
     out_error = Ref{Cstring}()
@@ -414,19 +418,23 @@ function Base.parse(::Type{Module}, membuf::MemoryBuffer; lazy::Bool=false)
 end
 
 """
-    parse(::Type{Module}, data::Vector; lazy::Bool=false)
+    parse(::Type{Module}, data::Vector; lazy::Bool=false, name::AbstractString="")
 
 Parse bitcode from the given byte vector into a module.
 
 If `lazy` is `true`, `data` must remain live (unmutated) for the module's lifetime, as the
 bitcode reader keeps reading from it on demand.
+
+`name` identifies the input, like the name of the file that `opt` reads: it is the name of
+the module. The `source_filename` is part of the bitcode.
 """
-function Base.parse(::Type{Module}, data::Vector; lazy::Bool=false)
+function Base.parse(::Type{Module}, data::Vector; lazy::Bool=false,
+                    name::AbstractString="")
     if lazy
         # the module takes ownership of the buffer
-        parse(Module, MemoryBuffer(data, "", false); lazy=true)
+        parse(Module, MemoryBuffer(data, name, false); lazy=true)
     else
-        @dispose membuf = MemoryBuffer(data, "", false) begin
+        @dispose membuf = MemoryBuffer(data, name, false) begin
             parse(Module, membuf)
         end
     end

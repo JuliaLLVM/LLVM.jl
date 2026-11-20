@@ -16,6 +16,10 @@
 
 - `InferAlignmentPass()` (LLVM 18 and later).
 
+- `parse(LLVM.Module, ir; name)` and `parse(LLVM.Module, bitcode; name)` take the name of
+  the input, like the file name that `opt` reads, which names the module. For textual IR,
+  it is also the default `source_filename` and the file name in parser errors.
+
 
 ## LLVM.jl v10.6
 

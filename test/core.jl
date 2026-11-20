@@ -2623,6 +2623,28 @@ end
         @test mod.source_filename == "parsed.ll"
     end
 
+    # the name of the input names the module, like the file that `opt` reads
+    @dispose mod=parse(LLVM.Module, "source_filename = \"parsed.ll\""; name="input.ll") begin
+        @test mod.name == "input.ll"
+        @test mod.source_filename == "parsed.ll"
+    end
+    @dispose mod=parse(LLVM.Module, ""; name="input.ll") begin
+        @test mod.name == "input.ll"
+        @test mod.source_filename == "input.ll"
+        bitcode = convert(Vector{UInt8}, mod)
+        for lazy in (false, true)
+            # a lazily-loaded module reads from the vector until it is disposed
+            GC.@preserve bitcode begin
+                @dispose mod2=parse(LLVM.Module, bitcode; lazy, name="input.bc") begin
+                    @test mod2.name == "input.bc"
+                    @test mod2.source_filename == "input.ll"
+                end
+            end
+        end
+    end
+    err = try parse(LLVM.Module, "define"; name="input.ll") catch err; err end
+    @test err isa LLVMException && startswith(err.info, "input.ll:1:")
+
     LLVM.Module("SomeModule") do mod
     end
 end

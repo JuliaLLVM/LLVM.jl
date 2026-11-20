@@ -1479,6 +1479,13 @@ LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder) {
 
 #endif
 
+LLVMValueRef LLVMExtraBuildAlignmentAssumption(LLVMBuilderRef B, LLVMValueRef Ptr,
+                                               uint64_t Align) {
+  IRBuilder<> *Builder = unwrap(B);
+  const DataLayout &DL = Builder->GetInsertBlock()->getModule()->getDataLayout();
+  return wrap(Builder->CreateAlignmentAssumption(DL, unwrap(Ptr), Align));
+}
+
 
 //
 // More DataLayout queries

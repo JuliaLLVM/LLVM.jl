@@ -212,7 +212,8 @@ debug_location!(builder::IRBuilder, loc::MetadataAsValue) =
                   extract_value!, insert_value!,
 
                   alloca!, array_alloca!, malloc!, array_malloc!, memset!, memcpy!,
-                  memmove!, free!, lifetime_start!, lifetime_end!, load!, store!, fence!,
+                  memmove!, free!, lifetime_start!, lifetime_end!, alignment_assumption!,
+                  load!, store!, fence!,
                   atomic_rmw!, atomic_cmpxchg!,
                   gep!, inbounds_gep!, struct_gep!,
 
@@ -592,6 +593,26 @@ function lifetime_marker!(builder::IRBuilder, name::String, Ptr::Value)
     return call!(builder, ft, fn, args)
 end
 
+function alignment_assumption!(builder::IRBuilder, ptr::Value, align::Integer)
+    ptrtyp = value_type(ptr)
+    ptrtyp isa PointerType ||
+        throw(ArgumentError("Expected a pointer, got a value of type $ptrtyp"))
+    bb = insert_block(builder)
+    f = bb === nothing ? nothing : parent(bb)
+    (f === nothing || API.LLVMGetGlobalParent(f) == C_NULL) &&
+        throw(ArgumentError("The IRBuilder must be positioned in a function of a module to build an alignment assumption"))
+    # LLVM silently truncates alignments that don't fit: before LLVM 23, it takes them as an
+    # `unsigned`, and passes them as an integer of the size of a pointer
+    bits = if version() >= v"23"
+        64
+    else
+        min(32, bit_size(datalayout(parent(f)), ptrtyp))
+    end
+    (ispow2(align) && trailing_zeros(align) < bits) ||
+        throw(ArgumentError("The alignment must be a power of 2 that fits in $bits bits, got $align"))
+    Instruction(API.LLVMExtraBuildAlignmentAssumption(builder, ptr, align))
+end
+
 # the size in bytes of the object that `ptr` points to, or -1 if it is not known
 function lifetime_size(mod::Module, ptr::Value)
     ptr isa AllocaInst || return -1
@@ -924,8 +945,9 @@ cast!(builder::IRBuilder, Op::API.LLVMOpcode, Val::Value, DestTy::LLVMType,
 pointercast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildPointerCast(builder, Val, DestTy, Name))
 
-intcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
-    Value(API.LLVMBuildIntCast(builder, Val, DestTy, Name))
+intcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="";
+         signed::Bool=true) =
+    Value(API.LLVMBuildIntCast2(builder, Val, DestTy, signed, Name))
 
 fpcast!(builder::IRBuilder, Val::Value, DestTy::LLVMType, Name::AbstractString="") =
     Value(API.LLVMBuildFPCast(builder, Val, DestTy, Name))
@@ -1097,7 +1119,6 @@ for (f, inst) in [(:trunc!, "a `trunc`"), (:zext!, "a `zext`"), (:sext!, "a `sex
                   (:sextorbitcast!, "a `sext` (or a `bitcast`, if the types have the same size)"),
                   (:truncorbitcast!, "a `trunc` (or a `bitcast`, if the types have the same size)"),
                   (:pointercast!, "the cast of a pointer to another pointer (`bitcast` or `addrspacecast`) or integer (`ptrtoint`)"),
-                  (:intcast!, "the cast of an integer to another, sign-extended, integer type (`trunc` or `sext`)"),
                   (:fpcast!, "the cast of a floating-point value to another floating-point type (`fptrunc` or `fpext`)")]
     doc = """
         $f(builder::IRBuilder, val::Value, dest_type::LLVMType,
@@ -1288,6 +1309,26 @@ versions of LLVM also take the size of the object in bytes, which is derived fro
 lifetime_start!
 
 @doc (@doc lifetime_start!) lifetime_end!
+
+"""
+    alignment_assumption!(builder::IRBuilder, ptr::Value, align::Integer) -> Instruction
+
+Build a call to `llvm.assume` with an `align` operand bundle, which tells LLVM that the
+pointer `ptr` is aligned to `align` bytes, like C++'s `IRBuilder::CreateAlignmentAssumption`.
+The intrinsic is declared in the module of the builder's insertion point if needed. The
+alignment is passed as an `i64` since LLVM 23, and as an integer of the size of a pointer in
+the module's data layout before.
+"""
+alignment_assumption!
+
+"""
+    intcast!(builder::IRBuilder, val::Value, dest_type::LLVMType, [name::AbstractString];
+             signed=true) -> Value
+
+Build the cast of an integer to another integer type: a `trunc`, or an extension that is a
+`sext` for `signed` integers and a `zext` otherwise. $_build_note
+"""
+intcast!
 
 """
     gep!(builder::IRBuilder, type::LLVMType, ptr::Value, indices::AbstractVector{<:Value},

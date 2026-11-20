@@ -116,6 +116,7 @@ memcpy!
 memmove!
 lifetime_start!
 lifetime_end!
+alignment_assumption!
 globalstring!
 globalstring_ptr!
 ```

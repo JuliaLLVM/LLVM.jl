@@ -417,6 +417,10 @@ end
     ccall((:LLVMExtraSetFastMathFlags, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMFastMathFlags), FPMathInst, FMF)
 end
 
+@llvmapi function LLVMExtraBuildAlignmentAssumption(lib::Library, B, Ptr, Align)
+    ccall((:LLVMExtraBuildAlignmentAssumption, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, LLVMValueRef, UInt64), B, Ptr, Align)
+end
+
 @llvmapi function LLVMExtraBuildAtomicRMWValue(lib::Library, B, Op, Loaded, Val)
     ccall((:LLVMExtraBuildAtomicRMWValue, libLLVMExtra), LLVMValueRef, (LLVMBuilderRef, Cuint, LLVMValueRef, LLVMValueRef), B, Op, Loaded, Val)
 end

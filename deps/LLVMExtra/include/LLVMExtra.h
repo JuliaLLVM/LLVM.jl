@@ -390,6 +390,12 @@ LLVMContextRef LLVMGetValueContext(LLVMValueRef Val);
 LLVMContextRef LLVMGetBuilderContext(LLVMBuilderRef Builder);
 #endif
 
+// build an `llvm.assume` call with an `align` operand bundle, which assumes that a pointer
+// is aligned (`IRBuilder::CreateAlignmentAssumption`, with the data layout of the module of
+// the insertion block)
+LLVMValueRef LLVMExtraBuildAlignmentAssumption(LLVMBuilderRef B, LLVMValueRef Ptr,
+                                               uint64_t Align);
+
 // expansion of atomics, using LLVM's own utilities or copies of AtomicExpandPass code. The
 // operations take the LLVMAtomicRMWBinOp values of the most recent C API, as integers.
 LLVMValueRef LLVMExtraBuildAtomicRMWValue(LLVMBuilderRef B, unsigned Op, LLVMValueRef Loaded,

@@ -10,6 +10,10 @@
   `Max` and `Min` behaviors that the C API cannot represent, and `get(mod.flags, name,
   default)` looks up a flag that may be missing.
 
+- `replace!(user.operands, old => new)` only sets the operands that change. It used to set
+  all of them, which moved the uses of the unchanged operands to the front of their use
+  lists.
+
 
 ## LLVM.jl v10.6
 

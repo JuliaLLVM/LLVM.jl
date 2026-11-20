@@ -4517,6 +4517,30 @@ end
     @test !hasproperty(ft, :next)
 end
 
+# replacing operands only sets the ones that change, keeping the order of the other uses
+@dispose ctx=Context() begin
+    mod = parse(LLVM.Module, """
+        define i64 @f(i64 %x, i64 %y, i64 %z) {
+          %a = add i64 %x, %y
+          %b = add i64 %x, %z
+          ret i64 %b
+        }""")
+    x, y, z = mod.functions["f"].parameters
+    a, b, _ = mod.functions["f"].entry.instructions
+    order = collect(x.users)
+    @test order == [b, a]
+    @test replace!(a.operands, y => z) == a.operands
+    @test a.operands == [x, z]
+    @test collect(x.users) == order
+    @test replace!(op -> op == z ? y : op, a.operands) == a.operands
+    @test a.operands == [x, y]
+    @test collect(x.users) == order
+    # `count` limits the number of operands that are replaced
+    @test replace!(a.operands, x => z, y => z; count=1) == a.operands
+    @test a.operands == [z, y]
+    dispose(mod)
+end
+
 # module flags with the behaviors that the C API lacks
 @dispose ctx=Context() begin
     mod = parse(LLVM.Module, """

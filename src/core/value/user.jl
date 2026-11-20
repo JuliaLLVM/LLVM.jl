@@ -14,7 +14,8 @@ See also the [`operands`](@ref LLVM.User) property.
 The operands of a user, e.g., an instruction or a constant expression, as a view. For
 instructions and global values, the view is mutable: assigning to an element,
 `inst.operands[i] = val`, replaces that operand, and `replace!(inst.operands, old => new)`
-replaces every operand that is `old`. The operands of other constants cannot be changed,
+replaces every operand that is `old`, leaving the others (and the order of their uses)
+untouched. The operands of other constants cannot be changed,
 as LLVM uniques constants by their operands; use [`replace_uses!`](@ref) on the operand to
 update the constants that use it instead.
 
@@ -53,4 +54,26 @@ end
 
 @inline function Base.iterate(iter::UserOperandSet, i=1)
     i >= length(iter) + 1 ? nothing : (iter[i], i+1)
+end
+
+# `replace!` (in either form) sets every element of an array. setting an operand, even to
+# the value it already has, moves its use to the front of the value's use list, so only set
+# the operands that change. Base documents this method as the one to implement for a
+# container type.
+function Base._replace!(new::Base.Callable, res::UserOperandSet, A::UserOperandSet,
+                        count::Int)
+    res === A || return invoke(Base._replace!,
+                               Tuple{Base.Callable, AbstractArray, AbstractArray, Int},
+                               new, res, A, count)
+    c = 0
+    for i in eachindex(A)
+        c < count || break
+        old = A[i]
+        val = new(old)
+        if val !== old
+            A[i] = val
+            c += 1
+        end
+    end
+    return A
 end

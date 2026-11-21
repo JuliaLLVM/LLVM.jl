@@ -134,6 +134,41 @@ end
 end
 end
 
+# like C++'s `IRBuilder::SetInsertPoint`, positioning before a debug intrinsic takes the
+# debug location of the next instruction on LLVM 18 and later (`getStableDebugLoc`)
+@testset "debug intrinsics" begin
+@dispose ctx=Context() builder=IRBuilder() mod=parse(LLVM.Module, """
+        define void @f(i32 %x) !dbg !4 {
+          call void @llvm.dbg.value(metadata i32 %x, metadata !6, metadata !DIExpression()), !dbg !8
+          ret void, !dbg !9
+        }
+        declare void @llvm.dbg.value(metadata, metadata, metadata)
+        !llvm.dbg.cu = !{!0}
+        !llvm.module.flags = !{!3}
+        !0 = distinct !DICompileUnit(language: DW_LANG_C, file: !1, emissionKind: FullDebug)
+        !1 = !DIFile(filename: "test.c", directory: "/")
+        !3 = !{i32 2, !"Debug Info Version", i32 3}
+        !4 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !5, unit: !0, spFlags: DISPFlagDefinition)
+        !5 = !DISubroutineType(types: !{null})
+        !6 = !DILocalVariable(name: "x", scope: !4, file: !1, line: 1, type: !7)
+        !7 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
+        !8 = !DILocation(line: 2, scope: !4)
+        !9 = !DILocation(line: 3, scope: !4)
+        """) begin
+    # LLVM 19 and 20 parse the intrinsic as a debug record, but can convert it back, while
+    # LLVM 21 and later only have records
+    v"19" <= LLVM.version() < v"21" && LLVM.API.LLVMSetIsNewDbgInfoFormat(mod, false)
+    dbg, ret = collect(mod.functions["f"].entry.instructions)[[1, end]]
+    if LLVM.version() < v"21"
+        @test dbg isa LLVM.CallInst
+        @test dbg.debug_location != ret.debug_location
+        position!(builder, LLVM.before(dbg))
+        expected = LLVM.version() >= v"18" ? ret : dbg
+        @test builder.debug_location == expected.debug_location
+    end
+end
+end
+
 @testset "after_phis" begin
 @dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
     f = LLVM.Function(mod, "f", LLVM.FunctionType(LLVM.Int32Type(), [LLVM.Int32Type()]))

@@ -112,7 +112,10 @@ Position the instruction builder at the given insertion point, e.g.,
 
 Like C++'s `IRBuilder::SetInsertPoint`, positioning the builder before an instruction (which
 includes `LLVM.after` an instruction that is not the last one) sets the debug location of
-the builder to the one of that instruction.
+the builder to the one of that instruction, or on LLVM 18 and later, if that instruction is
+a debug intrinsic, to the one of the next instruction that isn't (like C++'s
+`Instruction::getStableDebugLoc`). Positioning the builder at the end of a block keeps its
+debug location.
 """
 function position!(builder::IRBuilder, pos::InsertionPoint{Instruction})
     bb = check_valid(pos)

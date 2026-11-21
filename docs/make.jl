@@ -16,6 +16,20 @@ function main()
             println(io, "LLVM.", op, "Inst")
         end
         println(io, "```")
+        print(io, """
+
+            ## Creating instructions without a builder
+
+            Unlike the functions that use an `IRBuilder`, these constructors create an
+            instruction also when its operands are constants.
+
+            ```@docs
+            LLVM.SelectInst(::LLVM.Value, ::LLVM.Value, ::LLVM.Value)
+            LLVM.ExtractElementInst(::LLVM.Value, ::LLVM.Value)
+            LLVM.ExtractValueInst(::LLVM.Value, ::Integer)
+            LLVM.AddrSpaceCastInst(::LLVM.Value, ::LLVM.LLVMType, ::AbstractString)
+            ```
+            """)
     end
 
     makedocs(

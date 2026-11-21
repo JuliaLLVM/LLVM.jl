@@ -931,6 +931,137 @@ end
 end
 end
 
+@testset "call site attribute lists" begin
+@dispose ctx=Context() builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T = LLVM.Int32Type()
+    ft = LLVM.FunctionType(T, [T, T])
+    f = LLVM.Function(mod, "f", ft)
+    push!(f.function_attributes, EnumAttribute("nounwind"))
+    push!(f.return_attributes, EnumAttribute("noundef"))
+    push!(f.parameter_attributes[2], EnumAttribute("signext"))
+    # a source with another calling convention, which isn't copied
+    src = LLVM.Function(mod, "src", ft)
+    copy_attributes!(src, f)
+    src.callconv = LLVM.API.LLVMFastCallConv
+    caller = LLVM.Function(mod, "caller", LLVM.FunctionType(T, [T]))
+    position!(builder, LLVM.at_end(BasicBlock(caller, "entry")))
+    x = caller.parameters[1]
+
+    # the attributes are replaced, but not the calling convention
+    call = call!(builder, ft, f, [x, x])
+    push!(call.function_attributes, EnumAttribute("noinline"))
+    push!(call.argument_attributes[1], EnumAttribute("zeroext"))
+    @test copy_attribute_list!(call, src) === call
+    @test collect(call.function_attributes) == collect(f.function_attributes)
+    @test collect(call.return_attributes) == collect(f.return_attributes)
+    @test isempty(call.argument_attributes[1])
+    @test collect(call.argument_attributes[2]) == collect(f.parameter_attributes[2])
+    @test call.callconv == LLVM.API.LLVMCCallConv
+
+    # from another call
+    other = call!(builder, ft, f, [x, x])
+    copy_attribute_list!(other, call)
+    @test haskey(other.function_attributes, :nounwind)
+    @test haskey(other.argument_attributes[2], :signext)
+
+    @dispose ctx2=Context() mod2=LLVM.Module("OtherModule") begin
+        g = LLVM.Function(mod2, "g", LLVM.FunctionType(LLVM.VoidType()))
+        @test_throws ArgumentError copy_attribute_list!(call, g)
+    end
+
+    ret!(builder, call)
+    verify(mod)
+end
+end
+
+@testset "creating instructions without a builder" begin
+@dispose ctx=Context(; opaque_pointers=true) builder=IRBuilder() mod=LLVM.Module("SomeModule") begin
+    T = LLVM.Int32Type()
+    f = LLVM.Function(mod, "f", LLVM.FunctionType(T, [T]))
+    position!(builder, LLVM.at_end(BasicBlock(f, "entry")))
+    ret = ret!(builder, f.parameters[1])
+    DIBuilder(mod) do dib
+        file = LLVM.file!(dib, "test.jl", "/tmp")
+        LLVM.compile_unit!(dib, LLVM.API.LLVMDWARFSourceLanguageJulia, file, "LLVM.jl Tests")
+        sp = LLVM.subprogram!(dib, file, "f", file, 1, LLVM.subroutine_type!(dib, file, nothing))
+        f.subprogram = sp
+        ret.debug_location = DILocation(1, 1, sp)
+    end
+    c1 = ConstantInt(T, 1)
+    c2 = ConstantInt(T, 2)
+    tru = ConstantInt(LLVM.Int1Type(), 1)
+
+    # constant operands are not folded, and the instructions get no debug location
+    sel = LLVM.SelectInst(LLVM.before(ret), tru, c1, c2, "sel")
+    @test sel isa LLVM.SelectInst
+    @test sel.next == ret
+    @test sel.name == "sel"
+    @test collect(sel.operands) == [tru, c1, c2]
+    @test sel.debug_location === nothing
+    @check_ir sel "select i1 true, i32 1, i32 2"
+
+    vec = LLVM.ConstantVector([c1, c2])
+    ee = LLVM.ExtractElementInst(LLVM.before(ret), vec, c1)
+    @test ee isa LLVM.ExtractElementInst
+    @test collect(ee.operands) == [vec, c1]
+
+    agg = LLVM.ConstantStruct([c1, LLVM.ConstantArray(T, [c1, c2])])
+    ev = LLVM.ExtractValueInst(LLVM.before(ret), agg, [1, 0], "ev")
+    @test ev isa LLVM.ExtractValueInst
+    @test ev.indices == [1, 0]
+    @test LLVM.value_type(ev) == T
+    @test LLVM.ExtractValueInst(LLVM.before(ret), agg, 0).indices == [0]
+
+    P1 = LLVM.PointerType(1)
+    asc = LLVM.AddrSpaceCastInst(LLVM.before(ret), LLVM.null(LLVM.PointerType()), P1)
+    @test asc isa LLVM.AddrSpaceCastInst
+    @test LLVM.value_type(asc) == P1
+    @test LLVM.TruncInst(LLVM.before(ret), f.parameters[1], LLVM.Int8Type()) isa LLVM.TruncInst
+    @test LLVM.BitCastInst(LLVM.before(ret), c1, LLVM.FloatType()) isa LLVM.BitCastInst
+
+    # without an insertion point, the instruction is not part of a block
+    detached = LLVM.SelectInst(tru, c1, c2)
+    @test detached.parent === nothing
+    move!(detached, LLVM.before(ret))
+    @test detached.next == ret
+    erase!(LLVM.ZExtInst(f.parameters[1], LLVM.Int64Type()))
+
+    # invalid operands
+    @test_throws ArgumentError LLVM.SelectInst(c1, c1, c2)
+    let g = LLVM.Function(mod, "g", LLVM.FunctionType(LLVM.VoidType()))
+        position!(builder, LLVM.before(ret))
+        v1 = call!(builder, g.function_type, g)
+        v2 = call!(builder, g.function_type, g)
+        @test_throws ArgumentError LLVM.SelectInst(tru, v1, v2, "void")
+        md = LLVM.Value(MDString("md"))
+        @test_throws ArgumentError LLVM.SelectInst(tru, md, md)
+        erase!(v2)
+        erase!(v1)
+        erase!(g)
+    end
+    @test_throws ArgumentError LLVM.SelectInst(tru, c1, LLVM.ConstantInt(LLVM.Int64Type(), 2))
+    @test_throws ArgumentError LLVM.ExtractElementInst(c1, c1)
+    @test_throws ArgumentError LLVM.ExtractValueInst(agg, Int[])
+    @test_throws ArgumentError LLVM.ExtractValueInst(agg, 2)
+    @test_throws ArgumentError LLVM.ExtractValueInst(agg, -1)
+    @test_throws ArgumentError LLVM.BitCastInst(c1, P1)
+    @test_throws ArgumentError LLVM.AddrSpaceCastInst(c1, P1)
+    LLVM.version() < v"22" &&
+        @test_throws ArgumentError LLVM.PtrToAddrInst(LLVM.null(P1), LLVM.Int64Type())
+    @dispose ctx2=Context() begin
+        @test_throws ArgumentError LLVM.SelectInst(tru, c1, ConstantInt(LLVM.Int32Type(), 2))
+        @test_throws ArgumentError LLVM.ZExtInst(c1, LLVM.Int64Type())
+    end
+
+    # an instruction that can't be inserted is deleted
+    nuses = length(collect(c2.uses))
+    @test_throws ArgumentError LLVM.SelectInst(LLVM.after(ret), tru, c1, c2)
+    @test length(collect(c2.uses)) == nuses
+
+    verify(mod)
+end
+end
+
 @testset "memory effects of calls" begin
 @dispose ctx=Context(; opaque_pointers=true) begin
     @dispose mod=parse(LLVM.Module, """
@@ -1447,6 +1578,9 @@ if LLVM.version() >= v"22"
 
         ptrtoaddr = first(first(mod.functions["ptrtoaddr_test"].blocks).instructions)
         @test ptrtoaddr isa LLVM.PtrToAddrInst
+        new = LLVM.PtrToAddrInst(LLVM.before(ptrtoaddr), ptrtoaddr.operands[1],
+                                 LLVM.Int64Type())
+        @test new isa LLVM.PtrToAddrInst
 
         dispose(mod)
     end

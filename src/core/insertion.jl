@@ -313,15 +313,124 @@ it, e.g., `Instruction(LLVM.before(user), ce)`.
 """
 function Instruction(pos::InsertionPoint{Instruction}, ce::ConstantExpr,
                      name::AbstractString="")
-    inst = Instruction(ce)
+    inst = insert_new!(pos, Instruction(ce))
+    isempty(name) || name!(inst, name)
+    return inst
+end
+
+# insert a new instruction, deleting it if that fails
+function insert_new!(pos::InsertionPoint{Instruction}, inst::Instruction)
     try
         move!(inst, pos)
     catch
         API.LLVMDeleteInstruction(inst)
         rethrow()
     end
-    isempty(name) || name!(inst, name)
-    return inst
+end
+
+
+## creating instructions without a builder
+
+# the instruction that LLVMExtra created, or NULL if the operands were invalid
+function created_instruction(ref::API.LLVMValueRef, what::String, operands)
+    ref == C_NULL &&
+        throw(ArgumentError("Invalid operands for $what: " * join(map(string, operands), ", ")))
+    return Instruction(ref)
+end
+
+"""
+    LLVM.SelectInst([pos::InsertionPoint{Instruction},] cond::Value, a::Value, b::Value,
+                    name::AbstractString="")
+
+Create a `select` instruction that chooses between `a` and `b` based on `cond`, like C++'s
+`SelectInst::Create`. Unlike [`select!`](@ref), this always creates an instruction, also
+when the operands are constants, and the instruction gets no debug location.
+
+Without an insertion point, the instruction is not part of a basic block: insert it with
+[`move!`](@ref), or delete it with [`erase!`](@ref). With one, it is inserted there, e.g.,
+`SelectInst(LLVM.before(inst), cond, a, b)`.
+
+The other instructions that can be created this way are
+[`ExtractElementInst`](@ref LLVM.ExtractElementInst(::LLVM.Value, ::LLVM.Value)),
+[`ExtractValueInst`](@ref LLVM.ExtractValueInst(::LLVM.Value, ::Integer)) and the
+[casts](@ref LLVM.AddrSpaceCastInst(::LLVM.Value, ::LLVM.LLVMType, ::AbstractString)).
+"""
+SelectInst(cond::Value, a::Value, b::Value, name::AbstractString="") =
+    created_instruction(API.LLVMExtraCreateSelect(cond, a, b, name), "select",
+                        (cond, a, b))::SelectInst
+
+"""
+    LLVM.ExtractElementInst([pos::InsertionPoint{Instruction},] vec::Value, idx::Value,
+                            name::AbstractString="")
+
+Create an `extractelement` instruction that extracts element `idx` of the vector `vec`,
+like C++'s `ExtractElementInst::Create`. Unlike [`extract_element!`](@ref), this always
+creates an instruction; see [`LLVM.SelectInst`](@ref LLVM.SelectInst(::LLVM.Value,
+::LLVM.Value, ::LLVM.Value)).
+"""
+ExtractElementInst(vec::Value, idx::Value, name::AbstractString="") =
+    created_instruction(API.LLVMExtraCreateExtractElement(vec, idx, name),
+                        "extractelement", (vec, idx))::ExtractElementInst
+
+"""
+    LLVM.ExtractValueInst([pos::InsertionPoint{Instruction},] agg::Value, index::Integer,
+                          name::AbstractString="")
+    LLVM.ExtractValueInst([pos::InsertionPoint{Instruction},] agg::Value,
+                          indices::AbstractVector{<:Integer}, name::AbstractString="")
+
+Create an `extractvalue` instruction that extracts an element of the aggregate `agg`, like
+C++'s `ExtractValueInst::Create`. The zero-based indices select the element, like for
+[`extract_value!`](@ref), but need to be non-empty. Unlike `extract_value!`, this always
+creates an instruction; see [`LLVM.SelectInst`](@ref LLVM.SelectInst(::LLVM.Value,
+::LLVM.Value, ::LLVM.Value)).
+"""
+ExtractValueInst(agg::Value, index::Integer, name::AbstractString="") =
+    ExtractValueInst(agg, [index], name)
+function ExtractValueInst(agg::Value, indices::AbstractVector{<:Integer},
+                          name::AbstractString="")
+    name = api_string(name)
+    isempty(indices) &&
+        throw(ArgumentError("An extractvalue instruction needs at least one index"))
+    # LLVM checks that the indices are in bounds
+    idxs = Cuint[0 <= i <= typemax(Cuint) ? Cuint(i) :
+                 throw(ArgumentError("Invalid extractvalue index $i")) for i in indices]
+    created_instruction(API.LLVMExtraCreateExtractValue(agg, idxs, length(idxs), name),
+                        "extractvalue", (agg,))::ExtractValueInst
+end
+
+const cast_opcodes = (:Trunc, :ZExt, :SExt, :FPToUI, :FPToSI, :UIToFP, :SIToFP, :FPTrunc,
+                      :FPExt, :PtrToInt, :PtrToAddr, :IntToPtr, :BitCast, :AddrSpaceCast)
+
+for op in cast_opcodes
+    T = Symbol(op, :Inst)
+    mnemonic = lowercase(string(op))
+    check = op === :PtrToAddr ?
+        :(version() >= v"22" || throw(ArgumentError("ptrtoaddr requires LLVM 22 or later"))) :
+        nothing
+    @eval function $T(val::Value, ty::LLVMType, name::AbstractString="")
+        $check
+        created_instruction(API.LLVMExtraCreateCast(API.$(Symbol(:LLVM, op)), val, ty, name),
+                            $mnemonic, (val, ty))::$T
+    end
+end
+
+@doc """
+    LLVM.AddrSpaceCastInst([pos::InsertionPoint{Instruction},] val::Value, ty::LLVMType,
+                           name::AbstractString="")
+
+Create an `addrspacecast` instruction that casts `val` to the type `ty`, like C++'s
+`CastInst::Create`. Unlike [`addrspacecast!`](@ref), this always creates an instruction;
+see [`LLVM.SelectInst`](@ref LLVM.SelectInst(::LLVM.Value, ::LLVM.Value, ::LLVM.Value)).
+
+The other casts are created the same way: `LLVM.TruncInst`, `LLVM.ZExtInst`,
+`LLVM.SExtInst`, `LLVM.FPToUIInst`, `LLVM.FPToSIInst`, `LLVM.UIToFPInst`,
+`LLVM.SIToFPInst`, `LLVM.FPTruncInst`, `LLVM.FPExtInst`, `LLVM.PtrToIntInst`,
+`LLVM.PtrToAddrInst` (LLVM 22+), `LLVM.IntToPtrInst` and `LLVM.BitCastInst`.
+""" AddrSpaceCastInst(::Value, ::LLVMType, ::AbstractString)
+
+for T in (:SelectInst, :ExtractElementInst, :ExtractValueInst,
+          (Symbol(op, :Inst) for op in cast_opcodes)...)
+    @eval $T(pos::InsertionPoint{Instruction}, args...) = insert_new!(pos, $T(args...))
 end
 
 

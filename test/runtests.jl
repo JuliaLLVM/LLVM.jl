@@ -65,8 +65,12 @@ else
     @testset "integration with Julia's code generator" begin
         @test_throws "requires the LLVM library that Julia uses" LLVM.JuliaOJIT()
         @test_throws "requires the LLVM library that Julia uses" LLVM.Interop.JuliaPipeline()
+        # Julia's code generator lowers types with Julia's LLVM, after which they are
+        # rebuilt in the active context
         @dispose ctx=Context() begin
-            @test_throws "requires the LLVM library that Julia uses" convert(LLVMType, Int)
+            typ = convert(LLVMType, Tuple{Int32,Float32})
+            @test LLVM.context(typ) == ctx
+            @test string(typ) == "{ i32, float }"
         end
         # code for Julia's code generator is generated with Julia's LLVM
         @test LLVM.Interop.generate_llvmcall(Int, Tuple{Int}, :x) do builder, x

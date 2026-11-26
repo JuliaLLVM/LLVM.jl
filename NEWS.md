@@ -1,6 +1,14 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.8
+
+- `convert(LLVMType, T)` of `LLVM.Interop` works in a context of any LLVM library. Julia's
+  code generator lowers the type with Julia's LLVM, after which it is rebuilt in the active
+  context. In a context with typed pointers, types that contain pointers require Julia's
+  LLVM to support typed pointers too (LLVM 16 or older).
+
+
 ## LLVM.jl v10.7
 
 - `LLVM.pointer_alignment` returns an `Int64`, so that alignments of 2^31 and more don't

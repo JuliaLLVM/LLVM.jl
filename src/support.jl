@@ -5,14 +5,25 @@
 """
     clopts(opts...)
 
-Parse the given arguments using the LLVM command-line parser.
+Parse the given arguments using the LLVM command-line parser. Throws an `LLVMException` if
+LLVM cannot parse them, e.g., for an unknown option or an invalid value. Options can still
+have been set by a call that fails, including by the arguments that follow the offending
+one, and LLVM may print the details of an invalid value to `stderr`. Some options, like
+`-version` and `-help`, end the process.
 
 Note that this function modifies the global state of the LLVM library. It is also not safe
 to rely on the stability of the command-line options between different versions of LLVM.
 """
 function clopts(opts...)
     args = ["", opts...]
-    API.LLVMParseCommandLineOptions(length(args), args, C_NULL)
+    msg = Ref{Cstring}(C_NULL)
+    failed = API.LLVMParseCommandLineOptionsWithError(length(args), args, C_NULL, msg) |> Bool
+    if failed
+        detail = msg[] == C_NULL ? "" : chomp(unsafe_message(msg[]))
+        throw(LLVMException(isempty(detail) ?
+            "Could not parse LLVM options $(join(repr.(opts), ", "))" : detail))
+    end
+    return
 end
 
 

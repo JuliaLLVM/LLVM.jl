@@ -91,6 +91,14 @@ LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A);
 LLVMBool LLVMIsConstantRangeListAttribute(LLVMAttributeRef A);
 #endif
 
+// command-line options
+#if LLVM_VERSION_MAJOR < 24 // llvm/llvm-project#238461
+// like LLVMParseCommandLineOptions, but returns non-zero and sets ErrorMessage (to be
+// disposed of with LLVMDisposeMessage) if the options cannot be parsed
+LLVMBool LLVMParseCommandLineOptionsWithError(int argc, const char *const *argv,
+                                              const char *Overview, char **ErrorMessage);
+#endif
+
 // version information
 #if LLVM_VERSION_MAJOR < 16 // D139381
 void LLVMGetVersion(unsigned *Major, unsigned *Minor, unsigned *Patch);

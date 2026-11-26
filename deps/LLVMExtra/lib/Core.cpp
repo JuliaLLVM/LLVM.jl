@@ -88,6 +88,22 @@ void LLVMExtraParseEnvironmentOptions(const char *ProgName, const char *EnvVar) 
                               EnvVar);
 }
 
+#if LLVM_VERSION_MAJOR < 24
+LLVMBool LLVMParseCommandLineOptionsWithError(int argc, const char *const *argv,
+                                              const char *Overview,
+                                              char **ErrorMessage) {
+  *ErrorMessage = nullptr;
+  std::string Err;
+  raw_string_ostream Stream(Err);
+  if (!cl::ParseCommandLineOptions(argc, argv, StringRef(Overview), &Stream)) {
+    Stream.flush();
+    *ErrorMessage = strdup(Err.c_str());
+    return 1;
+  }
+  return 0;
+}
+#endif
+
 #if LLVM_VERSION_MAJOR < 16
 void LLVMGetVersion(unsigned *Major, unsigned *Minor, unsigned *Patch) {
   if (Major)

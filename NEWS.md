@@ -13,6 +13,9 @@
   `MCSubtargetInfo::isCPUStringValid`. LLVM only warns about CPU names that it doesn't
   know, and ignores them.
 
+- `LLVM.clopts` throws an `LLVMException` when LLVM cannot parse the options, e.g., for an
+  unknown option or an invalid value, which it used to ignore.
+
 
 ## LLVM.jl v10.7
 

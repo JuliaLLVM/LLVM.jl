@@ -10,6 +10,30 @@ code = """
 (; out, err) = execute_code("LLVM.clopts(\"-version\")")
 @test occursin("LLVM (http://llvm.org/)", out)
 
+# invalid options are reported, rather than ignored. in other processes, as LLVM can
+# still set options when parsing fails.
+let code(opt) = """
+        try
+            LLVM.clopts($(repr(opt)))
+            print("parsed")
+        catch err
+            err isa LLVM.LLVMException || rethrow()
+            print(err.info)
+        end"""
+    # an unknown option
+    (; out, success) = execute_code(code("--llvmjl-bogus-option"))
+    @test success
+    @test occursin("llvmjl-bogus-option", out)
+
+    # an invalid value for an option that exists
+    @test execute_code(code("--print-after-all=false")).out == "parsed"
+    (; out, err, success) = execute_code(code("--print-after-all=bogus"))
+    @test success
+    @test out != "parsed"
+    @test occursin("print-after-all", out)
+    @test occursin("bogus", err)
+end
+
 end
 
 @testset "adopt" begin

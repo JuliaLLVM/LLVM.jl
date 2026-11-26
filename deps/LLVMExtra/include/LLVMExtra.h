@@ -91,6 +91,14 @@ LLVMBool LLVMIsConstantRangeAttribute(LLVMAttributeRef A);
 LLVMBool LLVMIsConstantRangeListAttribute(LLVMAttributeRef A);
 #endif
 
+// command-line options
+#if LLVM_VERSION_MAJOR < 24 // llvm/llvm-project#238461
+// like LLVMParseCommandLineOptions, but returns non-zero and sets ErrorMessage (to be
+// disposed of with LLVMDisposeMessage) if the options cannot be parsed
+LLVMBool LLVMParseCommandLineOptionsWithError(int argc, const char *const *argv,
+                                              const char *Overview, char **ErrorMessage);
+#endif
+
 // version information
 #if LLVM_VERSION_MAJOR < 16 // D139381
 void LLVMGetVersion(unsigned *Major, unsigned *Minor, unsigned *Patch);
@@ -1638,6 +1646,12 @@ const char *LLVMExtraMCSubtargetInfoGetProcessorFeatureName(LLVMMCSubtargetInfoR
 // so, whether the subtarget has it enabled
 LLVMBool LLVMExtraMCSubtargetInfoLookupFeature(LLVMMCSubtargetInfoRef STI, const char *Name,
                                                LLVMBool *Enabled);
+// the processors that the target knows about, sorted by name, without their aliases
+unsigned LLVMExtraMCSubtargetInfoGetNumProcessors(LLVMMCSubtargetInfoRef STI);
+const char *LLVMExtraMCSubtargetInfoGetProcessorName(LLVMMCSubtargetInfoRef STI,
+                                                     unsigned Index);
+// whether the target knows a processor (or, since LLVM 24, an alias of one) of this name
+LLVMBool LLVMExtraMCSubtargetInfoIsCPUValid(LLVMMCSubtargetInfoRef STI, const char *CPU);
 
 LLVM_C_EXTERN_C_END
 #endif

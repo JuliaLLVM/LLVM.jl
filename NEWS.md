@@ -1,6 +1,25 @@
 # LLVM.jl release notes
 
 
+## LLVM.jl v10.8
+
+- `convert(LLVMType, T)` of `LLVM.Interop` works in a context of any LLVM library. Julia's
+  code generator lowers the type with Julia's LLVM, after which it is rebuilt in the active
+  context. In a context with typed pointers, types that contain pointers require Julia's
+  LLVM to support typed pointers too (LLVM 16 or older).
+
+- `LLVM.processors(sti)` lists the processors that the target of a subtarget knows about,
+  and `LLVM.isprocessor(sti, name)` checks a CPU name, like C++'s
+  `MCSubtargetInfo::isCPUStringValid`. LLVM only warns about CPU names that it doesn't
+  know, and ignores them.
+
+- `LLVM.clopts` throws an `LLVMException` when LLVM cannot parse the options, e.g., for an
+  unknown option or an invalid value, which it used to ignore.
+
+- `TargetMachine(t, triple; abi)` selects the target's ABI by name, like `llc -target-abi`
+  (LLVM 18 and later).
+
+
 ## LLVM.jl v10.7
 
 - `LLVM.pointer_alignment` returns an `Int64`, so that alignments of 2^31 and more don't

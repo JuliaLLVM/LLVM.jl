@@ -258,6 +258,48 @@ if :X86 in LLVM.backends()
         dispose(sti)
     end
 
+    # an ABI name; the X86 back-end doesn't use one, so the machine should otherwise be
+    # the same as without it
+    LLVM.InitializeX86TargetMC()
+    LLVM.InitializeX86AsmPrinter()
+    let ir = """
+            @g = external global i32
+            define i32 @f() {
+              %v = load i32, ptr @g
+              ret i32 %v
+            }"""
+        function asm(; kwargs...)
+            @dispose ctx=Context() mod=parse(LLVM.Module, ir) tm=LLVM.TargetMachine(x86, string(x86_triple); kwargs...) begin
+                @test tm.cpu == get(kwargs, :cpu, "")
+                @test tm.features == get(kwargs, :features, "")
+                String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile))
+            end
+        end
+        kwargs = (; cpu="haswell", features="+avx2", opt_level=LLVM.CodeGenOptLevel.None,
+                    reloc=LLVM.RelocMode.Static, code=LLVM.CodeModel.Large)
+        if LLVM.version() >= v"18"
+            # the other options are used too, here the relocation and code models
+            @test asm(; kwargs..., abi="sysv") == asm(; kwargs...)
+            @test asm(; kwargs...) != asm(; kwargs..., reloc=LLVM.RelocMode.PIC)
+        else
+            @test_throws "requires LLVM 18" LLVM.TargetMachine(x86, string(x86_triple); abi="sysv")
+        end
+    end
+
+    # processors
+    LLVM.SubtargetInfo(x86, x86_triple) do sti
+        names = LLVM.processors(sti)
+        @test issorted(names)
+        @test "haswell" in names
+        @test "x86-64" in names
+        @test "avx2" ∉ names
+        @test LLVM.isprocessor(sti, "haswell")
+        @test all(name -> LLVM.isprocessor(sti, name), names)
+        @test !LLVM.isprocessor(sti, "bogus")
+        @test !LLVM.isprocessor(sti, "")
+        @test !LLVM.isprocessor(sti, "avx2")
+    end
+
     # CPU tables
     LLVM.SubtargetInfo(x86, "x86_64-unknown-linux-gnu"; cpu="haswell") do sti
         @test sti.cpu == "haswell"
@@ -348,6 +390,31 @@ if :AArch64 in LLVM.backends()
     end
 end
 
+if :WebAssembly in LLVM.backends()
+    # the ABI name is used: since LLVM 19, multivalue returns need the experimental-mv ABI
+    if LLVM.version() >= v"19"
+        LLVM.InitializeWebAssemblyTarget()
+        LLVM.InitializeWebAssemblyTargetInfo()
+        LLVM.InitializeWebAssemblyTargetMC()
+        LLVM.InitializeWebAssemblyAsmPrinter()
+        wasm_triple = "wasm32-unknown-unknown"
+        wasm = LLVM.Target(triple=wasm_triple)
+        function wasm_signature(abi)
+            @dispose ctx=Context() mod=parse(LLVM.Module, """
+                    define { i32, i32 } @pair(i32 %x) {
+                      %a = insertvalue { i32, i32 } undef, i32 %x, 0
+                      %b = insertvalue { i32, i32 } %a, i32 %x, 1
+                      ret { i32, i32 } %b
+                    }""") tm=LLVM.TargetMachine(wasm, wasm_triple; features="+multivalue", abi) begin
+                asm = String(LLVM.emit(tm, mod, LLVM.API.LLVMAssemblyFile))
+                strip(first(filter(contains(".functype"), split(asm, '\n'))))
+            end
+        end
+        @test wasm_signature("") == ".functype\tpair (i32, i32) -> ()"
+        @test wasm_signature("experimental-mv") == ".functype\tpair (i32) -> (i32, i32)"
+    end
+end
+
 if :NVPTX in LLVM.backends()
     nvptx = LLVM.Target(triple="nvptx64-nvidia-cuda")
 
@@ -360,6 +427,24 @@ if :NVPTX in LLVM.backends()
         # features of other targets aren't known
         @test "fma" ∉ LLVM.processor_features(sti)
         @test_throws ArgumentError LLVM.hasfeature(sti, "fma")
+
+        @test "sm_70" in LLVM.processors(sti)
+        @test LLVM.isprocessor(sti, "sm_80")
+        @test !LLVM.isprocessor(sti, "sm_71")
+        @test !LLVM.isprocessor(sti, "haswell")
+    end
+end
+
+if :AMDGPU in LLVM.backends()
+    amdgpu_triple = "amdgcn-amd-amdhsa"
+    amdgpu = LLVM.Target(triple=amdgpu_triple)
+
+    # AMDGPU has no feature per processor, and only warns about unknown processors
+    LLVM.SubtargetInfo(amdgpu, amdgpu_triple) do sti
+        @test "gfx900" in LLVM.processors(sti)
+        @test "gfx900" ∉ LLVM.processor_features(sti)
+        @test LLVM.isprocessor(sti, "gfx90a")
+        @test !LLVM.isprocessor(sti, "gfx9999")
     end
 end
 

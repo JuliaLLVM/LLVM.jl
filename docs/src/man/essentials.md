@@ -115,7 +115,9 @@ restores the caller's scope afterwards.
 
 Functionality that integrates with Julia's code generator always uses Julia's LLVM:
 `LLVM.Interop` generates `llvmcall`s with it also when another library is current, and
-`JuliaOJIT` and Julia's passes require it.
+`JuliaOJIT` and Julia's passes require it. Converting Julia types with
+`convert(LLVMType, T)` works in a context of any library: Julia's code generator lowers the
+type with Julia's LLVM, after which it is rebuilt in the active context.
 
 The `libLLVM` preference makes another library the default one, i.e., the current one
 outside of these blocks, for testing LLVM.jl with versions of LLVM that Julia doesn't use:

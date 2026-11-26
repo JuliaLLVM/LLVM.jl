@@ -7,6 +7,7 @@ LLVM.Interop
 ## Essentials
 
 ```@docs
+Base.convert(::Type{LLVM.LLVMType}, ::Type)
 LLVM.Interop.isboxed
 LLVM.Interop.isghosttype
 ```

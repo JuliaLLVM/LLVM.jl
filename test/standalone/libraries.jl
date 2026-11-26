@@ -373,8 +373,51 @@ end
     @test library!(() -> f(42), other) == 42
     library!(other) do
         @test LLVM.Interop.isboxed(Any)
-        LLVM.Context() do ctx
-            @test_throws "requires the LLVM library that Julia uses" convert(LLVM.LLVMType, Int)
+        @test !LLVM.Interop.isboxed(Int)
+    end
+
+    # Julia types are lowered by Julia's code generator, and rebuilt in a context of
+    # another library
+    types = Any[Int32, Bool, Float16, Nothing, Tuple{Int8,Int64}, NTuple{3,Float32},
+                NTuple{4,VecElement{Float32}}, Tuple{Int16,Union{Int8,Nothing}},
+                Core.LLVMPtr{Int8,3}, Some{String}, Any]
+    expected = @dispose ctx=LLVM.Context(; opaque_pointers=true) begin
+        [string(convert(LLVM.LLVMType, T; allow_boxed=true)) for T in types]
+    end
+    function check_lowering()
+        LLVM.Context(; library=other, opaque_pointers=true) do ctx
+            for (T, str) in zip(types, expected)
+                typ = convert(LLVM.LLVMType, T; allow_boxed=true)
+                @test LLVM.context(typ) == ctx
+                @test string(typ) == str
+            end
+            @test_throws "boxed type" convert(LLVM.LLVMType, Any)
+            @test_throws "invalid pointer address space" convert(LLVM.LLVMType, Core.LLVMPtr{Int8,:x})
+            @test LLVM.context() === ctx && library() === other
+        end
+    end
+    check_lowering()
+    # also when a context of Julia's LLVM is active, which the conversion doesn't use
+    @dispose ctx=LLVM.Context() begin
+        check_lowering()
+    end
+
+    # typed pointers need to be supported by both libraries
+    if other.version < v"17"
+        LLVM.Context(; library=other, opaque_pointers=false) do ctx
+            @test string(convert(LLVM.LLVMType, Int32)) == "i32"
+            if LLVM.julia_library.version < v"17"
+                # the pointees of typed pointers are rebuilt too
+                @test string(convert(LLVM.LLVMType, Core.LLVMPtr{Int8,3})) == "i8 addrspace(3)*"
+                @test string(convert(LLVM.LLVMType, Any; allow_boxed=true)) == "{} addrspace(10)*"
+                if isdefined(Core, :GenericMemoryRef)
+                    @test string(convert(LLVM.LLVMType, MemoryRef{Any})) ==
+                          "{ {} addrspace(10)**, {} addrspace(10)* }"
+                end
+            else
+                @test_throws "typed pointers" convert(LLVM.LLVMType, Core.LLVMPtr{Int8,3})
+            end
+            @test_throws "boxed type" convert(LLVM.LLVMType, Any)
         end
     end
 end

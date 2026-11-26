@@ -146,6 +146,15 @@ end
     ccall((:LLVMIsConstantRangeAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
 end
 
+@llvmapi function LLVMIsConstantRangeListAttribute(lib::Library, A)
+    check_available(lib, :LLVMIsConstantRangeListAttribute, 20)
+    ccall((:LLVMIsConstantRangeListAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
+end
+
+@llvmapi function LLVMParseCommandLineOptionsWithError(lib::Library, argc, argv, Overview, ErrorMessage)
+    ccall((:LLVMParseCommandLineOptionsWithError, libLLVMExtra), LLVMBool, (Cint, Ptr{Cstring}, Cstring, Ptr{Cstring}), argc, argv, Overview, ErrorMessage)
+end
+
 @llvmapi function LLVMSetInitializer2(lib::Library, GlobalVar, ConstantVal)
     check_available(lib, :LLVMSetInitializer2, 15, 20)
     ccall((:LLVMSetInitializer2, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), GlobalVar, ConstantVal)
@@ -154,11 +163,6 @@ end
 @llvmapi function LLVMSetPersonalityFn2(lib::Library, Fn, PersonalityFn)
     check_available(lib, :LLVMSetPersonalityFn2, 15, 20)
     ccall((:LLVMSetPersonalityFn2, libLLVMExtra), Cvoid, (LLVMValueRef, LLVMValueRef), Fn, PersonalityFn)
-end
-
-@llvmapi function LLVMIsConstantRangeListAttribute(lib::Library, A)
-    check_available(lib, :LLVMIsConstantRangeListAttribute, 20)
-    ccall((:LLVMIsConstantRangeListAttribute, libLLVMExtra), LLVMBool, (LLVMAttributeRef,), A)
 end
 
 @llvmapi function LLVMGetMDString2(lib::Library, MD, Length)
@@ -1889,5 +1893,17 @@ end
 
 @llvmapi function LLVMExtraMCSubtargetInfoLookupFeature(lib::Library, STI, Name, Enabled)
     ccall((:LLVMExtraMCSubtargetInfoLookupFeature, libLLVMExtra), LLVMBool, (LLVMMCSubtargetInfoRef, Cstring, Ptr{LLVMBool}), STI, Name, Enabled)
+end
+
+@llvmapi function LLVMExtraMCSubtargetInfoGetNumProcessors(lib::Library, STI)
+    ccall((:LLVMExtraMCSubtargetInfoGetNumProcessors, libLLVMExtra), Cuint, (LLVMMCSubtargetInfoRef,), STI)
+end
+
+@llvmapi function LLVMExtraMCSubtargetInfoGetProcessorName(lib::Library, STI, Index)
+    ccall((:LLVMExtraMCSubtargetInfoGetProcessorName, libLLVMExtra), Cstring, (LLVMMCSubtargetInfoRef, Cuint), STI, Index)
+end
+
+@llvmapi function LLVMExtraMCSubtargetInfoIsCPUValid(lib::Library, STI, CPU)
+    ccall((:LLVMExtraMCSubtargetInfoIsCPUValid, libLLVMExtra), LLVMBool, (LLVMMCSubtargetInfoRef, Cstring), STI, CPU)
 end
 

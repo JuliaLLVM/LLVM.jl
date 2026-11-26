@@ -59,12 +59,16 @@ consume!(tm::TargetMachine) = consume_owned!(tm)
 """
     TargetMachine(t::Target, triple::AbstractString; cpu::AbstractString="",
                   features::AbstractString="", opt_level=LLVM.CodeGenOptLevel.Default, reloc=LLVM.RelocMode.Default,
-                  code=LLVM.CodeModel.Default)
+                  code=LLVM.CodeModel.Default, abi::AbstractString="")
     TargetMachine(f, t, triple; kwargs...)
 
 Create a target machine for the given target and triple, targeting the given CPU (e.g.,
 [`LLVM.host_cpu_name()`](@ref)) and features (e.g., `"+avx2,-sse4a"`), and with the given
 optimization level, relocation model and code model.
+
+The `abi` keyword selects the target's ABI by name (e.g., `"aapcs"` for ARM, or `"lp64d"`
+for RISC-V), like `llc -target-abi`. An empty name selects the target's default ABI.
+Setting an ABI requires LLVM 18 or later.
 
 This object needs to be disposed of using [`dispose`](@ref), or by using the do-block form.
 """
@@ -72,12 +76,32 @@ function TargetMachine(t::Target, triple::AbstractString; cpu::AbstractString=""
                        features::AbstractString="",
                        opt_level::API.LLVMCodeGenOptLevel=API.LLVMCodeGenLevelDefault,
                        reloc::API.LLVMRelocMode=API.LLVMRelocDefault,
-                       code::API.LLVMCodeModel=API.LLVMCodeModelDefault)
-    ref = API.LLVMCreateTargetMachine(t, triple, cpu, features, opt_level, reloc, code)
+                       code::API.LLVMCodeModel=API.LLVMCodeModelDefault,
+                       abi::AbstractString="")
+    lib = t.library
+    ref = if isempty(abi)
+        API.LLVMCreateTargetMachine(t, triple, cpu, features, opt_level, reloc, code)
+    else
+        # only the options of LLVM 18 and later can set the ABI
+        atleast(18, lib) || throw(ArgumentError(
+            "The abi keyword requires LLVM 18 or later (the target's library is LLVM $(lib.version))"))
+        options = API.LLVMCreateTargetMachineOptions(lib)
+        try
+            API.LLVMTargetMachineOptionsSetCPU(lib, options, cpu)
+            API.LLVMTargetMachineOptionsSetFeatures(lib, options, features)
+            API.LLVMTargetMachineOptionsSetABI(lib, options, abi)
+            API.LLVMTargetMachineOptionsSetCodeGenOptLevel(lib, options, opt_level)
+            API.LLVMTargetMachineOptionsSetRelocMode(lib, options, reloc)
+            API.LLVMTargetMachineOptionsSetCodeModel(lib, options, code)
+            API.LLVMCreateTargetMachineWithOptions(lib, t, triple, options)
+        finally
+            API.LLVMDisposeTargetMachineOptions(lib, options)
+        end
+    end
     if ref === C_NULL
         throw(ArgumentError("Target $t does not have a target machine"))
     end
-    mark_alloc(TargetMachine(ref; library=t.library))
+    mark_alloc(TargetMachine(ref; library=lib))
 end
 
 """

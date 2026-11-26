@@ -16,6 +16,9 @@
 - `LLVM.clopts` throws an `LLVMException` when LLVM cannot parse the options, e.g., for an
   unknown option or an invalid value, which it used to ignore.
 
+- `TargetMachine(t, triple; abi)` selects the target's ABI by name, like `llc -target-abi`
+  (LLVM 18 and later).
+
 
 ## LLVM.jl v10.7
 

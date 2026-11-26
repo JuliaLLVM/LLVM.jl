@@ -1638,6 +1638,12 @@ const char *LLVMExtraMCSubtargetInfoGetProcessorFeatureName(LLVMMCSubtargetInfoR
 // so, whether the subtarget has it enabled
 LLVMBool LLVMExtraMCSubtargetInfoLookupFeature(LLVMMCSubtargetInfoRef STI, const char *Name,
                                                LLVMBool *Enabled);
+// the processors that the target knows about, sorted by name, without their aliases
+unsigned LLVMExtraMCSubtargetInfoGetNumProcessors(LLVMMCSubtargetInfoRef STI);
+const char *LLVMExtraMCSubtargetInfoGetProcessorName(LLVMMCSubtargetInfoRef STI,
+                                                     unsigned Index);
+// whether the target knows a processor (or, since LLVM 24, an alias of one) of this name
+LLVMBool LLVMExtraMCSubtargetInfoIsCPUValid(LLVMMCSubtargetInfoRef STI, const char *CPU);
 
 LLVM_C_EXTERN_C_END
 #endif

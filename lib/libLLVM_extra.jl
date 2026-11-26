@@ -1891,3 +1891,15 @@ end
     ccall((:LLVMExtraMCSubtargetInfoLookupFeature, libLLVMExtra), LLVMBool, (LLVMMCSubtargetInfoRef, Cstring, Ptr{LLVMBool}), STI, Name, Enabled)
 end
 
+@llvmapi function LLVMExtraMCSubtargetInfoGetNumProcessors(lib::Library, STI)
+    ccall((:LLVMExtraMCSubtargetInfoGetNumProcessors, libLLVMExtra), Cuint, (LLVMMCSubtargetInfoRef,), STI)
+end
+
+@llvmapi function LLVMExtraMCSubtargetInfoGetProcessorName(lib::Library, STI, Index)
+    ccall((:LLVMExtraMCSubtargetInfoGetProcessorName, libLLVMExtra), Cstring, (LLVMMCSubtargetInfoRef, Cuint), STI, Index)
+end
+
+@llvmapi function LLVMExtraMCSubtargetInfoIsCPUValid(lib::Library, STI, CPU)
+    ccall((:LLVMExtraMCSubtargetInfoIsCPUValid, libLLVMExtra), LLVMBool, (LLVMMCSubtargetInfoRef, Cstring), STI, CPU)
+end
+

@@ -49,6 +49,8 @@ LLVM.JITTargetMachine
 ```@docs
 LLVM.SubtargetInfo
 dispose(::LLVM.SubtargetInfo)
+LLVM.processors
+LLVM.isprocessor
 LLVM.processor_features
 LLVM.hasfeature
 LLVM.hasfeatures

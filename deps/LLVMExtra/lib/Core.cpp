@@ -2799,6 +2799,33 @@ static ArrayRef<SubtargetFeatureKV> getProcessorFeatures(const MCSubtargetInfo &
 }
 #endif
 
+#if LLVM_VERSION_MAJOR >= 17
+static ArrayRef<SubtargetSubTypeKV> getProcessorDescriptions(const MCSubtargetInfo &STI) {
+  return STI.getAllProcessorDescriptions();
+}
+#else
+// before LLVM 17, the same trick as for the feature table above
+namespace {
+using ProcessorDescriptionsMember = ArrayRef<SubtargetSubTypeKV> MCSubtargetInfo::*;
+ProcessorDescriptionsMember getProcessorDescriptionsMember();
+template <ProcessorDescriptionsMember Member> struct ProcessorDescriptionsAccess {
+  friend ProcessorDescriptionsMember getProcessorDescriptionsMember() { return Member; }
+};
+template struct ProcessorDescriptionsAccess<&MCSubtargetInfo::ProcDesc>;
+} // namespace
+static ArrayRef<SubtargetSubTypeKV> getProcessorDescriptions(const MCSubtargetInfo &STI) {
+  return STI.*getProcessorDescriptionsMember();
+}
+#endif
+
+static const char *getProcessorKey(const SubtargetSubTypeKV &KV) {
+#if LLVM_VERSION_MAJOR >= 23
+  return KV.key();
+#else
+  return KV.Key;
+#endif
+}
+
 static const char *getFeatureKey(const SubtargetFeatureKV &KV) {
 #if LLVM_VERSION_MAJOR >= 23
   return KV.key();
@@ -2864,4 +2891,17 @@ LLVMBool LLVMExtraMCSubtargetInfoLookupFeature(LLVMMCSubtargetInfoRef STI, const
     return false;
   *Enabled = unwrap(STI)->getFeatureBits().test(Entry->Value);
   return true;
+}
+
+unsigned LLVMExtraMCSubtargetInfoGetNumProcessors(LLVMMCSubtargetInfoRef STI) {
+  return getProcessorDescriptions(*unwrap(STI)).size();
+}
+
+const char *LLVMExtraMCSubtargetInfoGetProcessorName(LLVMMCSubtargetInfoRef STI,
+                                                     unsigned Index) {
+  return getProcessorKey(getProcessorDescriptions(*unwrap(STI))[Index]);
+}
+
+LLVMBool LLVMExtraMCSubtargetInfoIsCPUValid(LLVMMCSubtargetInfoRef STI, const char *CPU) {
+  return unwrap(STI)->isCPUStringValid(CPU);
 }

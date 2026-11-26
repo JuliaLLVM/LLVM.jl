@@ -8,6 +8,11 @@
   context. In a context with typed pointers, types that contain pointers require Julia's
   LLVM to support typed pointers too (LLVM 16 or older).
 
+- `LLVM.processors(sti)` lists the processors that the target of a subtarget knows about,
+  and `LLVM.isprocessor(sti, name)` checks a CPU name, like C++'s
+  `MCSubtargetInfo::isCPUStringValid`. LLVM only warns about CPU names that it doesn't
+  know, and ignores them.
+
 
 ## LLVM.jl v10.7
 

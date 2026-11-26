@@ -258,6 +258,20 @@ if :X86 in LLVM.backends()
         dispose(sti)
     end
 
+    # processors
+    LLVM.SubtargetInfo(x86, x86_triple) do sti
+        names = LLVM.processors(sti)
+        @test issorted(names)
+        @test "haswell" in names
+        @test "x86-64" in names
+        @test "avx2" ∉ names
+        @test LLVM.isprocessor(sti, "haswell")
+        @test all(name -> LLVM.isprocessor(sti, name), names)
+        @test !LLVM.isprocessor(sti, "bogus")
+        @test !LLVM.isprocessor(sti, "")
+        @test !LLVM.isprocessor(sti, "avx2")
+    end
+
     # CPU tables
     LLVM.SubtargetInfo(x86, "x86_64-unknown-linux-gnu"; cpu="haswell") do sti
         @test sti.cpu == "haswell"
@@ -360,6 +374,24 @@ if :NVPTX in LLVM.backends()
         # features of other targets aren't known
         @test "fma" ∉ LLVM.processor_features(sti)
         @test_throws ArgumentError LLVM.hasfeature(sti, "fma")
+
+        @test "sm_70" in LLVM.processors(sti)
+        @test LLVM.isprocessor(sti, "sm_80")
+        @test !LLVM.isprocessor(sti, "sm_71")
+        @test !LLVM.isprocessor(sti, "haswell")
+    end
+end
+
+if :AMDGPU in LLVM.backends()
+    amdgpu_triple = "amdgcn-amd-amdhsa"
+    amdgpu = LLVM.Target(triple=amdgpu_triple)
+
+    # AMDGPU has no feature per processor, and only warns about unknown processors
+    LLVM.SubtargetInfo(amdgpu, amdgpu_triple) do sti
+        @test "gfx900" in LLVM.processors(sti)
+        @test "gfx900" ∉ LLVM.processor_features(sti)
+        @test LLVM.isprocessor(sti, "gfx90a")
+        @test !LLVM.isprocessor(sti, "gfx9999")
     end
 end
 

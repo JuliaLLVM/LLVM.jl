@@ -1,6 +1,7 @@
 ## subtarget information
 
-@public SubtargetInfo, dispose, processor_features, hasfeature, hasfeatures
+@public SubtargetInfo, dispose, processors, isprocessor, processor_features, hasfeature,
+        hasfeatures
 
 """
     LLVM.SubtargetInfo
@@ -29,7 +30,7 @@ string that the subtarget was created with, e.g., X86 prepends the features that
 implies, like `+64bit-mode`.
 
 See also: [`LLVM.hasfeature`](@ref), [`LLVM.hasfeatures`](@ref),
-[`LLVM.processor_features`](@ref).
+[`LLVM.processor_features`](@ref), [`LLVM.processors`](@ref), [`LLVM.isprocessor`](@ref).
 """
 mutable struct SubtargetInfo
     ref::API.LLVMMCSubtargetInfoRef
@@ -55,7 +56,8 @@ and features (e.g., `"+avx2,-fma"`), like C++'s `Target::createMCSubtargetInfo`.
 triple is used as it is, without normalizing it.
 
 LLVM prints a warning to `stderr` for CPUs and features that the target doesn't know about,
-and ignores them.
+and ignores them. To reject such names first, look them up with [`LLVM.isprocessor`](@ref)
+and [`LLVM.processor_features`](@ref) on a subtarget of the generic CPU (`cpu=""`).
 
 The target has to be registered (see [`LLVM.Target`](@ref), which throws an
 `ArgumentError` for a triple whose target isn't), and its machine code layer initialized
@@ -171,3 +173,33 @@ function hasfeatures(sti::SubtargetInfo, flags::AbstractString)
     end
     return all(checks)
 end
+
+"""
+    LLVM.processors(sti::LLVM.SubtargetInfo) -> Vector{String}
+
+Get the names of the processors that the target of the subtarget knows about, sorted by
+name, like the keys of C++'s `MCSubtargetInfo::getAllProcessorDescriptions()`. These are
+the CPU names that the target's tables describe; since LLVM 24, some targets also accept
+aliases of them (see [`LLVM.isprocessor`](@ref)).
+"""
+function processors(sti::SubtargetInfo)
+    n = Int(API.LLVMExtraMCSubtargetInfoGetNumProcessors(sti))
+    return String[unsafe_string(API.LLVMExtraMCSubtargetInfoGetProcessorName(sti, i))
+                  for i in 0:n-1]
+end
+
+"""
+    LLVM.isprocessor(sti::LLVM.SubtargetInfo, name::AbstractString) -> Bool
+
+Check whether the target of the subtarget knows a processor of the given name, like C++'s
+`MCSubtargetInfo::isCPUStringValid`. LLVM only warns about a CPU name that it doesn't know,
+e.g., when it is passed to [`LLVM.SubtargetInfo`](@ref) or [`LLVM.TargetMachine`](@ref),
+and ignores it. Since LLVM 24, some targets also accept aliases of the names that
+[`LLVM.processors`](@ref) returns.
+
+This is only a lookup in the target's tables: a known processor may still not support every
+triple or configuration of the target. The empty name, which selects the target's default
+processor, is not the name of a processor.
+"""
+isprocessor(sti::SubtargetInfo, name::AbstractString) =
+    Bool(API.LLVMExtraMCSubtargetInfoIsCPUValid(sti, name))

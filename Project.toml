@@ -1,6 +1,6 @@
 name = "LLVM"
 uuid = "929cbde3-209d-540e-8aea-75f648917ca0"
-version = "10.8.0"
+version = "10.8.1"
 
 [workspace]
 projects = ["test", "docs", "examples", "deps", "res"]
@@ -26,7 +26,7 @@ BFloat16sExt = "BFloat16s"
 BFloat16s = "0.4, 0.5, 0.6"
 CEnum = "0.5, 1"
 LLVMExtra_jll = "=0.0.61"
-LLVMGPU_jll = "~1.4"
+LLVMGPU_jll = "~1.5"
 Libdl = "1.8"
 PrecompileTools = "1"
 Preferences = "1.4"
